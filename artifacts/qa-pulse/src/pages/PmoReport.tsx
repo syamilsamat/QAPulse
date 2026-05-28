@@ -23,6 +23,9 @@ import {
 interface PmoReportData {
   redmineId: string;
   generatedAt: string;
+  source?: "redmine" | "local";
+  issueSubject?: string;
+  projectName?: string;
   requirements: Array<{ id: number; title: string; module: string | null; status: string; priority: string }>;
   testExecution: {
     total: number; passed: number; failed: number; blocked: number;
@@ -367,8 +370,10 @@ export default function PmoReport() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error ?? "Failed to load report");
+        const body = await resp.json().catch(() => ({}));
+        const e = new Error(body.error ?? "Failed to load report");
+        (e as any).help = body.help ?? [];
+        throw e;
       }
       return resp.json();
     },
@@ -439,13 +444,29 @@ export default function PmoReport() {
             </CardContent>
           </Card>
 
-          {error && (
-            <Card className="border-destructive/50 bg-destructive/5">
-              <CardContent className="pt-5">
-                <p className="text-destructive text-sm font-medium">{(error as Error).message}</p>
-              </CardContent>
-            </Card>
-          )}
+          {error && (() => {
+            const msg = (error as Error).message;
+            const helpLines: string[] = (error as any).help ?? [];
+            return (
+              <Card className="border-amber-300 bg-amber-50">
+                <CardContent className="pt-5 space-y-2">
+                  <p className="text-amber-900 text-sm font-semibold flex items-center gap-2">
+                    <WifiOff className="w-4 h-4 shrink-0" /> {msg}
+                  </p>
+                  {helpLines.length > 0 && (
+                    <ul className="space-y-1.5 mt-2">
+                      {helpLines.map((line, i) => (
+                        <li key={i} className="text-xs text-amber-800 flex gap-2">
+                          <span className="shrink-0 mt-0.5">•</span>
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {data && (
             <div className="space-y-6">
@@ -456,9 +477,31 @@ export default function PmoReport() {
                 <p className="text-sm text-muted-foreground mt-1">
                   as of {format(new Date(data.generatedAt), "dd/MM/yyyy [HH:mm]")}
                 </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Redmine #{data.redmineId} · {data.requirements.length} requirement(s)
-                </p>
+                {data.issueSubject && (
+                  <p className="text-sm font-medium text-foreground mt-1 max-w-lg mx-auto">
+                    #{data.redmineId} — {data.issueSubject}
+                  </p>
+                )}
+                {data.projectName && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Project: {data.projectName}
+                  </p>
+                )}
+                <div className="flex items-center justify-center gap-2 mt-1">
+                  <span className="text-xs text-muted-foreground">
+                    Redmine #{data.redmineId}
+                  </span>
+                  {data.source === "redmine" && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">
+                      Live from Redmine DB
+                    </span>
+                  )}
+                  {data.source === "local" && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
+                      Local data
+                    </span>
+                  )}
+                </div>
               </div>
 
               <Card>

@@ -1,0 +1,11 @@
+Module,Total,Passed,Failed,Blocked,In Progress,Not Executed,Pass Completion (%),Total Test Completion (%)
+eComplaint Reporting ,125,125,0,0,0,0,100%,100.00%
+NNS Quota Allocation Reporting,44,40,0,4,0,0,91%,100.00%
+Quota Application Reporting ,100,93,5,2,0,0,93%,100.00%
+IDM UAT Feedback,81,81,0,0,0,0,100%,100.00%
+IDM - KDNK,100,100,0,0,0,0,100%,100.00%
+IDM - KESUMA / PERKESO,59,59,0,0,0,0,100%,100.00%
+Biodata Screening,67,37,19,0,1,10,55%,83.58%
+TOTAL,576,535,24,6,1,10,93%,97%
+,,,,,,,,
+,,,,,,,,

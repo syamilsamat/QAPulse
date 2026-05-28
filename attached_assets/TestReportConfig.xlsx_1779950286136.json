@@ -1,0 +1,20 @@
+{
+  "description": "Sample configuration - replace with actual Excel files",
+  "testResults": {
+    "file": "TestResults.xlsx",
+    "sheet": "Results",
+    "columns": {
+      "testCaseName": "A",
+      "status": "B"
+    }
+  },
+  "defects": {
+    "file": "Defects.xlsx",
+    "sheet": "Defects",
+    "columns": {
+      "defectId": "A",
+      "status": "B",
+      "category": "C"
+    }
+  }
+}
