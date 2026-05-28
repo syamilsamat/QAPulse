@@ -17,6 +17,8 @@ import Settings from "@/pages/Settings";
 import Inbox from "@/pages/Inbox";
 import TeamHangouts from "@/pages/TeamHangouts";
 import NotFound from "@/pages/not-found";
+import PmoReport from "@/pages/PmoReport";
+import AiFeatures from "@/pages/AiFeatures";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,7 +51,14 @@ function ProtectedRoute({
   }
 
   if (roles && !roles.includes(user.role)) {
+    if (user.role === "pmo") {
+      return <Redirect to="/pmo-report" />;
+    }
     return <Redirect to="/dashboard" />;
+  }
+
+  if (user.role === "pmo") {
+    return <PmoReport />;
   }
 
   return (
@@ -73,7 +82,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login">
-        {user ? <Redirect to="/dashboard" /> : <Login />}
+        {user ? (user.role === "pmo" ? <Redirect to="/pmo-report" /> : <Redirect to="/dashboard" />) : <Login />}
       </Route>
 
       <Route path="/">
@@ -81,19 +90,19 @@ function Router() {
       </Route>
 
       <Route path="/dashboard">
-        <ProtectedRoute component={Dashboard} />
+        <ProtectedRoute component={Dashboard} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/requirements">
-        <ProtectedRoute component={Requirements} />
+        <ProtectedRoute component={Requirements} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/test-cases">
-        <ProtectedRoute component={TestCases} />
+        <ProtectedRoute component={TestCases} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/tasks">
-        <ProtectedRoute component={Tasks} />
+        <ProtectedRoute component={Tasks} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/team">
@@ -105,22 +114,42 @@ function Router() {
       </Route>
 
       <Route path="/settings">
-        <ProtectedRoute component={Settings} />
+        <ProtectedRoute component={Settings} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/inbox">
-        <ProtectedRoute component={Inbox} />
+        <ProtectedRoute component={Inbox} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/team-hangouts">
-        <ProtectedRoute component={TeamHangouts} />
+        <ProtectedRoute component={TeamHangouts} roles={["qa_member", "qa_lead", "admin"]} />
+      </Route>
+
+      <Route path="/ai-features">
+        <ProtectedRoute component={AiFeatures} roles={["qa_member", "qa_lead", "admin"]} />
+      </Route>
+
+      <Route path="/pmo-report">
+        {!user ? (
+          <Redirect to="/login" />
+        ) : user.role === "pmo" ? (
+          <PmoReport />
+        ) : (
+          <Layout>
+            <PmoReport />
+          </Layout>
+        )}
       </Route>
 
       <Route>
         {user ? (
-          <Layout>
-            <NotFound />
-          </Layout>
+          user.role === "pmo" ? (
+            <PmoReport />
+          ) : (
+            <Layout>
+              <NotFound />
+            </Layout>
+          )
         ) : (
           <NotFound />
         )}

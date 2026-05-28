@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Users, FileText, TestTube, CheckSquare,
-  Search, Settings, LogOut, Menu, Coffee, Bell,
+  Search, Settings, LogOut, Menu, Coffee, Bell, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { href: "/requirements",  label: "Requirements",  icon: FileText,        roles: ["qa_member", "qa_lead", "admin"] },
   { href: "/test-cases",    label: "Test Cases",    icon: TestTube,        roles: ["qa_member", "qa_lead", "admin"] },
   { href: "/tasks",         label: "Tasks",         icon: CheckSquare,     roles: ["qa_member", "qa_lead", "admin"] },
+  { href: "/ai-features",   label: "AI Hub",        icon: Sparkles,        roles: ["qa_member", "qa_lead", "admin"] },
   { href: "/inbox",         label: "Inbox",         icon: Bell,            roles: ["qa_member", "qa_lead", "admin"], showBadge: true },
   { href: "/team",          label: "Team",          icon: Users,           roles: ["qa_lead", "admin"] },
   { href: "/admin/search",  label: "Admin Search",  icon: Search,          roles: ["admin"] },
@@ -38,7 +39,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { data: unreadNotifs = [] } = useQuery({
     queryKey: ["notifications-unread", user?.id],
     queryFn: () => listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
-    enabled: !!user?.id,
+    enabled: !!user?.id && user.role !== "pmo",
     refetchInterval: 30000,
   });
   const unreadCount = unreadNotifs.filter((n) => !n.read).length;

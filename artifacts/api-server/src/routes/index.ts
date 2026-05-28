@@ -10,6 +10,8 @@ import dashboardRouter from "./dashboard";
 import calendarRouter from "./calendar";
 import notificationsRouter from "./notifications";
 import socialEventsRouter from "./social-events";
+import aiRouter from "./ai";
+import pmoReportRouter from "./pmo-report";
 
 const router: IRouter = Router();
 
@@ -24,5 +26,7 @@ router.use(dashboardRouter);
 router.use(calendarRouter);
 router.use(notificationsRouter);
 router.use(socialEventsRouter);
+router.use(aiRouter);
+router.use(pmoReportRouter);
 
 export default router;
