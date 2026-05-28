@@ -12,6 +12,7 @@ import notificationsRouter from "./notifications";
 import socialEventsRouter from "./social-events";
 import aiRouter from "./ai";
 import pmoReportRouter from "./pmo-report";
+import redmineRouter from "./redmine";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(notificationsRouter);
 router.use(socialEventsRouter);
 router.use(aiRouter);
 router.use(pmoReportRouter);
+router.use(redmineRouter);
 
 export default router;
