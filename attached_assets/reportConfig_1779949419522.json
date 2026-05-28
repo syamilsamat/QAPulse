@@ -1,0 +1,118 @@
+{
+  "_comment": "File Format Support: Both CSV (.csv) and XLSX (.xlsx) formats are supported. For XLSX files, specify the sheet name in the 'sheet' property.",
+  "testResults": {
+    "file": "TestResults.xlsx",
+    "sheet": "Progress",
+    "statusColumn": "Status",
+    "successKey": "pass",
+    "categories": [
+      {
+        "key": "pass",
+        "label": "Passed",
+        "values": ["pass"],
+        "color": "#a8d5ba"
+      },
+      {
+        "key": "fail",
+        "label": "Failed",
+        "values": ["fail"],
+        "color": "#f4a688"
+      },
+      {
+        "key": "blocked",
+        "label": "Blocked",
+        "values": ["blocked"],
+        "color": "#9b59b6"
+      },
+      {
+        "key": "notExecuted",
+        "label": "Not Executed",
+        "values": ["not executed", "notexecuted", "not run"],
+        "color": "#bdc3c7"
+      },
+      {
+        "key": "inProgress",
+        "label": "In Progress",
+        "values": ["in progress", "inprogress"],
+        "color": "#f9d77e"
+      }
+    ]
+  },
+  "defects": {
+    "file": "Defects.csv",
+    "sheet": "Active",
+    "statusColumn": "Status",
+    "openKeys": ["new", "forQATest", "reopen", "done", "inProgress"],
+    "categories": [
+      {
+        "key": "new",
+        "label": "New",
+        "values": ["new"],
+        "color": "#f9d77e"
+      },
+      {
+        "key": "inProgress",
+        "label": "In Progress",
+        "values": ["in progress", "inprogress"],
+        "color": "#1abc9c"
+      },
+      {
+        "key": "forQATest",
+        "label": "For QA Test",
+        "values": ["for qa test", "forqatest"],
+        "color": "#3498db"
+      },
+      {
+        "key": "reopen",
+        "label": "ReOpen",
+        "values": ["reopen"],
+        "color": "#f4a688"
+      },
+      {
+        "key": "done",
+        "label": "Done",
+        "values": ["done"],
+        "color": "#27ae60"
+      },
+      {
+        "key": "roadblock",
+        "label": "Roadblock",
+        "values": ["roadblock"],
+        "color": "#c7a2d6"
+      },
+      {
+        "key": "verified",
+        "label": "Verified",
+        "values": ["verified"],
+        "color": "#a8d5ba"
+      },
+      {
+        "key": "closed",
+        "label": "Closed",
+        "values": ["closed"],
+        "color": "#bdc3c7"
+      },
+      {
+        "key": "blocker",
+        "label": "Blocker",
+        "values": ["blocker"],
+        "color": "#f4a688"
+      }
+    ]
+  },
+  "mail": {
+    "_comment": "Email configuration has been moved to SentEmail.xlsx. Edit the values in that file, not here. These are example/template values only.",
+    "_example": "Example structure - actual values are in SentEmail.xlsx",
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "user": "your-email@example.com",
+    "password": "your-app-password",
+    "from": "your-email@example.com",
+    "to": "recipient@example.com",
+    "cc": "cc-recipient@example.com",
+    "bcc": "",
+    "subject": "Test Report for dd/mm/yyyy",
+    "isSSL": false
+  }
+}
