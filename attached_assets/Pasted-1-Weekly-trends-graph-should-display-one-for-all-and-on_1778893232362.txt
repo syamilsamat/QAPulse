@@ -1,0 +1,13 @@
+1. Weekly trends graph should display one for all and one for everyone stats. So admin/lead can choose to either view for each person or by default, is all. Same apply to qa member, can see their own graph only if they are members only. 
+2. On requirements page, should have a button to add projects as well. QA members can add project and requirements as well. 
+3. On Tasks page for QA member, should only their task only. Only admin/lead can see other task. 
+4. On Tasks page for QA member, will have a graph for each of the task given to them. Once qa member click the task, it will display the detail of the task and graph towards completion based on start date and end date. 
+5. On settings page, user are able to upload their profile picture.
+6. On settings page, for admin/lead they able to create a qa members profile here. Once created, with the email given, qa members can login with the given password from the admin/lead. 
+7. Once qa members try to login, they will be prompt to change password for the first time user. 
+8. All users should have another menu called, Not works related menu, I don't know maybe you can suggest a menu name for this. On this menu, All user can update their activity, if they planned for have a lunch together, or dinner together or celebrate birthday together, or QA outing. They can tag all or selected member only. Once QA done this, it will automatically add to the calendar on the dashboard.
+9. All users should have also an inbox menu as well. This is regarding whatever task assigned to them, tagged by, or anything related to them, the user will received it in this inbox with a proper message. For example, if the task is overdue, it will also have auto message if it passed the due date. So that QA will try to complete it as soon as possible. This is an example. 
+10. Please make all the status start will capital letter
+11. Once user click logout, please prompt confirmation box.
+12. When creating requirements make sure all are mandatory, if not filled please shown a proper message. 
+13. Same goes when creating test case manually or ai generation. All are mandatory except for additional notes. Please shown a proper message if not filled. 

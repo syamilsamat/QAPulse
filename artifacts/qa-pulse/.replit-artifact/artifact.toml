@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "QA Pulse"
+version = "1.0.0"
+id = "artifacts/qa-pulse"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18440
+
+[services.development]
+run = "pnpm --filter @workspace/qa-pulse run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/qa-pulse", "run", "build" ]
+publicDir = "artifacts/qa-pulse/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18440"
+BASE_PATH = "/"

@@ -1,0 +1,1859 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: QA Pulse - QA Management Platform API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: users
+    description: User management
+  - name: projects
+    description: Project management
+  - name: requirements
+    description: Requirement management
+  - name: testCases
+    description: Test case management
+  - name: tasks
+    description: QA task tracking
+  - name: dashboard
+    description: Dashboard and analytics
+  - name: ai
+    description: AI-assisted test case generation
+  - name: calendar
+    description: Shared team calendar
+  - name: notifications
+    description: User inbox notifications
+  - name: social
+    description: Team social events
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  # Auth
+  /auth/login:
+    post:
+      operationId: login
+      tags: [users]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Unauthorized
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [users]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [users]
+      summary: Change password (including forced first-login change)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordInput"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid request
+        "401":
+          description: Unauthorized
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  # Users
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/stats:
+    get:
+      operationId: getUserStats
+      tags: [users]
+      summary: Get user stats (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStats"
+
+  # Projects
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List projects
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  # Requirements
+  /requirements:
+    get:
+      operationId: listRequirements
+      tags: [requirements]
+      summary: List requirements
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: assigneeId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: module
+          in: query
+          schema:
+            type: string
+        - name: release
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of requirements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Requirement"
+    post:
+      operationId: createRequirement
+      tags: [requirements]
+      summary: Create requirement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequirementInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Requirement"
+
+  /requirements/{id}:
+    get:
+      operationId: getRequirement
+      tags: [requirements]
+      summary: Get requirement
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Requirement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Requirement"
+    patch:
+      operationId: updateRequirement
+      tags: [requirements]
+      summary: Update requirement
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequirementUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Requirement"
+    delete:
+      operationId: deleteRequirement
+      tags: [requirements]
+      summary: Delete requirement
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Test Cases
+  /test-cases:
+    get:
+      operationId: listTestCases
+      tags: [testCases]
+      summary: List test cases
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: requirementId
+          in: query
+          schema:
+            type: integer
+        - name: authorId
+          in: query
+          schema:
+            type: integer
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          schema:
+            type: string
+        - name: aiAssisted
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of test cases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestCase"
+    post:
+      operationId: createTestCase
+      tags: [testCases]
+      summary: Create test case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestCaseInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCase"
+
+  /test-cases/{id}:
+    get:
+      operationId: getTestCase
+      tags: [testCases]
+      summary: Get test case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCase"
+    patch:
+      operationId: updateTestCase
+      tags: [testCases]
+      summary: Update test case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestCaseUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCase"
+    delete:
+      operationId: deleteTestCase
+      tags: [testCases]
+      summary: Delete test case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /test-cases/{id}/clone:
+    post:
+      operationId: cloneTestCase
+      tags: [testCases]
+      summary: Clone test case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Cloned test case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCase"
+
+  # AI Test Case Generation
+  /test-cases/ai-generate:
+    post:
+      operationId: generateTestCasesWithAI
+      tags: [ai]
+      summary: Generate test cases using AI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIGenerateInput"
+      responses:
+        "200":
+          description: AI-generated test case suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIGenerateResponse"
+
+  # Tasks
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List tasks
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: assigneeId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: requirementId
+          in: query
+          schema:
+            type: integer
+        - name: overdue
+          in: query
+          schema:
+            type: boolean
+        - name: weekOf
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /tasks/{id}/release:
+    post:
+      operationId: releaseTask
+      tags: [tasks]
+      summary: Release (unassign) a task so anyone can pick it up
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Task released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /tasks/{id}/assign:
+    post:
+      operationId: assignTask
+      tags: [tasks]
+      summary: Assign a task to a team member
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignTaskBody"
+      responses:
+        "200":
+          description: Task assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    patch:
+      operationId: updateTask
+      tags: [tasks]
+      summary: Update task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      tags: [tasks]
+      summary: Delete task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Calendar
+  /calendar/events:
+    get:
+      operationId: listCalendarEvents
+      tags: [calendar]
+      summary: List calendar events
+      parameters:
+        - name: month
+          in: query
+          schema:
+            type: integer
+        - name: year
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarEvent"
+    post:
+      operationId: createCalendarEvent
+      tags: [calendar]
+      summary: Create a calendar event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarEventInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEvent"
+
+  /calendar/events/{id}:
+    patch:
+      operationId: updateCalendarEvent
+      tags: [calendar]
+      summary: Update a calendar event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarEventUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEvent"
+    delete:
+      operationId: deleteCalendarEvent
+      tags: [calendar]
+      summary: Delete a calendar event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Notifications
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: List notifications for current user
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationItem"
+
+  /notifications/{id}/read:
+    patch:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Mark notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationItem"
+
+  /notifications/mark-all-read:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark all notifications as read for a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: integer
+      responses:
+        "200":
+          description: Done
+
+  # Social Events
+  /social-events:
+    get:
+      operationId: listSocialEvents
+      tags: [social]
+      summary: List social/team hangout events
+      responses:
+        "200":
+          description: List of social events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SocialEvent"
+    post:
+      operationId: createSocialEvent
+      tags: [social]
+      summary: Create a social/team hangout event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SocialEventInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialEvent"
+
+  /social-events/{id}:
+    patch:
+      operationId: updateSocialEvent
+      tags: [social]
+      summary: Update a social event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SocialEventUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialEvent"
+    delete:
+      operationId: deleteSocialEvent
+      tags: [social]
+      summary: Delete a social event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Dashboard
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/team:
+    get:
+      operationId: getTeamDashboard
+      tags: [dashboard]
+      summary: Get team dashboard data
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamDashboard"
+
+  /dashboard/weekly-trend:
+    get:
+      operationId: getWeeklyTrend
+      tags: [dashboard]
+      summary: Get weekly trend data
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: weeks
+          in: query
+          schema:
+            type: integer
+        - name: userId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Weekly trend
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WeeklyTrendPoint"
+
+  /dashboard/activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Get recent activity feed
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activity feed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    # Auth
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+
+    # Auth extras
+    ChangePasswordInput:
+      type: object
+      required: [newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+        userId:
+          type: integer
+
+    # User
+    User:
+      type: object
+      required: [id, name, email, role, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          description: "qa_member | qa_lead | admin"
+        team:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        mustChangePassword:
+          type: boolean
+        createdAt:
+          type: string
+
+    UserInput:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+        team:
+          type: string
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+        team:
+          type: string
+        avatarUrl:
+          type: string
+        mustChangePassword:
+          type: boolean
+        password:
+          type: string
+
+    UserStats:
+      type: object
+      required: [userId, tasksCompleted, tasksPending, tasksBlocked, tasksOverdue, testCasesCreated, bugsReported, bugsVerified, onTimeRate, overdueRate, automationContribution]
+      properties:
+        userId:
+          type: integer
+        tasksCompleted:
+          type: integer
+        tasksPending:
+          type: integer
+        tasksBlocked:
+          type: integer
+        tasksOverdue:
+          type: integer
+        testCasesCreated:
+          type: integer
+        bugsReported:
+          type: integer
+        bugsVerified:
+          type: integer
+        onTimeRate:
+          type: number
+        overdueRate:
+          type: number
+        automationContribution:
+          type: integer
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityItem"
+
+    # Project
+    Project:
+      type: object
+      required: [id, name, status, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        status:
+          type: string
+        createdAt:
+          type: string
+
+    ProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+
+    ProjectUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+
+    # Requirement
+    Requirement:
+      type: object
+      required: [id, title, status, priority, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        module:
+          type: ["string", "null"]
+        projectId:
+          type: ["integer", "null"]
+        projectName:
+          type: ["string", "null"]
+        priority:
+          type: string
+        release:
+          type: ["string", "null"]
+        assigneeId:
+          type: ["integer", "null"]
+        assigneeName:
+          type: ["string", "null"]
+        redmineTicketId:
+          type: ["string", "null"]
+        status:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    RequirementInput:
+      type: object
+      required: [title, status, priority]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        module:
+          type: string
+        projectId:
+          type: integer
+        priority:
+          type: string
+        release:
+          type: string
+        assigneeId:
+          type: integer
+        redmineTicketId:
+          type: string
+        status:
+          type: string
+
+    RequirementUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        module:
+          type: string
+        projectId:
+          type: integer
+        priority:
+          type: string
+        release:
+          type: string
+        assigneeId:
+          type: integer
+        redmineTicketId:
+          type: string
+        status:
+          type: string
+
+    # Test Case
+    TestCase:
+      type: object
+      required: [id, title, type, priority, status, aiAssisted, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        objective:
+          type: ["string", "null"]
+        preconditions:
+          type: ["string", "null"]
+        testSteps:
+          type: ["string", "null"]
+        expectedResult:
+          type: ["string", "null"]
+        type:
+          type: string
+          description: "manual | automation_candidate"
+        priority:
+          type: string
+        tags:
+          type: ["string", "null"]
+        requirementId:
+          type: ["integer", "null"]
+        requirementTitle:
+          type: ["string", "null"]
+        projectId:
+          type: ["integer", "null"]
+        projectName:
+          type: ["string", "null"]
+        linkedBug:
+          type: ["string", "null"]
+        authorId:
+          type: ["integer", "null"]
+        authorName:
+          type: ["string", "null"]
+        aiAssisted:
+          type: boolean
+        status:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    TestCaseInput:
+      type: object
+      required: [title, type, priority]
+      properties:
+        title:
+          type: string
+        objective:
+          type: string
+        preconditions:
+          type: string
+        testSteps:
+          type: string
+        expectedResult:
+          type: string
+        type:
+          type: string
+        priority:
+          type: string
+        tags:
+          type: string
+        requirementId:
+          type: integer
+        projectId:
+          type: integer
+        linkedBug:
+          type: string
+        authorId:
+          type: integer
+        aiAssisted:
+          type: boolean
+        status:
+          type: string
+
+    TestCaseUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        objective:
+          type: string
+        preconditions:
+          type: string
+        testSteps:
+          type: string
+        expectedResult:
+          type: string
+        type:
+          type: string
+        priority:
+          type: string
+        tags:
+          type: string
+        requirementId:
+          type: integer
+        linkedBug:
+          type: string
+        aiAssisted:
+          type: boolean
+        status:
+          type: string
+
+    # AI Generation
+    AIGenerateInput:
+      type: object
+      required: [requirementTitle]
+      properties:
+        requirementTitle:
+          type: string
+        requirementDescription:
+          type: string
+        module:
+          type: string
+        projectId:
+          type: integer
+        release:
+          type: string
+        testCaseType:
+          type: string
+        priority:
+          type: string
+        tags:
+          type: string
+        additionalNotes:
+          type: string
+        requirementId:
+          type: integer
+        generatePositive:
+          type: boolean
+        generateNegative:
+          type: boolean
+        generateEdgeCases:
+          type: boolean
+        useSimilarHistorical:
+          type: boolean
+        useTemplateOnly:
+          type: boolean
+
+    AIGeneratedTestCase:
+      type: object
+      required: [title, objective, preconditions, testSteps, expectedResult, type, priority]
+      properties:
+        title:
+          type: string
+        objective:
+          type: string
+        preconditions:
+          type: string
+        testSteps:
+          type: string
+        expectedResult:
+          type: string
+        type:
+          type: string
+        priority:
+          type: string
+        tags:
+          type: string
+        automationCandidate:
+          type: boolean
+
+    AIGenerateResponse:
+      type: object
+      required: [testCases]
+      properties:
+        testCases:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIGeneratedTestCase"
+        similarTestCasesUsed:
+          type: integer
+        templateUsed:
+          type: string
+
+    # Task
+    Task:
+      type: object
+      required: [id, name, type, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          description: "requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting"
+        requirementId:
+          type: ["integer", "null"]
+        requirementTitle:
+          type: ["string", "null"]
+        testCaseId:
+          type: ["integer", "null"]
+        projectId:
+          type: ["integer", "null"]
+        projectName:
+          type: ["string", "null"]
+        assigneeId:
+          type: ["integer", "null"]
+        assigneeName:
+          type: ["string", "null"]
+        startDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        status:
+          type: string
+          description: "new | in_progress | pending | blocked | done"
+        estimatedHours:
+          type: ["number", "null"]
+        actualHours:
+          type: ["number", "null"]
+        completionPercentage:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        isOverdue:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    TaskInput:
+      type: object
+      required: [name, type, status]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        requirementId:
+          type: integer
+        testCaseId:
+          type: integer
+        projectId:
+          type: integer
+        assigneeId:
+          type: integer
+        startDate:
+          type: string
+        dueDate:
+          type: string
+        status:
+          type: string
+        estimatedHours:
+          type: number
+        actualHours:
+          type: number
+        completionPercentage:
+          type: integer
+        notes:
+          type: string
+
+    TaskUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        requirementId:
+          type: integer
+        testCaseId:
+          type: integer
+        projectId:
+          type: integer
+        assigneeId:
+          type: integer
+        startDate:
+          type: string
+        dueDate:
+          type: string
+        status:
+          type: string
+        estimatedHours:
+          type: number
+        actualHours:
+          type: number
+        completionPercentage:
+          type: integer
+        notes:
+          type: string
+
+    # Dashboard
+    DashboardSummary:
+      type: object
+      required: [totalTasks, completedTasks, pendingTasks, blockedTasks, overdueTasks, totalRequirements, totalTestCases, aiAssistedTestCases, manualTestCases, automationCandidates]
+      properties:
+        totalTasks:
+          type: integer
+        completedTasks:
+          type: integer
+        pendingTasks:
+          type: integer
+        blockedTasks:
+          type: integer
+        overdueTasks:
+          type: integer
+        totalRequirements:
+          type: integer
+        openRequirements:
+          type: integer
+        totalTestCases:
+          type: integer
+        aiAssistedTestCases:
+          type: integer
+        manualTestCases:
+          type: integer
+        automationCandidates:
+          type: integer
+
+    TeamDashboard:
+      type: object
+      required: [memberStats]
+      properties:
+        memberStats:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemberStat"
+        tasksByProject:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectTaskCount"
+
+    MemberStat:
+      type: object
+      required: [userId, userName, completed, pending, blocked, overdue, testCasesCreated]
+      properties:
+        userId:
+          type: integer
+        userName:
+          type: string
+        completed:
+          type: integer
+        pending:
+          type: integer
+        blocked:
+          type: integer
+        overdue:
+          type: integer
+        testCasesCreated:
+          type: integer
+
+    ProjectTaskCount:
+      type: object
+      required: [projectId, projectName, count]
+      properties:
+        projectId:
+          type: integer
+        projectName:
+          type: string
+        count:
+          type: integer
+
+    WeeklyTrendPoint:
+      type: object
+      required: [week, completed, created, testCases]
+      properties:
+        week:
+          type: string
+        completed:
+          type: integer
+        created:
+          type: integer
+        testCases:
+          type: integer
+
+    ActivityItem:
+      type: object
+      required: [id, type, description, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        description:
+          type: string
+        userId:
+          type: ["integer", "null"]
+        userName:
+          type: ["string", "null"]
+        entityId:
+          type: ["integer", "null"]
+        entityType:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AssignTaskBody:
+      type: object
+      required: [assigneeId]
+      properties:
+        assigneeId:
+          type: integer
+
+    CalendarEvent:
+      type: object
+      required: [id, title, date, eventType, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        date:
+          type: string
+          description: "YYYY-MM-DD"
+        eventType:
+          type: string
+          description: "uat | meeting | deadline | release | other"
+        taggedUserIds:
+          type: array
+          items:
+            type: integer
+        taggedUserNames:
+          type: array
+          items:
+            type: string
+        color:
+          type: ["string", "null"]
+        createdBy:
+          type: ["integer", "null"]
+        createdByName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CalendarEventInput:
+      type: object
+      required: [title, date, eventType]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        date:
+          type: string
+        eventType:
+          type: string
+        taggedUserIds:
+          type: array
+          items:
+            type: integer
+        color:
+          type: string
+        createdBy:
+          type: integer
+
+    CalendarEventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        date:
+          type: string
+        eventType:
+          type: string
+        taggedUserIds:
+          type: array
+          items:
+            type: integer
+        color:
+          type: string
+
+    # Notifications
+    NotificationItem:
+      type: object
+      required: [id, userId, title, message, type, read, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+        type:
+          type: string
+          description: "info | warning | task | overdue | social"
+        entityType:
+          type: ["string", "null"]
+        entityId:
+          type: ["integer", "null"]
+        read:
+          type: boolean
+        createdAt:
+          type: string
+
+    # Social Events
+    SocialEvent:
+      type: object
+      required: [id, title, eventDate, eventType, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        eventDate:
+          type: string
+          description: "YYYY-MM-DD"
+        eventType:
+          type: string
+          description: "lunch | dinner | birthday | outing | other"
+        taggedUserIds:
+          type: array
+          items:
+            type: integer
+        taggedUserNames:
+          type: array
+          items:
+            type: string
+        createdBy:
+          type: ["integer", "null"]
+        createdByName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    SocialEventInput:
+      type: object
+      required: [title, eventDate, eventType]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        eventDate:
+          type: string
+        eventType:
+          type: string
+        taggedUserIds:
+          type: array
+          items:
+            type: integer
+        createdBy:
+          type: integer
+
+    SocialEventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        eventDate:
+          type: string
+        eventType:
+          type: string
+        taggedUserIds:
+          type: array
+          items:
+            type: integer
