@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TestTube, Lock, ShieldCheck } from "lucide-react";
+import { Lock, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -38,6 +38,10 @@ export default function Login() {
   const { toast } = useToast();
   const loginMutation = useLogin();
   const changePasswordMutation = useChangePassword();
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
 
   // After login succeeds, if mustChangePassword we show this overlay
   const [pendingUser, setPendingUser] = useState<{ id: number; name: string } | null>(null);
@@ -115,24 +119,44 @@ export default function Login() {
             <form onSubmit={pwForm.handleSubmit(onChangePassword)} className="space-y-5">
               <div className="space-y-1.5">
                 <Label htmlFor="newPassword">New password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  placeholder="At least 6 characters"
-                  {...pwForm.register("newPassword")}
-                />
+                <div className="relative">
+                  <Input
+                    id="newPassword"
+                    type={showNewPw ? "text" : "password"}
+                    placeholder="At least 6 characters"
+                    {...pwForm.register("newPassword")}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowNewPw(v => !v)}
+                    tabIndex={-1}
+                  >
+                    {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
                 {pwForm.formState.errors.newPassword && (
                   <p className="text-xs text-destructive">{pwForm.formState.errors.newPassword.message}</p>
                 )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword">Confirm password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="Repeat your new password"
-                  {...pwForm.register("confirmPassword")}
-                />
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPw ? "text" : "password"}
+                    placeholder="Repeat your new password"
+                    {...pwForm.register("confirmPassword")}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowConfirmPw(v => !v)}
+                    tabIndex={-1}
+                  >
+                    {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
                 {pwForm.formState.errors.confirmPassword && (
                   <p className="text-xs text-destructive">{pwForm.formState.errors.confirmPassword.message}</p>
                 )}
@@ -151,11 +175,12 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md space-y-8">
-        <div className="flex flex-col items-center justify-center space-y-2 text-center">
-          <div className="p-3 bg-primary/10 rounded-full">
-            <TestTube className="w-8 h-8 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">Welcome back</h1>
+        <div className="flex flex-col items-center justify-center space-y-3 text-center">
+          <img
+            src={`${import.meta.env.BASE_URL}logo-qa-pulse.png`}
+            alt="QA Pulse"
+            className="h-20 w-auto object-contain"
+          />
           <p className="text-muted-foreground text-sm">
             Sign in to QA Pulse to manage your workflows
           </p>
@@ -184,7 +209,17 @@ export default function Login() {
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
+                      <div className="relative">
+                        <Input type={showPassword ? "text" : "password"} placeholder="••••••••" {...field} />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowPassword(v => !v)}
+                          tabIndex={-1}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

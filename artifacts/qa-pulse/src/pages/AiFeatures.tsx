@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,11 +10,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Brain, Zap, Search, ShieldAlert, BarChart3, FileSearch,
-  MessageSquare, TestTube, TrendingUp, Layers, Send, Loader2,
-  CheckCircle2, AlertTriangle, XCircle, Sparkles, RefreshCw,
+  Brain, Zap, Search, BarChart3, FileSearch,
+  MessageSquare, TestTube, Layers, Send, Loader2,
+  CheckCircle2, AlertTriangle, XCircle, Sparkles, RefreshCw, Upload,
 } from "lucide-react";
 
 const API_BASE = () => getApiUrl();
@@ -50,30 +55,32 @@ function RiskBadge({ level }: { level: string }) {
 export default function AiFeatures() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const coverageFileRef = useRef<HTMLInputElement>(null);
 
-  const [reqAnalyzeForm, setReqAnalyzeForm] = useState({ title: "", description: "", module: "" });
+  const { data: requirements = [] } = useQuery({
+    queryKey: getListRequirementsQueryKey(),
+    queryFn: () => listRequirements(),
+  });
+
+  const [selectedReqAnalyzeId, setSelectedReqAnalyzeId] = useState<string>("");
   const [reqAnalyzeResult, setReqAnalyzeResult] = useState<any>(null);
   const [reqAnalyzeLoading, setReqAnalyzeLoading] = useState(false);
 
-  const [edgeCaseForm, setEdgeCaseForm] = useState({ title: "", description: "" });
+  const [selectedEdgeCaseId, setSelectedEdgeCaseId] = useState<string>("");
   const [edgeCaseResult, setEdgeCaseResult] = useState<any>(null);
   const [edgeCaseLoading, setEdgeCaseLoading] = useState(false);
 
-  const [dupForm, setDupForm] = useState({ title: "", steps: "" });
   const [dupResult, setDupResult] = useState<any>(null);
   const [dupLoading, setDupLoading] = useState(false);
+
+  const [coverageReqId, setCoverageReqId] = useState<string>("");
+  const [coverageFileName, setCoverageFileName] = useState<string>("");
 
   const [weeklySummaryResult, setWeeklySummaryResult] = useState<any>(null);
   const [weeklySummaryLoading, setWeeklySummaryLoading] = useState(false);
 
   const [coverageResult, setCoverageResult] = useState<any>(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
-
-  const [riskResult, setRiskResult] = useState<any>(null);
-  const [riskLoading, setRiskLoading] = useState(false);
-
-  const [readinessResult, setReadinessResult] = useState<any>(null);
-  const [readinessLoading, setReadinessLoading] = useState(false);
 
   const [testDataForm, setTestDataForm] = useState({ dataType: "", count: "10", context: "" });
   const [testDataResult, setTestDataResult] = useState<any>(null);
@@ -142,8 +149,6 @@ export default function AiFeatures() {
             <TabsTrigger value="edge" className="gap-1.5"><Zap className="w-3.5 h-3.5" />Edge Cases</TabsTrigger>
             <TabsTrigger value="duplicate" className="gap-1.5"><Layers className="w-3.5 h-3.5" />Duplicate Check</TabsTrigger>
             <TabsTrigger value="coverage" className="gap-1.5"><FileSearch className="w-3.5 h-3.5" />Coverage Gap</TabsTrigger>
-            <TabsTrigger value="risk" className="gap-1.5"><ShieldAlert className="w-3.5 h-3.5" />Risk Score</TabsTrigger>
-            <TabsTrigger value="readiness" className="gap-1.5"><TrendingUp className="w-3.5 h-3.5" />Release Readiness</TabsTrigger>
             <TabsTrigger value="weekly" className="gap-1.5"><BarChart3 className="w-3.5 h-3.5" />Weekly Summary</TabsTrigger>
             <TabsTrigger value="testdata" className="gap-1.5"><TestTube className="w-3.5 h-3.5" />Test Data</TabsTrigger>
             <TabsTrigger value="search" className="gap-1.5"><Search className="w-3.5 h-3.5" />NL Search</TabsTrigger>
@@ -220,18 +225,44 @@ export default function AiFeatures() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-3">
                   <div>
-                    <label className="text-sm font-medium mb-1 block">Requirement Title *</label>
-                    <Input placeholder="e.g. User can update profile information" value={reqAnalyzeForm.title} onChange={e => setReqAnalyzeForm(f => ({ ...f, title: e.target.value }))} />
+                    <label className="text-sm font-medium mb-1 block">Select Requirement *</label>
+                    <Select value={selectedReqAnalyzeId} onValueChange={setSelectedReqAnalyzeId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a requirement…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {requirements.map(r => (
+                          <SelectItem key={r.id} value={String(r.id)}>
+                            {r.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Module</label>
-                    <Input placeholder="e.g. User Management" value={reqAnalyzeForm.module} onChange={e => setReqAnalyzeForm(f => ({ ...f, module: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Description</label>
-                    <Textarea rows={4} placeholder="Describe the requirement..." value={reqAnalyzeForm.description} onChange={e => setReqAnalyzeForm(f => ({ ...f, description: e.target.value }))} />
-                  </div>
-                  <Button className="w-full" disabled={reqAnalyzeLoading || !reqAnalyzeForm.title} onClick={() => run(setReqAnalyzeLoading, setReqAnalyzeResult, () => callAiEndpoint(token, "/ai/analyze-requirement", reqAnalyzeForm))}>
+                  {selectedReqAnalyzeId && (() => {
+                    const r = requirements.find(x => String(x.id) === selectedReqAnalyzeId);
+                    return r ? (
+                      <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 space-y-1">
+                        {r.module && <p><span className="font-medium">Module:</span> {r.module}</p>}
+                        {r.description && <p className="line-clamp-3">{r.description}</p>}
+                      </div>
+                    ) : null;
+                  })()}
+                  <Button
+                    className="w-full"
+                    disabled={reqAnalyzeLoading || !selectedReqAnalyzeId}
+                    onClick={() => {
+                      const r = requirements.find(x => String(x.id) === selectedReqAnalyzeId);
+                      if (!r) return;
+                      run(setReqAnalyzeLoading, setReqAnalyzeResult, () =>
+                        callAiEndpoint(token, "/ai/analyze-requirement", {
+                          title: r.title,
+                          description: r.description ?? "",
+                          module: r.module ?? "",
+                        })
+                      );
+                    }}
+                  >
                     {reqAnalyzeLoading ? <><LoadingSpinner /> Analyzing...</> : <><Brain className="w-4 h-4 mr-2" />Analyze Requirement</>}
                   </Button>
                 </div>
@@ -288,14 +319,40 @@ export default function AiFeatures() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-3">
                   <div>
-                    <label className="text-sm font-medium mb-1 block">Feature / Requirement *</label>
-                    <Input placeholder="e.g. Transfer money between accounts" value={edgeCaseForm.title} onChange={e => setEdgeCaseForm(f => ({ ...f, title: e.target.value }))} />
+                    <label className="text-sm font-medium mb-1 block">Select Requirement *</label>
+                    <Select value={selectedEdgeCaseId} onValueChange={setSelectedEdgeCaseId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a requirement…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {requirements.map(r => (
+                          <SelectItem key={r.id} value={String(r.id)}>
+                            {r.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Description</label>
-                    <Textarea rows={4} placeholder="Describe the feature..." value={edgeCaseForm.description} onChange={e => setEdgeCaseForm(f => ({ ...f, description: e.target.value }))} />
-                  </div>
-                  <Button className="w-full" disabled={edgeCaseLoading || !edgeCaseForm.title} onClick={() => run(setEdgeCaseLoading, setEdgeCaseResult, () => callAiEndpoint(token, "/ai/edge-cases", edgeCaseForm))}>
+                  {selectedEdgeCaseId && (() => {
+                    const r = requirements.find(x => String(x.id) === selectedEdgeCaseId);
+                    return r?.description ? (
+                      <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 line-clamp-3">{r.description}</div>
+                    ) : null;
+                  })()}
+                  <Button
+                    className="w-full"
+                    disabled={edgeCaseLoading || !selectedEdgeCaseId}
+                    onClick={() => {
+                      const r = requirements.find(x => String(x.id) === selectedEdgeCaseId);
+                      if (!r) return;
+                      run(setEdgeCaseLoading, setEdgeCaseResult, () =>
+                        callAiEndpoint(token, "/ai/edge-cases", {
+                          title: r.title,
+                          description: r.description ?? "",
+                        })
+                      );
+                    }}
+                  >
                     {edgeCaseLoading ? <><LoadingSpinner /> Generating...</> : <><Zap className="w-4 h-4 mr-2" />Generate Edge Cases</>}
                   </Button>
                 </div>
@@ -325,20 +382,15 @@ export default function AiFeatures() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2"><Layers className="w-4 h-4 text-primary" />Duplicate Test Case Detection</CardTitle>
-              <CardDescription>Check if a test case already exists or overlaps with existing ones before saving.</CardDescription>
+              <CardDescription>Scan all existing test cases for duplicates and overlapping coverage.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Test Case Title *</label>
-                    <Input placeholder="e.g. Password reset via email" value={dupForm.title} onChange={e => setDupForm(f => ({ ...f, title: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Test Steps (optional)</label>
-                    <Textarea rows={4} placeholder="1. Navigate to login page..." value={dupForm.steps} onChange={e => setDupForm(f => ({ ...f, steps: e.target.value }))} />
-                  </div>
-                  <Button className="w-full" disabled={dupLoading || !dupForm.title} onClick={() => run(setDupLoading, setDupResult, () => callAiEndpoint(token, "/ai/duplicate-detection", dupForm))}>
+                  <p className="text-sm text-muted-foreground">
+                    Click the button below to automatically scan all test cases in your project for potential duplicates and overlapping scenarios.
+                  </p>
+                  <Button className="w-full" disabled={dupLoading} onClick={() => run(setDupLoading, setDupResult, () => callAiEndpoint(token, "/ai/duplicate-detection", {}))}>
                     {dupLoading ? <><LoadingSpinner /> Checking...</> : <><Layers className="w-4 h-4 mr-2" />Check for Duplicates</>}
                   </Button>
                 </div>
@@ -371,8 +423,56 @@ export default function AiFeatures() {
               <CardDescription>Identify requirements with missing or insufficient test coverage across the project.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4 mb-2">
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Filter by Requirement (optional)</label>
+                    <Select value={coverageReqId} onValueChange={setCoverageReqId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All requirements" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All requirements</SelectItem>
+                        {requirements.map(r => (
+                          <SelectItem key={r.id} value={String(r.id)}>{r.title}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Upload Spec Document (optional)</label>
+                    <div
+                      className="flex items-center gap-3 border rounded-lg p-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => coverageFileRef.current?.click()}
+                    >
+                      <Upload className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground truncate">
+                        {coverageFileName || "Choose XLSX or PDF file…"}
+                      </span>
+                    </div>
+                    <input
+                      ref={coverageFileRef}
+                      type="file"
+                      accept=".xlsx,.pdf,.xls"
+                      className="hidden"
+                      onChange={e => setCoverageFileName(e.target.files?.[0]?.name ?? "")}
+                    />
+                    {coverageFileName && (
+                      <p className="text-xs text-primary mt-1">{coverageFileName} selected</p>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div className="flex gap-3">
-                <Button disabled={coverageLoading} onClick={() => run(setCoverageLoading, setCoverageResult, () => callAiEndpoint(token, "/ai/coverage-gap", {}))}>
+                <Button
+                  disabled={coverageLoading}
+                  onClick={() => run(setCoverageLoading, setCoverageResult, () =>
+                    callAiEndpoint(token, "/ai/coverage-gap", {
+                      requirementId: coverageReqId && coverageReqId !== "all" ? Number(coverageReqId) : undefined,
+                      fileName: coverageFileName || undefined,
+                    })
+                  )}
+                >
                   {coverageLoading ? <><LoadingSpinner /> Analyzing...</> : <><FileSearch className="w-4 h-4 mr-2" />Analyze Coverage Gaps</>}
                 </Button>
               </div>
@@ -408,96 +508,6 @@ export default function AiFeatures() {
                       ))}
                     </div>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="risk">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-primary" />AI Bug Prediction & Risk Scoring</CardTitle>
-              <CardDescription>Score modules by risk based on defect density, blocked tasks, and coverage gaps.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button disabled={riskLoading} onClick={() => run(setRiskLoading, setRiskResult, () => callAiEndpoint(token, "/ai/risk-score", {}))}>
-                {riskLoading ? <><LoadingSpinner /> Scoring...</> : <><ShieldAlert className="w-4 h-4 mr-2" />Calculate Risk Scores</>}
-              </Button>
-              {riskResult && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                    <span className="text-sm font-medium">Overall Project Risk:</span>
-                    <RiskBadge level={riskResult.overallRisk} />
-                  </div>
-                  <p className="text-sm text-muted-foreground">{riskResult.summary}</p>
-                  {riskResult.modules?.map((m: any, i: number) => (
-                    <div key={i} className="p-3 rounded-lg border space-y-2">
-                      <div className="flex justify-between items-start">
-                        <span className="font-semibold">{m.name}</span>
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-20 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${m.riskScore}%`, backgroundColor: m.riskLevel === "high" || m.riskLevel === "critical" ? "#ef4444" : m.riskLevel === "medium" ? "#f59e0b" : "#22c55e" }} />
-                          </div>
-                          <span className="text-sm font-bold">{m.riskScore}</span>
-                          <RiskBadge level={m.riskLevel} />
-                        </div>
-                      </div>
-                      {m.reasons?.length > 0 && (
-                        <ul className="space-y-1">
-                          {m.reasons.map((r: string, j: number) => (
-                            <li key={j} className="text-xs text-muted-foreground flex gap-2"><AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-yellow-500" />{r}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {m.recommendation && <p className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1">{m.recommendation}</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="readiness">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />Release Readiness Score</CardTitle>
-              <CardDescription>AI-calculated release readiness based on task completion, defects, coverage, and open risks.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button disabled={readinessLoading} onClick={() => run(setReadinessLoading, setReadinessResult, () => callAiEndpoint(token, "/ai/release-readiness", {}))}>
-                {readinessLoading ? <><LoadingSpinner /> Calculating...</> : <><TrendingUp className="w-4 h-4 mr-2" />Calculate Readiness</>}
-              </Button>
-              {readinessResult && (
-                <div className="space-y-4">
-                  <div className="flex flex-col items-center gap-3 p-6 rounded-xl border bg-muted/30">
-                    <div className={`text-5xl font-bold ${readinessResult.readinessScore >= 80 ? "text-green-600" : readinessResult.readinessScore >= 50 ? "text-yellow-600" : "text-red-600"}`}>
-                      {readinessResult.readinessScore}%
-                    </div>
-                    <Badge className={readinessResult.status === "ready" ? "bg-green-100 text-green-800" : readinessResult.status === "caution" ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800"}>
-                      {readinessResult.status === "ready" ? "🟢 Release Ready" : readinessResult.status === "caution" ? "🟡 Caution" : "🔴 Not Ready"}
-                    </Badge>
-                    <p className="text-sm text-muted-foreground text-center">{readinessResult.verdict}</p>
-                  </div>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {readinessResult.positives?.length > 0 && (
-                      <div>
-                        <p className="text-sm font-semibold text-green-700 mb-2">✅ Positive Signals</p>
-                        <ul className="space-y-1">
-                          {readinessResult.positives.map((p: string, i: number) => <li key={i} className="text-xs text-muted-foreground">{p}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                    {readinessResult.blockers?.length > 0 && (
-                      <div>
-                        <p className="text-sm font-semibold text-red-700 mb-2">🚫 Blockers</p>
-                        <ul className="space-y-1">
-                          {readinessResult.blockers.map((b: string, i: number) => <li key={i} className="text-xs text-muted-foreground">{b}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
             </CardContent>

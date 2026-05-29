@@ -28,8 +28,9 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, ExternalLink, FileText, FolderPlus } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, ExternalLink, FileText, FolderPlus, Download, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { getApiUrl } from "@/lib/api";
 
 function capitalize(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
@@ -49,7 +50,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function Requirements() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -64,6 +65,11 @@ export default function Requirements() {
   // New project dialog
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: "", description: "", status: "active" });
+
+  // Redmine import dialog
+  const [redmineDialogOpen, setRedmineDialogOpen] = useState(false);
+  const [redmineInput, setRedmineInput] = useState("");
+  const [redmineLoading, setRedmineLoading] = useState(false);
 
   const { data: requirements = [], isLoading } = useQuery({
     queryKey: getListRequirementsQueryKey(),
@@ -189,6 +195,42 @@ export default function Requirements() {
     createProjectMutation.mutate({ data: projectForm as any });
   };
 
+  const handleImportFromRedmine = async () => {
+    const clean = redmineInput.trim().replace(/^#/, "").replace(/.*\/issues\//, "");
+    if (!clean) return;
+    setRedmineLoading(true);
+    try {
+      const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(clean)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      if (data.connected && data.issue) {
+        setEditingReq(null);
+        setErrors({});
+        setForm({
+          title: data.issue.subject,
+          description: data.issue.description ?? "",
+          priority: data.issue.priority?.toLowerCase() === "urgent" || data.issue.priority?.toLowerCase() === "immediate" ? "critical"
+            : data.issue.priority?.toLowerCase() === "high" ? "high"
+            : data.issue.priority?.toLowerCase() === "low" ? "low"
+            : "medium",
+          status: "draft",
+          redmineTicketId: String(data.issue.id),
+        });
+        setRedmineDialogOpen(false);
+        setRedmineInput("");
+        setDialogOpen(true);
+        toast({ title: `Imported Redmine #${data.issue.id}`, description: data.issue.subject });
+      } else {
+        toast({ variant: "destructive", title: "Could not fetch Redmine issue", description: data.error ?? "Not found or offline" });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Failed to connect to Redmine" });
+    } finally {
+      setRedmineLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -198,9 +240,12 @@ export default function Requirements() {
           </h1>
           <p className="text-muted-foreground mt-1">Manage and track project requirements</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setProjectDialogOpen(true)} className="gap-2">
             <FolderPlus className="w-4 h-4" /> New Project
+          </Button>
+          <Button variant="outline" onClick={() => setRedmineDialogOpen(true)} className="gap-2">
+            <Download className="w-4 h-4" /> + Requirement From Redmine
           </Button>
           <Button onClick={openCreate} className="gap-2">
             <Plus className="w-4 h-4" /> New Requirement
@@ -448,6 +493,43 @@ export default function Requirements() {
               {createMutation.isPending || updateMutation.isPending
                 ? "Saving..."
                 : editingReq ? "Save Changes" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Redmine Import Dialog */}
+      <Dialog open={redmineDialogOpen} onOpenChange={setRedmineDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5 text-primary" /> Import from Redmine
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Enter a Redmine ticket ID or URL to import its details as a new requirement.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Redmine Ticket ID or URL</Label>
+              <Input
+                placeholder="e.g. 34555 or https://redmine.example.com/issues/34555"
+                value={redmineInput}
+                onChange={(e) => setRedmineInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleImportFromRedmine()}
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImportFromRedmine}
+              disabled={redmineLoading || !redmineInput.trim()}
+            >
+              {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Fetching…</> : "Import"}
             </Button>
           </DialogFooter>
         </DialogContent>

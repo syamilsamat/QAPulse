@@ -19,6 +19,7 @@ import TeamHangouts from "@/pages/TeamHangouts";
 import NotFound from "@/pages/not-found";
 import PmoReport from "@/pages/PmoReport";
 import AiFeatures from "@/pages/AiFeatures";
+import ReportDashboard from "@/pages/ReportDashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -127,6 +128,10 @@ function Router() {
 
       <Route path="/ai-features">
         <ProtectedRoute component={AiFeatures} roles={["qa_member", "qa_lead", "admin"]} />
+      </Route>
+
+      <Route path="/report">
+        <ProtectedRoute component={ReportDashboard} roles={["qa_member", "qa_lead", "admin"]} />
       </Route>
 
       <Route path="/pmo-report">

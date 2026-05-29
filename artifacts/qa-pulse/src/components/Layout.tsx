@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Users, FileText, TestTube, CheckSquare,
-  Search, Settings, LogOut, Menu, Coffee, Bell, Sparkles,
+  Search, Settings, LogOut, Menu, Coffee, Bell, Sparkles, FileBarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/test-cases",    label: "Test Cases",    icon: TestTube,        roles: ["qa_member", "qa_lead", "admin"] },
   { href: "/tasks",         label: "Tasks",         icon: CheckSquare,     roles: ["qa_member", "qa_lead", "admin"] },
   { href: "/ai-features",   label: "AI Hub",        icon: Sparkles,        roles: ["qa_member", "qa_lead", "admin"] },
+  { href: "/report",        label: "Report",        icon: FileBarChart2,   roles: ["qa_member", "qa_lead", "admin"] },
   { href: "/inbox",         label: "Inbox",         icon: Bell,            roles: ["qa_member", "qa_lead", "admin"], showBadge: true },
   { href: "/team",          label: "Team",          icon: Users,           roles: ["qa_lead", "admin"] },
   { href: "/admin/search",  label: "Admin Search",  icon: Search,          roles: ["admin"] },
