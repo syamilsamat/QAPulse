@@ -179,7 +179,7 @@ export default function Login() {
           <img
             src={`${import.meta.env.BASE_URL}logo-qa-pulse.png`}
             alt="QA Pulse"
-            className="h-20 w-auto object-contain"
+            className="h-60 w-auto object-contain"
           />
           <p className="text-muted-foreground text-sm">
             Sign in to QA Pulse to manage your workflows
