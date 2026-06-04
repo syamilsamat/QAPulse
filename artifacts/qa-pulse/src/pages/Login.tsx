@@ -8,7 +8,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
-  Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +49,10 @@ export default function Login() {
   const [showConfirmPw, setShowConfirmPw] = useState(false);
 
   // After login succeeds, if mustChangePassword we show this overlay
-  const [pendingUser, setPendingUser] = useState<{ id: number; name: string } | null>(null);
+  const [pendingUser, setPendingUser] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -72,10 +80,11 @@ export default function Login() {
           toast({
             variant: "destructive",
             title: "Login failed",
-            description: error?.message || "Please check your credentials and try again.",
+            description:
+              error?.message || "Please check your credentials and try again.",
           });
         },
-      }
+      },
     );
   };
 
@@ -91,12 +100,18 @@ export default function Login() {
           loginMutation.reset();
           changePasswordMutation.reset();
           setLocation("/login");
-          toast({ title: "Password updated. Please sign in again with your new password." });
+          toast({
+            title:
+              "Password updated. Please sign in again with your new password.",
+          });
         },
         onError: () => {
-          toast({ variant: "destructive", title: "Failed to update password. Please try again." });
+          toast({
+            variant: "destructive",
+            title: "Failed to update password. Please try again.",
+          });
         },
-      }
+      },
     );
   };
 
@@ -109,14 +124,20 @@ export default function Login() {
             <div className="p-3 bg-primary/10 rounded-full">
               <ShieldCheck className="w-8 h-8 text-primary" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">Set a new password</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Set a new password
+            </h1>
             <p className="text-muted-foreground text-sm max-w-xs">
-              Hi {pendingUser.name}! Your account requires a password change before you can continue.
+              Hi {pendingUser.name}! Your account requires a password change
+              before you can continue.
             </p>
           </div>
 
           <div className="bg-card border rounded-lg shadow-sm p-6">
-            <form onSubmit={pwForm.handleSubmit(onChangePassword)} className="space-y-5">
+            <form
+              onSubmit={pwForm.handleSubmit(onChangePassword)}
+              className="space-y-5"
+            >
               <div className="space-y-1.5">
                 <Label htmlFor="newPassword">New password</Label>
                 <div className="relative">
@@ -129,14 +150,20 @@ export default function Login() {
                   <button
                     type="button"
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowNewPw(v => !v)}
+                    onClick={() => setShowNewPw((v) => !v)}
                     tabIndex={-1}
                   >
-                    {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showNewPw ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
                 {pwForm.formState.errors.newPassword && (
-                  <p className="text-xs text-destructive">{pwForm.formState.errors.newPassword.message}</p>
+                  <p className="text-xs text-destructive">
+                    {pwForm.formState.errors.newPassword.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -151,18 +178,30 @@ export default function Login() {
                   <button
                     type="button"
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowConfirmPw(v => !v)}
+                    onClick={() => setShowConfirmPw((v) => !v)}
                     tabIndex={-1}
                   >
-                    {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showConfirmPw ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
                 {pwForm.formState.errors.confirmPassword && (
-                  <p className="text-xs text-destructive">{pwForm.formState.errors.confirmPassword.message}</p>
+                  <p className="text-xs text-destructive">
+                    {pwForm.formState.errors.confirmPassword.message}
+                  </p>
                 )}
               </div>
-              <Button type="submit" className="w-full" disabled={changePasswordMutation.isPending}>
-                {changePasswordMutation.isPending ? "Saving..." : "Set password & continue"}
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={changePasswordMutation.isPending}
+              >
+                {changePasswordMutation.isPending
+                  ? "Saving..."
+                  : "Set password & continue"}
               </Button>
             </form>
           </div>
@@ -175,12 +214,19 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md space-y-8">
-        <div className="flex flex-col items-center justify-center space-y-3 text-center">
+        <div className="flex flex-col items-center justify-center text-center">
           <img
             src={`${import.meta.env.BASE_URL}logo-qa-pulse.png`}
             alt="QA Pulse"
-            className="h-60 w-auto object-contain"
+            className="h-60 w-auto object-contain" // Reduced height from h-60 to remove extra space
           />
+          {/* Added header text with Montserrat bold font */}
+          <h1
+            className="mt-6 mb-3 text-3xl text-foreground"
+            style={{ fontWeight: 700 }}
+          >
+            WELCOME TO QA PULSE
+          </h1>
           <p className="text-muted-foreground text-sm">
             Sign in to QA Pulse to manage your workflows
           </p>
@@ -210,14 +256,22 @@ export default function Login() {
                     <FormLabel>Password</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Input type={showPassword ? "text" : "password"} placeholder="••••••••" {...field} />
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          {...field}
+                        />
                         <button
                           type="button"
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          onClick={() => setShowPassword(v => !v)}
+                          onClick={() => setShowPassword((v) => !v)}
                           tabIndex={-1}
                         >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
                         </button>
                       </div>
                     </FormControl>
@@ -225,12 +279,15 @@ export default function Login() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loginMutation.isPending}
+              >
                 {loginMutation.isPending ? "Signing in..." : "Sign in"}
               </Button>
             </form>
           </Form>
-
         </div>
       </div>
     </div>
