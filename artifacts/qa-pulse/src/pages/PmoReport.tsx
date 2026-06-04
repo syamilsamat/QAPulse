@@ -132,8 +132,35 @@ interface RedmineData {
   }>;
 }
 
-const EXEC_COLORS = ["#4ade80", "#f87171", "#fb923c", "#94a3b8", "#60a5fa"];
-const DEFECT_COLORS = [
+// Explicit maps strictly linking the label to the exact hex color
+const EXEC_COLOR_MAP: Record<string, string> = {
+  Passed: "#4ade80", // Green
+  Failed: "#f87171", // Red
+  Blocked: "#fb923c", // Orange
+  "Not Executed": "#94a3b8", // Grey
+  "In Progress": "#60a5fa", //
+  "For Qa Test": "#3b82f6", // Darker Blue
+};
+
+const DEFECT_STATUS_HEX: Record<string, string> = {
+  New: "#facc15", // Yellow
+  //"In Progress": "#60a5fa", // Blue
+  Resolved: "#4ade80", // Green
+  Closed: "#9ca3af", // Gray
+  Feedback: "#c084fc", // Purple
+  Rejected: "#f87171", // Red             // Yellow
+  "In Progress": "#60a5fa", // Light Blue
+  "For QA Test": "#275BF5", // Darker Blue
+  Reopen: "#fb923c", // Peach/Orange
+  Done: "#4ade80", // Green
+  Verified: "#c084fc", // Purple
+  Roadblock: "#f87171", // Red
+  Cancelled: "#DFDFDF", // Light Gray"
+  //"Closed": "#9ca3af",          // Gray
+};
+
+// Fallback colors for unknown defect statuses
+const DEFECT_FALLBACK_COLORS = [
   "#f9d77e",
   "#1abc9c",
   "#3498db",
@@ -591,6 +618,8 @@ export default function PmoReport() {
   const [input, setInput] = useState("");
   const [redmineId, setRedmineId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false); // Controls off-canvas responsive sidebar
+  // ADD THIS LINE FOR PAGINATION
+  const [activeDefectsPage, setActiveDefectsPage] = useState(1);
 
   const { data, isLoading, error } = useQuery<PmoReportData>({
     queryKey: ["pmo-report", redmineId],
@@ -619,23 +648,52 @@ export default function PmoReport() {
     setRedmineId(clean);
   };
 
+  // UPDATED: Injects explicit mapped colors from our maps above
   const execData = data
     ? [
-        { name: `Passed`, value: data.testExecution.passed },
-        { name: `Failed`, value: data.testExecution.failed },
-        { name: `Blocked`, value: data.testExecution.blocked },
-        { name: `Not Executed`, value: data.testExecution.notExecuted },
-        { name: `In Progress`, value: data.testExecution.inProgress },
+        {
+          name: `Passed`,
+          value: data.testExecution.passed,
+          color: EXEC_COLOR_MAP["Passed"],
+        },
+        {
+          name: `Failed`,
+          value: data.testExecution.failed,
+          color: EXEC_COLOR_MAP["Failed"],
+        },
+        {
+          name: `Blocked`,
+          value: data.testExecution.blocked,
+          color: EXEC_COLOR_MAP["Blocked"],
+        },
+        {
+          name: `Not Executed`,
+          value: data.testExecution.notExecuted,
+          color: EXEC_COLOR_MAP["Not Executed"],
+        },
+        {
+          name: `In Progress`,
+          value: data.testExecution.inProgress,
+          color: EXEC_COLOR_MAP["In Progress"],
+        },
       ].filter((d) => d.value > 0)
     : [];
 
   const defectData = data
     ? Object.entries(data.defects.counts)
         .filter(([, v]) => v > 0)
-        .map(([k, v]) => ({
-          name: k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-          value: v,
-        }))
+        .map(([k, v], index) => {
+          const formattedName = k
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+          return {
+            name: formattedName,
+            value: v,
+            color:
+              DEFECT_STATUS_HEX[formattedName] ||
+              DEFECT_FALLBACK_COLORS[index % DEFECT_FALLBACK_COLORS.length],
+          };
+        })
     : [];
 
   return (
@@ -826,10 +884,10 @@ export default function PmoReport() {
                                 dataKey="value"
                                 label={false}
                               >
-                                {execData.map((_, i) => (
+                                {execData.map((entry, i) => (
                                   <Cell
-                                    key={i}
-                                    fill={EXEC_COLORS[i % EXEC_COLORS.length]}
+                                    key={`cell-${i}`}
+                                    fill={entry.color} // UPDATED: uses object color
                                   />
                                 ))}
                               </Pie>
@@ -1041,13 +1099,8 @@ export default function PmoReport() {
                                 dataKey="value"
                                 label={false}
                               >
-                                {defectData.map((_, i) => (
-                                  <Cell
-                                    key={i}
-                                    fill={
-                                      DEFECT_COLORS[i % DEFECT_COLORS.length]
-                                    }
-                                  />
+                                {defectData.map((entry, i) => (
+                                  <Cell key={`cell-${i}`} fill={entry.color} />
                                 ))}
                               </Pie>
                               <Tooltip
@@ -1064,19 +1117,43 @@ export default function PmoReport() {
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-2 gap-2">
                           {Object.entries(data.defects.counts).map(
-                            ([status, count]) => (
-                              <div
-                                key={status}
-                                className="border rounded-xl p-2.5 bg-muted/10 flex flex-col items-center justify-center"
-                              >
-                                <span className="text-base font-bold">
-                                  {count}
-                                </span>
-                                <span className="text-[10px] font-medium text-muted-foreground text-center truncate w-full uppercase mt-0.5">
-                                  {status.replace(/_/g, " ")}
-                                </span>
-                              </div>
-                            ),
+                            ([status, count]) => {
+                              const formattedName = status
+                                .replace(/_/g, " ")
+                                .replace(/\b\w/g, (c) => c.toUpperCase());
+
+                              // Find the exact color matched to the pie chart
+                              const chartItem = defectData.find(
+                                (d) => d.name === formattedName,
+                              );
+
+                              // Use the chart color if > 0, otherwise fallback to a muted gray for 0 values
+                              const cardColor = chartItem
+                                ? chartItem.color
+                                : "#cbd5e1";
+
+                              return (
+                                <div
+                                  key={status}
+                                  className="border rounded-xl p-2.5 bg-muted/10 flex flex-col items-center justify-center relative overflow-hidden"
+                                  style={{
+                                    borderBottom: `3px solid ${cardColor}`,
+                                  }}
+                                >
+                                  <span
+                                    className="text-base font-bold"
+                                    style={{
+                                      color: count > 0 ? cardColor : "inherit",
+                                    }}
+                                  >
+                                    {count}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-muted-foreground text-center truncate w-full uppercase mt-0.5">
+                                    {formattedName}
+                                  </span>
+                                </div>
+                              );
+                            },
                           )}
                         </div>
                       </div>
@@ -1093,7 +1170,7 @@ export default function PmoReport() {
                       Defects ({data.activeDefects.length})
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="px-0 sm:px-6">
                     <div className="overflow-x-auto rounded-lg border">
                       <table className="w-full text-sm min-w-[700px]">
                         <thead>
@@ -1122,53 +1199,130 @@ export default function PmoReport() {
                           </tr>
                         </thead>
                         <tbody>
-                          {data.activeDefects.map((d) => (
-                            <tr
-                              key={d.id}
-                              className="border-b hover:bg-muted/20 transition-colors"
-                            >
-                              <td className="py-2 px-3 text-muted-foreground">
-                                #{d.id}
-                              </td>
-                              <td
-                                className="py-2 px-3 font-medium max-w-[220px] truncate"
-                                title={d.name}
+                          {/* APPLY PAGINATION SLICE HERE */}
+                          {data.activeDefects
+                            .slice(
+                              (activeDefectsPage - 1) * 10,
+                              activeDefectsPage * 10,
+                            )
+                            .map((d) => (
+                              <tr
+                                key={d.id}
+                                className="border-b hover:bg-muted/20 transition-colors"
                               >
-                                {d.name}
-                              </td>
-                              <td className="text-center py-2 px-2">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
+                                <td className="py-2 px-3 text-muted-foreground">
+                                  #{d.id}
+                                </td>
+                                <td
+                                  className="py-2 px-3 font-medium max-w-[220px] truncate"
+                                  title={d.name}
                                 >
-                                  {d.priority}
-                                </span>
-                              </td>
-                              <td className="text-center py-2 px-2">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700 border border-red-200`}
-                                >
-                                  {d.status}
-                                </span>
-                              </td>
-                              <td className="py-2 px-2 text-muted-foreground">
-                                {d.category || "—"}
-                              </td>
-                              <td className="py-2 px-2 font-medium">
-                                {d.assignee}
-                              </td>
-                              <td className="text-center py-2 px-3 text-muted-foreground text-xs">
-                                {format(new Date(d.createdAt), "dd/MM/yyyy")}
-                              </td>
-                            </tr>
-                          ))}
+                                  {d.name}
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
+                                  >
+                                    {d.priority}
+                                  </span>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  {/* DYNAMIC COLOR MAPPING & ONE-LINE WRAP */}
+                                  {(() => {
+                                    const formattedStatus = d.status
+                                      .replace(/_/g, " ")
+                                      .replace(/\b\w/g, (c) => c.toUpperCase());
+                                    const color =
+                                      DEFECT_STATUS_HEX[formattedStatus] ||
+                                      "#9ca3af"; // Default to gray
+
+                                    return (
+                                      <span
+                                        className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
+                                        style={{
+                                          color: color,
+                                          borderColor: color,
+                                          backgroundColor: `${color}1A`, // Adds 10% opacity background for the tint
+                                        }}
+                                      >
+                                        {d.status}
+                                      </span>
+                                    );
+                                  })()}
+                                </td>
+                                <td className="py-2 px-2 text-muted-foreground">
+                                  {d.category || "—"}
+                                </td>
+                                <td className="py-2 px-2 font-medium">
+                                  {d.assignee}
+                                </td>
+                                <td className="text-center py-2 px-3 text-muted-foreground text-xs">
+                                  {format(new Date(d.createdAt), "dd/MM/yyyy")}
+                                </td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
+
+                      {/* PAGINATION CONTROLS */}
+                      {data.activeDefects.length > 10 && (
+                        <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
+                          <div className="text-xs text-muted-foreground">
+                            Showing{" "}
+                            <span className="font-medium">
+                              {(activeDefectsPage - 1) * 10 + 1}
+                            </span>{" "}
+                            to{" "}
+                            <span className="font-medium">
+                              {Math.min(
+                                activeDefectsPage * 10,
+                                data.activeDefects.length,
+                              )}
+                            </span>{" "}
+                            of{" "}
+                            <span className="font-medium">
+                              {data.activeDefects.length}
+                            </span>{" "}
+                            defects
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs"
+                              onClick={() =>
+                                setActiveDefectsPage((p) => Math.max(1, p - 1))
+                              }
+                              disabled={activeDefectsPage === 1}
+                            >
+                              Previous
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs"
+                              onClick={() =>
+                                setActiveDefectsPage((p) =>
+                                  Math.min(
+                                    Math.ceil(data.activeDefects.length / 10),
+                                    p + 1,
+                                  ),
+                                )
+                              }
+                              disabled={
+                                activeDefectsPage >=
+                                Math.ceil(data.activeDefects.length / 10)
+                              }
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
               )}
-
-              <RedmineSection issueId={data.redmineId} token={token} />
             </div>
           )}
         </div>
