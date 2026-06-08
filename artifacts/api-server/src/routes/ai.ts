@@ -60,6 +60,7 @@ async function callFallbackAI(
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        max_tokens: 8192, // Explicitly prevent OpenRouter from cutting off early
         response_format: { type: "json_object" },
       }),
     },
@@ -82,7 +83,7 @@ async function callFallbackAI(
 async function executeAiTask(
   systemPrompt: string,
   userPrompt: string,
-  maxTokens = 4000,
+  maxTokens = 8192, // Increased to absolute max to prevent cutoff errors
 ): Promise<string> {
   try {
     console.log("ℹ️ Attempting primary pipeline execution via Gemini...");
@@ -91,7 +92,7 @@ async function executeAiTask(
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
-        maxOutputTokens: maxTokens, // Increased to 4000 to prevent cutoff errors
+        maxOutputTokens: maxTokens,
         responseMimeType: "application/json",
       },
     });
@@ -101,11 +102,15 @@ async function executeAiTask(
       error.status === 429 ||
       error.message?.includes("quota") ||
       error.message?.includes("Quota");
+
+    // Added 500 status code to safely catch Google Internal Errors
     const isServiceUnavailable =
       error.status === 503 ||
+      error.status === 500 ||
       error.message?.includes("temporary") ||
       error.message?.includes("high demand") ||
-      error.message?.includes("UNAVAILABLE");
+      error.message?.includes("UNAVAILABLE") ||
+      error.message?.includes("INTERNAL");
 
     if (isQuotaExceeded || isServiceUnavailable) {
       console.warn(
@@ -167,10 +172,13 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
       return;
     }
 
-    const systemPrompt = `You are a senior QA analyst. Analyze requirements for completeness, clarity, and testability. Be concise.
+    // Explicitly limiting the output items so it doesn't write an endless essay
+    const systemPrompt = `You are a senior QA analyst. Analyze requirements for completeness, clarity, and testability. Be highly concise.
+       Limit your response to a maximum of 4 critical issues, 4 missing items, and 3 clarifying questions.
        Return exactly this JSON structure:
        { "score": 0-100, "issues": [{"type": "string", "severity": "string", "description": "string", "suggestion": "string"}], 
          "missingItems": ["string"], "questions": ["string"], "riskLevel": "low"|"medium"|"high"|"critical", "summary": "string" }`;
+
     const userPrompt = `Requirement Title: ${reqTitle}\nDescription: ${reqDescription ?? "Not provided"}\nModule: ${reqModule ?? "Not specified"}\n\nAnalyze this requirement and return ONLY JSON.`;
 
     const content = await executeAiTask(systemPrompt, userPrompt);
@@ -208,8 +216,10 @@ router.post("/ai/edge-cases", async (req, res): Promise<void> => {
     const systemPrompt = `You are an expert QA automation and break-it engineer specializing strictly in extreme edge cases.
        Do NOT generate happy paths, typical user errors, or simple negative test cases.
        Focus heavily on true edge cases: hard boundary limits, behavioral anomalies, data pollution, and race conditions.
+       Limit your output to a maximum of 6 highly detailed edge cases.
        Return exactly this JSON structure:
        { "edgeCases": [{ "category": "string", "scenario": "string", "testInput": "string", "expectedBehavior": "string", "risk": "low"|"medium"|"high" }] }`;
+
     const userPrompt = `Feature: ${title}\nDescription: ${description ?? "No description provided."}\nModule: ${mod ?? "Unspecified"}\n\nGenerate realistic, complex edge cases and return ONLY JSON.`;
 
     const content = await executeAiTask(systemPrompt, userPrompt);
@@ -261,6 +271,7 @@ router.post("/ai/duplicate-detection", async (req, res): Promise<void> => {
       systemPrompt = `You are a QA Test Repository Manager. Compare the incoming new test case against the existing active test repository cases below. Calculate a similarity score (0 to 100).
        For any case with a high similarity score (above 70), provide a clear action directive: "delete", "merge", or "keep".
        If there are NO duplicates, return an empty array for "duplicates" and state "No duplicates found" in the recommendation.
+       Limit returned duplicates array to top 5 matches to ensure concise JSON parsing.
        Return exactly this JSON structure:
        { "duplicates": [{ "id": 123, "title": "string", "similarityScore": 90, "action": "delete"|"merge"|"keep", "reason": "string" }], "recommendation": "string" }`;
       userPrompt = `New Test Case:\nTitle: "${title}"\nSteps: ${steps ?? "Not provided"}\n\nExisting Repository:\n${existingDataString || "None yet."}\n\nAnalyze similarities and return ONLY JSON.`;
@@ -275,6 +286,7 @@ router.post("/ai/duplicate-detection", async (req, res): Promise<void> => {
        Compare them against each other. Calculate a similarity score (0 to 100) for overlaps.
        For any highly similar pairs/groups, suggest an action: "delete", "merge", or "keep".
        CRITICAL: If absolutely NO duplicates or overlaps exist in the list, you MUST return an empty array for "duplicates" and provide a recommendation confirming the repository is clean.
+       Limit returned duplicates array to top 5 major overlaps to ensure concise JSON parsing.
        Return exactly this JSON structure:
        { "duplicates": [{ "id": 123, "title": "string", "similarityScore": 90, "action": "delete"|"merge"|"keep", "reason": "string" }], "recommendation": "string" }`;
       userPrompt = `Test Case Repository:\n${allDataString}\n\nFind duplicates within this list and return ONLY valid JSON.`;
@@ -411,8 +423,10 @@ router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
     };
 
     const systemPrompt = `You are a QA coverage analyst. Analyze test coverage gaps and provide recommendations.
+       Limit response to top 5 gaps to ensure reliable output.
        Return exactly this JSON structure:
        { "coverageScore": 0-100, "gaps": [{ "requirementTitle": "string", "issue": "string", "recommendation": "string", "priority": "string" }], "insights": ["string"], "summary": "string" }`;
+
     const userPrompt = `Coverage Analysis:\n- Total requirements: ${requirements.length}\n- Requirements with test cases: ${covered}\n- Requirements without test cases: ${uncovered.length}\n- Total test cases: ${testCases.length}\n\nRequirements breakdown:\n${reqSummary}\n\nUncovered requirements: ${uncovered
       .slice(0, 10)
       .map((r) => r.title)
@@ -632,15 +646,16 @@ Be concise, practical, and data-driven.`;
         chatError.message?.includes("Quota");
       const isServiceUnavailable =
         chatError.status === 503 ||
+        chatError.status === 500 ||
         chatError.message?.includes("temporary") ||
         chatError.message?.includes("high demand") ||
-        chatError.message?.includes("UNAVAILABLE");
+        chatError.message?.includes("UNAVAILABLE") ||
+        chatError.message?.includes("INTERNAL");
 
       if (isQuotaExceeded || isServiceUnavailable) {
         console.warn(
           "⚠️ Chat Copilot Gemini connection failed. Pivoting to OpenRouter fallback...",
         );
-        // Format history for OpenRouter
         const userPrompt = `History:\n${conversationHistory.map((m: any) => `${m.role}: ${m.content}`).join("\n")}\n\nUser: ${message}`;
 
         const openRouterResponse = await fetch(
@@ -672,12 +687,10 @@ Be concise, practical, and data-driven.`;
     res.json({ reply: replyText });
   } catch (error) {
     console.error("AI Chat Error:", error);
-    res
-      .status(500)
-      .json({
-        reply:
-          "I'm having trouble connecting right now. Please try again in a moment.",
-      });
+    res.status(500).json({
+      reply:
+        "I'm having trouble connecting right now. Please try again in a moment.",
+    });
   }
 });
 
