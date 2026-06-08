@@ -14,28 +14,6 @@ const router: IRouter = Router();
 const ai = new GoogleGenAI({});
 
 /**
- * Enhanced callAI function
- * Automatically handles the API request and forces JSON mode.
- */
-async function callAI(
-  systemPrompt: string,
-  userPrompt: string,
-  maxTokens = 2048,
-): Promise<string> {
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: userPrompt,
-    config: {
-      systemInstruction: systemPrompt,
-      maxOutputTokens: maxTokens,
-      responseMimeType: "application/json",
-    },
-  });
-
-  return response.text ?? "";
-}
-
-/**
  * Bulletproof JSON Parser
  * Strips rogue markdown blocks and returns the fallback if parsing fails.
  */
@@ -49,6 +27,106 @@ function safeParseJSON(content: string, fallback: any) {
   } catch (error) {
     console.error("🔴 JSON Parse Error! Raw AI Output:", content);
     return fallback;
+  }
+}
+
+/**
+ * OpenRouter Fallback Client Handler
+ */
+async function callFallbackAI(
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string> {
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openRouterKey) {
+    throw new Error(
+      "Missing OPENROUTER_API_KEY environment variable in Replit Secrets.",
+    );
+  }
+
+  console.log("🔄 Pivoting Intelligence Hub request to OpenRouter Fallback...");
+
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openRouterKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3-8b-instruct:free",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(
+      `OpenRouter Fallback API failure: ${response.status} - ${errorBody}`,
+    );
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content ?? "";
+}
+
+/**
+ * Core AI Router Executor with Intelligent Failover Logic & High Token Limits
+ */
+async function executeAiTask(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 4000,
+): Promise<string> {
+  try {
+    console.log("ℹ️ Attempting primary pipeline execution via Gemini...");
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        maxOutputTokens: maxTokens, // Increased to 4000 to prevent cutoff errors
+        responseMimeType: "application/json",
+      },
+    });
+    return response.text ?? "";
+  } catch (error: any) {
+    const isQuotaExceeded =
+      error.status === 429 ||
+      error.message?.includes("quota") ||
+      error.message?.includes("Quota");
+    const isServiceUnavailable =
+      error.status === 503 ||
+      error.message?.includes("temporary") ||
+      error.message?.includes("high demand") ||
+      error.message?.includes("UNAVAILABLE");
+
+    if (isQuotaExceeded || isServiceUnavailable) {
+      console.warn(
+        `⚠️ Gemini pipeline choked (Status: ${error.status || "Unknown"}). Engaging OpenRouter backup network...`,
+      );
+      try {
+        return await callFallbackAI(systemPrompt, userPrompt);
+      } catch (fallbackError) {
+        console.error(
+          "❌ Crucial system failure: Primary and Fallback nodes are completely exhausted.",
+          fallbackError,
+        );
+        throw fallbackError;
+      }
+    } else {
+      console.error(
+        "❌ Aborting task execution. Gemini encountered unrecoverable layout mutation:",
+        error,
+      );
+      throw error;
+    }
   }
 }
 
@@ -89,14 +167,13 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
       return;
     }
 
-    const content = await callAI(
-      `You are a senior QA analyst. Analyze requirements for completeness, clarity, and testability.
+    const systemPrompt = `You are a senior QA analyst. Analyze requirements for completeness, clarity, and testability. Be concise.
        Return exactly this JSON structure:
        { "score": 0-100, "issues": [{"type": "string", "severity": "string", "description": "string", "suggestion": "string"}], 
-         "missingItems": ["string"], "questions": ["string"], "riskLevel": "low"|"medium"|"high"|"critical", "summary": "string" }`,
-      `Requirement Title: ${reqTitle}\nDescription: ${reqDescription ?? "Not provided"}\nModule: ${reqModule ?? "Not specified"}\n\nAnalyze this requirement and return ONLY JSON.`,
-    );
+         "missingItems": ["string"], "questions": ["string"], "riskLevel": "low"|"medium"|"high"|"critical", "summary": "string" }`;
+    const userPrompt = `Requirement Title: ${reqTitle}\nDescription: ${reqDescription ?? "Not provided"}\nModule: ${reqModule ?? "Not specified"}\n\nAnalyze this requirement and return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("Analyze Req Error:", error);
@@ -128,20 +205,14 @@ router.post("/ai/edge-cases", async (req, res): Promise<void> => {
       return;
     }
 
-    const content = await callAI(
-      `You are an expert QA automation and break-it engineer specializing strictly in extreme edge cases.
+    const systemPrompt = `You are an expert QA automation and break-it engineer specializing strictly in extreme edge cases.
        Do NOT generate happy paths, typical user errors, or simple negative test cases.
-       Focus heavily on true edge cases:
-       - Hard boundary limits (e.g., exactly at max integer capacity, empty payloads, multi-gigabyte inputs).
-       - Behavioral anomalies (e.g., rapid double-clicking, browser back button mid-transaction, sudden network drops).
-       - Data pollution (e.g., injecting zero-width spaces, leetspeak variations, emoji strings, or SQL/XSS scripts).
-       - Latency & Race conditions (e.g., concurrent updates to the same resource, request timeouts).
-
+       Focus heavily on true edge cases: hard boundary limits, behavioral anomalies, data pollution, and race conditions.
        Return exactly this JSON structure:
-       { "edgeCases": [{ "category": "string", "scenario": "string", "testInput": "string", "expectedBehavior": "string", "risk": "low"|"medium"|"high" }] }`,
-      `Feature: ${title}\nDescription: ${description ?? "No description provided."}\nModule: ${mod ?? "Unspecified"}\n\nGenerate realistic, complex edge cases and return ONLY JSON.`,
-    );
+       { "edgeCases": [{ "category": "string", "scenario": "string", "testInput": "string", "expectedBehavior": "string", "risk": "low"|"medium"|"high" }] }`;
+    const userPrompt = `Feature: ${title}\nDescription: ${description ?? "No description provided."}\nModule: ${mod ?? "Unspecified"}\n\nGenerate realistic, complex edge cases and return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("Edge Case Error:", error);
@@ -181,42 +252,35 @@ router.post("/ai/duplicate-detection", async (req, res): Promise<void> => {
     let userPrompt = "";
 
     if (title) {
-      // MODE A: Single Test Case Comparison
       const existingDataString = existingCases
         .map(
           (tc) =>
             `ID:${tc.id} | Title:${tc.title} | Objective:${tc.objective ?? "N/A"}`,
         )
         .join("\n");
-
-      systemPrompt = `You are a QA Test Repository Manager. Compare the incoming new test case against the existing active test repository cases below. 
-       Calculate a similarity score (0 to 100).
+      systemPrompt = `You are a QA Test Repository Manager. Compare the incoming new test case against the existing active test repository cases below. Calculate a similarity score (0 to 100).
        For any case with a high similarity score (above 70), provide a clear action directive: "delete", "merge", or "keep".
        If there are NO duplicates, return an empty array for "duplicates" and state "No duplicates found" in the recommendation.
        Return exactly this JSON structure:
        { "duplicates": [{ "id": 123, "title": "string", "similarityScore": 90, "action": "delete"|"merge"|"keep", "reason": "string" }], "recommendation": "string" }`;
-
       userPrompt = `New Test Case:\nTitle: "${title}"\nSteps: ${steps ?? "Not provided"}\n\nExisting Repository:\n${existingDataString || "None yet."}\n\nAnalyze similarities and return ONLY JSON.`;
     } else {
-      // MODE B: Global Repo Scan
       const allDataString = existingCases
         .map(
           (tc) =>
             `ID:${tc.id} | Title:${tc.title} | Objective:${tc.objective ?? "N/A"}`,
         )
         .join("\n");
-
       systemPrompt = `You are a QA Test Repository Manager. Analyze the entire list of existing test cases below and identify any duplicates or highly overlapping scenarios among them.
        Compare them against each other. Calculate a similarity score (0 to 100) for overlaps.
        For any highly similar pairs/groups, suggest an action: "delete", "merge", or "keep".
        CRITICAL: If absolutely NO duplicates or overlaps exist in the list, you MUST return an empty array for "duplicates" and provide a recommendation confirming the repository is clean.
        Return exactly this JSON structure:
        { "duplicates": [{ "id": 123, "title": "string", "similarityScore": 90, "action": "delete"|"merge"|"keep", "reason": "string" }], "recommendation": "string" }`;
-
       userPrompt = `Test Case Repository:\n${allDataString}\n\nFind duplicates within this list and return ONLY valid JSON.`;
     }
 
-    const content = await callAI(systemPrompt, userPrompt);
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("Duplicate Detection Error:", error);
@@ -271,13 +335,12 @@ router.post("/ai/weekly-summary", async (req, res): Promise<void> => {
       stats,
     };
 
-    const content = await callAI(
-      `You are a QA manager generating weekly status reports. Be concise and actionable.
+    const systemPrompt = `You are a QA manager generating weekly status reports. Be concise and actionable.
        Return exactly this JSON structure:
-       { "headline": "string", "summary": "string", "highlights": ["string"], "risks": ["string"], "blockers": ["string"], "nextWeekFocus": ["string"], "releaseReadiness": "ready"|"caution"|"not_ready", "overallHealth": "green"|"yellow"|"red" }`,
-      `Weekly QA Statistics:\n- Total active tasks: ${stats.totalTasks}\n- Completed tasks: ${stats.completed}\n- Blocked tasks: ${stats.blocked}\n- In progress tasks: ${stats.inProgress}\n- New tasks this week: ${stats.newThisWeek}\n- Tasks completed this week: ${stats.completedThisWeek}\n- New test cases this week: ${stats.newTestCasesThisWeek}\n- AI-assisted test cases total: ${stats.aiAssistedTestCases}\n\nGenerate report. Return ONLY JSON.`,
-    );
+       { "headline": "string", "summary": "string", "highlights": ["string"], "risks": ["string"], "blockers": ["string"], "nextWeekFocus": ["string"], "releaseReadiness": "ready"|"caution"|"not_ready", "overallHealth": "green"|"yellow"|"red" }`;
+    const userPrompt = `Weekly QA Statistics:\n- Total active tasks: ${stats.totalTasks}\n- Completed tasks: ${stats.completed}\n- Blocked tasks: ${stats.blocked}\n- In progress tasks: ${stats.inProgress}\n- New tasks this week: ${stats.newThisWeek}\n- Tasks completed this week: ${stats.completedThisWeek}\n- New test cases this week: ${stats.newTestCasesThisWeek}\n- AI-assisted test cases total: ${stats.aiAssistedTestCases}\n\nGenerate report. Return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     const parsedData = safeParseJSON(content, fallback);
     res.json({ ...parsedData, stats });
   } catch (error) {
@@ -347,16 +410,15 @@ router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
       },
     };
 
-    const content = await callAI(
-      `You are a QA coverage analyst. Analyze test coverage gaps and provide recommendations.
+    const systemPrompt = `You are a QA coverage analyst. Analyze test coverage gaps and provide recommendations.
        Return exactly this JSON structure:
-       { "coverageScore": 0-100, "gaps": [{ "requirementTitle": "string", "issue": "string", "recommendation": "string", "priority": "string" }], "insights": ["string"], "summary": "string" }`,
-      `Coverage Analysis:\n- Total requirements: ${requirements.length}\n- Requirements with test cases: ${covered}\n- Requirements without test cases: ${uncovered.length}\n- Total test cases: ${testCases.length}\n\nRequirements breakdown:\n${reqSummary}\n\nUncovered requirements: ${uncovered
-        .slice(0, 10)
-        .map((r) => r.title)
-        .join(", ")}\n\nAnalyze gaps and return ONLY JSON.`,
-    );
+       { "coverageScore": 0-100, "gaps": [{ "requirementTitle": "string", "issue": "string", "recommendation": "string", "priority": "string" }], "insights": ["string"], "summary": "string" }`;
+    const userPrompt = `Coverage Analysis:\n- Total requirements: ${requirements.length}\n- Requirements with test cases: ${covered}\n- Requirements without test cases: ${uncovered.length}\n- Total test cases: ${testCases.length}\n\nRequirements breakdown:\n${reqSummary}\n\nUncovered requirements: ${uncovered
+      .slice(0, 10)
+      .map((r) => r.title)
+      .join(", ")}\n\nAnalyze gaps and return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     const parsedData = safeParseJSON(content, fallback);
     res.json({ ...parsedData, stats: fallback.stats });
   } catch (error) {
@@ -425,13 +487,12 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
       )
       .join("\n");
 
-    const content = await callAI(
-      `You are a QA risk analyst. Score modules by risk level based on data.
+    const systemPrompt = `You are a QA risk analyst. Score modules by risk level based on data.
        Return exactly this JSON structure:
-       { "modules": [{ "name": "string", "riskScore": 0-100, "riskLevel": "low"|"medium"|"high"|"critical", "reasons": ["string"], "recommendation": "string" }], "overallRisk": "low"|"medium"|"high"|"critical", "summary": "string" }`,
-      `Module Risk Data:\n${moduleList || "No module data available"}\n\nTotal tasks: ${tasks.length}\nBlocked: ${tasks.filter((t) => t.status === "blocked").length}\nOverdue: ${tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").length}\n\nGenerate risk scores and return ONLY JSON.`,
-    );
+       { "modules": [{ "name": "string", "riskScore": 0-100, "riskLevel": "low"|"medium"|"high"|"critical", "reasons": ["string"], "recommendation": "string" }], "overallRisk": "low"|"medium"|"high"|"critical", "summary": "string" }`;
+    const userPrompt = `Module Risk Data:\n${moduleList || "No module data available"}\n\nTotal tasks: ${tasks.length}\nBlocked: ${tasks.filter((t) => t.status === "blocked").length}\nOverdue: ${tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").length}\n\nGenerate risk scores and return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("Risk Score Error:", error);
@@ -498,13 +559,12 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
       coverageRate,
     };
 
-    const content = await callAI(
-      `You are a QA release manager. Assess release readiness objectively.
+    const systemPrompt = `You are a QA release manager. Assess release readiness objectively.
        Return exactly this JSON structure:
-       { "readinessScore": 0-100, "status": "ready"|"caution"|"not_ready", "verdict": "string", "positives": ["string"], "blockers": ["string"], "recommendations": ["string"] }`,
-      `Release Readiness Data:\n- Task completion rate: ${completionRate}%\n- Blocked tasks: ${stats.blocked}\n- Overdue tasks: ${stats.overdue}\n- Open requirements: ${stats.openReqs}\n- Test coverage rate: ${coverageRate}%\n- Total test cases: ${stats.totalTestCases}\n- Automation candidates: ${stats.automationCandidates}\n\nAssess release readiness and return ONLY JSON.`,
-    );
+       { "readinessScore": 0-100, "status": "ready"|"caution"|"not_ready", "verdict": "string", "positives": ["string"], "blockers": ["string"], "recommendations": ["string"] }`;
+    const userPrompt = `Release Readiness Data:\n- Task completion rate: ${completionRate}%\n- Blocked tasks: ${stats.blocked}\n- Overdue tasks: ${stats.overdue}\n- Open requirements: ${stats.openReqs}\n- Test coverage rate: ${coverageRate}%\n- Total test cases: ${stats.totalTestCases}\n- Automation candidates: ${stats.automationCandidates}\n\nAssess release readiness and return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     const parsedData = safeParseJSON(content, fallback);
     res.json({ ...parsedData, stats, completionRate, coverageRate });
   } catch (error) {
@@ -556,25 +616,68 @@ Be concise, practical, and data-driven.`;
       { role: "user", parts: [{ text: message }] },
     ];
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents,
-      config: {
-        systemInstruction: context,
-        maxOutputTokens: 1024,
-      },
-    });
+    let replyText = "";
+    try {
+      console.log("ℹ️ Fetching Copilot response via primary channel...");
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents,
+        config: { systemInstruction: context, maxOutputTokens: 2000 },
+      });
+      replyText = response.text ?? "";
+    } catch (chatError: any) {
+      const isQuotaExceeded =
+        chatError.status === 429 ||
+        chatError.message?.includes("quota") ||
+        chatError.message?.includes("Quota");
+      const isServiceUnavailable =
+        chatError.status === 503 ||
+        chatError.message?.includes("temporary") ||
+        chatError.message?.includes("high demand") ||
+        chatError.message?.includes("UNAVAILABLE");
 
-    res.json({
-      reply:
-        response.text ?? "I couldn't generate a response. Please try again.",
-    });
+      if (isQuotaExceeded || isServiceUnavailable) {
+        console.warn(
+          "⚠️ Chat Copilot Gemini connection failed. Pivoting to OpenRouter fallback...",
+        );
+        // Format history for OpenRouter
+        const userPrompt = `History:\n${conversationHistory.map((m: any) => `${m.role}: ${m.content}`).join("\n")}\n\nUser: ${message}`;
+
+        const openRouterResponse = await fetch(
+          "https://openrouter.ai/api/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "meta-llama/llama-3-8b-instruct:free",
+              messages: [
+                { role: "system", content: context },
+                { role: "user", content: userPrompt },
+              ],
+            }),
+          },
+        );
+        const openRouterData = await openRouterResponse.json();
+        replyText =
+          openRouterData.choices[0]?.message?.content ??
+          "I couldn't generate a response. Please try again.";
+      } else {
+        throw chatError;
+      }
+    }
+
+    res.json({ reply: replyText });
   } catch (error) {
     console.error("AI Chat Error:", error);
-    res.status(500).json({
-      reply:
-        "I'm having trouble connecting right now. Please try again in a moment.",
-    });
+    res
+      .status(500)
+      .json({
+        reply:
+          "I'm having trouble connecting right now. Please try again in a moment.",
+      });
   }
 });
 
@@ -595,13 +698,12 @@ router.post("/ai/test-data", async (req, res): Promise<void> => {
       return;
     }
 
-    const content = await callAI(
-      `You are a QA test data specialist. Generate realistic, varied test data for QA testing purposes.
+    const systemPrompt = `You are a QA test data specialist. Generate realistic, varied test data for QA testing purposes.
        Return exactly this JSON structure:
-       { "data": [ ...array of generated items... ], "notes": ["string"] }`,
-      `Generate ${count} test data items for: ${dataType}\nContext: ${ctx ?? "General testing"}\nFormat: ${format}\nInclude: valid data, invalid data, edge cases, boundary values, special characters where appropriate.\n\nReturn ONLY JSON.`,
-    );
+       { "data": [ ...array of generated items... ], "notes": ["string"] }`;
+    const userPrompt = `Generate ${count} test data items for: ${dataType}\nContext: ${ctx ?? "General testing"}\nFormat: ${format}\nInclude: valid data, invalid data, edge cases, boundary values, special characters where appropriate.\n\nReturn ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("Test Data Error:", error);
@@ -637,13 +739,12 @@ router.post("/ai/regression-selection", async (req, res): Promise<void> => {
       )
       .join("\n");
 
-    const content = await callAI(
-      `You are a QA regression specialist. Select the most important test cases for regression based on changed modules.
+    const systemPrompt = `You are a QA regression specialist. Select the most important test cases for regression based on changed modules.
        Return exactly this JSON structure:
-       { "selected": [{ "id": 123, "title": "string", "reason": "string", "priority": "must_run"|"should_run"|"optional" }], "skipped": [{ "id": 123, "title": "string", "reason": "string" }], "summary": "string", "estimatedTime": "string" }`,
-      `Changed modules: ${changedModules.join(", ") || "Not specified - general regression"}\n\nAvailable test cases:\n${tcSummary || "No test cases found"}\n\nSelect regression suite. Return ONLY JSON.`,
-    );
+       { "selected": [{ "id": 123, "title": "string", "reason": "string", "priority": "must_run"|"should_run"|"optional" }], "skipped": [{ "id": 123, "title": "string", "reason": "string" }], "summary": "string", "estimatedTime": "string" }`;
+    const userPrompt = `Changed modules: ${changedModules.join(", ") || "Not specified - general regression"}\n\nAvailable test cases:\n${tcSummary || "No test cases found"}\n\nSelect regression suite. Return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("Regression Selection Error:", error);
@@ -684,13 +785,12 @@ router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
       .map((r) => `REQ|${r.id}|${r.title}|${r.status}|${r.priority}`)
       .join("\n");
 
-    const content = await callAI(
-      `You are a search engine for QA data. Parse the user's natural language query and return matching items.
+    const systemPrompt = `You are a search engine for QA data. Parse the user's natural language query and return matching items.
        Return exactly this JSON structure:
-       { "results": [{ "type": "task"|"test_case"|"requirement", "id": 123, "title": "string", "relevance": "high"|"medium"|"low", "reason": "string" }], "interpretation": "string" }`,
-      `User query: "${query}"\n\nAvailable data:\n${taskSummary || "No tasks"}\n\n${tcSummary || "No test cases"}\n\n${reqSummary || "No requirements"} \n\nMatch items relevant to the query. Return ONLY JSON.`,
-    );
+       { "results": [{ "type": "task"|"test_case"|"requirement", "id": 123, "title": "string", "relevance": "high"|"medium"|"low", "reason": "string" }], "interpretation": "string" }`;
+    const userPrompt = `User query: "${query}"\n\nAvailable data:\n${taskSummary || "No tasks"}\n\n${tcSummary || "No test cases"}\n\n${reqSummary || "No requirements"} \n\nMatch items relevant to the query. Return ONLY JSON.`;
 
+    const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
   } catch (error) {
     console.error("NL Search Error:", error);
