@@ -31,11 +31,12 @@ function safeParseJSON(content: string, fallback: any) {
 }
 
 /**
- * OpenRouter Fallback Client Handler
+ * The Ultimate OpenRouter Cascade
+ * Loops through multiple AI models until one succeeds.
  */
-async function callFallbackAI(
-  systemPrompt: string,
-  userPrompt: string,
+async function runOpenRouterCascade(
+  messages: any[],
+  requireJson: boolean = true,
 ): Promise<string> {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) {
@@ -44,46 +45,98 @@ async function callFallbackAI(
     );
   }
 
-  console.log("🔄 Pivoting Intelligence Hub request to OpenRouter Fallback...");
+  // The Cascade Order: Expanded to include your new models!
+  const fallbackModels = [
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "liquid/lfm-2.5-1.2b-instruct-20260120",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3-coder",
+    "moonshotai/kimi-k2.6",
+    "nousresearch/hermes-3-llama-3.1-405b",
+    "nvidia/nemotron-3.5-content-safety-20260604",
+    "sourceful/riverflow-v2.5-pro-20260605",
+    "sourceful/riverflow-v2.5-fast-20260605",
+    "z-ai/glm-4.5-air",
+    "google/gemma-4-31b-it",
+  ];
 
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${openRouterKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct:free",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        max_tokens: 8192, // Explicitly prevent OpenRouter from cutting off early
-        response_format: { type: "json_object" },
-      }),
-    },
-  );
+  for (const model of fallbackModels) {
+    console.log(`🔄 Attempting Fallback Node: ${model}...`);
+    try {
+      const body: any = {
+        model: model,
+        messages: messages,
+        max_tokens: 8192,
+      };
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `OpenRouter Fallback API failure: ${response.status} - ${errorBody}`,
-    );
+      // Only force JSON mode if the specific endpoint requires it
+      if (requireJson) {
+        body.response_format = { type: "json_object" };
+      }
+
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (
+          data.choices &&
+          data.choices.length > 0 &&
+          data.choices[0].message?.content
+        ) {
+          console.log(`✅ Success with Fallback Node: ${model}`);
+          return data.choices[0].message.content;
+        }
+      } else {
+        const errorBody = await response.text();
+        console.warn(
+          `⚠️ Node [${model}] failed: ${response.status} - ${errorBody}`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `⚠️ Network error with Node [${model}]:`,
+        (error as Error).message,
+      );
+    }
   }
 
-  const data = await response.json();
-  return data.choices[0]?.message?.content ?? "";
+  // If the loop finishes without returning, every AI is down.
+  throw new Error(
+    "❌ Crucial system failure: All primary and fallback AI nodes are completely exhausted. The world might be doomed.",
+  );
 }
 
 /**
- * Core AI Router Executor with Intelligent Failover Logic & High Token Limits
+ * JSON OpenRouter Fallback Client Handler
+ */
+async function callFallbackAI(
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string> {
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+  return await runOpenRouterCascade(messages, true);
+}
+
+/**
+ * Core AI Router Executor with Intelligent Failover Logic
  */
 async function executeAiTask(
   systemPrompt: string,
   userPrompt: string,
-  maxTokens = 8192, // Increased to absolute max to prevent cutoff errors
+  maxTokens = 8192,
 ): Promise<string> {
   try {
     console.log("ℹ️ Attempting primary pipeline execution via Gemini...");
@@ -103,7 +156,6 @@ async function executeAiTask(
       error.message?.includes("quota") ||
       error.message?.includes("Quota");
 
-    // Added 500 status code to safely catch Google Internal Errors
     const isServiceUnavailable =
       error.status === 503 ||
       error.status === 500 ||
@@ -114,17 +166,9 @@ async function executeAiTask(
 
     if (isQuotaExceeded || isServiceUnavailable) {
       console.warn(
-        `⚠️ Gemini pipeline choked (Status: ${error.status || "Unknown"}). Engaging OpenRouter backup network...`,
+        `⚠️ Gemini pipeline choked (Status: ${error.status || "Unknown"}). Engaging OpenRouter cascade network...`,
       );
-      try {
-        return await callFallbackAI(systemPrompt, userPrompt);
-      } catch (fallbackError) {
-        console.error(
-          "❌ Crucial system failure: Primary and Fallback nodes are completely exhausted.",
-          fallbackError,
-        );
-        throw fallbackError;
-      }
+      return await callFallbackAI(systemPrompt, userPrompt);
     } else {
       console.error(
         "❌ Aborting task execution. Gemini encountered unrecoverable layout mutation:",
@@ -172,7 +216,6 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
       return;
     }
 
-    // Explicitly limiting the output items so it doesn't write an endless essay
     const systemPrompt = `You are a senior QA analyst. Analyze requirements for completeness, clarity, and testability. Be highly concise.
        Limit your response to a maximum of 4 critical issues, 4 missing items, and 3 clarifying questions.
        Return exactly this JSON structure:
@@ -190,7 +233,7 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
 });
 
 // ==========================================
-// 2. ENHANCED EDGE CASES (True Extreme/Boundary Parameters)
+// 2. ENHANCED EDGE CASES
 // ==========================================
 router.post("/ai/edge-cases", async (req, res): Promise<void> => {
   const fallback = {
@@ -231,7 +274,7 @@ router.post("/ai/edge-cases", async (req, res): Promise<void> => {
 });
 
 // ==========================================
-// 3. ENHANCED DUPLICATE CHECK (Global or Single Scan)
+// 3. ENHANCED DUPLICATE CHECK
 // ==========================================
 router.post("/ai/duplicate-detection", async (req, res): Promise<void> => {
   const fallback = {
@@ -465,7 +508,6 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
        Return exactly this JSON structure:
        { "modules": [{ "name": "string", "riskScore": 0-100, "riskLevel": "low"|"medium"|"high"|"critical", "reasons": ["string"], "recommendation": "string" }], "overallRisk": "low"|"medium"|"high"|"critical", "summary": "string" }`;
 
-    // IF DATA COMES FROM REDMINE PMO REPORT
     if (redmineData) {
       const moduleList = redmineData.moduleDetails
         .map(
@@ -480,9 +522,7 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
       const resolvedDefects = totalDefects - openDefects;
 
       userPrompt = `Redmine Ticket Risk Data:\n${moduleList || "No module data available"}\n\nTotal test cases: ${redmineData.testExecution?.total}\nFailed tests: ${redmineData.testExecution?.failed}\nBlocked tests: ${redmineData.testExecution?.blocked}\nTotal Defects Found: ${totalDefects}\nResolved/Verified Defects: ${resolvedDefects}\nActive/Open Defects: ${openDefects}\n\nGenerate risk scores and return ONLY JSON. Note: A high number of resolved defects is a positive sign of stabilization and lowers risk. Zero open defects is great, but only if test execution > 0%.`;
-    }
-    // ELSE USE LOCAL DB (Original Logic)
-    else {
+    } else {
       let tasks = await db.select().from(tasksTable);
       let requirements = await db.select().from(requirementsTable);
       let testCases = await db.select().from(testCasesTable);
@@ -556,7 +596,7 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
     const fallback = {
       readinessScore: 0,
       status: "not_ready",
-      verdict: "Failed to assess release readiness.",
+      verdict: "System error occurred.",
       positives: [],
       blockers: [],
       recommendations: [],
@@ -569,7 +609,6 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
        Return exactly this JSON structure:
        { "readinessScore": 0-100, "status": "ready"|"caution"|"not_ready", "verdict": "string", "positives": ["string"], "blockers": ["string"], "recommendations": ["string"] }`;
 
-    // IF DATA COMES FROM REDMINE PMO REPORT
     if (redmineData) {
       completionRate = redmineData.testExecution?.successRate || 0;
       coverageRate = 100; // Assuming 100% since we are viewing an active defect report
@@ -595,9 +634,7 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
       const resolvedDefects = totalDefects - openDefects;
 
       userPrompt = `Release Readiness Data (Redmine):\n- Test pass rate: ${redmineData.testExecution?.passRate}%\n- Test success rate (Pass + In Prog): ${completionRate}%\n- Blocked test cases: ${stats.blocked}\n- Failed test cases: ${redmineData.testExecution?.failed || 0}\n- Total defects found: ${totalDefects}\n- Resolved/Verified defects: ${resolvedDefects}\n- Active/Open defects: ${openDefects}\n- Total test cases: ${stats.totalTestCases}\n\nAssess release readiness and return ONLY JSON. Important: If 'Resolved/Verified defects' is high, treat this as a strong positive signal of system stabilization. If 'Active/Open defects' is 0, this increases readiness significantly, provided the test execution rate is acceptable.`;
-    }
-    // ELSE USE LOCAL DB (Original Logic)
-    else {
+    } else {
       let tasks = await db.select().from(tasksTable);
       let testCases = await db.select().from(testCasesTable);
       let requirements = await db.select().from(requirementsTable);
@@ -721,31 +758,16 @@ Be concise, practical, and data-driven.`;
 
       if (isQuotaExceeded || isServiceUnavailable) {
         console.warn(
-          "⚠️ Chat Copilot Gemini connection failed. Pivoting to OpenRouter fallback...",
+          "⚠️ Chat Copilot Gemini connection failed. Pivoting to OpenRouter cascade network...",
         );
         const userPrompt = `History:\n${conversationHistory.map((m: any) => `${m.role}: ${m.content}`).join("\n")}\n\nUser: ${message}`;
+        const messages = [
+          { role: "system", content: context },
+          { role: "user", content: userPrompt },
+        ];
 
-        const openRouterResponse = await fetch(
-          "https://openrouter.ai/api/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "meta-llama/llama-3-8b-instruct:free",
-              messages: [
-                { role: "system", content: context },
-                { role: "user", content: userPrompt },
-              ],
-            }),
-          },
-        );
-        const openRouterData = await openRouterResponse.json();
-        replyText =
-          openRouterData.choices[0]?.message?.content ??
-          "I couldn't generate a response. Please try again.";
+        // Let the cascade handle the failure! (false = doesn't require JSON output)
+        replyText = await runOpenRouterCascade(messages, false);
       } else {
         throw chatError;
       }
