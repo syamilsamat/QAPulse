@@ -64,12 +64,12 @@ const NAV_ITEMS = [
     icon: Sparkles,
     roles: ["qa_member", "qa_lead", "admin"],
   },
-  {
-    href: "/report",
-    label: "Report",
-    icon: FileBarChart2,
-    roles: ["qa_member", "qa_lead", "admin"],
-  },
+  //{
+  //href: "/report",
+  //label: "Report",
+  //icon: FileBarChart2,
+  //roles: ["qa_member", "qa_lead", "admin"],
+  //},
   {
     href: "/pmo-report",
     label: "PMO Report",

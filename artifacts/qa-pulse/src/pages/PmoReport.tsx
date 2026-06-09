@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import {
   PieChart,
   Pie,
@@ -11,7 +12,13 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getApiUrl } from "@/lib/api";
 import {
@@ -32,6 +39,9 @@ import {
   WifiOff,
   Menu,
   X,
+  ShieldAlert,
+  Printer,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -45,6 +55,41 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+// --- API Helpers ---
+async function callAi(token: string | null, endpoint: string, body: object) {
+  const res = await fetch(`${getApiUrl()}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Components ---
+function RiskBadge({ level }: { level: string }) {
+  const colors: Record<string, string> = {
+    low: "bg-green-100 text-green-800 border-green-200",
+    medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    high: "bg-orange-100 text-orange-800 border-orange-200",
+    critical: "bg-red-100 text-red-800 border-red-200",
+  };
+  return (
+    <span
+      className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[level?.toLowerCase()] ?? colors.medium}`}
+    >
+      {level}
+    </span>
+  );
+}
+
+// --- Interfaces & Constants ---
 interface PmoReportData {
   redmineId: string;
   generatedAt: string;
@@ -306,10 +351,10 @@ function StatBox({
 }) {
   return (
     <div
-      className={`flex-1 flex flex-col items-center justify-center rounded-xl p-3 ${color} min-w-[90px]`}
+      className={`flex-1 flex flex-col items-center justify-center rounded-xl p-2 sm:p-3 ${color} w-full`}
     >
-      <span className="text-xl font-bold">{value}</span>
-      <span className="text-xs font-medium mt-0.5 text-center opacity-80 leading-tight">
+      <span className="text-lg sm:text-xl font-bold leading-none">{value}</span>
+      <span className="text-[10px] sm:text-xs font-medium mt-1 text-center opacity-80 leading-tight">
         {label}
       </span>
     </div>
@@ -569,23 +614,42 @@ function RedmineSection({
                   {/* MOBILE VIEW */}
                   <div className="grid grid-cols-1 gap-2 md:hidden">
                     {data.children.map((c) => (
-                      <div key={c.id} className="p-3 border rounded-lg bg-card text-sm space-y-2 shadow-sm">
+                      <div
+                        key={c.id}
+                        className="p-3 border rounded-lg bg-card text-sm space-y-2 shadow-sm"
+                      >
                         <div className="flex justify-between items-start gap-2">
-                          <span className="text-xs text-muted-foreground shrink-0">#{c.id}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            #{c.id}
+                          </span>
                           <div className="flex flex-wrap gap-1 justify-end">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${STATUS_COLOR[c.status] ?? "bg-gray-100"}`}>{c.status}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${PRIORITY_COLOR[c.priority] ?? "bg-gray-100"}`}>{c.priority}</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] ${STATUS_COLOR[c.status] ?? "bg-gray-100"}`}
+                            >
+                              {c.status}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] ${PRIORITY_COLOR[c.priority] ?? "bg-gray-100"}`}
+                            >
+                              {c.priority}
+                            </span>
                           </div>
                         </div>
                         <p className="font-medium leading-snug">{c.subject}</p>
                         <div className="flex justify-between items-center text-xs text-muted-foreground border-t pt-2 mt-1">
-                          <span className="truncate pr-2">{c.assignee || "Unassigned"}</span>
-                          <span className="shrink-0">Done: <span className="font-medium text-foreground">{c.doneRatio ?? 0}%</span></span>
+                          <span className="truncate pr-2">
+                            {c.assignee || "Unassigned"}
+                          </span>
+                          <span className="shrink-0">
+                            Done:{" "}
+                            <span className="font-medium text-foreground">
+                              {c.doneRatio ?? 0}%
+                            </span>
+                          </span>
                         </div>
                       </div>
                     ))}
                   </div>
-
                 </div>
               )}
 
@@ -630,10 +694,20 @@ function RedmineSection({
 
 export default function PmoReport() {
   const { token, logout, user } = useAuth();
+  const { toast } = useToast();
+  const reportRef = useRef<HTMLDivElement>(null);
+
   const [input, setInput] = useState("");
   const [redmineId, setRedmineId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeDefectsPage, setActiveDefectsPage] = useState(1);
+
+  // AI Dashboard State
+  const [riskResult, setRiskResult] = useState<any>(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [readinessResult, setReadinessResult] = useState<any>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
 
   const { data, isLoading, error } = useQuery<PmoReportData>({
     queryKey: ["pmo-report", redmineId],
@@ -660,6 +734,55 @@ export default function PmoReport() {
     const clean = input.trim().replace(/^#/, "");
     if (!clean) return;
     setRedmineId(clean);
+
+    // Reset AI reports when searching a new ID
+    setRiskResult(null);
+    setReadinessResult(null);
+    setGeneratedAt(null);
+  };
+
+  const runRisk = async () => {
+    setRiskLoading(true);
+    try {
+      // Pass the fetched Redmine 'data' object directly to the AI
+      const result = await callAi(token, "/ai/risk-score", {
+        redmineData: data,
+      });
+      setRiskResult(result);
+      setGeneratedAt(new Date());
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "AI Error",
+        description: err.message,
+      });
+    } finally {
+      setRiskLoading(false);
+    }
+  };
+
+  const runReadiness = async () => {
+    setReadinessLoading(true);
+    try {
+      // Pass the fetched Redmine 'data' object directly to the AI
+      const result = await callAi(token, "/ai/release-readiness", {
+        redmineData: data,
+      });
+      setReadinessResult(result);
+      setGeneratedAt(new Date());
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "AI Error",
+        description: err.message,
+      });
+    } finally {
+      setReadinessLoading(false);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const execData = data
@@ -712,739 +835,1095 @@ export default function PmoReport() {
   const isStandalonePMO = user?.role === "pmo";
 
   return (
-    <div
-      className={
-        isStandalonePMO
-          ? "flex h-screen overflow-hidden bg-background"
-          : "flex bg-background"
-      }
-    >
-      {user?.role === "pmo" && (
-        <Sidebar
-          onLogout={logout}
-          isOpen={sidebarOpen}
-          setIsOpen={setSidebarOpen}
-        />
-      )}
-
-      <main
+    <>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; }
+          .print-page { box-shadow: none !important; }
+        }
+      `}</style>
+      <div
         className={
           isStandalonePMO
-            ? "flex-1 overflow-y-auto bg-muted/20"
-            : "flex-1 bg-muted/20"
+            ? "flex h-screen overflow-hidden bg-background"
+            : "flex bg-background"
         }
       >
         {user?.role === "pmo" && (
-          <div className="flex items-center justify-between px-4 py-3 border-b bg-card md:hidden sticky top-0 z-30">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 -ml-1"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <Menu className="w-5 h-5" />
-              </Button>
-              <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
-                QA Pulse PMO
-              </span>
-            </div>
-            <Badge variant="secondary" className="text-[10px]">
-              Portal
-            </Badge>
-          </div>
+          <Sidebar
+            onLogout={logout}
+            isOpen={sidebarOpen}
+            setIsOpen={setSidebarOpen}
+          />
         )}
 
-        <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 hidden sm:block">
-              <FileBarChart2 className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">PMO Report Portal</h1>
-              <p className="text-xs text-muted-foreground">
-                Enter a Redmine ticket number to view the QA status report
-              </p>
-            </div>
-          </div>
-
-          <Card>
-            <CardContent className="pt-5 pb-5">
-              <div className="flex gap-3">
-                <div className="flex-1 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
-                    #
-                  </span>
-                  <Input
-                    className="pl-7"
-                    placeholder="Enter Redmine number (e.g. 34555)"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  />
-                </div>
+        <main
+          className={
+            isStandalonePMO
+              ? "flex-1 overflow-y-auto bg-muted/20"
+              : "flex-1 bg-muted/20"
+          }
+        >
+          {user?.role === "pmo" && (
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-card md:hidden sticky top-0 z-30">
+              <div className="flex items-center gap-2">
                 <Button
-                  onClick={handleSearch}
-                  disabled={isLoading || !input.trim()}
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 -ml-1"
+                  onClick={() => setSidebarOpen(true)}
                 >
-                  <Search className="w-4 h-4 mr-2" />
-                  {isLoading ? "Loading…" : "View Report"}
+                  <Menu className="w-5 h-5" />
                 </Button>
+                <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
+                  QA Pulse PMO
+                </span>
               </div>
-            </CardContent>
-          </Card>
+              <Badge variant="secondary" className="text-[10px]">
+                Portal
+              </Badge>
+            </div>
+          )}
 
-          {error &&
-            (() => {
-              const msg = (error as Error).message;
-              const helpLines: string[] = (error as any).help ?? [];
-              return (
-                <Card className="border-amber-300 bg-amber-50">
-                  <CardContent className="pt-5 space-y-2">
-                    <p className="text-amber-900 text-sm font-semibold flex items-center gap-2">
-                      <WifiOff className="w-4 h-4 shrink-0" /> {msg}
-                    </p>
-                    {helpLines.length > 0 && (
-                      <ul className="space-y-1.5 mt-2">
-                        {helpLines.map((line, i) => (
-                          <li
-                            key={i}
-                            className="text-xs text-amber-800 flex gap-2"
-                          >
-                            <span className="shrink-0 mt-0.5">•</span>
-                            <span>{line}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })()}
-
-          {data && (
-            <div className="space-y-6">
-              <div className="text-center border rounded-xl p-4 bg-card shadow-sm">
-                <h2 className="text-lg font-bold text-primary">
-                  Test Execution & Defect Status Summary
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  as of{" "}
-                  {format(new Date(data.generatedAt), "dd/MM/yyyy [HH:mm]")}
-                </p>
-                {data.issueSubject && (
-                  <p className="text-sm font-medium text-foreground mt-1 max-w-lg mx-auto">
-                    #{data.redmineId} — {data.issueSubject}
+          <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10 hidden sm:block">
+                  <FileBarChart2 className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold">PMO Report Portal</h1>
+                  <p className="text-xs text-muted-foreground">
+                    Enter a Redmine ticket number to view the QA status report
                   </p>
-                )}
-                {data.projectName && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Project: {data.projectName}
-                  </p>
-                )}
-                <div className="flex items-center justify-center gap-2 mt-1">
-                  <span className="text-xs text-muted-foreground">
-                    Redmine #{data.redmineId}
-                  </span>
-                  {data.source === "redmine" && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">
-                      Live from Redmine DB
-                    </span>
-                  )}
-                  {data.source === "local" && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
-                      Local data
-                    </span>
-                  )}
                 </div>
               </div>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-primary" /> Test
-                    Execution Results
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {data.testExecution.total === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-6">
-                      No test cases linked to this ticket.
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="p-3 rounded-lg border text-center">
-                          <p className="text-xs text-muted-foreground">
-                            Total Test Cases
-                          </p>
-                          <p className="text-xl sm:text-2xl font-bold">
-                            {data.testExecution.total}
-                          </p>
-                        </div>
-                        <div className="p-3 rounded-lg border text-center">
-                          <p className="text-xs text-muted-foreground">
-                            Pass Rate
-                          </p>
-                          <p className="text-xl sm:text-2xl font-bold text-green-600">
-                            {data.testExecution.passRate}%
-                          </p>
-                        </div>
-                        <div className="p-3 rounded-lg border text-center">
-                          <p className="text-xs text-muted-foreground">
-                            Success Rate
-                          </p>
-                          <p className="text-xl sm:text-2xl font-bold text-blue-600">
-                            {data.testExecution.successRate}%
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                        <div className="w-full" style={{ height: 260 }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={execData}
-                                cx="50%"
-                                cy="45%"
-                                innerRadius={60}
-                                outerRadius={90}
-                                dataKey="value"
-                                label={false}
-                              >
-                                {execData.map((entry, i) => (
-                                  <Cell
-                                    key={`cell-${i}`}
-                                    fill={entry.color}
-                                  />
-                                ))}
-                              </Pie>
-                              <Tooltip
-                                formatter={(v: number) => [`${v} test cases`]}
-                              />
-                              <Legend
-                                iconSize={10}
-                                iconType="circle"
-                                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2 justify-center">
-                          <StatBox
-                            label="PASSED"
-                            value={data.testExecution.passed}
-                            color="bg-green-100 text-green-800"
-                          />
-                          <StatBox
-                            label="FAILED"
-                            value={data.testExecution.failed}
-                            color="bg-red-100 text-red-800"
-                          />
-                          <StatBox
-                            label="BLOCKED"
-                            value={data.testExecution.blocked}
-                            color="bg-orange-100 text-orange-800"
-                          />
-                          <StatBox
-                            label="NOT EXECUTED"
-                            value={data.testExecution.notExecuted}
-                            color="bg-gray-100 text-gray-700"
-                          />
-                          <StatBox
-                            label="IN PROGRESS"
-                            value={data.testExecution.inProgress}
-                            color="bg-blue-100 text-blue-800"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {data.moduleDetails.length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-primary" /> Test
-                      Execution Details by Module
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {/* DESKTOP VIEW */}
-                      <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full text-sm min-w-[600px]">
-                          <thead>
-                            <tr className="border-b text-xs text-muted-foreground bg-muted/30">
-                              <th className="text-left py-2 px-3 font-medium">
-                                Module
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium">
-                                Total
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium text-green-700">
-                                Passed
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium text-red-700">
-                                Failed
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium text-orange-700">
-                                Blocked
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium text-blue-700">
-                                In Prog.
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium text-gray-600">
-                                Not Exec.
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium">
-                                Pass%
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium">
-                                Total%
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {data.moduleDetails.map((m, i) => (
-                              <tr
-                                key={i}
-                                className="border-b hover:bg-muted/20 transition-colors"
-                              >
-                                <td className="py-2 px-3 font-medium">
-                                  {m.module}
-                                </td>
-                                <td className="text-center py-2 px-2">
-                                  {m.total}
-                                </td>
-                                <td className="text-center py-2 px-2 text-green-700">
-                                  {m.passed}
-                                </td>
-                                <td className="text-center py-2 px-2 text-red-700">
-                                  {m.failed}
-                                </td>
-                                <td className="text-center py-2 px-2 text-orange-700">
-                                  {m.blocked}
-                                </td>
-                                <td className="text-center py-2 px-2 text-blue-700">
-                                  {m.inProgress}
-                                </td>
-                                <td className="text-center py-2 px-2 text-gray-600">
-                                  {m.notExecuted}
-                                </td>
-                                <td className="text-center py-2 px-2">
-                                  <span
-                                    className={`font-semibold ${m.passCompletion >= 80 ? "text-green-700" : m.passCompletion >= 50 ? "text-yellow-700" : "text-red-700"}`}
-                                  >
-                                    {m.passCompletion}%
-                                  </span>
-                                </td>
-                                <td className="text-center py-2 px-2 font-medium">
-                                  {m.totalCompletion}%
-                                </td>
-                              </tr>
-                            ))}
-                            <tr className="font-bold bg-muted/40 border-t-2">
-                              <td className="py-2 px-3">Grand Total</td>
-                              <td className="text-center py-2 px-2">
-                                {data.testExecution.total}
-                              </td>
-                              <td className="text-center py-2 px-2 text-green-700">
-                                {data.testExecution.passed}
-                              </td>
-                              <td className="text-center py-2 px-2 text-red-700">
-                                {data.testExecution.failed}
-                              </td>
-                              <td className="text-center py-2 px-2 text-orange-700">
-                                {data.testExecution.blocked}
-                              </td>
-                              <td className="text-center py-2 px-2 text-blue-700">
-                                {data.testExecution.inProgress}
-                              </td>
-                              <td className="text-center py-2 px-2">
-                                {data.testExecution.notExecuted}
-                              </td>
-                              <td className="text-center py-2 px-2 text-green-700">
-                                {data.testExecution.passRate}%
-                              </td>
-                              <td className="text-center py-2 px-2">
-                                {data.testExecution.successRate}%
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* MOBILE VIEW */}
-                      <div className="grid grid-cols-1 gap-3 md:hidden">
-                        {data.moduleDetails.map((m, i) => (
-                          <div key={i} className="p-4 border rounded-xl bg-card shadow-sm space-y-3">
-                            <div className="flex justify-between items-center border-b pb-2">
-                              <span className="font-bold text-base">{m.module}</span>
-                              <Badge variant="secondary">Total: {m.total}</Badge>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Passed:</span>
-                                <span className="font-semibold text-green-700">{m.passed}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Failed:</span>
-                                <span className="font-semibold text-red-700">{m.failed}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Blocked:</span>
-                                <span className="font-semibold text-orange-700">{m.blocked}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">In Prog:</span>
-                                <span className="font-semibold text-blue-700">{m.inProgress}</span>
-                              </div>
-                            </div>
-
-                            <div className="flex justify-between items-center pt-2 border-t text-xs font-medium">
-                              <span className="text-muted-foreground">Not Exec: {m.notExecuted}</span>
-                              <div className="flex gap-3">
-                                <span className={m.passCompletion >= 80 ? "text-green-700" : m.passCompletion >= 50 ? "text-yellow-700" : "text-red-700"}>
-                                  Pass: {m.passCompletion}%
-                                </span>
-                                <span>Total: {m.totalCompletion}%</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                    </div>
-                  </CardContent>
-                </Card>
+              {data && (
+                <Button
+                  variant="outline"
+                  onClick={handlePrint}
+                  className="gap-2 no-print"
+                >
+                  <Printer className="w-4 h-4" />
+                  Download / Print Report
+                </Button>
               )}
+            </div>
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Bug className="w-4 h-4 text-primary" /> Defect Status
-                    Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {data.defects.total === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-6">
-                      No defects found for this ticket.
+            <Card className="no-print">
+              <CardContent className="pt-5 pb-5">
+                <div className="flex gap-3">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
+                      #
+                    </span>
+                    <Input
+                      className="pl-7"
+                      placeholder="Enter Redmine number (e.g. 34555)"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSearch}
+                    disabled={isLoading || !input.trim()}
+                  >
+                    <Search className="w-4 h-4 mr-2" />
+                    {isLoading ? "Loading…" : "View Report"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {error &&
+              (() => {
+                const msg = (error as Error).message;
+                const helpLines: string[] = (error as any).help ?? [];
+                return (
+                  <Card className="border-amber-300 bg-amber-50 no-print">
+                    <CardContent className="pt-5 space-y-2">
+                      <p className="text-amber-900 text-sm font-semibold flex items-center gap-2">
+                        <WifiOff className="w-4 h-4 shrink-0" /> {msg}
+                      </p>
+                      {helpLines.length > 0 && (
+                        <ul className="space-y-1.5 mt-2">
+                          {helpLines.map((line, i) => (
+                            <li
+                              key={i}
+                              className="text-xs text-amber-800 flex gap-2"
+                            >
+                              <span className="shrink-0 mt-0.5">•</span>
+                              <span>{line}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
+            {data && (
+              <div ref={reportRef} className="print-page space-y-6">
+                <div className="hidden print:block text-center mb-6">
+                  <h1 className="text-2xl font-bold">
+                    QA Pulse — Report Dashboard
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    Generated:{" "}
+                    {generatedAt
+                      ? format(generatedAt, "dd/MM/yyyy HH:mm")
+                      : format(new Date(), "dd/MM/yyyy HH:mm")}
+                  </p>
+                </div>
+
+                <div className="text-center border rounded-xl p-4 bg-card shadow-sm">
+                  <h2 className="text-lg font-bold text-primary">
+                    Test Execution & Defect Status Summary
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    as of{" "}
+                    {format(new Date(data.generatedAt), "dd/MM/yyyy [HH:mm]")}
+                  </p>
+                  {data.issueSubject && (
+                    <p className="text-sm font-medium text-foreground mt-1 max-w-lg mx-auto">
+                      #{data.redmineId} — {data.issueSubject}
                     </p>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 rounded-lg border text-center">
-                          <p className="text-xs text-muted-foreground">
-                            Total Defects
-                          </p>
-                          <p className="text-xl sm:text-2xl font-bold">
-                            {data.defects.total}
-                          </p>
-                        </div>
-                        <div className="p-3 rounded-lg border text-center">
-                          <p className="text-xs text-muted-foreground">
-                            Open Rate
-                          </p>
-                          <p
-                            className={`text-xl sm:text-2xl font-bold ${data.defects.openRate > 50 ? "text-red-600" : data.defects.openRate > 20 ? "text-yellow-600" : "text-green-600"}`}
-                          >
-                            {data.defects.openRate}%
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                        <div className="w-full" style={{ height: 260 }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={defectData}
-                                cx="50%"
-                                cy="45%"
-                                innerRadius={60}
-                                outerRadius={90}
-                                dataKey="value"
-                                label={false}
-                              >
-                                {defectData.map((entry, i) => (
-                                  <Cell key={`cell-${i}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                              <Tooltip
-                                formatter={(v: number) => [`${v} defects`]}
-                              />
-                              <Legend
-                                iconSize={10}
-                                iconType="circle"
-                                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-2 gap-2">
-                          {Object.entries(data.defects.counts).map(
-                            ([status, count]) => {
-                              const formattedName = status
-                                .replace(/_/g, " ")
-                                .replace(/\b\w/g, (c) => c.toUpperCase());
-
-                              const chartItem = defectData.find(
-                                (d) => d.name === formattedName,
-                              );
-
-                              const cardColor = chartItem
-                                ? chartItem.color
-                                : "#cbd5e1";
-
-                              return (
-                                <div
-                                  key={status}
-                                  className="border rounded-xl p-2.5 bg-muted/10 flex flex-col items-center justify-center relative overflow-hidden"
-                                  style={{
-                                    borderBottom: `3px solid ${cardColor}`,
-                                  }}
-                                >
-                                  <span
-                                    className="text-base font-bold"
-                                    style={{
-                                      color: count > 0 ? cardColor : "inherit",
-                                    }}
-                                  >
-                                    {count}
-                                  </span>
-                                  <span className="text-[10px] font-medium text-muted-foreground text-center truncate w-full uppercase mt-0.5">
-                                    {formattedName}
-                                  </span>
-                                </div>
-                              );
-                            },
-                          )}
-                        </div>
-                      </div>
-                    </div>
                   )}
-                </CardContent>
-              </Card>
+                  {data.projectName && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Project: {data.projectName}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-center gap-2 mt-1">
+                    <span className="text-xs text-muted-foreground">
+                      Redmine #{data.redmineId}
+                    </span>
+                    {data.source === "redmine" && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">
+                        Live from Redmine DB
+                      </span>
+                    )}
+                    {data.source === "local" && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
+                        Local data
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-              {data.activeDefects.length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-primary" /> Active
-                      Defects ({data.activeDefects.length})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-0 sm:px-6">
-                    <div className="space-y-4">
-                      {/* DESKTOP VIEW */}
-                      <div className="hidden md:block overflow-x-auto rounded-lg border">
-                        <table className="w-full text-sm min-w-[700px]">
-                          <thead>
-                            <tr className="border-b text-xs text-muted-foreground bg-muted/30">
-                              <th className="text-left py-2 px-3 font-medium">
-                                #
-                              </th>
-                              <th className="text-left py-2 px-3 font-medium">
-                                Defect Subject
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium">
-                                Priority
-                              </th>
-                              <th className="text-center py-2 px-2 font-medium">
-                                Status
-                              </th>
-                              <th className="text-left py-2 px-2 font-medium">
-                                Category
-                              </th>
-                              <th className="text-left py-2 px-2 font-medium">
-                                Assignee
-                              </th>
-                              <th className="text-center py-2 px-3 font-medium">
-                                Created On
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {data.activeDefects
-                              .slice(
-                                (activeDefectsPage - 1) * 10,
-                                activeDefectsPage * 10,
-                              )
-                              .map((d) => (
-                                <tr
-                                  key={d.id}
-                                  className="border-b hover:bg-muted/20 transition-colors"
-                                >
-                                  <td className="py-2 px-3 text-muted-foreground">
-                                    #{d.id}
-                                  </td>
-                                  <td
-                                    className="py-2 px-3 font-medium max-w-[220px] truncate"
-                                    title={d.name}
-                                  >
-                                    {d.name}
-                                  </td>
-                                  <td className="text-center py-2 px-2">
-                                    <span
-                                      className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
-                                    >
-                                      {d.priority}
-                                    </span>
-                                  </td>
-                                  <td className="text-center py-2 px-2">
-                                    {(() => {
-                                      const formattedStatus = d.status
-                                        .replace(/_/g, " ")
-                                        .replace(/\b\w/g, (c) => c.toUpperCase());
-                                      const color =
-                                        DEFECT_STATUS_HEX[formattedStatus] ||
-                                        "#9ca3af";
-
-                                      return (
-                                        <span
-                                          className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
-                                          style={{
-                                            color: color,
-                                            borderColor: color,
-                                            backgroundColor: `${color}1A`,
-                                          }}
-                                        >
-                                          {d.status}
-                                        </span>
-                                      );
-                                    })()}
-                                  </td>
-                                  <td className="py-2 px-2 text-muted-foreground">
-                                    {d.category || "—"}
-                                  </td>
-                                  <td className="py-2 px-2 font-medium">
-                                    {d.assignee}
-                                  </td>
-                                  <td className="text-center py-2 px-3 text-muted-foreground text-xs">
-                                    {format(new Date(d.createdAt), "dd/MM/yyyy")}
-                                  </td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
+                {/* --- AI Analysis Section --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Risk Card */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-2">
+                        <div>
+                          <CardTitle className="text-base flex items-start sm:items-center gap-2">
+                            <ShieldAlert className="w-4 h-4 text-primary shrink-0 mt-0.5 sm:mt-0" />
+                            <span className="leading-tight">
+                              AI Bug Prediction & Risk Scoring
+                            </span>
+                          </CardTitle>
+                          <CardDescription className="mt-1 sm:mt-0">
+                            Score modules by risk based on defect density,
+                            blocked tasks, and coverage gaps.
+                          </CardDescription>
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={riskLoading}
+                          onClick={runRisk}
+                          className="no-print w-full sm:w-auto shrink-0"
+                        >
+                          {riskLoading ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                              Scoring…
+                            </>
+                          ) : (
+                            <>
+                              <ShieldAlert className="w-3.5 h-3.5 mr-1.5" />
+                              Calculate Risk
+                            </>
+                          )}
+                        </Button>
                       </div>
-
-                      {/* MOBILE VIEW */}
-                      <div className="grid grid-cols-1 gap-3 md:hidden px-4 sm:px-0">
-                        {data.activeDefects
-                          .slice((activeDefectsPage - 1) * 10, activeDefectsPage * 10)
-                          .map((d) => {
-                            const formattedStatus = d.status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-                            const color = DEFECT_STATUS_HEX[formattedStatus] || "#9ca3af";
-
-                            return (
-                              <div key={d.id} className="p-3 border rounded-xl bg-card shadow-sm space-y-2">
-                                <div className="flex justify-between items-start gap-2">
-                                  <span className="font-mono text-xs font-semibold text-muted-foreground shrink-0">
-                                    #{d.id}
-                                  </span>
-                                  <span 
-                                    className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
-                                    style={{ color: color, backgroundColor: `${color}1A`, border: `1px solid ${color}40` }}
-                                  >
-                                    {d.status}
-                                  </span>
-                                </div>
-
-                                <p className="font-medium text-sm leading-tight">{d.name}</p>
-
-                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t mt-2">
-                                  <div className="flex gap-2 items-center">
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}>
-                                      {d.priority}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
-                                      {d.category || "No Category"}
-                                    </span>
+                    </CardHeader>
+                    <CardContent>
+                      {!riskResult && !riskLoading && (
+                        <div className="py-10 text-center text-muted-foreground text-sm px-4">
+                          <ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                          Click <strong>Calculate Risk</strong> to generate the
+                          risk score report.
+                        </div>
+                      )}
+                      {riskLoading && (
+                        <div className="py-10 flex items-center justify-center gap-2 text-muted-foreground text-sm px-4">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Analysing
+                          project risk…
+                        </div>
+                      )}
+                      {riskResult && (
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap items-center gap-2 p-3 rounded-lg bg-muted/50">
+                            <span className="text-sm font-medium">
+                              Overall Project Risk:
+                            </span>
+                            <RiskBadge level={riskResult.overallRisk} />
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {riskResult.summary}
+                          </p>
+                          {riskResult.modules?.map((m: any, i: number) => (
+                            <div
+                              key={i}
+                              className="p-3 rounded-lg border space-y-2"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                                <span className="font-semibold break-words">
+                                  {m.name}
+                                </span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="h-2 w-20 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full transition-all"
+                                      style={{
+                                        width: `${m.riskScore}%`,
+                                        backgroundColor:
+                                          m.riskLevel === "high" ||
+                                          m.riskLevel === "critical"
+                                            ? "#ef4444"
+                                            : m.riskLevel === "medium"
+                                              ? "#f59e0b"
+                                              : "#22c55e",
+                                      }}
+                                    />
                                   </div>
-                                  <div className="text-right">
-                                    <p className="text-xs font-medium">{d.assignee}</p>
-                                    <p className="text-[10px] text-muted-foreground">
-                                      {format(new Date(d.createdAt), "dd MMM yy")}
-                                    </p>
-                                  </div>
+                                  <span className="text-sm font-bold">
+                                    {m.riskScore}
+                                  </span>
+                                  <RiskBadge level={m.riskLevel} />
                                 </div>
                               </div>
-                            );
-                          })}
-                      </div>
-
-                      {/* PAGINATION CONTROLS */}
-                      {data.activeDefects.length > 10 && (
-                        <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t md:rounded-b-lg">
-                          <div className="text-xs text-muted-foreground">
-                            Showing{" "}
-                            <span className="font-medium">
-                              {(activeDefectsPage - 1) * 10 + 1}
-                            </span>{" "}
-                            to{" "}
-                            <span className="font-medium">
-                              {Math.min(
-                                activeDefectsPage * 10,
-                                data.activeDefects.length,
+                              {m.reasons?.length > 0 && (
+                                <ul className="space-y-1">
+                                  {m.reasons.map((r: string, j: number) => (
+                                    <li
+                                      key={j}
+                                      className="text-xs text-muted-foreground flex gap-2 items-start"
+                                    >
+                                      <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-yellow-500" />
+                                      <span>{r}</span>
+                                    </li>
+                                  ))}
+                                </ul>
                               )}
-                            </span>{" "}
-                            of{" "}
-                            <span className="font-medium">
-                              {data.activeDefects.length}
-                            </span>{" "}
-                            defects
+                              {m.recommendation && (
+                                <p className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1.5 mt-2">
+                                  {m.recommendation}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Readiness Card */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-2">
+                        <div>
+                          <CardTitle className="text-base flex items-start sm:items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-primary shrink-0 mt-0.5 sm:mt-0" />
+                            <span className="leading-tight">
+                              Release Readiness Score
+                            </span>
+                          </CardTitle>
+                          <CardDescription className="mt-1 sm:mt-0">
+                            AI-calculated release readiness based on task
+                            completion, defects, coverage, and open risks.
+                          </CardDescription>
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={readinessLoading}
+                          onClick={runReadiness}
+                          className="no-print w-full sm:w-auto shrink-0"
+                        >
+                          {readinessLoading ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                              Calculating…
+                            </>
+                          ) : (
+                            <>
+                              <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
+                              Calculate Readiness
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {!readinessResult && !readinessLoading && (
+                        <div className="py-10 text-center text-muted-foreground text-sm px-4">
+                          <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                          Click <strong>Calculate Readiness</strong> to generate
+                          the readiness report.
+                        </div>
+                      )}
+                      {readinessLoading && (
+                        <div className="py-10 flex items-center justify-center gap-2 text-muted-foreground text-sm px-4">
+                          <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                          Calculating release readiness…
+                        </div>
+                      )}
+                      {readinessResult && (
+                        <div className="space-y-4">
+                          <div className="flex flex-col items-center gap-3 p-6 rounded-xl border bg-muted/30">
+                            <div
+                              className={`text-5xl font-bold ${
+                                readinessResult.readinessScore >= 80
+                                  ? "text-green-600"
+                                  : readinessResult.readinessScore >= 50
+                                    ? "text-yellow-600"
+                                    : "text-red-600"
+                              }`}
+                            >
+                              {readinessResult.readinessScore}%
+                            </div>
+                            <Badge
+                              className={
+                                readinessResult.status === "ready"
+                                  ? "bg-green-100 text-green-800"
+                                  : readinessResult.status === "caution"
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-red-100 text-red-800"
+                              }
+                            >
+                              {readinessResult.status === "ready"
+                                ? "🟢 Release Ready"
+                                : readinessResult.status === "caution"
+                                  ? "🟡 Caution"
+                                  : "🔴 Not Ready"}
+                            </Badge>
+                            <p className="text-sm text-muted-foreground text-center">
+                              {readinessResult.verdict}
+                            </p>
                           </div>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs"
-                              onClick={() =>
-                                setActiveDefectsPage((p) => Math.max(1, p - 1))
-                              }
-                              disabled={activeDefectsPage === 1}
-                            >
-                              Previous
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs"
-                              onClick={() =>
-                                setActiveDefectsPage((p) =>
-                                  Math.min(
-                                    Math.ceil(data.activeDefects.length / 10),
-                                    p + 1,
-                                  ),
-                                )
-                              }
-                              disabled={
-                                activeDefectsPage >=
-                                Math.ceil(data.activeDefects.length / 10)
-                              }
-                            >
-                              Next
-                            </Button>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-4">
+                            {readinessResult.positives?.length > 0 && (
+                              <div>
+                                <p className="text-sm font-semibold text-green-700 mb-2">
+                                  ✅ Positive Signals
+                                </p>
+                                <ul className="space-y-1">
+                                  {readinessResult.positives.map(
+                                    (p: string, i: number) => (
+                                      <li
+                                        key={i}
+                                        className="text-xs text-muted-foreground flex gap-2 items-start"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-500" />
+                                        <span>{p}</span>
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              </div>
+                            )}
+                            {readinessResult.blockers?.length > 0 && (
+                              <div>
+                                <p className="text-sm font-semibold text-red-700 mb-2">
+                                  🚫 Blockers
+                                </p>
+                                <ul className="space-y-1">
+                                  {readinessResult.blockers.map(
+                                    (b: string, i: number) => (
+                                      <li
+                                        key={i}
+                                        className="text-xs text-muted-foreground flex gap-2 items-start"
+                                      >
+                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-500" />
+                                        <span>{b}</span>
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
-                    </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* --- Rest of Original Report Cards --- */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" /> Test
+                      Execution Results
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {data.testExecution.total === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">
+                        No test cases linked to this ticket.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="p-3 rounded-lg border text-center">
+                            <p className="text-xs text-muted-foreground">
+                              Total Test Cases
+                            </p>
+                            <p className="text-xl sm:text-2xl font-bold">
+                              {data.testExecution.total}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg border text-center">
+                            <p className="text-xs text-muted-foreground">
+                              Pass Rate
+                            </p>
+                            <p className="text-xl sm:text-2xl font-bold text-green-600">
+                              {data.testExecution.passRate}%
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg border text-center">
+                            <p className="text-xs text-muted-foreground">
+                              Success Rate
+                            </p>
+                            <p className="text-xl sm:text-2xl font-bold text-blue-600">
+                              {data.testExecution.successRate}%
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                          <div className="w-full" style={{ height: 260 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie
+                                  data={execData}
+                                  cx="50%"
+                                  cy="45%"
+                                  innerRadius={60}
+                                  outerRadius={90}
+                                  dataKey="value"
+                                  label={false}
+                                >
+                                  {execData.map((entry, i) => (
+                                    <Cell
+                                      key={`cell-${i}`}
+                                      fill={entry.color}
+                                    />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  formatter={(v: number) => [`${v} test cases`]}
+                                />
+                                <Legend
+                                  iconSize={10}
+                                  iconType="circle"
+                                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+
+                          <div className="flex flex-col gap-2 w-full">
+                            {/* First Row: Exactly 3 items */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <StatBox
+                                label="PASSED"
+                                value={data.testExecution.passed}
+                                color="bg-green-100 text-green-800"
+                              />
+                              <StatBox
+                                label="FAILED"
+                                value={data.testExecution.failed}
+                                color="bg-red-100 text-red-800"
+                              />
+                              <StatBox
+                                label="BLOCKED"
+                                value={data.testExecution.blocked}
+                                color="bg-orange-100 text-orange-800"
+                              />
+                            </div>
+
+                            {/* Second Row: Exactly 2 items */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <StatBox
+                                label="IN PROGRESS"
+                                value={data.testExecution.inProgress}
+                                color="bg-blue-100 text-blue-800"
+                              />
+                              <StatBox
+                                label="NOT EXECUTED"
+                                value={data.testExecution.notExecuted}
+                                color="bg-gray-100 text-gray-700"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
-              )}
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
+
+                {data.moduleDetails.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-primary" /> Test
+                        Execution Details by Module
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {/* DESKTOP VIEW */}
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full text-sm min-w-[600px]">
+                            <thead>
+                              <tr className="border-b text-xs text-muted-foreground bg-muted/30">
+                                <th className="text-left py-2 px-3 font-medium">
+                                  Module
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium">
+                                  Total
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium text-green-700">
+                                  Passed
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium text-red-700">
+                                  Failed
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium text-orange-700">
+                                  Blocked
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium text-blue-700">
+                                  In Prog.
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium text-gray-600">
+                                  Not Exec.
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium">
+                                  Pass%
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium">
+                                  Total%
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {data.moduleDetails.map((m, i) => (
+                                <tr
+                                  key={i}
+                                  className="border-b hover:bg-muted/20 transition-colors"
+                                >
+                                  <td className="py-2 px-3 font-medium">
+                                    {m.module}
+                                  </td>
+                                  <td className="text-center py-2 px-2">
+                                    {m.total}
+                                  </td>
+                                  <td className="text-center py-2 px-2 text-green-700">
+                                    {m.passed}
+                                  </td>
+                                  <td className="text-center py-2 px-2 text-red-700">
+                                    {m.failed}
+                                  </td>
+                                  <td className="text-center py-2 px-2 text-orange-700">
+                                    {m.blocked}
+                                  </td>
+                                  <td className="text-center py-2 px-2 text-blue-700">
+                                    {m.inProgress}
+                                  </td>
+                                  <td className="text-center py-2 px-2 text-gray-600">
+                                    {m.notExecuted}
+                                  </td>
+                                  <td className="text-center py-2 px-2">
+                                    <span
+                                      className={`font-semibold ${m.passCompletion >= 80 ? "text-green-700" : m.passCompletion >= 50 ? "text-yellow-700" : "text-red-700"}`}
+                                    >
+                                      {m.passCompletion}%
+                                    </span>
+                                  </td>
+                                  <td className="text-center py-2 px-2 font-medium">
+                                    {m.totalCompletion}%
+                                  </td>
+                                </tr>
+                              ))}
+                              <tr className="font-bold bg-muted/40 border-t-2">
+                                <td className="py-2 px-3">Grand Total</td>
+                                <td className="text-center py-2 px-2">
+                                  {data.testExecution.total}
+                                </td>
+                                <td className="text-center py-2 px-2 text-green-700">
+                                  {data.testExecution.passed}
+                                </td>
+                                <td className="text-center py-2 px-2 text-red-700">
+                                  {data.testExecution.failed}
+                                </td>
+                                <td className="text-center py-2 px-2 text-orange-700">
+                                  {data.testExecution.blocked}
+                                </td>
+                                <td className="text-center py-2 px-2 text-blue-700">
+                                  {data.testExecution.inProgress}
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  {data.testExecution.notExecuted}
+                                </td>
+                                <td className="text-center py-2 px-2 text-green-700">
+                                  {data.testExecution.passRate}%
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  {data.testExecution.successRate}%
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* MOBILE VIEW */}
+                        <div className="grid grid-cols-1 gap-3 md:hidden">
+                          {data.moduleDetails.map((m, i) => (
+                            <div
+                              key={i}
+                              className="p-4 border rounded-xl bg-card shadow-sm space-y-3"
+                            >
+                              <div className="flex justify-between items-center border-b pb-2">
+                                <span className="font-bold text-base">
+                                  {m.module}
+                                </span>
+                                <Badge variant="secondary">
+                                  Total: {m.total}
+                                </Badge>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    Passed:
+                                  </span>
+                                  <span className="font-semibold text-green-700">
+                                    {m.passed}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    Failed:
+                                  </span>
+                                  <span className="font-semibold text-red-700">
+                                    {m.failed}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    Blocked:
+                                  </span>
+                                  <span className="font-semibold text-orange-700">
+                                    {m.blocked}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    In Prog:
+                                  </span>
+                                  <span className="font-semibold text-blue-700">
+                                    {m.inProgress}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex justify-between items-center pt-2 border-t text-xs font-medium">
+                                <span className="text-muted-foreground">
+                                  Not Exec: {m.notExecuted}
+                                </span>
+                                <div className="flex gap-3">
+                                  <span
+                                    className={
+                                      m.passCompletion >= 80
+                                        ? "text-green-700"
+                                        : m.passCompletion >= 50
+                                          ? "text-yellow-700"
+                                          : "text-red-700"
+                                    }
+                                  >
+                                    Pass: {m.passCompletion}%
+                                  </span>
+                                  <span>Total: {m.totalCompletion}%</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Bug className="w-4 h-4 text-primary" /> Defect Status
+                      Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {data.defects.total === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">
+                        No defects found for this ticket.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-3 rounded-lg border text-center">
+                            <p className="text-xs text-muted-foreground">
+                              Total Defects
+                            </p>
+                            <p className="text-xl sm:text-2xl font-bold">
+                              {data.defects.total}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg border text-center">
+                            <p className="text-xs text-muted-foreground">
+                              Open Rate
+                            </p>
+                            <p
+                              className={`text-xl sm:text-2xl font-bold ${data.defects.openRate > 50 ? "text-red-600" : data.defects.openRate > 20 ? "text-yellow-600" : "text-green-600"}`}
+                            >
+                              {data.defects.openRate}%
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                          <div className="w-full" style={{ height: 260 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie
+                                  data={defectData}
+                                  cx="50%"
+                                  cy="45%"
+                                  innerRadius={60}
+                                  outerRadius={90}
+                                  dataKey="value"
+                                  label={false}
+                                >
+                                  {defectData.map((entry, i) => (
+                                    <Cell
+                                      key={`cell-${i}`}
+                                      fill={entry.color}
+                                    />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  formatter={(v: number) => [`${v} defects`]}
+                                />
+                                <Legend
+                                  iconSize={10}
+                                  iconType="circle"
+                                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-2 gap-2">
+                            {Object.entries(data.defects.counts).map(
+                              ([status, count]) => {
+                                const formattedName = status
+                                  .replace(/_/g, " ")
+                                  .replace(/\b\w/g, (c) => c.toUpperCase());
+
+                                const chartItem = defectData.find(
+                                  (d) => d.name === formattedName,
+                                );
+
+                                const cardColor = chartItem
+                                  ? chartItem.color
+                                  : "#cbd5e1";
+
+                                return (
+                                  <div
+                                    key={status}
+                                    className="border rounded-xl p-2.5 bg-muted/10 flex flex-col items-center justify-center relative overflow-hidden"
+                                    style={{
+                                      borderBottom: `3px solid ${cardColor}`,
+                                    }}
+                                  >
+                                    <span
+                                      className="text-base font-bold"
+                                      style={{
+                                        color:
+                                          count > 0 ? cardColor : "inherit",
+                                      }}
+                                    >
+                                      {count}
+                                    </span>
+                                    <span className="text-[10px] font-medium text-muted-foreground text-center truncate w-full uppercase mt-0.5">
+                                      {formattedName}
+                                    </span>
+                                  </div>
+                                );
+                              },
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {data.activeDefects.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-primary" />{" "}
+                        Active Defects ({data.activeDefects.length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-0 sm:px-6">
+                      <div className="space-y-4">
+                        {/* DESKTOP VIEW */}
+                        <div className="hidden md:block overflow-x-auto rounded-lg border">
+                          <table className="w-full text-sm min-w-[700px]">
+                            <thead>
+                              <tr className="border-b text-xs text-muted-foreground bg-muted/30">
+                                <th className="text-left py-2 px-3 font-medium">
+                                  #
+                                </th>
+                                <th className="text-left py-2 px-3 font-medium">
+                                  Defect Subject
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium">
+                                  Priority
+                                </th>
+                                <th className="text-center py-2 px-2 font-medium">
+                                  Status
+                                </th>
+                                <th className="text-left py-2 px-2 font-medium">
+                                  Category
+                                </th>
+                                <th className="text-left py-2 px-2 font-medium">
+                                  Assignee
+                                </th>
+                                <th className="text-center py-2 px-3 font-medium">
+                                  Created On
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {data.activeDefects
+                                .slice(
+                                  (activeDefectsPage - 1) * 10,
+                                  activeDefectsPage * 10,
+                                )
+                                .map((d) => (
+                                  <tr
+                                    key={d.id}
+                                    className="border-b hover:bg-muted/20 transition-colors"
+                                  >
+                                    <td className="py-2 px-3 text-muted-foreground">
+                                      #{d.id}
+                                    </td>
+                                    <td
+                                      className="py-2 px-3 font-medium max-w-[220px] truncate"
+                                      title={d.name}
+                                    >
+                                      {d.name}
+                                    </td>
+                                    <td className="text-center py-2 px-2">
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
+                                      >
+                                        {d.priority}
+                                      </span>
+                                    </td>
+                                    <td className="text-center py-2 px-2">
+                                      {(() => {
+                                        const formattedStatus = d.status
+                                          .replace(/_/g, " ")
+                                          .replace(/\b\w/g, (c) =>
+                                            c.toUpperCase(),
+                                          );
+                                        const color =
+                                          DEFECT_STATUS_HEX[formattedStatus] ||
+                                          "#9ca3af";
+
+                                        return (
+                                          <span
+                                            className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
+                                            style={{
+                                              color: color,
+                                              borderColor: color,
+                                              backgroundColor: `${color}1A`,
+                                            }}
+                                          >
+                                            {d.status}
+                                          </span>
+                                        );
+                                      })()}
+                                    </td>
+                                    <td className="py-2 px-2 text-muted-foreground">
+                                      {d.category || "—"}
+                                    </td>
+                                    <td className="py-2 px-2 font-medium">
+                                      {d.assignee}
+                                    </td>
+                                    <td className="text-center py-2 px-3 text-muted-foreground text-xs">
+                                      {format(
+                                        new Date(d.createdAt),
+                                        "dd/MM/yyyy",
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* MOBILE VIEW */}
+                        <div className="grid grid-cols-1 gap-3 md:hidden px-4 sm:px-0">
+                          {data.activeDefects
+                            .slice(
+                              (activeDefectsPage - 1) * 10,
+                              activeDefectsPage * 10,
+                            )
+                            .map((d) => {
+                              const formattedStatus = d.status
+                                .replace(/_/g, " ")
+                                .replace(/\b\w/g, (c) => c.toUpperCase());
+                              const color =
+                                DEFECT_STATUS_HEX[formattedStatus] || "#9ca3af";
+
+                              return (
+                                <div
+                                  key={d.id}
+                                  className="p-3 border rounded-xl bg-card shadow-sm space-y-2"
+                                >
+                                  <div className="flex justify-between items-start gap-2">
+                                    <span className="font-mono text-xs font-semibold text-muted-foreground shrink-0">
+                                      #{d.id}
+                                    </span>
+                                    <span
+                                      className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                                      style={{
+                                        color: color,
+                                        backgroundColor: `${color}1A`,
+                                        border: `1px solid ${color}40`,
+                                      }}
+                                    >
+                                      {d.status}
+                                    </span>
+                                  </div>
+
+                                  <p className="font-medium text-sm leading-tight">
+                                    {d.name}
+                                  </p>
+
+                                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t mt-2">
+                                    <div className="flex gap-2 items-center">
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
+                                      >
+                                        {d.priority}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                                        {d.category || "No Category"}
+                                      </span>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-xs font-medium">
+                                        {d.assignee}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {format(
+                                          new Date(d.createdAt),
+                                          "dd MMM yy",
+                                        )}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {/* PAGINATION CONTROLS */}
+                        {data.activeDefects.length > 10 && (
+                          <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t md:rounded-b-lg">
+                            <div className="text-xs text-muted-foreground">
+                              Showing{" "}
+                              <span className="font-medium">
+                                {(activeDefectsPage - 1) * 10 + 1}
+                              </span>{" "}
+                              to{" "}
+                              <span className="font-medium">
+                                {Math.min(
+                                  activeDefectsPage * 10,
+                                  data.activeDefects.length,
+                                )}
+                              </span>{" "}
+                              of{" "}
+                              <span className="font-medium">
+                                {data.activeDefects.length}
+                              </span>{" "}
+                              defects
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                onClick={() =>
+                                  setActiveDefectsPage((p) =>
+                                    Math.max(1, p - 1),
+                                  )
+                                }
+                                disabled={activeDefectsPage === 1}
+                              >
+                                Previous
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                onClick={() =>
+                                  setActiveDefectsPage((p) =>
+                                    Math.min(
+                                      Math.ceil(data.activeDefects.length / 10),
+                                      p + 1,
+                                    ),
+                                  )
+                                }
+                                disabled={
+                                  activeDefectsPage >=
+                                  Math.ceil(data.activeDefects.length / 10)
+                                }
+                              >
+                                Next
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    </>
   );
 }

@@ -458,53 +458,81 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
   };
 
   try {
-    const { projectId } = req.body;
-
-    let tasks = await db.select().from(tasksTable);
-    let requirements = await db.select().from(requirementsTable);
-    let testCases = await db.select().from(testCasesTable);
-
-    if (projectId) {
-      tasks = tasks.filter((t) => t.projectId === Number(projectId));
-      requirements = requirements.filter(
-        (r) => r.projectId === Number(projectId),
-      );
-      testCases = testCases.filter((tc) => tc.projectId === Number(projectId));
-    }
-
-    const modules: Record<
-      string,
-      { tasks: number; blocked: number; critical: number; uncovered: boolean }
-    > = {};
-    requirements.forEach((r) => {
-      const mod = r.module ?? "Unspecified";
-      if (!modules[mod])
-        modules[mod] = { tasks: 0, blocked: 0, critical: 0, uncovered: false };
-      modules[mod].tasks++;
-      if (r.priority === "critical") modules[mod].critical++;
-      const hasCoverage = testCases.some((tc) => tc.requirementId === r.id);
-      if (!hasCoverage) modules[mod].uncovered = true;
-    });
-
-    tasks
-      .filter((t) => t.status === "blocked")
-      .forEach((t) => {
-        const req = requirements.find((r) => r.id === t.requirementId);
-        const mod = req?.module ?? "Unspecified";
-        if (modules[mod]) modules[mod].blocked++;
-      });
-
-    const moduleList = Object.entries(modules)
-      .map(
-        ([name, m]) =>
-          `${name}: ${m.tasks} reqs, ${m.blocked} blocked, ${m.critical} critical, coverage gap: ${m.uncovered}`,
-      )
-      .join("\n");
+    const { projectId, redmineData } = req.body;
+    let userPrompt = "";
 
     const systemPrompt = `You are a QA risk analyst. Score modules by risk level based on data.
        Return exactly this JSON structure:
        { "modules": [{ "name": "string", "riskScore": 0-100, "riskLevel": "low"|"medium"|"high"|"critical", "reasons": ["string"], "recommendation": "string" }], "overallRisk": "low"|"medium"|"high"|"critical", "summary": "string" }`;
-    const userPrompt = `Module Risk Data:\n${moduleList || "No module data available"}\n\nTotal tasks: ${tasks.length}\nBlocked: ${tasks.filter((t) => t.status === "blocked").length}\nOverdue: ${tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").length}\n\nGenerate risk scores and return ONLY JSON.`;
+
+    // IF DATA COMES FROM REDMINE PMO REPORT
+    if (redmineData) {
+      const moduleList = redmineData.moduleDetails
+        .map(
+          (m: any) =>
+            `${m.module}: ${m.total} test cases, ${m.failed} failed, ${m.blocked} blocked, completion: ${m.totalCompletion}%`,
+        )
+        .join("\n");
+
+      // Extract the full defect history
+      const openDefects = redmineData.activeDefects?.length || 0;
+      const totalDefects = redmineData.defects?.total || 0;
+      const resolvedDefects = totalDefects - openDefects;
+
+      userPrompt = `Redmine Ticket Risk Data:\n${moduleList || "No module data available"}\n\nTotal test cases: ${redmineData.testExecution?.total}\nFailed tests: ${redmineData.testExecution?.failed}\nBlocked tests: ${redmineData.testExecution?.blocked}\nTotal Defects Found: ${totalDefects}\nResolved/Verified Defects: ${resolvedDefects}\nActive/Open Defects: ${openDefects}\n\nGenerate risk scores and return ONLY JSON. Note: A high number of resolved defects is a positive sign of stabilization and lowers risk. Zero open defects is great, but only if test execution > 0%.`;
+    }
+    // ELSE USE LOCAL DB (Original Logic)
+    else {
+      let tasks = await db.select().from(tasksTable);
+      let requirements = await db.select().from(requirementsTable);
+      let testCases = await db.select().from(testCasesTable);
+
+      if (projectId) {
+        tasks = tasks.filter((t) => t.projectId === Number(projectId));
+        requirements = requirements.filter(
+          (r) => r.projectId === Number(projectId),
+        );
+        testCases = testCases.filter(
+          (tc) => tc.projectId === Number(projectId),
+        );
+      }
+
+      const modules: Record<
+        string,
+        { tasks: number; blocked: number; critical: number; uncovered: boolean }
+      > = {};
+      requirements.forEach((r) => {
+        const mod = r.module ?? "Unspecified";
+        if (!modules[mod])
+          modules[mod] = {
+            tasks: 0,
+            blocked: 0,
+            critical: 0,
+            uncovered: false,
+          };
+        modules[mod].tasks++;
+        if (r.priority === "critical") modules[mod].critical++;
+        const hasCoverage = testCases.some((tc) => tc.requirementId === r.id);
+        if (!hasCoverage) modules[mod].uncovered = true;
+      });
+
+      tasks
+        .filter((t) => t.status === "blocked")
+        .forEach((t) => {
+          const req = requirements.find((r) => r.id === t.requirementId);
+          const mod = req?.module ?? "Unspecified";
+          if (modules[mod]) modules[mod].blocked++;
+        });
+
+      const moduleList = Object.entries(modules)
+        .map(
+          ([name, m]) =>
+            `${name}: ${m.tasks} reqs, ${m.blocked} blocked, ${m.critical} critical, coverage gap: ${m.uncovered}`,
+        )
+        .join("\n");
+
+      userPrompt = `Module Risk Data:\n${moduleList || "No module data available"}\n\nTotal tasks: ${tasks.length}\nBlocked: ${tasks.filter((t) => t.status === "blocked").length}\nOverdue: ${tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").length}\n\nGenerate risk scores and return ONLY JSON.`;
+    }
 
     const content = await executeAiTask(systemPrompt, userPrompt);
     res.json(safeParseJSON(content, fallback));
@@ -519,47 +547,11 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
 // ==========================================
 router.post("/ai/release-readiness", async (req, res): Promise<void> => {
   try {
-    const { projectId } = req.body;
-
-    let tasks = await db.select().from(tasksTable);
-    let testCases = await db.select().from(testCasesTable);
-    let requirements = await db.select().from(requirementsTable);
-
-    if (projectId) {
-      tasks = tasks.filter((t) => t.projectId === Number(projectId));
-      testCases = testCases.filter((tc) => tc.projectId === Number(projectId));
-      requirements = requirements.filter(
-        (r) => r.projectId === Number(projectId),
-      );
-    }
-
-    const stats = {
-      totalTasks: tasks.length,
-      done: tasks.filter((t) => t.status === "done").length,
-      blocked: tasks.filter((t) => t.status === "blocked").length,
-      overdue: tasks.filter(
-        (t) =>
-          t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done",
-      ).length,
-      totalReqs: requirements.length,
-      openReqs: requirements.filter((r) => r.status !== "done").length,
-      totalTestCases: testCases.length,
-      automationCandidates: testCases.filter(
-        (tc) => tc.type === "automation_candidate",
-      ).length,
-      coveredReqs: requirements.filter((r) =>
-        testCases.some((tc) => tc.requirementId === r.id),
-      ).length,
-    };
-
-    const completionRate =
-      stats.totalTasks > 0
-        ? Math.round((stats.done / stats.totalTasks) * 100)
-        : 0;
-    const coverageRate =
-      stats.totalReqs > 0
-        ? Math.round((stats.coveredReqs / stats.totalReqs) * 100)
-        : 0;
+    const { projectId, redmineData } = req.body;
+    let userPrompt = "";
+    let completionRate = 0;
+    let coverageRate = 0;
+    let stats: any = {};
 
     const fallback = {
       readinessScore: 0,
@@ -568,15 +560,90 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
       positives: [],
       blockers: [],
       recommendations: [],
-      stats,
-      completionRate,
-      coverageRate,
+      stats: {},
+      completionRate: 0,
+      coverageRate: 0,
     };
 
     const systemPrompt = `You are a QA release manager. Assess release readiness objectively.
        Return exactly this JSON structure:
        { "readinessScore": 0-100, "status": "ready"|"caution"|"not_ready", "verdict": "string", "positives": ["string"], "blockers": ["string"], "recommendations": ["string"] }`;
-    const userPrompt = `Release Readiness Data:\n- Task completion rate: ${completionRate}%\n- Blocked tasks: ${stats.blocked}\n- Overdue tasks: ${stats.overdue}\n- Open requirements: ${stats.openReqs}\n- Test coverage rate: ${coverageRate}%\n- Total test cases: ${stats.totalTestCases}\n- Automation candidates: ${stats.automationCandidates}\n\nAssess release readiness and return ONLY JSON.`;
+
+    // IF DATA COMES FROM REDMINE PMO REPORT
+    if (redmineData) {
+      completionRate = redmineData.testExecution?.successRate || 0;
+      coverageRate = 100; // Assuming 100% since we are viewing an active defect report
+
+      stats = {
+        totalTasks: redmineData.testExecution?.total || 0,
+        done: redmineData.testExecution?.passed || 0,
+        blocked: redmineData.testExecution?.blocked || 0,
+        overdue: 0,
+        totalReqs: redmineData.requirements?.length || 0,
+        openReqs:
+          redmineData.requirements?.filter(
+            (r: any) => r.status !== "Closed" && r.status !== "Done",
+          ).length || 0,
+        totalTestCases: redmineData.testExecution?.total || 0,
+        automationCandidates: 0,
+        coveredReqs: redmineData.requirements?.length || 0,
+      };
+
+      // Extract the full defect history
+      const openDefects = redmineData.activeDefects?.length || 0;
+      const totalDefects = redmineData.defects?.total || 0;
+      const resolvedDefects = totalDefects - openDefects;
+
+      userPrompt = `Release Readiness Data (Redmine):\n- Test pass rate: ${redmineData.testExecution?.passRate}%\n- Test success rate (Pass + In Prog): ${completionRate}%\n- Blocked test cases: ${stats.blocked}\n- Failed test cases: ${redmineData.testExecution?.failed || 0}\n- Total defects found: ${totalDefects}\n- Resolved/Verified defects: ${resolvedDefects}\n- Active/Open defects: ${openDefects}\n- Total test cases: ${stats.totalTestCases}\n\nAssess release readiness and return ONLY JSON. Important: If 'Resolved/Verified defects' is high, treat this as a strong positive signal of system stabilization. If 'Active/Open defects' is 0, this increases readiness significantly, provided the test execution rate is acceptable.`;
+    }
+    // ELSE USE LOCAL DB (Original Logic)
+    else {
+      let tasks = await db.select().from(tasksTable);
+      let testCases = await db.select().from(testCasesTable);
+      let requirements = await db.select().from(requirementsTable);
+
+      if (projectId) {
+        tasks = tasks.filter((t) => t.projectId === Number(projectId));
+        testCases = testCases.filter(
+          (tc) => tc.projectId === Number(projectId),
+        );
+        requirements = requirements.filter(
+          (r) => r.projectId === Number(projectId),
+        );
+      }
+
+      stats = {
+        totalTasks: tasks.length,
+        done: tasks.filter((t) => t.status === "done").length,
+        blocked: tasks.filter((t) => t.status === "blocked").length,
+        overdue: tasks.filter(
+          (t) =>
+            t.dueDate &&
+            new Date(t.dueDate) < new Date() &&
+            t.status !== "done",
+        ).length,
+        totalReqs: requirements.length,
+        openReqs: requirements.filter((r) => r.status !== "done").length,
+        totalTestCases: testCases.length,
+        automationCandidates: testCases.filter(
+          (tc) => tc.type === "automation_candidate",
+        ).length,
+        coveredReqs: requirements.filter((r) =>
+          testCases.some((tc) => tc.requirementId === r.id),
+        ).length,
+      };
+
+      completionRate =
+        stats.totalTasks > 0
+          ? Math.round((stats.done / stats.totalTasks) * 100)
+          : 0;
+      coverageRate =
+        stats.totalReqs > 0
+          ? Math.round((stats.coveredReqs / stats.totalReqs) * 100)
+          : 0;
+
+      userPrompt = `Release Readiness Data:\n- Task completion rate: ${completionRate}%\n- Blocked tasks: ${stats.blocked}\n- Overdue tasks: ${stats.overdue}\n- Open requirements: ${stats.openReqs}\n- Test coverage rate: ${coverageRate}%\n- Total test cases: ${stats.totalTestCases}\n- Automation candidates: ${stats.automationCandidates}\n\nAssess release readiness and return ONLY JSON.`;
+    }
 
     const content = await executeAiTask(systemPrompt, userPrompt);
     const parsedData = safeParseJSON(content, fallback);
