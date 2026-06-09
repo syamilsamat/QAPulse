@@ -11,11 +11,11 @@ const router: IRouter = Router();
 
 function getDbConfig() {
   return {
-    host:     process.env.REDMINE_DB_HOST     ?? "10.10.4.130",
-    port:     parseInt(process.env.REDMINE_DB_PORT ?? "3306"),
-    user:     process.env.REDMINE_DB_USER     ?? "bestqa",
+    host: process.env.REDMINE_DB_HOST ?? "10.10.4.130",
+    port: parseInt(process.env.REDMINE_DB_PORT ?? "3306"),
+    user: process.env.REDMINE_DB_USER ?? "bestqa",
     password: process.env.REDMINE_DB_PASSWORD ?? "",
-    database: process.env.REDMINE_DB_NAME     ?? "redmine",
+    database: process.env.REDMINE_DB_NAME ?? "redmine",
     connectTimeout: 8000,
   };
 }
@@ -32,137 +32,91 @@ router.get("/pmo/redmine/:issueId", async (req, res): Promise<void> => {
     return;
   }
 
-  let conn: import("mysql2/promise").Connection | null = null;
   try {
-    conn = await getConnection();
+    // Determine the base URL and API key from environment variables
+    const baseUrl = process.env.REDMINE_URL ?? "https://redmine.bestinet.my";
+    const apiKey = process.env.REDMINE_API_KEY ?? "";
 
-    const [issueRows] = await conn.query<any[]>(
-      `SELECT 
-        i.id, i.subject, i.description, i.done_ratio, i.estimated_hours,
-        i.created_on, i.updated_on, i.due_date, i.start_date,
-        i.status_id, i.priority_id, i.tracker_id,
-        s.name AS status,
-        t.name AS tracker,
-        e.name AS priority,
-        p.identifier AS project_key,
-        p.name AS project_name,
-        CONCAT(u.firstname, ' ', u.lastname) AS assignee,
-        CONCAT(a.firstname, ' ', a.lastname) AS author
-       FROM issues i
-       LEFT JOIN issue_statuses s  ON s.id = i.status_id
-       LEFT JOIN trackers t        ON t.id = i.tracker_id
-       LEFT JOIN enumerations e    ON e.id = i.priority_id AND e.type = 'IssuePriority'
-       LEFT JOIN projects p        ON p.id = i.project_id
-       LEFT JOIN users u           ON u.id = i.assigned_to_id
-       LEFT JOIN users a           ON a.id = i.author_id
-       WHERE i.id = ?`,
-      [issueId]
-    );
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+    };
 
-    if (!issueRows.length) {
-      res.status(404).json({ error: `Redmine issue #${issueId} not found`, connected: true });
-      return;
+    // Attach the API key if it is provided
+    if (apiKey) {
+      headers["X-Redmine-API-Key"] = apiKey;
     }
 
-    const parent = issueRows[0];
-
-    const [childRows] = await conn.query<any[]>(
-      `SELECT 
-        i.id, i.subject, i.done_ratio, i.estimated_hours,
-        i.created_on, i.updated_on, i.due_date,
-        s.name AS status,
-        t.name AS tracker,
-        e.name AS priority,
-        CONCAT(u.firstname, ' ', u.lastname) AS assignee
-       FROM issues i
-       LEFT JOIN issue_statuses s  ON s.id = i.status_id
-       LEFT JOIN trackers t        ON t.id = i.tracker_id
-       LEFT JOIN enumerations e    ON e.id = i.priority_id AND e.type = 'IssuePriority'
-       LEFT JOIN users u           ON u.id = i.assigned_to_id
-       WHERE i.parent_id = ?
-       ORDER BY i.id`,
-      [issueId]
+    // Fetch from Redmine's REST API, including children and journal records if needed
+    const response = await fetch(
+      `${baseUrl}/issues/${issueId}.json?include=children,journals`,
+      {
+        headers,
+      },
     );
 
-    const [journalRows] = await conn.query<any[]>(
-      `SELECT 
-        j.id, j.notes, j.created_on,
-        CONCAT(u.firstname, ' ', u.lastname) AS author
-       FROM journals j
-       LEFT JOIN users u ON u.id = j.user_id
-       WHERE j.journalized_id = ? AND j.journalized_type = 'Issue' AND j.notes != ''
-       ORDER BY j.created_on DESC
-       LIMIT 10`,
-      [issueId]
-    );
-
-    const statusSummary: Record<string, number> = {};
-    for (const child of childRows as any[]) {
-      const s = (child.status ?? "Unknown").toString();
-      statusSummary[s] = (statusSummary[s] ?? 0) + 1;
+    if (!response.ok) {
+      if (response.status === 404) {
+        res.status(404).json({
+          error: `Redmine issue #${issueId} not found`,
+          connected: true,
+        });
+        return;
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          "Authentication failed. Please check your REDMINE_API_KEY.",
+        );
+      }
+      throw new Error(`Redmine API returned status: ${response.status}`);
     }
 
+    const data = await response.json();
+    const apiIssue = data.issue;
+
+    // Map the REST API JSON structure to the format your frontend expects
     res.json({
       connected: true,
       issue: {
-        id: parent.id,
-        subject: parent.subject,
-        description: parent.description,
-        status: parent.status,
-        tracker: parent.tracker,
-        priority: parent.priority,
-        assignee: parent.assignee,
-        author: parent.author,
-        projectName: parent.project_name,
-        doneRatio: parent.done_ratio,
-        estimatedHours: parent.estimated_hours,
-        startDate: parent.start_date,
-        dueDate: parent.due_date,
-        createdOn: parent.created_on,
-        updatedOn: parent.updated_on,
+        id: apiIssue.id,
+        subject: apiIssue.subject,
+        description: apiIssue.description,
+        status: apiIssue.status?.name,
+        tracker: apiIssue.tracker?.name,
+        priority: apiIssue.priority?.name,
+        assignee: apiIssue.assigned_to?.name,
+        author: apiIssue.author?.name,
+        projectName: apiIssue.project?.name,
+        doneRatio: apiIssue.done_ratio,
+        estimatedHours: apiIssue.estimated_hours,
+        startDate: apiIssue.start_date,
+        dueDate: apiIssue.due_date,
+        createdOn: apiIssue.created_on,
+        updatedOn: apiIssue.updated_on,
       },
-      children: (childRows as any[]).map((c: any) => ({
-        id: c.id,
-        subject: c.subject,
-        status: c.status,
-        tracker: c.tracker,
-        priority: c.priority,
-        assignee: c.assignee,
-        doneRatio: c.done_ratio,
-        dueDate: c.due_date,
-        createdOn: c.created_on,
-      })),
-      statusSummary,
-      journals: (journalRows as any[]).map((j: any) => ({
-        id: j.id,
-        notes: j.notes,
-        author: j.author,
-        createdOn: j.created_on,
-      })),
     });
   } catch (err: any) {
-    const isConnErr = err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT" || err.code === "ENOTFOUND" || err.code === "EHOSTUNREACH";
-    res.status(isConnErr ? 503 : 500).json({
+    res.status(503).json({
       connected: false,
-      error: isConnErr
-        ? "Cannot reach Redmine database. Ensure the server is accessible from this environment."
-        : err.message,
+      error: `Failed to fetch from Redmine API: ${err.message}`,
     });
-  } finally {
-    if (conn) await conn.end().catch(() => {});
   }
 });
 
+// You can also update the status check route to ping the API instead of the DB
 router.get("/pmo/redmine-status", async (_req, res): Promise<void> => {
-  let conn: import("mysql2/promise").Connection | null = null;
   try {
-    conn = await getConnection();
-    await conn.query("SELECT 1");
-    res.json({ connected: true, host: process.env.REDMINE_DB_HOST ?? "10.10.4.130" });
+    const baseUrl = process.env.REDMINE_URL ?? "https://redmine.bestinet.my";
+    const response = await fetch(`${baseUrl}/issues.json?limit=1`);
+    if (response.ok) {
+      res.json({ connected: true, host: baseUrl });
+    } else {
+      res.json({
+        connected: false,
+        error: `API responded with ${response.status}`,
+      });
+    }
   } catch (err: any) {
     res.json({ connected: false, error: err.message });
-  } finally {
-    if (conn) await conn.end().catch(() => {});
   }
 });
 

@@ -90,7 +90,8 @@ function RiskBadge({ level }: { level: string }) {
 }
 
 export default function AiFeatures() {
-  const { token } = useAuth();
+  // Added 'user' here so the dynamic chat history works
+  const { user, token } = useAuth();
   const { toast } = useToast();
   const coverageFileRef = useRef<HTMLInputElement>(null);
 
@@ -134,31 +135,47 @@ export default function AiFeatures() {
   // --- ENHANCED PERSISTENT CHAT STATE ---
   const [chatMessages, setChatMessages] = useState<
     Array<{ role: "user" | "assistant"; content: string }>
-  >(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("qa-copilot-history");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse chat history");
-        }
-      }
-    }
-    return [];
-  });
+  >([]);
+
+  // Track if we've loaded the initial history so we don't accidentally overwrite it
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Save chat to local storage whenever it changes
+  // 1. Load chat history specific to the logged-in user
   useEffect(() => {
-    localStorage.setItem("qa-copilot-history", JSON.stringify(chatMessages));
-  }, [chatMessages]);
+    if (user?.id && typeof window !== "undefined") {
+      const saved = localStorage.getItem(`qa-copilot-history-${user.id}`);
+      if (saved) {
+        try {
+          setChatMessages(JSON.parse(saved));
+        } catch (e) {
+          console.error("Failed to parse chat history");
+        }
+      } else {
+        setChatMessages([]); // Start fresh if they have no history
+      }
+      setHistoryLoaded(true);
+    }
+  }, [user?.id]);
+
+  // 2. Save chat to local storage using the user's specific ID
+  useEffect(() => {
+    if (historyLoaded && user?.id && typeof window !== "undefined") {
+      if (chatMessages.length > 0) {
+        localStorage.setItem(`qa-copilot-history-${user.id}`, JSON.stringify(chatMessages));
+      } else {
+        localStorage.removeItem(`qa-copilot-history-${user.id}`);
+      }
+    }
+  }, [chatMessages, historyLoaded, user?.id]);
 
   const startNewChat = () => {
     setChatMessages([]);
-    localStorage.removeItem("qa-copilot-history");
+    if (user?.id) {
+      localStorage.removeItem(`qa-copilot-history-${user.id}`);
+    }
   };
   // --------------------------------------
 

@@ -86,7 +86,6 @@ import {
   X,
   ChevronDown,
   Check,
-  CalendarDays,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -111,82 +110,157 @@ function WorkloadPanel({
   users: Array<{ id: number; name: string; role: string }>;
   onAssign: (userId: number) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
+
   const qaMembers = users.filter(
     (u) => u.role === "qa_member" || u.role === "qa_lead",
   );
 
+  const filteredMembers = qaMembers.filter((m) =>
+    m.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const totalPages = Math.ceil(filteredMembers.length / ITEMS_PER_PAGE);
+  const paginatedMembers = filteredMembers.slice(
+    (page - 1) * ITEMS_PER_PAGE,
+    page * ITEMS_PER_PAGE,
+  );
+
+  // Reset to first page when searching
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
+      <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <CardTitle className="flex items-center gap-2 text-base shrink-0">
           <Users className="w-4 h-4 text-primary" /> Team Workload
         </CardTitle>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search member..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-8 text-sm w-full bg-muted/30 focus:bg-background"
+          />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {qaMembers.map((member) => {
-            const memberTasks = tasks.filter((t) => t.assigneeId === member.id);
-            const activeTasks = memberTasks.filter((t) => t.status !== "done");
-            const doneTasks = memberTasks.filter((t) => t.status === "done");
-            const overdueTasks = activeTasks.filter((t) => t.isOverdue);
+        {paginatedMembers.length === 0 ? (
+          <p className="text-sm text-center text-muted-foreground py-6">
+            No team members found matching "{search}"
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {paginatedMembers.map((member) => {
+              const memberTasks = tasks.filter(
+                (t) => t.assigneeId === member.id,
+              );
+              const activeTasks = memberTasks.filter(
+                (t) => t.status !== "done",
+              );
+              const doneTasks = memberTasks.filter((t) => t.status === "done");
+              const overdueTasks = activeTasks.filter((t) => t.isOverdue);
 
-            return (
-              <div
-                key={member.id}
-                className="flex flex-col gap-2 p-3 rounded-lg border bg-card hover:bg-muted/40 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Avatar className="w-7 h-7 shrink-0">
-                    <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
-                      {member.name.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold truncate">
-                      {member.name.split(" ")[0]}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground capitalize">
-                      {member.role.replace("_", " ")}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] h-5 px-1.5 gap-0.5"
-                  >
-                    <Briefcase className="w-2.5 h-2.5" /> {activeTasks.length}{" "}
-                    active
-                  </Badge>
-                  {overdueTasks.length > 0 && (
-                    <Badge
-                      variant="destructive"
-                      className="text-[10px] h-5 px-1.5"
-                    >
-                      {overdueTasks.length} overdue
-                    </Badge>
-                  )}
-                  {doneTasks.length > 0 && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] h-5 px-1.5 text-green-600 border-green-200"
-                    >
-                      {doneTasks.length} done
-                    </Badge>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-[11px] mt-auto"
-                  onClick={() => onAssign(member.id)}
+              return (
+                <div
+                  key={member.id}
+                  className="flex flex-col gap-2 p-3 rounded-lg border bg-card hover:bg-muted/40 transition-colors"
                 >
-                  <UserCheck className="w-3 h-3 mr-1" /> Assign Task
-                </Button>
-              </div>
-            );
-          })}
-        </div>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="w-7 h-7 shrink-0">
+                      <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
+                        {member.name.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold truncate">
+                        {member.name.split(" ")[0]}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground capitalize truncate">
+                        {member.role.replace("_", " ")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] h-5 px-1.5 gap-0.5"
+                    >
+                      <Briefcase className="w-2.5 h-2.5" /> {activeTasks.length}{" "}
+                      active
+                    </Badge>
+                    {overdueTasks.length > 0 && (
+                      <Badge
+                        variant="destructive"
+                        className="text-[10px] h-5 px-1.5"
+                      >
+                        {overdueTasks.length} overdue
+                      </Badge>
+                    )}
+                    {doneTasks.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] h-5 px-1.5 text-green-600 border-green-200"
+                      >
+                        {doneTasks.length} done
+                      </Badge>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[11px] mt-auto"
+                    onClick={() => onAssign(member.id)}
+                  >
+                    <UserCheck className="w-3 h-3 mr-1" /> Assign Task
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50">
+            <span className="text-xs text-muted-foreground">
+              Showing{" "}
+              <span className="font-medium">
+                {(page - 1) * ITEMS_PER_PAGE + 1}
+              </span>{" "}
+              to{" "}
+              <span className="font-medium">
+                {Math.min(page * ITEMS_PER_PAGE, filteredMembers.length)}
+              </span>{" "}
+              of <span className="font-medium">{filteredMembers.length}</span>
+            </span>
+            <div className="flex gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                Prev
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -252,7 +326,6 @@ export default function Tasks() {
     enabled: isAdminOrLead,
   });
 
-  // Reset page safely whenever filter variables shift layout boundaries
   useEffect(() => {
     setCurrentPage(1);
   }, [search, filterStatus, filterAssignee, filterProject]);
@@ -335,7 +408,6 @@ export default function Tasks() {
     return true;
   });
 
-  // Apply array mapping limits for client-side pagination parameters
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTasks = filtered.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -468,7 +540,6 @@ export default function Tasks() {
         </div>
       </div>
 
-      {/* Workload panel — admin/lead only */}
       {isAdminOrLead && (
         <WorkloadPanel
           tasks={tasks}
@@ -493,7 +564,7 @@ export default function Tasks() {
               <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="Project" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-[300px]">
                 <SelectItem value="all">All Projects</SelectItem>
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
@@ -506,7 +577,7 @@ export default function Tasks() {
               <SelectTrigger className="w-full sm:w-36">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-[300px]">
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="new">New</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
@@ -526,7 +597,7 @@ export default function Tasks() {
                 <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="Assignee" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px]">
                   <SelectItem value="all">All Assignees</SelectItem>
                   {users.map((u) => (
                     <SelectItem key={u.id} value={String(u.id)}>
@@ -568,17 +639,27 @@ export default function Tasks() {
               )}
             </div>
           ) : (
-            <div className="flex flex-col">
-              <div className="overflow-x-auto">
-                <Table>
+            <div className="flex flex-col w-full">
+              {/* Added responsive horizontal scrolling container */}
+              <div className="overflow-x-auto w-full pb-2">
+                <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Task</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Assignee</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Progress</TableHead>
+                      <TableHead className="min-w-[200px]">Task</TableHead>
+                      {/* Added whitespace-nowrap to prevent column collapses */}
+                      <TableHead className="whitespace-nowrap">Type</TableHead>
+                      <TableHead className="whitespace-nowrap min-w-[120px]">
+                        Status
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap min-w-[140px]">
+                        Assignee
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap min-w-[100px]">
+                        Due Date
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap min-w-[120px]">
+                        Progress
+                      </TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -597,11 +678,53 @@ export default function Tasks() {
                               {t.name}
                             </p>
                             {t.projectName && (
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-muted-foreground mt-0.5">
                                 {t.projectName}
                               </p>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap capitalize text-sm text-muted-foreground">
+                          {t.type.replace("_", " ")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <Select
+                            value={t.status}
+                            onValueChange={(v) => quickStatusChange(t, v)}
+                          >
+                            <SelectTrigger className="h-7 text-xs border-0 p-0 focus:ring-0">
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status]}`}
+                              >
+                                {capitalize(t.status)}
+                              </span>
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px]">
+                              <SelectItem value="new">New</SelectItem>
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="in_progress">
+                                In Progress
+                              </SelectItem>
+                              <SelectItem value="blocked">Blocked</SelectItem>
+                              <SelectItem value="done">Done</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {t.assigneeName ? (
+                            <div className="flex items-center gap-2">
+                              <Avatar className="w-6 h-6">
+                                <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
+                                  {t.assigneeName.substring(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm">{t.assigneeName}</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground italic">
+                              Unassigned
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <span
@@ -616,65 +739,13 @@ export default function Tasks() {
                               : "—"}
                           </span>
                         </TableCell>
-                        <TableCell>
-                          <Select
-                            value={t.status}
-                            onValueChange={(v) => quickStatusChange(t, v)}
-                          >
-                            <SelectTrigger className="h-7 text-xs border-0 p-0 focus:ring-0">
-                              <span
-                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status]}`}
-                              >
-                                {capitalize(t.status)}
-                              </span>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="new">New</SelectItem>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="in_progress">
-                                In Progress
-                              </SelectItem>
-                              <SelectItem value="blocked">Blocked</SelectItem>
-                              <SelectItem value="done">Done</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          {t.assigneeName ? (
-                            <div className="flex items-center gap-2">
-                              <Avatar className="w-6 h-6">
-                                <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                                  {t.assigneeName.substring(0, 2).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span className="text-sm">{t.assigneeName}</span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              Unassigned
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`text-sm font-medium px-2 py-0.5 rounded ${
-                              t.isOverdue && t.status !== "done"
-                                ? "bg-red-100 text-red-700"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {t.dueDate
-                              ? format(new Date(t.dueDate), "MMM d")
-                              : "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell>
+                        <TableCell className="whitespace-nowrap">
                           {t.completionPercentage !== null &&
                           t.completionPercentage !== undefined ? (
                             <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-16">
                                 <div
-                                  className="h-full bg-primary rounded-full"
+                                  className="h-full bg-primary rounded-full transition-all"
                                   style={{
                                     width: `${t.completionPercentage}%`,
                                   }}
@@ -758,7 +829,6 @@ export default function Tasks() {
                 </Table>
               </div>
 
-              {/* Pagination Controls Component Layer */}
               <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
                 <div className="text-xs text-muted-foreground">
                   Showing{" "}
@@ -800,9 +870,8 @@ export default function Tasks() {
         </CardContent>
       </Card>
 
-      {/* Create / Edit Task Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingTask ? "Edit Task" : "New Task"}</DialogTitle>
           </DialogHeader>
@@ -825,7 +894,7 @@ export default function Tasks() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="testing">Testing</SelectItem>
                     <SelectItem value="bug_verification">
                       Bug Verification
@@ -847,7 +916,7 @@ export default function Tasks() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="new">New</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
@@ -867,7 +936,7 @@ export default function Tasks() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.name}
@@ -887,7 +956,7 @@ export default function Tasks() {
                   <SelectTrigger>
                     <SelectValue placeholder="Assign to..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {users.map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>
                         {u.name}
@@ -967,7 +1036,7 @@ export default function Tasks() {
                 <SelectTrigger>
                   <SelectValue placeholder="Link to requirement..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px]">
                   {requirements.map((r) => (
                     <SelectItem key={r.id} value={String(r.id)}>
                       {r.title}
@@ -1008,7 +1077,6 @@ export default function Tasks() {
         </DialogContent>
       </Dialog>
 
-      {/* Multi-select Assign Test Cases Dialog */}
       <Dialog
         open={assignDialogOpen}
         onOpenChange={(o) => {
