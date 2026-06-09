@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  listRequirements, getListRequirementsQueryKey,
-  listProjects, getListProjectsQueryKey,
-  listUsers, getListUsersQueryKey,
-  useCreateRequirement, useUpdateRequirement, useDeleteRequirement,
+  listRequirements,
+  getListRequirementsQueryKey,
+  listProjects,
+  getListProjectsQueryKey,
+  listUsers,
+  getListUsersQueryKey,
+  useCreateRequirement,
+  useUpdateRequirement,
+  useDeleteRequirement,
   useCreateProject,
-  type Requirement, type RequirementInput
+  type Requirement,
+  type RequirementInput,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -15,20 +21,47 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, ExternalLink, FileText, FolderPlus, Download, Loader2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  ExternalLink,
+  FileText,
+  FolderPlus,
+  Download,
+  Loader2,
+} from "lucide-react";
 import { format } from "date-fns";
 import { getApiUrl } from "@/lib/api";
 
@@ -62,9 +95,17 @@ export default function Requirements() {
   const [form, setForm] = useState<Partial<RequirementInput>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
   // New project dialog
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", status: "active" });
+  const [projectForm, setProjectForm] = useState({
+    name: "",
+    description: "",
+    status: "active",
+  });
 
   // Redmine import dialog
   const [redmineDialogOpen, setRedmineDialogOpen] = useState(false);
@@ -86,39 +127,62 @@ export default function Requirements() {
     queryFn: () => listUsers(),
   });
 
+  // Reset page layout safely when active query filters drop items
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterStatus, filterPriority, filterProject]);
+
   const createMutation = useCreateRequirement({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+        queryClient.invalidateQueries({
+          queryKey: getListRequirementsQueryKey(),
+        });
         setDialogOpen(false);
         setForm({});
         setErrors({});
         toast({ title: "Requirement created" });
       },
-      onError: () => toast({ variant: "destructive", title: "Failed to create requirement" }),
+      onError: () =>
+        toast({
+          variant: "destructive",
+          title: "Failed to create requirement",
+        }),
     },
   });
 
   const updateMutation = useUpdateRequirement({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+        queryClient.invalidateQueries({
+          queryKey: getListRequirementsQueryKey(),
+        });
         setDialogOpen(false);
         setEditingReq(null);
         setErrors({});
         toast({ title: "Requirement updated" });
       },
-      onError: () => toast({ variant: "destructive", title: "Failed to update requirement" }),
+      onError: () =>
+        toast({
+          variant: "destructive",
+          title: "Failed to update requirement",
+        }),
     },
   });
 
   const deleteMutation = useDeleteRequirement({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+        queryClient.invalidateQueries({
+          queryKey: getListRequirementsQueryKey(),
+        });
         toast({ title: "Requirement deleted" });
       },
-      onError: () => toast({ variant: "destructive", title: "Failed to delete requirement" }),
+      onError: () =>
+        toast({
+          variant: "destructive",
+          title: "Failed to delete requirement",
+        }),
     },
   });
 
@@ -130,17 +194,27 @@ export default function Requirements() {
         setProjectForm({ name: "", description: "", status: "active" });
         toast({ title: "Project created" });
       },
-      onError: () => toast({ variant: "destructive", title: "Failed to create project" }),
+      onError: () =>
+        toast({ variant: "destructive", title: "Failed to create project" }),
     },
   });
 
   const filtered = requirements.filter((r) => {
     if (filterStatus !== "all" && r.status !== filterStatus) return false;
     if (filterPriority !== "all" && r.priority !== filterPriority) return false;
-    if (filterProject !== "all" && String(r.projectId) !== filterProject) return false;
-    if (search && !r.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterProject !== "all" && String(r.projectId) !== filterProject)
+      return false;
+    if (search && !r.title.toLowerCase().includes(search.toLowerCase()))
+      return false;
     return true;
   });
+
+  // Apply array subset segmentation limits for pagination parameters
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const paginatedRequirements = filtered.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  );
 
   const openCreate = () => {
     setEditingReq(null);
@@ -177,7 +251,10 @@ export default function Requirements() {
 
   const handleSubmit = () => {
     if (!validate()) {
-      toast({ variant: "destructive", title: "Please fill in all required fields" });
+      toast({
+        variant: "destructive",
+        title: "Please fill in all required fields",
+      });
       return;
     }
     if (editingReq) {
@@ -196,13 +273,19 @@ export default function Requirements() {
   };
 
   const handleImportFromRedmine = async () => {
-    const clean = redmineInput.trim().replace(/^#/, "").replace(/.*\/issues\//, "");
+    const clean = redmineInput
+      .trim()
+      .replace(/^#/, "")
+      .replace(/.*\/issues\//, "");
     if (!clean) return;
     setRedmineLoading(true);
     try {
-      const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(clean)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const resp = await fetch(
+        `${getApiUrl()}/pmo/redmine/${encodeURIComponent(clean)}`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
       const data = await resp.json();
       if (data.connected && data.issue) {
         setEditingReq(null);
@@ -210,19 +293,31 @@ export default function Requirements() {
         setForm({
           title: data.issue.subject,
           description: data.issue.description ?? "",
-          priority: data.issue.priority?.toLowerCase() === "urgent" || data.issue.priority?.toLowerCase() === "immediate" ? "critical"
-            : data.issue.priority?.toLowerCase() === "high" ? "high"
-            : data.issue.priority?.toLowerCase() === "low" ? "low"
-            : "medium",
+          priority:
+            data.issue.priority?.toLowerCase() === "urgent" ||
+            data.issue.priority?.toLowerCase() === "immediate"
+              ? "critical"
+              : data.issue.priority?.toLowerCase() === "high"
+                ? "high"
+                : data.issue.priority?.toLowerCase() === "low"
+                  ? "low"
+                  : "medium",
           status: "draft",
           redmineTicketId: String(data.issue.id),
         });
         setRedmineDialogOpen(false);
         setRedmineInput("");
         setDialogOpen(true);
-        toast({ title: `Imported Redmine #${data.issue.id}`, description: data.issue.subject });
+        toast({
+          title: `Imported Redmine #${data.issue.id}`,
+          description: data.issue.subject,
+        });
       } else {
-        toast({ variant: "destructive", title: "Could not fetch Redmine issue", description: data.error ?? "Not found or offline" });
+        toast({
+          variant: "destructive",
+          title: "Could not fetch Redmine issue",
+          description: data.error ?? "Not found or offline",
+        });
       }
     } catch {
       toast({ variant: "destructive", title: "Failed to connect to Redmine" });
@@ -238,14 +333,24 @@ export default function Requirements() {
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <FileText className="w-7 h-7 text-primary" /> Requirements
           </h1>
-          <p className="text-muted-foreground mt-1">Manage and track project requirements</p>
+          <p className="text-muted-foreground mt-1">
+            Manage and track project requirements
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setProjectDialogOpen(true)} className="gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setProjectDialogOpen(true)}
+            className="gap-2"
+          >
             <FolderPlus className="w-4 h-4" /> New Project
           </Button>
-          <Button variant="outline" onClick={() => setRedmineDialogOpen(true)} className="gap-2">
-            <Download className="w-4 h-4" /> + Requirement From Redmine
+          <Button
+            variant="outline"
+            onClick={() => setRedmineDialogOpen(true)}
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" /> Requirement From Redmine
           </Button>
           <Button onClick={openCreate} className="gap-2">
             <Plus className="w-4 h-4" /> New Requirement
@@ -266,14 +371,22 @@ export default function Requirements() {
               />
             </div>
             <Select value={filterProject} onValueChange={setFilterProject}>
-              <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Project" /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="Project" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
-                {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-36">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="draft">Draft</SelectItem>
@@ -283,7 +396,9 @@ export default function Requirements() {
               </SelectContent>
             </Select>
             <Select value={filterPriority} onValueChange={setFilterPriority}>
-              <SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="Priority" /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-36">
+                <SelectValue placeholder="Priority" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Priority</SelectItem>
                 <SelectItem value="low">Low</SelectItem>
@@ -296,79 +411,147 @@ export default function Requirements() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading...</div>
+            <div className="p-8 text-center text-muted-foreground">
+              Loading...
+            </div>
           ) : filtered.length === 0 ? (
             <div className="p-12 text-center">
               <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
               <p className="text-muted-foreground">No requirements found</p>
               <Button variant="outline" className="mt-4" onClick={openCreate}>
-                <Plus className="w-4 h-4 mr-2" />Add first requirement
+                <Plus className="w-4 h-4 mr-2" />
+                Add first requirement
               </Button>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Assignee</TableHead>
-                  <TableHead>Release</TableHead>
-                  <TableHead className="w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((r) => (
-                  <TableRow key={r.id} className="hover:bg-muted/40">
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{r.title}</p>
-                        {r.module && <p className="text-xs text-muted-foreground">{r.module}</p>}
-                        {r.redmineTicketId && (
-                          <span className="text-xs text-blue-600 flex items-center gap-1 mt-0.5">
-                            <ExternalLink className="w-3 h-3" />#{r.redmineTicketId}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{r.projectName ?? "—"}</TableCell>
-                    <TableCell>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[r.priority]}`}>
-                        {capitalize(r.priority)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[r.status]}`}>
-                        {capitalize(r.status)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm">{r.assigneeName ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{r.release ?? "—"}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(r)}>
-                            <Pencil className="w-4 h-4 mr-2" />Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => deleteMutation.mutate({ id: r.id })}
+            <div className="flex flex-col">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Project</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Assignee</TableHead>
+                      <TableHead>Release</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedRequirements.map((r) => (
+                      <TableRow key={r.id} className="hover:bg-muted/40">
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{r.title}</p>
+                            {r.module && (
+                              <p className="text-xs text-muted-foreground">
+                                {r.module}
+                              </p>
+                            )}
+                            {r.redmineTicketId && (
+                              <span className="text-xs text-blue-600 flex items-center gap-1 mt-0.5">
+                                <ExternalLink className="w-3 h-3" />#
+                                {r.redmineTicketId}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {r.projectName ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[r.priority]}`}
                           >
-                            <Trash2 className="w-4 h-4 mr-2" />Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                            {capitalize(r.priority)}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[r.status]}`}
+                          >
+                            {capitalize(r.status)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {r.assigneeName ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {r.release ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(r)}>
+                                <Pencil className="w-4 h-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() =>
+                                  deleteMutation.mutate({ id: r.id })
+                                }
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
+                <div className="text-xs text-muted-foreground">
+                  Showing{" "}
+                  <span className="font-medium">
+                    {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+                  </span>{" "}
+                  to{" "}
+                  <span className="font-medium">
+                    {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}
+                  </span>{" "}
+                  of <span className="font-medium">{filtered.length}</span>{" "}
+                  requirements
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    disabled={currentPage >= totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -377,25 +560,33 @@ export default function Requirements() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingReq ? "Edit Requirement" : "New Requirement"}</DialogTitle>
+            <DialogTitle>
+              {editingReq ? "Edit Requirement" : "New Requirement"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Title <span className="text-destructive">*</span></Label>
+              <Label>
+                Title <span className="text-destructive">*</span>
+              </Label>
               <Input
                 placeholder="Requirement title"
                 value={form.title ?? ""}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 className={errors.title ? "border-destructive" : ""}
               />
-              {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
+              {errors.title && (
+                <p className="text-xs text-destructive">{errors.title}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Description</Label>
               <Textarea
                 placeholder="Describe the requirement..."
                 value={form.description ?? ""}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
                 rows={3}
               />
             </div>
@@ -404,21 +595,35 @@ export default function Requirements() {
                 <Label>Project</Label>
                 <Select
                   value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  onValueChange={(v) =>
+                    setForm({ ...form, projectId: Number(v) })
+                  }
                 >
-                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select project" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Priority <span className="text-destructive">*</span></Label>
+                <Label>
+                  Priority <span className="text-destructive">*</span>
+                </Label>
                 <Select
                   value={form.priority ?? "medium"}
-                  onValueChange={(v) => setForm({ ...form, priority: v as any })}
+                  onValueChange={(v) =>
+                    setForm({ ...form, priority: v as any })
+                  }
                 >
-                  <SelectTrigger className={errors.priority ? "border-destructive" : ""}>
+                  <SelectTrigger
+                    className={errors.priority ? "border-destructive" : ""}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -430,12 +635,16 @@ export default function Requirements() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Status <span className="text-destructive">*</span></Label>
+                <Label>
+                  Status <span className="text-destructive">*</span>
+                </Label>
                 <Select
                   value={form.status ?? "draft"}
                   onValueChange={(v) => setForm({ ...form, status: v as any })}
                 >
-                  <SelectTrigger className={errors.status ? "border-destructive" : ""}>
+                  <SelectTrigger
+                    className={errors.status ? "border-destructive" : ""}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -450,11 +659,19 @@ export default function Requirements() {
                 <Label>Assignee</Label>
                 <Select
                   value={form.assigneeId ? String(form.assigneeId) : ""}
-                  onValueChange={(v) => setForm({ ...form, assigneeId: Number(v) })}
+                  onValueChange={(v) =>
+                    setForm({ ...form, assigneeId: Number(v) })
+                  }
                 >
-                  <SelectTrigger><SelectValue placeholder="Assign to..." /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Assign to..." />
+                  </SelectTrigger>
                   <SelectContent>
-                    {users.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -471,7 +688,9 @@ export default function Requirements() {
                 <Input
                   placeholder="e.g. v3.0"
                   value={form.release ?? ""}
-                  onChange={(e) => setForm({ ...form, release: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, release: e.target.value })
+                  }
                 />
               </div>
             </div>
@@ -480,19 +699,25 @@ export default function Requirements() {
               <Input
                 placeholder="e.g. 12345"
                 value={form.redmineTicketId ?? ""}
-                onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, redmineTicketId: e.target.value })
+                }
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending || updateMutation.isPending}
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Saving..."
-                : editingReq ? "Save Changes" : "Create"}
+                : editingReq
+                  ? "Save Changes"
+                  : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -508,7 +733,8 @@ export default function Requirements() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              Enter a Redmine ticket ID or URL to import its details as a new requirement.
+              Enter a Redmine ticket ID or URL to import its details as a new
+              requirement.
             </p>
             <div className="space-y-1.5">
               <Label>Redmine Ticket ID or URL</Label>
@@ -516,20 +742,35 @@ export default function Requirements() {
                 placeholder="e.g. 34555 or https://redmine.example.com/issues/34555"
                 value={redmineInput}
                 onChange={(e) => setRedmineInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleImportFromRedmine()}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && handleImportFromRedmine()
+                }
                 autoFocus
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRedmineDialogOpen(false);
+                setRedmineInput("");
+              }}
+            >
               Cancel
             </Button>
             <Button
               onClick={handleImportFromRedmine}
               disabled={redmineLoading || !redmineInput.trim()}
             >
-              {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Fetching…</> : "Import"}
+              {redmineLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Fetching…
+                </>
+              ) : (
+                "Import"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -545,11 +786,15 @@ export default function Requirements() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Project Name <span className="text-destructive">*</span></Label>
+              <Label>
+                Project Name <span className="text-destructive">*</span>
+              </Label>
               <Input
                 placeholder="e.g. Mobile App v2"
                 value={projectForm.name}
-                onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
+                onChange={(e) =>
+                  setProjectForm({ ...projectForm, name: e.target.value })
+                }
               />
             </div>
             <div className="space-y-1.5">
@@ -557,7 +802,12 @@ export default function Requirements() {
               <Textarea
                 placeholder="What is this project about?"
                 value={projectForm.description}
-                onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
+                onChange={(e) =>
+                  setProjectForm({
+                    ...projectForm,
+                    description: e.target.value,
+                  })
+                }
                 rows={2}
               />
             </div>
@@ -565,9 +815,13 @@ export default function Requirements() {
               <Label>Status</Label>
               <Select
                 value={projectForm.status}
-                onValueChange={(v) => setProjectForm({ ...projectForm, status: v })}
+                onValueChange={(v) =>
+                  setProjectForm({ ...projectForm, status: v })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="on_hold">On Hold</SelectItem>
@@ -577,12 +831,19 @@ export default function Requirements() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setProjectDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => setProjectDialogOpen(false)}
+            >
+              Cancel
+            </Button>
             <Button
               onClick={handleCreateProject}
               disabled={createProjectMutation.isPending}
             >
-              {createProjectMutation.isPending ? "Creating..." : "Create Project"}
+              {createProjectMutation.isPending
+                ? "Creating..."
+                : "Create Project"}
             </Button>
           </DialogFooter>
         </DialogContent>

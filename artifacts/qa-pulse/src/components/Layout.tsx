@@ -4,30 +4,105 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard, Users, FileText, TestTube, CheckSquare,
-  Search, Settings, LogOut, Menu, Coffee, Bell, Sparkles, FileBarChart2,
+  LayoutDashboard,
+  Users,
+  FileText,
+  TestTube,
+  CheckSquare,
+  Search,
+  Settings,
+  LogOut,
+  Menu,
+  Coffee,
+  Bell,
+  Sparkles,
+  FileBarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 const NAV_ITEMS = [
-  { href: "/dashboard",     label: "Dashboard",     icon: LayoutDashboard, roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/requirements",  label: "Requirements",  icon: FileText,        roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/test-cases",    label: "Test Cases",    icon: TestTube,        roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/tasks",         label: "Tasks",         icon: CheckSquare,     roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/ai-features",   label: "AI Hub",        icon: Sparkles,        roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/report",        label: "Report",        icon: FileBarChart2,   roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/inbox",         label: "Inbox",         icon: Bell,            roles: ["qa_member", "qa_lead", "admin"], showBadge: true },
-  { href: "/team",          label: "Team",          icon: Users,           roles: ["qa_lead", "admin"] },
-  { href: "/admin/search",  label: "Admin Search",  icon: Search,          roles: ["admin"] },
-  { href: "/team-hangouts", label: "Team Hangouts", icon: Coffee,          roles: ["qa_member", "qa_lead", "admin"], showBadge: false },
-  { href: "/settings",      label: "Settings",      icon: Settings,        roles: ["qa_member", "qa_lead", "admin"] },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/requirements",
+    label: "Requirements",
+    icon: FileText,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/test-cases",
+    label: "Test Cases",
+    icon: TestTube,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/tasks",
+    label: "Tasks",
+    icon: CheckSquare,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/ai-features",
+    label: "AI Hub",
+    icon: Sparkles,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/report",
+    label: "Report",
+    icon: FileBarChart2,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/pmo-report",
+    label: "PMO Report",
+    icon: FileBarChart2,
+    roles: ["pmo", "qa_lead", "admin"],
+  },
+  {
+    href: "/inbox",
+    label: "Inbox",
+    icon: Bell,
+    roles: ["qa_member", "qa_lead", "admin"],
+    showBadge: true,
+  },
+  { href: "/team", label: "Team", icon: Users, roles: ["qa_lead", "admin"] },
+  {
+    href: "/admin/search",
+    label: "Admin Search",
+    icon: Search,
+    roles: ["admin"],
+  },
+  {
+    href: "/team-hangouts",
+    label: "Team Hangouts",
+    icon: Coffee,
+    roles: ["qa_member", "qa_lead", "admin"],
+    showBadge: false,
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
 ] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -39,7 +114,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const { data: unreadNotifs = [] } = useQuery({
     queryKey: ["notifications-unread", user?.id],
-    queryFn: () => listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
+    queryFn: () =>
+      listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
     enabled: !!user?.id && user.role !== "pmo",
     refetchInterval: 30000,
   });
@@ -53,7 +129,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const visibleNavItems = NAV_ITEMS.filter((item) => user && (item.roles as readonly string[]).includes(user.role));
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (!user) return false;
+
+    // PMO can ONLY see PMO Report
+    if (user.role === "pmo") {
+      return item.href === "/pmo-report";
+    }
+
+    // Everyone else follows normal role permissions
+    return (item.roles as readonly string[]).includes(user.role);
+  });
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
@@ -79,10 +165,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 }`}
                 onClick={() => setIsMobileMenuOpen(false)}
               >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : ""}`} />
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : ""}`}
+                />
                 <span className="flex-1">{item.label}</span>
                 {badge > 0 && (
-                  <Badge variant="destructive" className="h-5 min-w-5 px-1 text-[10px] font-bold">
+                  <Badge
+                    variant="destructive"
+                    className="h-5 min-w-5 px-1 text-[10px] font-bold"
+                  >
                     {badge}
                   </Badge>
                 )}
@@ -101,7 +192,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+            <p className="text-sm font-medium text-foreground truncate">
+              {user?.name}
+            </p>
             <p className="text-xs text-muted-foreground capitalize truncate">
               {user?.role?.replace(/_/g, " ")}
             </p>
@@ -141,7 +234,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <h1 className="ml-4 text-lg font-bold">QA Pulse</h1>
               {unreadCount > 0 && (
                 <Link href="/inbox" className="ml-auto">
-                  <Badge variant="destructive" className="cursor-pointer">{unreadCount}</Badge>
+                  <Badge variant="destructive" className="cursor-pointer">
+                    {unreadCount}
+                  </Badge>
                 </Link>
               )}
             </header>
@@ -163,12 +258,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Sign out of QA Pulse?</AlertDialogTitle>
             <AlertDialogDescription>
-              You'll be redirected to the login page. Any unsaved changes will be lost.
+              You'll be redirected to the login page. Any unsaved changes will
+              be lost.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Stay signed in</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout}>Sign out</AlertDialogAction>
+            <AlertDialogAction onClick={handleLogout}>
+              Sign out
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

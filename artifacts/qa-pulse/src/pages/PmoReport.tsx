@@ -22,7 +22,6 @@ import {
   Bug,
   TrendingUp,
   LogOut,
-  User,
   Database,
   GitBranch,
   Clock,
@@ -32,7 +31,7 @@ import {
   Wifi,
   WifiOff,
   Menu,
-  X, // Added responsive control icons
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -132,34 +131,30 @@ interface RedmineData {
   }>;
 }
 
-// Explicit maps strictly linking the label to the exact hex color
 const EXEC_COLOR_MAP: Record<string, string> = {
-  Passed: "#4ade80", // Green
-  Failed: "#f87171", // Red
-  Blocked: "#fb923c", // Orange
-  "Not Executed": "#94a3b8", // Grey
-  "In Progress": "#60a5fa", //
-  "For Qa Test": "#3b82f6", // Darker Blue
+  Passed: "#4ade80",
+  Failed: "#f87171",
+  Blocked: "#fb923c",
+  "Not Executed": "#94a3b8",
+  "In Progress": "#60a5fa",
+  "For Qa Test": "#3b82f6",
 };
 
 const DEFECT_STATUS_HEX: Record<string, string> = {
-  New: "#facc15", // Yellow
-  //"In Progress": "#60a5fa", // Blue
-  Resolved: "#4ade80", // Green
-  Closed: "#9ca3af", // Gray
-  Feedback: "#c084fc", // Purple
-  Rejected: "#f87171", // Red             // Yellow
-  "In Progress": "#60a5fa", // Light Blue
-  "For QA Test": "#275BF5", // Darker Blue
-  Reopen: "#fb923c", // Peach/Orange
-  Done: "#4ade80", // Green
-  Verified: "#c084fc", // Purple
-  Roadblock: "#f87171", // Red
-  Cancelled: "#DFDFDF", // Light Gray"
-  //"Closed": "#9ca3af",          // Gray
+  New: "#facc15",
+  Resolved: "#4ade80",
+  Closed: "#9ca3af",
+  Feedback: "#c084fc",
+  Rejected: "#f87171",
+  "In Progress": "#60a5fa",
+  "For QA Test": "#275BF5",
+  Reopen: "#fb923c",
+  Done: "#4ade80",
+  Verified: "#c084fc",
+  Roadblock: "#f87171",
+  Cancelled: "#DFDFDF",
 };
 
-// Fallback colors for unknown defect statuses
 const DEFECT_FALLBACK_COLORS = [
   "#f9d77e",
   "#1abc9c",
@@ -188,7 +183,6 @@ const PRIORITY_COLOR: Record<string, string> = {
   Immediate: "bg-red-200 text-red-900",
 };
 
-// Modified Sidebar component accepting mobile panel open state controls
 function Sidebar({
   onLogout,
   isOpen,
@@ -212,7 +206,6 @@ function Sidebar({
 
   return (
     <>
-      {/* Mobile backdrop overlay layer */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
@@ -225,7 +218,6 @@ function Sidebar({
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* Mobile Close Button */}
         <Button
           variant="ghost"
           size="icon"
@@ -314,7 +306,7 @@ function StatBox({
 }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-xl p-3 ${color} min-w-[90px]`}
+      className={`flex-1 flex flex-col items-center justify-center rounded-xl p-3 ${color} min-w-[90px]`}
     >
       <span className="text-xl font-bold">{value}</span>
       <span className="text-xs font-medium mt-0.5 text-center opacity-80 leading-tight">
@@ -496,11 +488,13 @@ function RedmineSection({
                 )}
 
               {data.children && data.children.length > 0 && (
-                <div>
+                <div className="space-y-3">
                   <p className="text-xs font-medium text-muted-foreground mb-2">
                     Sub-issues / Child Tasks
                   </p>
-                  <div className="overflow-x-auto rounded-lg border">
+
+                  {/* DESKTOP VIEW */}
+                  <div className="hidden md:block overflow-x-auto rounded-lg border">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b bg-muted/30 text-muted-foreground">
@@ -571,6 +565,27 @@ function RedmineSection({
                       </tbody>
                     </table>
                   </div>
+
+                  {/* MOBILE VIEW */}
+                  <div className="grid grid-cols-1 gap-2 md:hidden">
+                    {data.children.map((c) => (
+                      <div key={c.id} className="p-3 border rounded-lg bg-card text-sm space-y-2 shadow-sm">
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="text-xs text-muted-foreground shrink-0">#{c.id}</span>
+                          <div className="flex flex-wrap gap-1 justify-end">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${STATUS_COLOR[c.status] ?? "bg-gray-100"}`}>{c.status}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${PRIORITY_COLOR[c.priority] ?? "bg-gray-100"}`}>{c.priority}</span>
+                          </div>
+                        </div>
+                        <p className="font-medium leading-snug">{c.subject}</p>
+                        <div className="flex justify-between items-center text-xs text-muted-foreground border-t pt-2 mt-1">
+                          <span className="truncate pr-2">{c.assignee || "Unassigned"}</span>
+                          <span className="shrink-0">Done: <span className="font-medium text-foreground">{c.doneRatio ?? 0}%</span></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                 </div>
               )}
 
@@ -614,11 +629,10 @@ function RedmineSection({
 }
 
 export default function PmoReport() {
-  const { token, logout } = useAuth();
+  const { token, logout, user } = useAuth();
   const [input, setInput] = useState("");
   const [redmineId, setRedmineId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false); // Controls off-canvas responsive sidebar
-  // ADD THIS LINE FOR PAGINATION
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeDefectsPage, setActiveDefectsPage] = useState(1);
 
   const { data, isLoading, error } = useQuery<PmoReportData>({
@@ -648,7 +662,6 @@ export default function PmoReport() {
     setRedmineId(clean);
   };
 
-  // UPDATED: Injects explicit mapped colors from our maps above
   const execData = data
     ? [
         {
@@ -696,35 +709,51 @@ export default function PmoReport() {
         })
     : [];
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Dynamic responsive layout handler hooks here */}
-      <Sidebar
-        onLogout={logout}
-        isOpen={sidebarOpen}
-        setIsOpen={setSidebarOpen}
-      />
+  const isStandalonePMO = user?.role === "pmo";
 
-      <main className="flex-1 overflow-y-auto bg-muted/20">
-        {/* Top Sticky Header for Mobile Layout Actions Only */}
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-card md:hidden sticky top-0 z-30">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 -ml-1"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="w-5 h-5" />
-            </Button>
-            <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
-              QA Pulse PMO
-            </span>
+  return (
+    <div
+      className={
+        isStandalonePMO
+          ? "flex h-screen overflow-hidden bg-background"
+          : "flex bg-background"
+      }
+    >
+      {user?.role === "pmo" && (
+        <Sidebar
+          onLogout={logout}
+          isOpen={sidebarOpen}
+          setIsOpen={setSidebarOpen}
+        />
+      )}
+
+      <main
+        className={
+          isStandalonePMO
+            ? "flex-1 overflow-y-auto bg-muted/20"
+            : "flex-1 bg-muted/20"
+        }
+      >
+        {user?.role === "pmo" && (
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-card md:hidden sticky top-0 z-30">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 -ml-1"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <Menu className="w-5 h-5" />
+              </Button>
+              <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
+                QA Pulse PMO
+              </span>
+            </div>
+            <Badge variant="secondary" className="text-[10px]">
+              Portal
+            </Badge>
           </div>
-          <Badge variant="secondary" className="text-[10px]">
-            Portal
-          </Badge>
-        </div>
+        )}
 
         <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
           <div className="flex items-center gap-3">
@@ -887,7 +916,7 @@ export default function PmoReport() {
                                 {execData.map((entry, i) => (
                                   <Cell
                                     key={`cell-${i}`}
-                                    fill={entry.color} // UPDATED: uses object color
+                                    fill={entry.color}
                                   />
                                 ))}
                               </Pie>
@@ -903,7 +932,7 @@ export default function PmoReport() {
                           </ResponsiveContainer>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-wrap gap-2 justify-center">
                           <StatBox
                             label="PASSED"
                             value={data.testExecution.passed}
@@ -945,107 +974,152 @@ export default function PmoReport() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm min-w-[600px]">
-                        <thead>
-                          <tr className="border-b text-xs text-muted-foreground bg-muted/30">
-                            <th className="text-left py-2 px-3 font-medium">
-                              Module
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium">
-                              Total
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium text-green-700">
-                              Passed
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium text-red-700">
-                              Failed
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium text-orange-700">
-                              Blocked
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium text-blue-700">
-                              In Prog.
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium text-gray-600">
-                              Not Exec.
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium">
-                              Pass%
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium">
-                              Total%
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.moduleDetails.map((m, i) => (
-                            <tr
-                              key={i}
-                              className="border-b hover:bg-muted/20 transition-colors"
-                            >
-                              <td className="py-2 px-3 font-medium">
-                                {m.module}
-                              </td>
+                    <div className="space-y-4">
+                      {/* DESKTOP VIEW */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-sm min-w-[600px]">
+                          <thead>
+                            <tr className="border-b text-xs text-muted-foreground bg-muted/30">
+                              <th className="text-left py-2 px-3 font-medium">
+                                Module
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium">
+                                Total
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium text-green-700">
+                                Passed
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium text-red-700">
+                                Failed
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium text-orange-700">
+                                Blocked
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium text-blue-700">
+                                In Prog.
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium text-gray-600">
+                                Not Exec.
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium">
+                                Pass%
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium">
+                                Total%
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {data.moduleDetails.map((m, i) => (
+                              <tr
+                                key={i}
+                                className="border-b hover:bg-muted/20 transition-colors"
+                              >
+                                <td className="py-2 px-3 font-medium">
+                                  {m.module}
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  {m.total}
+                                </td>
+                                <td className="text-center py-2 px-2 text-green-700">
+                                  {m.passed}
+                                </td>
+                                <td className="text-center py-2 px-2 text-red-700">
+                                  {m.failed}
+                                </td>
+                                <td className="text-center py-2 px-2 text-orange-700">
+                                  {m.blocked}
+                                </td>
+                                <td className="text-center py-2 px-2 text-blue-700">
+                                  {m.inProgress}
+                                </td>
+                                <td className="text-center py-2 px-2 text-gray-600">
+                                  {m.notExecuted}
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <span
+                                    className={`font-semibold ${m.passCompletion >= 80 ? "text-green-700" : m.passCompletion >= 50 ? "text-yellow-700" : "text-red-700"}`}
+                                  >
+                                    {m.passCompletion}%
+                                  </span>
+                                </td>
+                                <td className="text-center py-2 px-2 font-medium">
+                                  {m.totalCompletion}%
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="font-bold bg-muted/40 border-t-2">
+                              <td className="py-2 px-3">Grand Total</td>
                               <td className="text-center py-2 px-2">
-                                {m.total}
+                                {data.testExecution.total}
                               </td>
                               <td className="text-center py-2 px-2 text-green-700">
-                                {m.passed}
+                                {data.testExecution.passed}
                               </td>
                               <td className="text-center py-2 px-2 text-red-700">
-                                {m.failed}
+                                {data.testExecution.failed}
                               </td>
                               <td className="text-center py-2 px-2 text-orange-700">
-                                {m.blocked}
+                                {data.testExecution.blocked}
                               </td>
                               <td className="text-center py-2 px-2 text-blue-700">
-                                {m.inProgress}
-                              </td>
-                              <td className="text-center py-2 px-2 text-gray-600">
-                                {m.notExecuted}
+                                {data.testExecution.inProgress}
                               </td>
                               <td className="text-center py-2 px-2">
-                                <span
-                                  className={`font-semibold ${m.passCompletion >= 80 ? "text-green-700" : m.passCompletion >= 50 ? "text-yellow-700" : "text-red-700"}`}
-                                >
-                                  {m.passCompletion}%
-                                </span>
+                                {data.testExecution.notExecuted}
                               </td>
-                              <td className="text-center py-2 px-2 font-medium">
-                                {m.totalCompletion}%
+                              <td className="text-center py-2 px-2 text-green-700">
+                                {data.testExecution.passRate}%
+                              </td>
+                              <td className="text-center py-2 px-2">
+                                {data.testExecution.successRate}%
                               </td>
                             </tr>
-                          ))}
-                          <tr className="font-bold bg-muted/40 border-t-2">
-                            <td className="py-2 px-3">Grand Total</td>
-                            <td className="text-center py-2 px-2">
-                              {data.testExecution.total}
-                            </td>
-                            <td className="text-center py-2 px-2 text-green-700">
-                              {data.testExecution.passed}
-                            </td>
-                            <td className="text-center py-2 px-2 text-red-700">
-                              {data.testExecution.failed}
-                            </td>
-                            <td className="text-center py-2 px-2 text-orange-700">
-                              {data.testExecution.blocked}
-                            </td>
-                            <td className="text-center py-2 px-2 text-blue-700">
-                              {data.testExecution.inProgress}
-                            </td>
-                            <td className="text-center py-2 px-2">
-                              {data.testExecution.notExecuted}
-                            </td>
-                            <td className="text-center py-2 px-2 text-green-700">
-                              {data.testExecution.passRate}%
-                            </td>
-                            <td className="text-center py-2 px-2">
-                              {data.testExecution.successRate}%
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* MOBILE VIEW */}
+                      <div className="grid grid-cols-1 gap-3 md:hidden">
+                        {data.moduleDetails.map((m, i) => (
+                          <div key={i} className="p-4 border rounded-xl bg-card shadow-sm space-y-3">
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <span className="font-bold text-base">{m.module}</span>
+                              <Badge variant="secondary">Total: {m.total}</Badge>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Passed:</span>
+                                <span className="font-semibold text-green-700">{m.passed}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Failed:</span>
+                                <span className="font-semibold text-red-700">{m.failed}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Blocked:</span>
+                                <span className="font-semibold text-orange-700">{m.blocked}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">In Prog:</span>
+                                <span className="font-semibold text-blue-700">{m.inProgress}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center pt-2 border-t text-xs font-medium">
+                              <span className="text-muted-foreground">Not Exec: {m.notExecuted}</span>
+                              <div className="flex gap-3">
+                                <span className={m.passCompletion >= 80 ? "text-green-700" : m.passCompletion >= 50 ? "text-yellow-700" : "text-red-700"}>
+                                  Pass: {m.passCompletion}%
+                                </span>
+                                <span>Total: {m.totalCompletion}%</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
                     </div>
                   </CardContent>
                 </Card>
@@ -1122,12 +1196,10 @@ export default function PmoReport() {
                                 .replace(/_/g, " ")
                                 .replace(/\b\w/g, (c) => c.toUpperCase());
 
-                              // Find the exact color matched to the pie chart
                               const chartItem = defectData.find(
                                 (d) => d.name === formattedName,
                               );
 
-                              // Use the chart color if > 0, otherwise fallback to a muted gray for 0 values
                               const cardColor = chartItem
                                 ? chartItem.color
                                 : "#cbd5e1";
@@ -1171,102 +1243,148 @@ export default function PmoReport() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-0 sm:px-6">
-                    <div className="overflow-x-auto rounded-lg border">
-                      <table className="w-full text-sm min-w-[700px]">
-                        <thead>
-                          <tr className="border-b text-xs text-muted-foreground bg-muted/30">
-                            <th className="text-left py-2 px-3 font-medium">
-                              #
-                            </th>
-                            <th className="text-left py-2 px-3 font-medium">
-                              Defect Subject
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium">
-                              Priority
-                            </th>
-                            <th className="text-center py-2 px-2 font-medium">
-                              Status
-                            </th>
-                            <th className="text-left py-2 px-2 font-medium">
-                              Category
-                            </th>
-                            <th className="text-left py-2 px-2 font-medium">
-                              Assignee
-                            </th>
-                            <th className="text-center py-2 px-3 font-medium">
-                              Created On
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* APPLY PAGINATION SLICE HERE */}
-                          {data.activeDefects
-                            .slice(
-                              (activeDefectsPage - 1) * 10,
-                              activeDefectsPage * 10,
-                            )
-                            .map((d) => (
-                              <tr
-                                key={d.id}
-                                className="border-b hover:bg-muted/20 transition-colors"
-                              >
-                                <td className="py-2 px-3 text-muted-foreground">
-                                  #{d.id}
-                                </td>
-                                <td
-                                  className="py-2 px-3 font-medium max-w-[220px] truncate"
-                                  title={d.name}
+                    <div className="space-y-4">
+                      {/* DESKTOP VIEW */}
+                      <div className="hidden md:block overflow-x-auto rounded-lg border">
+                        <table className="w-full text-sm min-w-[700px]">
+                          <thead>
+                            <tr className="border-b text-xs text-muted-foreground bg-muted/30">
+                              <th className="text-left py-2 px-3 font-medium">
+                                #
+                              </th>
+                              <th className="text-left py-2 px-3 font-medium">
+                                Defect Subject
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium">
+                                Priority
+                              </th>
+                              <th className="text-center py-2 px-2 font-medium">
+                                Status
+                              </th>
+                              <th className="text-left py-2 px-2 font-medium">
+                                Category
+                              </th>
+                              <th className="text-left py-2 px-2 font-medium">
+                                Assignee
+                              </th>
+                              <th className="text-center py-2 px-3 font-medium">
+                                Created On
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {data.activeDefects
+                              .slice(
+                                (activeDefectsPage - 1) * 10,
+                                activeDefectsPage * 10,
+                              )
+                              .map((d) => (
+                                <tr
+                                  key={d.id}
+                                  className="border-b hover:bg-muted/20 transition-colors"
                                 >
-                                  {d.name}
-                                </td>
-                                <td className="text-center py-2 px-2">
-                                  <span
-                                    className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
+                                  <td className="py-2 px-3 text-muted-foreground">
+                                    #{d.id}
+                                  </td>
+                                  <td
+                                    className="py-2 px-3 font-medium max-w-[220px] truncate"
+                                    title={d.name}
                                   >
-                                    {d.priority}
-                                  </span>
-                                </td>
-                                <td className="text-center py-2 px-2">
-                                  {/* DYNAMIC COLOR MAPPING & ONE-LINE WRAP */}
-                                  {(() => {
-                                    const formattedStatus = d.status
-                                      .replace(/_/g, " ")
-                                      .replace(/\b\w/g, (c) => c.toUpperCase());
-                                    const color =
-                                      DEFECT_STATUS_HEX[formattedStatus] ||
-                                      "#9ca3af"; // Default to gray
+                                    {d.name}
+                                  </td>
+                                  <td className="text-center py-2 px-2">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
+                                    >
+                                      {d.priority}
+                                    </span>
+                                  </td>
+                                  <td className="text-center py-2 px-2">
+                                    {(() => {
+                                      const formattedStatus = d.status
+                                        .replace(/_/g, " ")
+                                        .replace(/\b\w/g, (c) => c.toUpperCase());
+                                      const color =
+                                        DEFECT_STATUS_HEX[formattedStatus] ||
+                                        "#9ca3af";
 
-                                    return (
-                                      <span
-                                        className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
-                                        style={{
-                                          color: color,
-                                          borderColor: color,
-                                          backgroundColor: `${color}1A`, // Adds 10% opacity background for the tint
-                                        }}
-                                      >
-                                        {d.status}
-                                      </span>
-                                    );
-                                  })()}
-                                </td>
-                                <td className="py-2 px-2 text-muted-foreground">
-                                  {d.category || "—"}
-                                </td>
-                                <td className="py-2 px-2 font-medium">
-                                  {d.assignee}
-                                </td>
-                                <td className="text-center py-2 px-3 text-muted-foreground text-xs">
-                                  {format(new Date(d.createdAt), "dd/MM/yyyy")}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
+                                      return (
+                                        <span
+                                          className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
+                                          style={{
+                                            color: color,
+                                            borderColor: color,
+                                            backgroundColor: `${color}1A`,
+                                          }}
+                                        >
+                                          {d.status}
+                                        </span>
+                                      );
+                                    })()}
+                                  </td>
+                                  <td className="py-2 px-2 text-muted-foreground">
+                                    {d.category || "—"}
+                                  </td>
+                                  <td className="py-2 px-2 font-medium">
+                                    {d.assignee}
+                                  </td>
+                                  <td className="text-center py-2 px-3 text-muted-foreground text-xs">
+                                    {format(new Date(d.createdAt), "dd/MM/yyyy")}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* MOBILE VIEW */}
+                      <div className="grid grid-cols-1 gap-3 md:hidden px-4 sm:px-0">
+                        {data.activeDefects
+                          .slice((activeDefectsPage - 1) * 10, activeDefectsPage * 10)
+                          .map((d) => {
+                            const formattedStatus = d.status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                            const color = DEFECT_STATUS_HEX[formattedStatus] || "#9ca3af";
+
+                            return (
+                              <div key={d.id} className="p-3 border rounded-xl bg-card shadow-sm space-y-2">
+                                <div className="flex justify-between items-start gap-2">
+                                  <span className="font-mono text-xs font-semibold text-muted-foreground shrink-0">
+                                    #{d.id}
+                                  </span>
+                                  <span 
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                                    style={{ color: color, backgroundColor: `${color}1A`, border: `1px solid ${color}40` }}
+                                  >
+                                    {d.status}
+                                  </span>
+                                </div>
+
+                                <p className="font-medium text-sm leading-tight">{d.name}</p>
+
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t mt-2">
+                                  <div className="flex gap-2 items-center">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}>
+                                      {d.priority}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                                      {d.category || "No Category"}
+                                    </span>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-xs font-medium">{d.assignee}</p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {format(new Date(d.createdAt), "dd MMM yy")}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
 
                       {/* PAGINATION CONTROLS */}
                       {data.activeDefects.length > 10 && (
-                        <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
+                        <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t md:rounded-b-lg">
                           <div className="text-xs text-muted-foreground">
                             Showing{" "}
                             <span className="font-medium">

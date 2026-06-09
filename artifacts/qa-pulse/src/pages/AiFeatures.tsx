@@ -224,36 +224,60 @@ export default function AiFeatures() {
 
       <Tabs defaultValue="chat" className="space-y-4">
         <ScrollArea className="w-full">
-          <TabsList className="flex w-max gap-1">
-            <TabsTrigger value="chat" className="gap-1.5">
+          <TabsList className="grid grid-cols-2 sm:flex sm:w-max gap-1 h-auto p-1 bg-muted">
+            <TabsTrigger
+              value="chat"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <MessageSquare className="w-3.5 h-3.5" />
               AI Copilot
             </TabsTrigger>
-            <TabsTrigger value="analyze" className="gap-1.5">
+            <TabsTrigger
+              value="analyze"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <Brain className="w-3.5 h-3.5" />
               Req Analyzer
             </TabsTrigger>
-            <TabsTrigger value="edge" className="gap-1.5">
+            <TabsTrigger
+              value="edge"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <Zap className="w-3.5 h-3.5" />
               Edge Cases
             </TabsTrigger>
-            <TabsTrigger value="duplicate" className="gap-1.5">
+            <TabsTrigger
+              value="duplicate"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <Layers className="w-3.5 h-3.5" />
               Duplicate Check
             </TabsTrigger>
-            <TabsTrigger value="coverage" className="gap-1.5">
+            <TabsTrigger
+              value="coverage"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <FileSearch className="w-3.5 h-3.5" />
               Coverage Gap
             </TabsTrigger>
-            <TabsTrigger value="weekly" className="gap-1.5">
+            <TabsTrigger
+              value="weekly"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <BarChart3 className="w-3.5 h-3.5" />
               Weekly Summary
             </TabsTrigger>
-            <TabsTrigger value="testdata" className="gap-1.5">
+            <TabsTrigger
+              value="testdata"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <TestTube className="w-3.5 h-3.5" />
               Test Data
             </TabsTrigger>
-            <TabsTrigger value="search" className="gap-1.5">
+            <TabsTrigger
+              value="search"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
               <Search className="w-3.5 h-3.5" />
               NL Search
             </TabsTrigger>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listTestCases,
@@ -153,7 +153,7 @@ function AIGenerateDialog({
   onClose: () => void;
   requirements: any[];
   projects: any[];
-  onSuccess: (testCases: any[], formData: any) => void; // <-- Fixed to pass form data back
+  onSuccess: (testCases: any[], formData: any) => void;
 }) {
   const [form, setForm] = useState<
     Partial<AIGenerateInput & { projectId?: number }>
@@ -467,6 +467,10 @@ export default function TestCases() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+  // Pagination Parameters
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
   const { data: testCases = [], isLoading } = useQuery({
     queryKey: getListTestCasesQueryKey(),
     queryFn: () => listTestCases(),
@@ -495,6 +499,11 @@ export default function TestCases() {
     () => Object.fromEntries(requirements.map((r) => [r.id, r.title])),
     [requirements],
   );
+
+  // Automatically reset layout pages back to index 1 upon modifying table filters
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterType, filterPriority, filterProject, filterAI]);
 
   const createMutation = useCreateTestCase({
     mutation: {
@@ -555,6 +564,13 @@ export default function TestCases() {
       return false;
     return true;
   });
+
+  // Calculate Paginated Sub-datasets
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const paginatedTestCases = filtered.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  );
 
   const filteredIds = useMemo(
     () => new Set(filtered.map((t) => t.id)),
@@ -666,7 +682,6 @@ export default function TestCases() {
     }
   };
 
-  // <-- Fixed to attach requirementId and projectId from the formData
   const handleAISuccess = (aiTestCases: any[], formData: any) => {
     const promises = aiTestCases.map((tc) =>
       createMutation.mutateAsync({
@@ -681,8 +696,8 @@ export default function TestCases() {
           tags: tc.tags,
           status: "active",
           aiAssisted: true,
-          requirementId: formData?.requirementId, // Now securely linked!
-          projectId: formData?.projectId, // Now securely linked!
+          requirementId: formData?.requirementId,
+          projectId: formData?.projectId,
         } as TestCaseInput,
       }),
     );
@@ -836,203 +851,245 @@ export default function TestCases() {
               </div>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-10 pl-4">
-                    <Checkbox
-                      checked={allFilteredSelected}
-                      data-state={
-                        someFilteredSelected
-                          ? "indeterminate"
-                          : allFilteredSelected
-                            ? "checked"
-                            : "unchecked"
-                      }
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="Select all"
-                    />
-                  </TableHead>
-                  <TableHead className="w-8"></TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Author</TableHead>
-                  <TableHead>Tags</TableHead>
-                  <TableHead className="w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((tc) => (
-                  <React.Fragment key={tc.id}>
-                    <TableRow
-                      className={`hover:bg-muted/40 cursor-pointer ${selectedIds.has(tc.id) ? "bg-primary/5" : ""}`}
-                      onClick={() =>
-                        setExpandedId(expandedId === tc.id ? null : tc.id)
-                      }
-                    >
-                      <TableCell
-                        className="pl-4"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+            <div className="flex flex-col">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <th className="w-10 pl-4">
                         <Checkbox
-                          checked={selectedIds.has(tc.id)}
-                          onCheckedChange={() => toggleSelect(tc.id)}
-                          aria-label={`Select ${tc.title}`}
+                          checked={allFilteredSelected}
+                          data-state={
+                            someFilteredSelected
+                              ? "indeterminate"
+                              : allFilteredSelected
+                                ? "checked"
+                                : "unchecked"
+                          }
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Select all"
                         />
-                      </TableCell>
-                      <TableCell>
-                        <ChevronDown
-                          className={`w-4 h-4 text-muted-foreground transition-transform ${expandedId === tc.id ? "rotate-180" : ""}`}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{tc.title}</span>
-                          {tc.aiAssisted && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5">
-                              <Sparkles className="w-3 h-3" />
-                              AI
-                            </span>
-                          )}
-                        </div>
-                        {tc.requirementTitle && (
-                          <p className="text-xs text-muted-foreground">
-                            {tc.requirementTitle}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[tc.type]}`}
-                        >
-                          {tc.type === "automation_candidate"
-                            ? "Automation"
-                            : "Manual"}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[tc.priority]}`}
-                        >
-                          {tc.priority}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {tc.authorName ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        {tc.tags && (
-                          <div className="flex flex-wrap gap-1">
-                            {tc.tags
-                              .split(",")
-                              .slice(0, 2)
-                              .map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-                                >
-                                  {tag.trim()}
-                                </span>
-                              ))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEdit(tc)}>
-                              <Pencil className="w-4 h-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                cloneMutation.mutate({ id: tc.id })
-                              }
-                            >
-                              <Copy className="w-4 h-4 mr-2" />
-                              Clone
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedIds(new Set([tc.id]));
-                                handleExport();
-                              }}
-                            >
-                              <FileSpreadsheet className="w-4 h-4 mr-2" />
-                              Export this
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() =>
-                                deleteMutation.mutate({ id: tc.id })
-                              }
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                      </th>
+                      <th className="w-8"></th>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Author</TableHead>
+                      <TableHead>Tags</TableHead>
+                      <th className="w-10"></th>
                     </TableRow>
-                    {expandedId === tc.id && (
-                      <TableRow className="bg-muted/20">
-                        <TableCell colSpan={8} className="px-8 py-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                            {tc.objective && (
-                              <div>
-                                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                  Objective
-                                </p>
-                                <p>{tc.objective}</p>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedTestCases.map((tc) => (
+                      <React.Fragment key={tc.id}>
+                        <TableRow
+                          className={`hover:bg-muted/40 cursor-pointer ${selectedIds.has(tc.id) ? "bg-primary/5" : ""}`}
+                          onClick={() =>
+                            setExpandedId(expandedId === tc.id ? null : tc.id)
+                          }
+                        >
+                          <TableCell
+                            className="pl-4"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Checkbox
+                              checked={selectedIds.has(tc.id)}
+                              onCheckedChange={() => toggleSelect(tc.id)}
+                              aria-label={`Select ${tc.title}`}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <ChevronDown
+                              className={`w-4 h-4 text-muted-foreground transition-transform ${expandedId === tc.id ? "rotate-180" : ""}`}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{tc.title}</span>
+                              {tc.aiAssisted && (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5">
+                                  <Sparkles className="w-3 h-3" />
+                                  AI
+                                </span>
+                              )}
+                            </div>
+                            {tc.requirementTitle && (
+                              <p className="text-xs text-muted-foreground">
+                                {tc.requirementTitle}
+                              </p>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[tc.type]}`}
+                            >
+                              {tc.type === "automation_candidate"
+                                ? "Automation"
+                                : "Manual"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[tc.priority]}`}
+                            >
+                              {tc.priority}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {tc.authorName ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            {tc.tags && (
+                              <div className="flex flex-wrap gap-1">
+                                {tc.tags
+                                  .split(",")
+                                  .slice(0, 2)
+                                  .map((tag) => (
+                                    <span
+                                      key={tag}
+                                      className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                                    >
+                                      {tag.trim()}
+                                    </span>
+                                  ))}
                               </div>
                             )}
-                            {tc.preconditions && (
-                              <div>
-                                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                  Preconditions
-                                </p>
-                                <p>{tc.preconditions}</p>
+                          </TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openEdit(tc)}>
+                                  <Pencil className="w-4 h-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    cloneMutation.mutate({ id: tc.id })
+                                  }
+                                >
+                                  <Copy className="w-4 h-4 mr-2" />
+                                  Clone
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedIds(new Set([tc.id]));
+                                    handleExport();
+                                  }}
+                                >
+                                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                                  Export this
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() =>
+                                    deleteMutation.mutate({ id: tc.id })
+                                  }
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                        {expandedId === tc.id && (
+                          <TableRow className="bg-muted/20">
+                            <TableCell colSpan={8} className="px-8 py-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                {tc.objective && (
+                                  <div>
+                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                                      Objective
+                                    </p>
+                                    <p>{tc.objective}</p>
+                                  </div>
+                                )}
+                                {tc.preconditions && (
+                                  <div>
+                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                                      Preconditions
+                                    </p>
+                                    <p>{tc.preconditions}</p>
+                                  </div>
+                                )}
+                                {tc.testSteps && (
+                                  <div className="md:col-span-2">
+                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                                      Test Steps
+                                    </p>
+                                    <div className="bg-card border rounded p-3 whitespace-pre-line font-mono text-xs">
+                                      {tc.testSteps}
+                                    </div>
+                                  </div>
+                                )}
+                                {tc.expectedResult && (
+                                  <div className="md:col-span-2">
+                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                                      Expected Result
+                                    </p>
+                                    <p className="text-green-700 dark:text-green-400">
+                                      {tc.expectedResult}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            {tc.testSteps && (
-                              <div className="md:col-span-2">
-                                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                  Test Steps
-                                </p>
-                                <div className="bg-card border rounded p-3 whitespace-pre-line font-mono text-xs">
-                                  {tc.testSteps}
-                                </div>
-                              </div>
-                            )}
-                            {tc.expectedResult && (
-                              <div className="md:col-span-2">
-                                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                  Expected Result
-                                </p>
-                                <p className="text-green-700 dark:text-green-400">
-                                  {tc.expectedResult}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                ))}
-              </TableBody>
-            </Table>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Dynamic Table Pagination Footer */}
+              <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
+                <div className="text-xs text-muted-foreground">
+                  Showing{" "}
+                  <span className="font-medium">
+                    {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+                  </span>{" "}
+                  to{" "}
+                  <span className="font-medium">
+                    {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}
+                  </span>{" "}
+                  of <span className="font-medium">{filtered.length}</span> test
+                  cases
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    disabled={currentPage >= totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
