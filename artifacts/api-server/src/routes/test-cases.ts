@@ -187,8 +187,8 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
   if (generateEdgeCases) caseTypes.push("extreme boundary condition");
 
   // Enhancements: Explicitly ask for 3-5 high-value test cases to prevent cutoff
-  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 3 to 5 highly detailed and target-specific test cases based on the requirements.
-    Do NOT generate 10 cases. Keep it strictly between 3 and 5 total cases to avoid payload truncation.
+  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 or 6 highly detailed and target-specific test cases based on the requirements.
+    Do NOT generate 10 cases. Keep it strictly between 5 and 6 total cases to avoid payload truncation.
 
     Return ONLY a valid JSON object matching this structure:
     { 

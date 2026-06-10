@@ -10,11 +10,13 @@
   },
   "private": true,
   "devDependencies": {
+    "@types/xlsx": "^0.0.36",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
-    "@heyputer/puter.js": "^2.5.1"
+    "@heyputer/puter.js": "^2.5.1",
+    "xlsx": "^0.18.5"
   }
 }

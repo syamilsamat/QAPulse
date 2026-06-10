@@ -51,6 +51,12 @@ const NAV_ITEMS = [
     label: "Test Cases",
     icon: TestTube,
     roles: ["qa_member", "qa_lead", "admin"],
+    subItems: [
+      {
+        href: "/test-cases/execution-details", // <-- UPDATE THIS LINE
+        label: "Execution Details",
+      },
+    ],
   },
   {
     href: "/tasks",
@@ -64,12 +70,6 @@ const NAV_ITEMS = [
     icon: Sparkles,
     roles: ["qa_member", "qa_lead", "admin"],
   },
-  //{
-  //href: "/report",
-  //label: "Report",
-  //icon: FileBarChart2,
-  //roles: ["qa_member", "qa_lead", "admin"],
-  //},
   {
     href: "/pmo-report",
     label: "PMO Report",
@@ -137,7 +137,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       return item.href === "/pmo-report";
     }
 
-    // Everyone else follows normal role permissions
     return (item.roles as readonly string[]).includes(user.role);
   });
 
@@ -150,35 +149,62 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </h1>
       </div>
 
-      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.startsWith(item.href);
+          const isParentActive =
+            location === item.href ||
+            item.subItems?.some((sub) => location === sub.href);
           const badge = (item as any).showBadge ? unreadCount : 0;
+
           return (
-            <Link key={item.href} href={item.href}>
-              <div
-                className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors text-sm ${
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                }`}
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                <Icon
-                  className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : ""}`}
-                />
-                <span className="flex-1">{item.label}</span>
-                {badge > 0 && (
-                  <Badge
-                    variant="destructive"
-                    className="h-5 min-w-5 px-1 text-[10px] font-bold"
-                  >
-                    {badge}
-                  </Badge>
-                )}
-              </div>
-            </Link>
+            <div key={item.href} className="flex flex-col">
+              <Link href={item.href}>
+                <div
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors text-sm ${
+                    location === item.href
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  <Icon
+                    className={`w-4 h-4 shrink-0 ${
+                      location === item.href ? "text-primary" : ""
+                    }`}
+                  />
+                  <span className="flex-1">{item.label}</span>
+                  {badge > 0 && (
+                    <Badge
+                      variant="destructive"
+                      className="h-5 min-w-5 px-1 text-[10px] font-bold"
+                    >
+                      {badge}
+                    </Badge>
+                  )}
+                </div>
+              </Link>
+
+              {/* Render Sub Items if they exist */}
+              {item.subItems && (
+                <div className="ml-5 mt-1 flex flex-col space-y-0.5 border-l-2 border-muted/30 pl-2">
+                  {item.subItems.map((sub) => (
+                    <Link key={sub.href} href={sub.href}>
+                      <div
+                        className={`px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs ${
+                          location === sub.href
+                            ? "bg-sidebar-accent text-primary font-medium"
+                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
+                        }`}
+                        onClick={() => setIsMobileMenuOpen(false)}
+                      >
+                        {sub.label}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

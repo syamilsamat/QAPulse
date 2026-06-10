@@ -1,4 +1,10 @@
-import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
+import {
+  Switch,
+  Route,
+  Router as WouterRouter,
+  Redirect,
+  useLocation,
+} from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -20,6 +26,7 @@ import NotFound from "@/pages/not-found";
 import PmoReport from "@/pages/PmoReport";
 import AiFeatures from "@/pages/AiFeatures";
 import ReportDashboard from "@/pages/ReportDashboard";
+import TestExecutionDetails from "@/pages/TestExecutionDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,7 +90,15 @@ function Router() {
   return (
     <Switch>
       <Route path="/login">
-        {user ? (user.role === "pmo" ? <Redirect to="/pmo-report" /> : <Redirect to="/dashboard" />) : <Login />}
+        {user ? (
+          user.role === "pmo" ? (
+            <Redirect to="/pmo-report" />
+          ) : (
+            <Redirect to="/dashboard" />
+          )
+        ) : (
+          <Login />
+        )}
       </Route>
 
       <Route path="/">
@@ -91,19 +106,39 @@ function Router() {
       </Route>
 
       <Route path="/dashboard">
-        <ProtectedRoute component={Dashboard} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={Dashboard}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/requirements">
-        <ProtectedRoute component={Requirements} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={Requirements}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      {/* NEW ROUTE FOR EXECUTION DETAILS */}
+      <Route path="/test-cases/execution-details">
+        <ProtectedRoute
+          component={TestExecutionDetails}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/test-cases">
-        <ProtectedRoute component={TestCases} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={TestCases}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/tasks">
-        <ProtectedRoute component={Tasks} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={Tasks}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/team">
@@ -115,23 +150,38 @@ function Router() {
       </Route>
 
       <Route path="/settings">
-        <ProtectedRoute component={Settings} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={Settings}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/inbox">
-        <ProtectedRoute component={Inbox} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={Inbox}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/team-hangouts">
-        <ProtectedRoute component={TeamHangouts} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={TeamHangouts}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/ai-features">
-        <ProtectedRoute component={AiFeatures} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={AiFeatures}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/report">
-        <ProtectedRoute component={ReportDashboard} roles={["qa_member", "qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={ReportDashboard}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
       </Route>
 
       <Route path="/pmo-report">

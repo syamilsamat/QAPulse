@@ -525,15 +525,6 @@ export default function Tasks() {
           </p>
         </div>
         <div className="flex gap-2">
-          {isAdminOrLead && (
-            <Button
-              variant="outline"
-              onClick={() => openAssignDialog()}
-              className="gap-2"
-            >
-              <UserCheck className="w-4 h-4" /> Assign Test Cases
-            </Button>
-          )}
           <Button onClick={openCreate} className="gap-2">
             <Plus className="w-4 h-4" /> New Task
           </Button>

@@ -204,8 +204,20 @@ export default function Requirements() {
     if (filterPriority !== "all" && r.priority !== filterPriority) return false;
     if (filterProject !== "all" && String(r.projectId) !== filterProject)
       return false;
-    if (search && !r.title.toLowerCase().includes(search.toLowerCase()))
-      return false;
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      const matchesTitle = r.title.toLowerCase().includes(searchLower);
+      const matchesTicket = r.redmineTicketId
+        ?.toLowerCase()
+        .includes(searchLower);
+
+      // If the search term doesn't match the title AND doesn't match the ticket ID, filter it out
+      if (!matchesTitle && !matchesTicket) {
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -287,9 +299,21 @@ export default function Requirements() {
         },
       );
       const data = await resp.json();
+
       if (data.connected && data.issue) {
-        setEditingReq(null);
+        const fetchedTicketId = String(data.issue.id);
+
+        // 1. Check if the requirement already exists in our list
+        const existingReq = requirements.find(
+          (r) => r.redmineTicketId === fetchedTicketId,
+        );
+
+        // 2. If it exists, set it as the editing requirement to trigger an update.
+        // Otherwise, set to null to trigger a create.
+        setEditingReq(existingReq || null);
         setErrors({});
+
+        // 3. Populate the form. If it exists, preserve local data like projectId, module, etc.
         setForm({
           title: data.issue.subject,
           description: data.issue.description ?? "",
@@ -302,14 +326,24 @@ export default function Requirements() {
                 : data.issue.priority?.toLowerCase() === "low"
                   ? "low"
                   : "medium",
-          status: "draft",
-          redmineTicketId: String(data.issue.id),
+          status: existingReq ? existingReq.status : "draft",
+          redmineTicketId: fetchedTicketId,
+          ...(existingReq && {
+            projectId: existingReq.projectId ?? undefined,
+            module: existingReq.module ?? undefined,
+            release: existingReq.release ?? undefined,
+            assigneeId: existingReq.assigneeId ?? undefined,
+          }),
         });
+
         setRedmineDialogOpen(false);
         setRedmineInput("");
         setDialogOpen(true);
+
         toast({
-          title: `Imported Redmine #${data.issue.id}`,
+          title: existingReq
+            ? `Updating Redmine #${data.issue.id}`
+            : `Imported Redmine #${data.issue.id}`,
           description: data.issue.subject,
         });
       } else {
