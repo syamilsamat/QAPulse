@@ -13,6 +13,7 @@ import socialEventsRouter from "./social-events";
 import aiRouter from "./ai";
 import pmoReportRouter from "./pmo-report";
 import redmineRouter from "./redmine";
+import testExecutionRouter from "./test-execution";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(socialEventsRouter);
 router.use(aiRouter);
 router.use(pmoReportRouter);
 router.use(redmineRouter);
+router.use(testExecutionRouter);
 
 export default router;

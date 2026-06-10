@@ -27,6 +27,8 @@ import PmoReport from "@/pages/PmoReport";
 import AiFeatures from "@/pages/AiFeatures";
 import ReportDashboard from "@/pages/ReportDashboard";
 import TestExecutionDetails from "@/pages/TestExecutionDetail";
+import TestCasesExecution from "@/pages/TestCasesExecution";
+import TestCasesExecutionProgressPage from "@/pages/TestCasesExecutionProgressPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -119,10 +121,34 @@ function Router() {
         />
       </Route>
 
-      {/* NEW ROUTE FOR EXECUTION DETAILS */}
+      {/* 1. The Summary Page */}
       <Route path="/test-cases/execution-details">
         <ProtectedRoute
           component={TestExecutionDetails}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      {/* 2. The Dashboard (File Manager) */}
+      <Route path="/test-cases/execution">
+        <ProtectedRoute
+          component={TestCasesExecution}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      {/* 3. The Spreadsheet Page (Dynamic ID) */}
+      <Route path="/test-cases/execution/:id">
+        <ProtectedRoute
+          component={TestCasesExecutionProgressPage}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      {/* The main Test Cases page */}
+      <Route path="/test-cases">
+        <ProtectedRoute
+          component={TestCases}
           roles={["qa_member", "qa_lead", "admin"]}
         />
       </Route>

@@ -53,8 +53,12 @@ const NAV_ITEMS = [
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
       {
-        href: "/test-cases/execution-details", // <-- UPDATE THIS LINE
+        href: "/test-cases/execution-details",
         label: "Execution Details",
+      },
+      {
+        href: "/test-cases/execution",
+        label: "Execution Dashboard",
       },
     ],
   },

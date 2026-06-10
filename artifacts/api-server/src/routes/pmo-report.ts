@@ -209,17 +209,190 @@ async function reportFromLocalExecutionDetails(
   }
 }
 
-// Database Fallbacks (Defects logic)
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATABASE FALLBACKS FOR DEFECTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 async function reportFromMySQL(
   issueId: string,
 ): Promise<Record<string, unknown> | null> {
-  return null;
+  if (!mysql2) return null;
+  const cfg = {
+    host: process.env.REDMINE_DB_HOST ?? "10.10.4.130",
+    port: parseInt(process.env.REDMINE_DB_PORT ?? "3306"),
+    user: process.env.REDMINE_DB_USER ?? "bestqa",
+    password: process.env.REDMINE_DB_PASSWORD ?? "",
+    database: process.env.REDMINE_DB_NAME ?? "redmine",
+    connectTimeout: 8000,
+  };
+
+  let conn: any = null;
+  try {
+    conn = await mysql2.createConnection(cfg);
+    const [mainRows] = (await conn.query(
+      `SELECT i.id, i.subject, i.description,
+         s.name AS status, t.name AS tracker,
+         e.name AS priority, p.name AS project_name,
+         CONCAT(u.firstname,' ',u.lastname) AS assignee
+       FROM issues i
+       LEFT JOIN issue_statuses s   ON s.id = i.status_id
+       LEFT JOIN trackers t         ON t.id = i.tracker_id
+       LEFT JOIN enumerations e     ON e.id = i.priority_id AND e.type='IssuePriority'
+       LEFT JOIN projects p         ON p.id = i.project_id
+       LEFT JOIN users u            ON u.id = i.assigned_to_id
+       WHERE i.id = ?`,
+      [issueId],
+    )) as [any[], any];
+
+    if (!mainRows.length) return null;
+    const main = mainRows[0];
+
+    const [childRows] = (await conn.query(
+      `SELECT i.id, i.subject, i.created_on, i.status_id,
+         s.name AS status, t.name AS tracker,
+         e.name AS priority, c.name AS category,
+         CONCAT(u.firstname,' ',u.lastname) AS assignee
+       FROM issues i
+       LEFT JOIN issue_statuses s    ON s.id = i.status_id
+       LEFT JOIN trackers t          ON t.id = i.tracker_id
+       LEFT JOIN enumerations e      ON e.id = i.priority_id AND e.type='IssuePriority'
+       LEFT JOIN issue_categories c  ON c.id = i.category_id
+       LEFT JOIN users u             ON u.id = i.assigned_to_id
+       WHERE i.parent_id = ?
+       ORDER BY t.id, i.id`,
+      [issueId],
+    )) as [any[], any];
+
+    const [defectRows] = (await conn.query(
+      `SELECT i.id, i.subject, i.created_on, i.status_id,
+         s.name AS status, t.name AS tracker,
+         e.name AS priority, c.name AS category,
+         CONCAT(u.firstname,' ',u.lastname) AS assignee
+       FROM issues i
+       LEFT JOIN issue_statuses s    ON s.id = i.status_id
+       LEFT JOIN trackers t          ON t.id = i.tracker_id
+       LEFT JOIN enumerations e      ON e.id = i.priority_id AND e.type='IssuePriority'
+       LEFT JOIN issue_categories c  ON c.id = i.category_id
+       LEFT JOIN users u             ON u.id = i.assigned_to_id
+       WHERE (t.name LIKE '%Defect%' OR t.name LIKE '%Bug%')
+         AND i.subject LIKE CONCAT('%', ?, '%')
+         AND i.status_id != 11
+       ORDER BY i.created_on ASC`,
+      [issueId],
+    )) as [any[], any];
+
+    const defectMap = new Map<number, any>();
+    for (const d of defectRows as any[]) {
+      defectMap.set(d.id, d);
+    }
+    for (const d of (childRows as any[]).filter((r) =>
+      isDefectTracker(r.tracker ?? ""),
+    )) {
+      if (d.status_id !== 11) {
+        defectMap.set(d.id, d);
+      }
+    }
+
+    const defects = Array.from(defectMap.values()).map((d: any) => ({
+      id: d.id,
+      subject: d.subject,
+      status: d.status ?? "New",
+      priority: d.priority ?? "Normal",
+      category: d.category ?? "",
+      assignee: d.assignee ?? "Unassigned",
+      createdOn: d.created_on,
+    }));
+
+    return buildReportShape(
+      issueId,
+      {
+        subject: main.subject,
+        status: main.status,
+        projectName: main.project_name,
+      },
+      [], // We ignore MySQL test items because we're using the frontend table
+      defects,
+    );
+  } catch (err: any) {
+    return null;
+  } finally {
+    if (conn) await conn.end().catch(() => {});
+  }
 }
+
 async function reportFromRedmineAPI(
   issueId: string,
 ): Promise<Record<string, unknown> | null> {
-  return null;
+  const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
+  const apiKey = process.env.REDMINE_API_KEY ?? "";
+  if (!baseUrl || !apiKey) return null;
+
+  const h = { "X-Redmine-API-Key": apiKey, Accept: "application/json" };
+  const timeout = 10000;
+
+  const safeJson = async (url: string) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const r = await fetch(url, { headers: h, signal: ctrl.signal });
+      return r.ok ? r.json() : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  try {
+    const issueData = await safeJson(`${baseUrl}/issues/${issueId}.json`);
+    if (!issueData?.issue) return null;
+    const main = issueData.issue;
+
+    const childData = await safeJson(
+      `${baseUrl}/issues.json?parent_id=${issueId}&limit=100&status_id=*`,
+    );
+    const children: any[] = childData?.issues ?? [];
+
+    const defectSearch = await safeJson(
+      `${baseUrl}/issues.json?subject=~${issueId}&limit=100&status_id=*`,
+    );
+    const subjectMatches: any[] = defectSearch?.issues ?? [];
+
+    const defectMap = new Map<number, any>();
+    const toNormDefect = (i: any) => ({
+      id: i.id,
+      subject: i.subject,
+      status: i.status?.name ?? "New",
+      priority: i.priority?.name ?? "Normal",
+      category: i.category?.name ?? "",
+      assignee: i.assigned_to?.name ?? "Unassigned",
+      createdOn: i.created_on,
+    });
+
+    for (const i of subjectMatches) {
+      if (isDefectTracker(i.tracker?.name ?? "") && i.status?.id !== 11)
+        defectMap.set(i.id, toNormDefect(i));
+    }
+    for (const i of children) {
+      if (isDefectTracker(i.tracker?.name ?? "") && i.status?.id !== 11)
+        defectMap.set(i.id, toNormDefect(i));
+    }
+
+    return buildReportShape(
+      issueId,
+      {
+        subject: main.subject,
+        status: main.status?.name ?? "",
+        projectName: main.project?.name ?? "",
+      },
+      [], // Ignore API test items
+      Array.from(defectMap.values()),
+    );
+  } catch (err: any) {
+    return null;
+  }
 }
+
 async function reportFromLocalDB(
   issueId: string,
 ): Promise<Record<string, unknown> | null> {
@@ -273,11 +446,17 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
   }
   const cleanId = redmineId.replace(/^#/, "").trim();
 
-  // 1. Fetch from our new local React frontend table
+  // 1. Fetch from our new local React frontend table (for test execution metrics)
   const testData = await reportFromLocalExecutionDetails(cleanId);
 
   // 2. Fetch Defects from DBs
-  let defectData = await reportFromLocalDB(cleanId);
+  let defectData = await reportFromMySQL(cleanId);
+  if (!defectData) {
+    defectData = await reportFromRedmineAPI(cleanId);
+  }
+  if (!defectData) {
+    defectData = await reportFromLocalDB(cleanId);
+  }
 
   // 3. Merge Excel Data + Defect Data Perfectly
   if (testData && defectData) {

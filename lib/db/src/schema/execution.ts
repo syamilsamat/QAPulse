@@ -1,0 +1,41 @@
+import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+
+// 1. Reusable Modules Table
+export const executionModulesTable = pgTable("execution_modules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// 2. Parent Execution Files Table (1 per Redmine Ticket)
+export const executionFilesTable = pgTable("execution_files", {
+  id: serial("id").primaryKey(),
+  redmineTicketId: text("redmine_ticket_id").notNull().unique(),
+  title: text("title"),
+  qaPic: text("qa_pic"),
+  remarks: text("remarks"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// 3. Child Test Cases Table (The spreadsheet rows)
+export const executionTestCasesTable = pgTable("execution_test_cases", {
+  id: serial("id").primaryKey(),
+  executionFileId: integer("execution_file_id")
+    .references(() => executionFilesTable.id, { onDelete: "cascade" })
+    .notNull(),
+  moduleName: text("module_name"),
+  caseId: text("case_id"),
+  userStory: text("user_story"),
+  scenario: text("scenario"),
+  preCondition: text("pre_condition"),
+  caseName: text("case_name"),
+  testSteps: text("test_steps"),
+  testData: text("test_data"),
+  expectedResult: text("expected_result"),
+  result: text("result"),
+  defectNumber: text("defect_number"),
+  comments: text("comments"),
+  qaPic: text("qa_pic"),
+  rowOrder: integer("row_order").notNull().default(0),
+});
