@@ -37,6 +37,19 @@ const getHeaders = () => {
   };
 };
 
+export interface ExecutionUser {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export const fetchUsers = async (): Promise<ExecutionUser[]> => {
+  const res = await fetch("/api/users", { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch users");
+  return res.json();
+};
+
 // --- API Calls ---
 export const fetchExecutionFiles = async (): Promise<ExecutionFile[]> => {
   const res = await fetch("/api/execution-files", { headers: getHeaders() });

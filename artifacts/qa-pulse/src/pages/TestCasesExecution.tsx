@@ -11,8 +11,8 @@ import { Plus, Search, FileSpreadsheet, Edit, Trash2, Settings, ListPlus, Loader
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { 
-  fetchExecutionFiles, createExecutionFile, fetchModules, addModule, deleteModule, 
-  type ExecutionFile, type ExecutionModule 
+  fetchExecutionFiles, createExecutionFile, fetchModules, addModule, deleteModule, fetchUsers,
+  type ExecutionFile, type ExecutionModule, type ExecutionUser 
 } from "@/lib/execution-api"; 
 
 export default function TestCasesExecution() {
@@ -22,6 +22,7 @@ export default function TestCasesExecution() {
   const [search, setSearch] = useState("");
   const [files, setFiles] = useState<ExecutionFile[]>([]);
   const [modules, setModules] = useState<ExecutionModule[]>([]);
+  const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [newFileOpen, setNewFileOpen] = useState(false);
@@ -32,10 +33,11 @@ export default function TestCasesExecution() {
 
   // LOAD DATA ON MOUNT
   useEffect(() => {
-    Promise.all([fetchExecutionFiles(), fetchModules()])
-      .then(([filesData, modulesData]) => {
+    Promise.all([fetchExecutionFiles(), fetchModules(), fetchUsers()])
+      .then(([filesData, modulesData, usersData]) => {
         setFiles(filesData);
         setModules(modulesData);
+        setQaUsers(usersData);
       })
       .catch(() => toast({ variant: "destructive", title: "Failed to load data from server" }))
       .finally(() => setIsLoading(false));
@@ -148,7 +150,19 @@ export default function TestCasesExecution() {
               <Input placeholder="e.g. 38032" value={fileForm.redmineTicketId} onChange={(e) => setFileForm({...fileForm, redmineTicketId: e.target.value})} />
             </div>
             <div className="space-y-1"><Label>Title</Label><Input value={fileForm.title} onChange={(e) => setFileForm({...fileForm, title: e.target.value})} /></div>
-            <div className="space-y-1"><Label>QA PIC</Label><Input value={fileForm.qaPic} onChange={(e) => setFileForm({...fileForm, qaPic: e.target.value})} /></div>
+            <div className="space-y-1">
+              <Label>QA PIC</Label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={fileForm.qaPic}
+                onChange={(e) => setFileForm({...fileForm, qaPic: e.target.value})}
+              >
+                <option value="">Select QA PIC...</option>
+                {qaUsers.map((u) => (
+                  <option key={u.id} value={u.name}>{u.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <DialogFooter><Button variant="ghost" onClick={() => setNewFileOpen(false)}>Cancel</Button><Button onClick={handleCreateFile}>Create File</Button></DialogFooter>
         </DialogContent>
