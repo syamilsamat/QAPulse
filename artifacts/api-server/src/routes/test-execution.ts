@@ -149,7 +149,7 @@ router.get(
         .where(eq(executionFilesTable.redmineTicketId, ticketId));
 
       if (!file) {
-        res.json([]);
+        res.json({ testCases: [], lastUpdatedAt: null });
         return;
       }
 
@@ -158,8 +158,9 @@ router.get(
         .from(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
 
-      res.json(
-        testCases.map((t) => ({
+      res.json({
+        lastUpdatedAt: file.updatedAt,
+        testCases: testCases.map((t) => ({
           id: t.id,
           moduleName: t.moduleName,
           caseId: t.caseId,
@@ -176,99 +177,6 @@ router.get(
           qaPic: t.qaPic,
           rowOrder: t.rowOrder,
         })),
-      );
-    } catch {
-      res.status(500).json({ error: "Failed to fetch test cases" });
-    }
-  },
-);
-
-router.post(
-  "/execution-files/:ticketId/test-cases",
-  async (req, res): Promise<void> => {
-    try {
-      const ticketId = req.params.ticketId;
-      const { testCases } = req.body;
-      if (!Array.isArray(testCases)) {
-        res.status(400).json({ error: "testCases array required" });
-        return;
-      }
-
-      const [file] = await db
-        .select()
-        .from(executionFilesTable)
-        .where(eq(executionFilesTable.redmineTicketId, ticketId));
-
-      if (!file) {
-        res.status(404).json({ error: "Execution file not found" });
-        return;
-      }
-
-      // Delete existing test cases for this file
-      await db
-        .delete(executionTestCasesTable)
-        .where(eq(executionTestCasesTable.executionFileId, file.id));
-
-      // Insert new ones
-      if (testCases.length > 0) {
-        await db.insert(executionTestCasesTable).values(
-          testCases.map((t: any, idx: number) => ({
-            executionFileId: file.id,
-            moduleName: t.moduleName || null,
-            caseId: t.caseId || null,
-            userStory: t.userStory || null,
-            scenario: t.scenario || null,
-            preCondition: t.preCondition || null,
-            caseName: t.caseName || null,
-            testSteps: t.testSteps || null,
-            testData: t.testData || null,
-            expectedResult: t.expectedResult || null,
-            result: t.result || null,
-            defectNumber: t.defectNumber || null,
-            comments: t.comments || null,
-            qaPic: t.qaPic || null,
-            rowOrder: t.rowOrder ?? idx,
-          })),
-        );
-      }
-
-      res.json({ success: true, count: testCases.length });
-    } catch {
-      res.status(500).json({ error: "Failed to save test cases" });
-    }
-  },
-);
-
-// --- 2. UPDATE GET ROUTE TO RETURN TIMESTAMP ---
-router.get(
-  "/execution-files/:ticketId/test-cases",
-  async (req, res): Promise<void> => {
-    try {
-      const ticketId = req.params.ticketId;
-      const [file] = await db
-        .select()
-        .from(executionFilesTable)
-        .where(eq(executionFilesTable.redmineTicketId, ticketId));
-
-      if (!file) {
-        res.json({ testCases: [], lastUpdatedAt: null });
-        return;
-      }
-
-      const testCases = await db
-        .select()
-        .from(executionTestCasesTable)
-        .where(eq(executionTestCasesTable.executionFileId, file.id));
-
-      res.json({
-        lastUpdatedAt: file.updatedAt, // Pass this to the frontend
-        testCases: testCases.map((t) => ({
-          // ... your existing mapping logic ...
-          id: t.id,
-          moduleName: t.moduleName,
-          result: t.result,
-          // ... map other fields ...
-        })),
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch test cases" });
@@ -276,13 +184,16 @@ router.get(
   },
 );
 
-// --- 3. UPDATE POST ROUTE WITH CONCURRENCY CHECK ---
 router.post(
   "/execution-files/:ticketId/test-cases",
   async (req, res): Promise<void> => {
     try {
       const ticketId = req.params.ticketId;
       const { testCases, lastUpdatedAt } = req.body;
+      if (!Array.isArray(testCases)) {
+        res.status(400).json({ error: "testCases array required" });
+        return;
+      }
 
       const [file] = await db
         .select()
@@ -314,7 +225,25 @@ router.post(
 
       // 2. Insert new
       if (testCases.length > 0) {
-        // ... your existing insert logic ...
+        await db.insert(executionTestCasesTable).values(
+          testCases.map((t: any, idx: number) => ({
+            executionFileId: file.id,
+            moduleName: t.moduleName || null,
+            caseId: t.caseId || null,
+            userStory: t.userStory || null,
+            scenario: t.scenario || null,
+            preCondition: t.preCondition || null,
+            caseName: t.caseName || null,
+            testSteps: t.testSteps || null,
+            testData: t.testData || null,
+            expectedResult: t.expectedResult || null,
+            result: t.result || null,
+            defectNumber: t.defectNumber || null,
+            comments: t.comments || null,
+            qaPic: t.qaPic || null,
+            rowOrder: t.rowOrder ?? idx,
+          })),
+        );
       }
 
       // 3. Update the file's updatedAt timestamp
