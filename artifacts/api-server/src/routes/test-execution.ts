@@ -134,6 +134,22 @@ router.post("/execution-files", async (req, res): Promise<void> => {
   }
 });
 
+router.delete("/execution-files/:id", async (req, res): Promise<void> => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    await db
+      .delete(executionFilesTable)
+      .where(eq(executionFilesTable.id, id));
+    res.status(204).send();
+  } catch {
+    res.status(500).json({ error: "Failed to delete execution file" });
+  }
+});
+
 /* ────────────────────────────────
    TEST CASES (by Redmine ticket ID)
    ──────────────────────────────── */

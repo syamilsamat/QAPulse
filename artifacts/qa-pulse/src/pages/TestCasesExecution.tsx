@@ -38,6 +38,7 @@ import { format } from "date-fns";
 import {
   fetchExecutionFiles,
   createExecutionFile,
+  deleteExecutionFile,
   fetchModules,
   addModule,
   deleteModule,
@@ -112,6 +113,16 @@ export default function TestCasesExecution() {
         variant: "destructive",
         title: "Failed to create file. Ticket ID might exist.",
       });
+    }
+  };
+
+  const handleDeleteFile = async (id: number) => {
+    try {
+      await deleteExecutionFile(id);
+      setFiles(files.filter((f) => f.id !== id));
+      toast({ title: "Execution file deleted" });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Failed to delete file" });
     }
   };
 
@@ -257,18 +268,28 @@ export default function TestCasesExecution() {
                     {format(new Date(f.updatedAt), "dd MMM yyyy, HH:mm")}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setLocation(
-                          `/test-cases/execution/${f.redmineTicketId}`,
-                        )
-                      }
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      <Edit className="w-4 h-4 mr-2" /> Open Spreadsheet
-                    </Button>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setLocation(
+                            `/test-cases/execution/${f.redmineTicketId}`,
+                          )
+                        }
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <Edit className="w-4 h-4 mr-2" /> Open Spreadsheet
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteFile(f.id)}
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

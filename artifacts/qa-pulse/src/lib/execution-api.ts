@@ -69,6 +69,14 @@ export const createExecutionFile = async (
   return res.json();
 };
 
+export const deleteExecutionFile = async (id: number): Promise<void> => {
+  const res = await fetch(`/api/execution-files/${id}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete file");
+};
+
 // UPDATED: Now returns an object containing both the testCases array and the timestamp
 export const fetchTestCases = async (
   ticketId: string,
