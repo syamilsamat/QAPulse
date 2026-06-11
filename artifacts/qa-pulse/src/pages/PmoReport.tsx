@@ -712,6 +712,7 @@ export default function PmoReport() {
   const { data, isLoading, error } = useQuery<PmoReportData>({
     queryKey: ["pmo-report", redmineId],
     queryFn: async () => {
+      // 1. Fetch the main report (Defects & Redmine Data)
       const resp = await fetch(
         `${getApiUrl()}/pmo/report?redmineId=${encodeURIComponent(redmineId!)}`,
         {
@@ -724,7 +725,57 @@ export default function PmoReport() {
         (e as any).help = body.help ?? [];
         throw e;
       }
-      return resp.json();
+
+      const reportData = await resp.json();
+
+      // 2. Fetch the execution details directly to bypass the backend executionStore bug
+      try {
+        const execResp = await fetch(
+          `${getApiUrl()}/pmo/execution-details?redmineId=${encodeURIComponent(redmineId!)}`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          }
+        );
+
+        if (execResp.ok) {
+          const execDetails = await execResp.json();
+          if (Array.isArray(execDetails) && execDetails.length > 0) {
+            let total = 0, passed = 0, failed = 0, blocked = 0, inProgress = 0, notExecuted = 0;
+
+            const moduleDetails = execDetails.map((row: any) => {
+              total += row.total || 0;
+              passed += row.passed || 0;
+              failed += row.failed || 0;
+              blocked += row.blocked || 0;
+              inProgress += row.inProg || 0;
+              notExecuted += row.notExec || 0;
+
+              return {
+                module: row.module,
+                total: row.total || 0,
+                passed: row.passed || 0,
+                failed: row.failed || 0,
+                blocked: row.blocked || 0,
+                inProgress: row.inProg || 0,
+                notExecuted: row.notExec || 0,
+                passCompletion: row.total > 0 ? Math.round((row.passed / row.total) * 1000) / 10 : 0,
+                totalCompletion: row.total > 0 ? Math.round(((row.total - row.notExec) / row.total) * 1000) / 10 : 0,
+              };
+            });
+
+            reportData.testExecution = {
+              total, passed, failed, blocked, inProgress, notExecuted,
+              passRate: total > 0 ? Math.round((passed / total) * 1000) / 10 : 0,
+              successRate: total > 0 ? Math.round(((passed + inProgress) / total) * 1000) / 10 : 0,
+            };
+            reportData.moduleDetails = moduleDetails;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to patch execution data", e);
+      }
+
+      return reportData;
     },
     enabled: !!redmineId,
     retry: false,

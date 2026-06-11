@@ -8,6 +8,8 @@ import {
   tasksTable,
   usersTable,
   executionSummariesTable,
+  executionFilesTable,
+  executionTestCasesTable,
 } from "@workspace/db";
 
 let mysql2: any = null;
@@ -22,24 +24,77 @@ router.get("/pmo/execution-details", async (req, res) => {
   const { redmineId } = req.query;
   if (redmineId && typeof redmineId === "string") {
     try {
+      // 1. Check for saved summaries first
       const rows = await db
         .select()
         .from(executionSummariesTable)
         .where(eq(executionSummariesTable.redmineTicketId, redmineId));
 
-      // Transform DB rows to match frontend ExecutionRow shape
-      const data = rows.map((r) => ({
-        id: r.id.toString(),
-        module: r.module,
-        total: r.total,
-        passed: r.passed,
-        failed: r.failed,
-        blocked: r.blocked,
-        inProg: r.inProgress,
-        notExec: r.notExecuted,
-      }));
+      if (rows.length > 0) {
+        const data = rows.map((r) => ({
+          id: r.id.toString(),
+          module: r.module,
+          total: r.total,
+          passed: r.passed,
+          failed: r.failed,
+          blocked: r.blocked,
+          inProg: r.inProgress,
+          notExec: r.notExecuted,
+        }));
+        res.json(data);
+        return;
+      }
 
-      res.json(data);
+      // 2. Fallback: aggregate from raw test cases in execution_test_cases
+      const [file] = await db
+        .select()
+        .from(executionFilesTable)
+        .where(eq(executionFilesTable.redmineTicketId, redmineId));
+
+      if (!file) {
+        res.json([]);
+        return;
+      }
+
+      const testCases = await db
+        .select()
+        .from(executionTestCasesTable)
+        .where(eq(executionTestCasesTable.executionFileId, file.id));
+
+      if (testCases.length === 0) {
+        res.json([]);
+        return;
+      }
+
+      // Aggregate by module
+      const moduleMap: Record<string, any> = {};
+      testCases.forEach((tc) => {
+        if (!tc.moduleName && !tc.caseName && !tc.result) return;
+        const modName = tc.moduleName || "Unassigned Module";
+
+        if (!moduleMap[modName]) {
+          moduleMap[modName] = {
+            id: `agg-${modName}`,
+            module: modName,
+            total: 0,
+            passed: 0,
+            failed: 0,
+            blocked: 0,
+            inProg: 0,
+            notExec: 0,
+          };
+        }
+        const row = moduleMap[modName];
+        row.total += 1;
+        const res = (tc.result ?? "").trim().toLowerCase();
+        if (res === "passed") row.passed += 1;
+        else if (res === "failed") row.failed += 1;
+        else if (res === "blocked") row.blocked += 1;
+        else if (res === "in progress") row.inProg += 1;
+        else row.notExec += 1;
+      });
+
+      res.json(Object.values(moduleMap));
     } catch (err) {
       console.error("Error fetching execution details:", err);
       res.status(500).json({ error: "Database error" });
