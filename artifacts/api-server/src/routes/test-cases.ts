@@ -18,7 +18,7 @@ import {
   ListTestCasesQueryParams,
   GenerateTestCasesWithAIBody,
 } from "@workspace/api-zod";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type, type Schema } from "@google/genai";
 
 // Initialize primary Gemini client
 const ai = new GoogleGenAI({});
@@ -43,7 +43,8 @@ function safeParseJSON(content: string, fallback: any) {
 }
 
 /**
- * Fallback AI Call via OpenRouter (OpenAI / Meta Llama Free Models)
+ * Fallback AI Call via OpenRouter Cascade
+ * Iterates through a list of models until one successfully returns the payload.
  */
 async function callFallbackAI(
   systemPrompt: string,
@@ -54,36 +55,79 @@ async function callFallbackAI(
     throw new Error("Missing OPENROUTER_API_KEY environment variable.");
   }
 
-  console.log("🔄 Pivoting to Fallback AI via OpenRouter...");
+  console.log("🔄 Pivoting to Fallback AI Cascade via OpenRouter...");
 
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${openRouterKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct:free",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  // The Cascade Order: Expanded to include your new models!
+  const fallbackModels = [
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "liquid/lfm-2.5-1.2b-instruct-20260120",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3-coder",
+    "moonshotai/kimi-k2.6",
+    "nousresearch/hermes-3-llama-3.1-405b",
+    "nvidia/nemotron-3.5-content-safety-20260604",
+    "sourceful/riverflow-v2.5-pro-20260605",
+    "sourceful/riverflow-v2.5-fast-20260605",
+    "z-ai/glm-4.5-air",
+    "google/gemma-4-31b-it",
+  ];
+
+  for (const model of fallbackModels) {
+    console.log(`🔄 Attempting Fallback Node: ${model}...`);
+    try {
+      const body: any = {
+        model: model,
+        messages: messages,
+        max_tokens: 8192,
+        // Since test cases always require JSON, we force it here.
         response_format: { type: "json_object" },
-      }),
-    },
-  );
+      };
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `OpenRouter API failure: ${response.status} - ${errorBody}`,
-    );
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (
+          data.choices &&
+          data.choices.length > 0 &&
+          data.choices[0].message?.content
+        ) {
+          console.log(`✅ Success with Fallback Node: ${model}`);
+          return data.choices[0].message.content;
+        }
+      } else {
+        const errorBody = await response.text();
+        console.warn(
+          `⚠️ Node [${model}] failed: ${response.status} - ${errorBody}`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `⚠️ Network error with Node [${model}]:`,
+        (error as Error).message,
+      );
+    }
   }
 
-  const data = await response.json();
-  return data.choices[0]?.message?.content ?? '{"testCases": []}';
+  // If the loop finishes without returning, every AI is down.
+  throw new Error(
+    "❌ Crucial system failure: All primary and fallback AI nodes are completely exhausted. The world might be doomed.",
+  );
 }
 
 async function formatTestCase(tc: typeof testCasesTable.$inferSelect) {
@@ -214,6 +258,45 @@ Notes: ${additionalNotes || "None"} ${historicalContext}`;
   const fallbackObject = { testCases: [] };
   let finalRawText = "";
 
+  // 1. Define the strict JSON schema for Gemini
+  const responseSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      testCases: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            objective: { type: Type.STRING },
+            preconditions: { type: Type.STRING },
+            testSteps: { type: Type.STRING },
+            expectedResult: { type: Type.STRING },
+            type: {
+              type: Type.STRING,
+              enum: ["manual", "automation_candidate"],
+            },
+            priority: {
+              type: Type.STRING,
+              enum: ["low", "medium", "high", "critical"],
+            },
+            tags: { type: Type.STRING },
+            automationCandidate: { type: Type.BOOLEAN },
+          },
+          required: [
+            "title",
+            "objective",
+            "testSteps",
+            "expectedResult",
+            "type",
+            "priority",
+          ],
+        },
+      },
+    },
+    required: ["testCases"],
+  };
+
   try {
     console.log("ℹ️ Attempting primary Generation via Gemini...");
     const response = await ai.models.generateContent({
@@ -221,8 +304,9 @@ Notes: ${additionalNotes || "None"} ${historicalContext}`;
       contents: userPrompt,
       config: {
         systemInstruction,
-        maxOutputTokens: 4000, // Maximized token window
+        maxOutputTokens: 4000,
         responseMimeType: "application/json",
+        responseSchema: responseSchema, // 2. Inject the schema here
       },
     });
     finalRawText = response.text ?? '{"testCases": []}';
