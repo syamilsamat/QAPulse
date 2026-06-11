@@ -243,8 +243,69 @@ async function reportFromLocalExecutionDetails(
   issueId: string,
 ): Promise<Record<string, unknown> | null> {
   try {
-    const details = executionStore[issueId];
-    if (!details || details.length === 0) return null;
+    // 1. Check for saved summaries in PostgreSQL first
+    const savedRows = await db
+      .select()
+      .from(executionSummariesTable)
+      .where(eq(executionSummariesTable.redmineTicketId, issueId));
+
+    let details: any[] = [];
+
+    if (savedRows.length > 0) {
+      details = savedRows.map((r) => ({
+        module: r.module,
+        total: r.total,
+        passed: r.passed,
+        failed: r.failed,
+        blocked: r.blocked,
+        inProg: r.inProgress,
+        notExec: r.notExecuted,
+      }));
+    } else {
+      // 2. Fallback: aggregate from raw test cases in execution_test_cases
+      const [file] = await db
+        .select()
+        .from(executionFilesTable)
+        .where(eq(executionFilesTable.redmineTicketId, issueId));
+
+      if (!file) return null;
+
+      const testCases = await db
+        .select()
+        .from(executionTestCasesTable)
+        .where(eq(executionTestCasesTable.executionFileId, file.id));
+
+      if (testCases.length === 0) return null;
+
+      const moduleMap: Record<string, any> = {};
+      testCases.forEach((tc) => {
+        if (!tc.moduleName && !tc.caseName && !tc.result) return;
+        const modName = tc.moduleName || "Unassigned Module";
+
+        if (!moduleMap[modName]) {
+          moduleMap[modName] = {
+            module: modName,
+            total: 0,
+            passed: 0,
+            failed: 0,
+            blocked: 0,
+            inProg: 0,
+            notExec: 0,
+          };
+        }
+        const row = moduleMap[modName];
+        row.total += 1;
+        const res = (tc.result ?? "").trim().toLowerCase();
+        if (res === "passed") row.passed += 1;
+        else if (res === "failed") row.failed += 1;
+        else if (res === "blocked") row.blocked += 1;
+        else if (res === "in progress") row.inProg += 1;
+        else row.notExec += 1;
+      });
+      details = Object.values(moduleMap);
+    }
+
+    if (details.length === 0) return null;
 
     let total = 0,
       passed = 0,
@@ -304,6 +365,7 @@ async function reportFromLocalExecutionDetails(
       activeDefects: [],
     };
   } catch (err) {
+    console.error("Error in reportFromLocalExecutionDetails:", err);
     return null;
   }
 }
