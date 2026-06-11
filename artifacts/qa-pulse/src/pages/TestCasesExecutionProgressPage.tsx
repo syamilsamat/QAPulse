@@ -70,7 +70,7 @@ export default function TestCasesExecutionProgressPage() {
         }),
       )
       .finally(() => setIsLoading(false));
-  }, [ticketId]);
+  }, [ticketId, toast]);
 
   const createEmptyRow = (): ExecutionTestCase => ({
     id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
@@ -107,7 +107,7 @@ export default function TestCasesExecutionProgressPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await saveTestCases(ticketId, data);
+      await saveTestCases(ticketId, data, null); // Pass null or standard args as per updated api
       toast({ title: `Database saved for Ticket #${ticketId}` });
     } catch (err) {
       toast({ variant: "destructive", title: "Failed to save to database" });
@@ -186,6 +186,10 @@ export default function TestCasesExecutionProgressPage() {
         <Loader2 className="w-8 h-8 animate-spin" />
       </div>
     );
+
+  // Common input styling for desktop table ensuring identical fonts and inline display
+  const tableInputClass = "h-full min-h-[40px] w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-0";
+  const tableSelectClass = "w-full h-full min-h-[40px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative";
 
   return (
     <div className="space-y-4 flex flex-col h-[calc(100vh-6rem)]">
@@ -312,12 +316,12 @@ export default function TestCasesExecutionProgressPage() {
                   key={row.id as string}
                   className="hover:bg-muted/10 group align-middle"
                 >
-                  <td className="border border-border text-center text-xs text-muted-foreground bg-muted/5">
+                  <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5">
                     {index + 1}
                   </td>
                   <td className="border border-border p-0 relative align-middle">
                     <select
-                      className="w-full h-full min-h-[40px] text-xs bg-transparent border-0 px-2 outline-none focus:ring-2 focus:ring-primary focus:z-10 relative"
+                      className={tableSelectClass}
                       value={row.moduleName || ""}
                       onChange={(e) =>
                         updateCell(
@@ -337,7 +341,7 @@ export default function TestCasesExecutionProgressPage() {
                   </td>
                   <td className="border border-border p-0 relative align-middle">
                     <Input
-                      className="h-full min-h-[40px] w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left"
+                      className={tableInputClass}
                       value={row.caseId || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "caseId", e.target.value)
@@ -346,7 +350,7 @@ export default function TestCasesExecutionProgressPage() {
                   </td>
                   <td className="border border-border p-0 relative align-middle">
                     <Input
-                      className="h-full min-h-[40px] w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left"
+                      className={tableInputClass}
                       value={row.userStory || ""}
                       onChange={(e) =>
                         updateCell(
@@ -359,7 +363,7 @@ export default function TestCasesExecutionProgressPage() {
                   </td>
                   <td className="border border-border p-0 relative align-middle">
                     <Input
-                      className="h-full min-h-[40px] w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left"
+                      className={tableInputClass}
                       value={row.scenario || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "scenario", e.target.value)
@@ -367,8 +371,8 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Textarea
-                      className="min-h-[40px] h-full w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent resize-none text-left py-2"
+                    <Input
+                      className={tableInputClass}
                       value={row.preCondition || ""}
                       onChange={(e) =>
                         updateCell(
@@ -380,8 +384,8 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Textarea
-                      className="min-h-[40px] h-full w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent resize-none text-left py-2"
+                    <Input
+                      className={tableInputClass}
                       value={row.caseName || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "caseName", e.target.value)
@@ -389,8 +393,8 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Textarea
-                      className="min-h-[40px] h-full w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent resize-none text-left py-2"
+                    <Input
+                      className={tableInputClass}
                       value={row.testSteps || ""}
                       onChange={(e) =>
                         updateCell(
@@ -402,8 +406,8 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Textarea
-                      className="min-h-[40px] h-full w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent resize-none text-left py-2"
+                    <Input
+                      className={tableInputClass}
                       value={row.testData || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "testData", e.target.value)
@@ -411,8 +415,8 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Textarea
-                      className="min-h-[40px] h-full w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent resize-none text-left py-2"
+                    <Input
+                      className={tableInputClass}
                       value={row.expectedResult || ""}
                       onChange={(e) =>
                         updateCell(
@@ -425,7 +429,7 @@ export default function TestCasesExecutionProgressPage() {
                   </td>
                   <td className="border border-border p-0 bg-primary/5 relative align-middle">
                     <select
-                      className="w-full h-full min-h-[40px] text-xs bg-transparent font-semibold border-0 px-2 outline-none focus:ring-2 focus:ring-primary focus:z-10 relative"
+                      className={`${tableSelectClass} font-semibold`}
                       value={row.result || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "result", e.target.value)
@@ -440,7 +444,7 @@ export default function TestCasesExecutionProgressPage() {
                   </td>
                   <td className="border border-border p-0 relative align-middle">
                     <Input
-                      className="h-full min-h-[40px] w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left"
+                      className={tableInputClass}
                       value={row.defectNumber || ""}
                       onChange={(e) =>
                         updateCell(
@@ -452,8 +456,8 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Textarea
-                      className="min-h-[40px] h-full w-full text-xs rounded-none border-0 focus-visible:ring-2 focus-visible:ring-primary focus:z-10 bg-transparent resize-none text-left py-2"
+                    <Input
+                      className={tableInputClass}
                       value={row.comments || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "comments", e.target.value)
@@ -462,7 +466,7 @@ export default function TestCasesExecutionProgressPage() {
                   </td>
                   <td className="border border-border p-0 relative align-middle">
                     <select
-                      className="w-full h-full min-h-[40px] text-xs bg-transparent border-0 px-2 outline-none focus:ring-2 focus:ring-primary focus:z-10 relative"
+                      className={tableSelectClass}
                       value={row.qaPic || ""}
                       onChange={(e) =>
                         updateCell(row.id as string, "qaPic", e.target.value)

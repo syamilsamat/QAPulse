@@ -123,6 +123,19 @@ export const addModule = async (name: string): Promise<ExecutionModule> => {
   return res.json();
 };
 
+export const updateModule = async (
+  id: number,
+  name: string,
+): Promise<ExecutionModule> => {
+  const res = await fetch(`/api/modules/${id}`, {
+    method: "PUT",
+    headers: getHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to update module");
+  return res.json();
+};
+
 export const deleteModule = async (id: number) => {
   const res = await fetch(`/api/modules/${id}`, {
     method: "DELETE",
