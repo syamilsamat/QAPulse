@@ -308,7 +308,10 @@ export default function TestCasesExecutionProgressPage() {
             </thead>
             <tbody>
               {data.map((row, index) => (
-                <tr key={row.id as string} className="hover:bg-muted/10 group align-middle">
+                <tr
+                  key={row.id as string}
+                  className="hover:bg-muted/10 group align-middle"
+                >
                   <td className="border border-border text-center text-xs text-muted-foreground bg-muted/5">
                     {index + 1}
                   </td>
@@ -467,7 +470,9 @@ export default function TestCasesExecutionProgressPage() {
                     >
                       <option value="">Select QA PIC...</option>
                       {qaUsers.map((u) => (
-                        <option key={u.id} value={u.name}>{u.name}</option>
+                        <option key={u.id} value={u.name}>
+                          {u.name}
+                        </option>
                       ))}
                     </select>
                   </td>
@@ -663,7 +668,9 @@ export default function TestCasesExecutionProgressPage() {
                 >
                   <option value="">Select QA PIC...</option>
                   {qaUsers.map((u) => (
-                    <option key={u.id} value={u.name}>{u.name}</option>
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                    </option>
                   ))}
                 </select>
               </div>

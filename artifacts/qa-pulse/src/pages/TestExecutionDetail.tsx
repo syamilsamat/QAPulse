@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+// Add this import near the top of your file
+import { fetchTestCases } from "@/lib/execution-api";
 import {
   Table,
   TableBody,
@@ -74,27 +76,99 @@ export default function TestExecutionDetails() {
     if (!searchTicketId.trim()) return;
     setIsLoading(true);
     try {
-      const res = await fetch(
-        `/api/pmo/execution-details?redmineId=${encodeURIComponent(searchTicketId)}`,
-      );
-      const fetchedData = await res.json();
-      if (fetchedData && fetchedData.length > 0) {
-        setData(fetchedData);
-        setCurrentTicketId(searchTicketId);
-        toast({ title: `Loaded data for Ticket #${searchTicketId}` });
-      } else {
-        toast({
-          title: `No existing data for #${searchTicketId}. Starting fresh.`,
+      // 1. Fetch raw test cases from the progress page DB
+      const testCases = await fetchTestCases(searchTicketId);
+
+      if (testCases && testCases.length > 0) {
+        // 2. Aggregate logic: Group by Module and Count Results
+        const moduleMap: Record<string, ExecutionRow> = {};
+
+        testCases.forEach((tc: any) => {
+          // Ignore completely empty placeholder rows
+          if (!tc.moduleName && !tc.caseName && !tc.result) return;
+
+          const modName = tc.moduleName || "Unassigned Module";
+
+          if (!moduleMap[modName]) {
+            moduleMap[modName] = {
+              id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+              module: modName,
+              total: 0,
+              passed: 0,
+              failed: 0,
+              blocked: 0,
+              inProg: 0,
+              notExec: 0,
+            };
+          }
+
+          const row = moduleMap[modName];
+          row.total += 1;
+
+          // Normalize result string for accurate matching
+          const res = tc.result?.trim().toLowerCase() || "";
+
+          if (res === "passed") row.passed += 1;
+          else if (res === "failed") row.failed += 1;
+          else if (res === "blocked") row.blocked += 1;
+          else if (res === "in progress") row.inProg += 1;
+          else row.notExec += 1; // Catch-all for "Not Executed" or empty results
         });
-        setData([]);
+
+        const aggregatedData = Object.values(moduleMap);
+        setData(aggregatedData);
         setCurrentTicketId(searchTicketId);
+        toast({ title: `Calculated metrics from Test Cases for Ticket #${searchTicketId}` });
+
+      } else {
+        // 3. Fallback: Check if there's existing summary data on the PMO endpoint if no detailed test cases exist
+        const res = await fetch(
+          `/api/pmo/execution-details?redmineId=${encodeURIComponent(searchTicketId)}`,
+        );
+        const fetchedData = await res.json();
+
+        if (fetchedData && fetchedData.length > 0) {
+          setData(fetchedData);
+          setCurrentTicketId(searchTicketId);
+          toast({ title: `Loaded existing report data for Ticket #${searchTicketId}` });
+        } else {
+          toast({
+            title: `No existing data for #${searchTicketId}. Starting fresh.`,
+          });
+          setData([]);
+          setCurrentTicketId(searchTicketId);
+        }
       }
-    } catch {
+    } catch (err) {
       toast({ variant: "destructive", title: "Failed to load execution data" });
     } finally {
       setIsLoading(false);
     }
   };
+
+  // --- Real-Time Listener Setup ---
+  useEffect(() => {
+    // Connect to the SSE endpoint we created in Express
+    const eventSource = new EventSource("/api/execution-events");
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      // If the dashboard is currently viewing the ticket that was just saved
+      if (data.type === 'UPDATED' && data.ticketId === currentTicketId) {
+        toast({ 
+          title: "Live Update Received", 
+          description: "A QA tester just saved changes. Refreshing metrics..." 
+        });
+        // Re-run the fetch logic silently to update the numbers
+        handleLoadTicket(currentTicketId); 
+      }
+    };
+
+    return () => {
+      eventSource.close(); // Clean up connection when component unmounts
+    };
+  }, [currentTicketId]); // Re-bind if the user switches tickets
 
   const handleSaveToReport = async () => {
     if (!currentTicketId.trim()) {

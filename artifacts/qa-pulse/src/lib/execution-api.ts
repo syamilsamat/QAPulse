@@ -69,9 +69,13 @@ export const createExecutionFile = async (
   return res.json();
 };
 
+// UPDATED: Now returns an object containing both the testCases array and the timestamp
 export const fetchTestCases = async (
   ticketId: string,
-): Promise<ExecutionTestCase[]> => {
+): Promise<{
+  testCases: ExecutionTestCase[];
+  lastUpdatedAt: string | null;
+}> => {
   const res = await fetch(`/api/execution-files/${ticketId}/test-cases`, {
     headers: getHeaders(),
   });
@@ -79,16 +83,27 @@ export const fetchTestCases = async (
   return res.json();
 };
 
+// UPDATED: Now accepts the lastUpdatedAt timestamp and handles 409 Conflict errors
 export const saveTestCases = async (
   ticketId: string,
   testCases: ExecutionTestCase[],
+  lastUpdatedAt: string | null,
 ) => {
   const res = await fetch(`/api/execution-files/${ticketId}/test-cases`, {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ testCases }),
+    body: JSON.stringify({ testCases, lastUpdatedAt }),
   });
-  if (!res.ok) throw new Error("Failed to save test cases");
+
+  if (!res.ok) {
+    // Pass the 409 status up to the component so it can show the concurrent edit warning
+    if (res.status === 409) {
+      const err = new Error("Concurrent edit detected");
+      (err as any).response = res;
+      throw err;
+    }
+    throw new Error("Failed to save test cases");
+  }
   return res.json();
 };
 
