@@ -85,7 +85,9 @@ export default function TestExecutionDetails() {
       if (savedData && savedData.length > 0) {
         setData(savedData);
         setCurrentTicketId(searchTicketId);
-        toast({ title: `Loaded saved report data for Ticket #${searchTicketId}` });
+        toast({
+          title: `Loaded saved report data for Ticket #${searchTicketId}`,
+        });
         setIsLoading(false);
         return;
       }
@@ -105,7 +107,9 @@ export default function TestExecutionDetails() {
 
           if (!moduleMap[modName]) {
             moduleMap[modName] = {
-              id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+              id:
+                Date.now().toString() +
+                Math.random().toString(36).substring(2, 9),
               module: modName,
               total: 0,
               passed: 0,
@@ -132,7 +136,9 @@ export default function TestExecutionDetails() {
         const aggregatedData = Object.values(moduleMap);
         setData(aggregatedData);
         setCurrentTicketId(searchTicketId);
-        toast({ title: `Calculated metrics from Test Cases for Ticket #${searchTicketId}` });
+        toast({
+          title: `Calculated metrics from Test Cases for Ticket #${searchTicketId}`,
+        });
       } else {
         toast({
           title: `No existing data for #${searchTicketId}. Starting fresh.`,
@@ -156,13 +162,13 @@ export default function TestExecutionDetails() {
       const data = JSON.parse(event.data);
 
       // If the dashboard is currently viewing the ticket that was just saved
-      if (data.type === 'UPDATED' && data.ticketId === currentTicketId) {
-        toast({ 
-          title: "Live Update Received", 
-          description: "A QA tester just saved changes. Refreshing metrics..." 
+      if (data.type === "UPDATED" && data.ticketId === currentTicketId) {
+        toast({
+          title: "Live Update Received",
+          description: "A QA tester just saved changes. Refreshing metrics...",
         });
         // Re-run the fetch logic silently to update the numbers
-        handleLoadTicket(currentTicketId); 
+        handleLoadTicket(currentTicketId);
       }
     };
 
@@ -357,6 +363,9 @@ export default function TestExecutionDetails() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {/* --- HIDDEN BUTTONS START ---
+              To re-enable, simply remove the { /* and * / } brackets around these buttons. */}
+          {/*
           <Button
             variant="outline"
             className="gap-2"
@@ -370,6 +379,9 @@ export default function TestExecutionDetails() {
           <Button variant="secondary" onClick={handleAddRow} className="gap-2">
             <Plus className="w-4 h-4" /> Add Row
           </Button>
+          */}
+          {/* --- HIDDEN BUTTONS END --- */}
+
           <Button
             onClick={handleSaveToReport}
             disabled={isSaving || !currentTicketId}
@@ -433,7 +445,7 @@ export default function TestExecutionDetails() {
                       colSpan={10}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      No data. Load a ticket, add a row, or import Excel.
+                      No data. Load a ticket to view progress.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -442,7 +454,14 @@ export default function TestExecutionDetails() {
                       key={row.id}
                       className="hover:bg-muted/10 transition-colors group"
                     >
-                      <TableCell className="p-1">
+                      {/* MODULE COLUMN */}
+                      <TableCell className="p-1 px-3">
+                        {/* READ-ONLY TEXT */}
+                        <span className="uppercase text-sm font-medium">
+                          {row.module || "UNNAMED MODULE"}
+                        </span>
+
+                        {/* HIDDEN EDIT FEATURE 
                         <Input
                           className="h-8 border-transparent bg-transparent hover:border-input focus-visible:ring-1 uppercase text-sm font-medium"
                           value={row.module}
@@ -451,7 +470,10 @@ export default function TestExecutionDetails() {
                             updateRow(row.id, "module", e.target.value)
                           }
                         />
+                        */}
                       </TableCell>
+
+                      {/* NUMBER COLUMNS */}
                       {(
                         [
                           "total",
@@ -462,7 +484,15 @@ export default function TestExecutionDetails() {
                           "notExec",
                         ] as const
                       ).map((field) => (
-                        <TableCell key={field} className="p-1">
+                        <TableCell key={field} className="p-1 text-center">
+                          {/* READ-ONLY TEXT */}
+                          <span className="text-sm">
+                            {row[field] === 0 && field !== "total"
+                              ? "-"
+                              : row[field]}
+                          </span>
+
+                          {/* HIDDEN EDIT FEATURE
                           <Input
                             type="number"
                             min="0"
@@ -481,15 +511,21 @@ export default function TestExecutionDetails() {
                               )
                             }
                           />
+                          */}
                         </TableCell>
                       ))}
+
+                      {/* CALCULATED COLUMNS */}
                       <TableCell className="text-center font-semibold text-primary bg-primary/5">
                         {calculatePassCompletion(row.passed, row.total)}
                       </TableCell>
                       <TableCell className="text-center font-semibold bg-muted/20">
                         {calculateTotalCompletion(row.total, row.notExec)}
                       </TableCell>
+
+                      {/* DELETE BUTTON COLUMN */}
                       <TableCell className="text-right p-1 pr-3">
+                        {/* HIDDEN DELETE FEATURE
                         <Button
                           variant="ghost"
                           size="icon"
@@ -498,6 +534,7 @@ export default function TestExecutionDetails() {
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
+                        */}
                       </TableCell>
                     </TableRow>
                   ))
@@ -510,7 +547,7 @@ export default function TestExecutionDetails() {
           <div className="lg:hidden flex flex-col gap-4 p-4">
             {data.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground border rounded-lg border-dashed">
-                No data. Click "Add Row" or "Import Excel" to start.
+                No data. Load a ticket to view progress.
               </div>
             ) : (
               data.map((row) => (
@@ -523,6 +560,13 @@ export default function TestExecutionDetails() {
                       <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                         Module Name
                       </label>
+
+                      {/* READ-ONLY TEXT */}
+                      <div className="h-9 flex items-center px-3 font-bold text-sm uppercase bg-muted/10 rounded-md">
+                        {row.module || "UNNAMED MODULE"}
+                      </div>
+
+                      {/* HIDDEN EDIT FEATURE
                       <Input
                         className="h-9 uppercase font-bold text-sm bg-muted/30 focus:bg-background"
                         value={row.module}
@@ -531,7 +575,10 @@ export default function TestExecutionDetails() {
                           updateRow(row.id, "module", e.target.value)
                         }
                       />
+                      */}
                     </div>
+
+                    {/* HIDDEN DELETE FEATURE
                     <Button
                       variant="ghost"
                       size="icon"
@@ -540,6 +587,7 @@ export default function TestExecutionDetails() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
+                    */}
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
@@ -566,6 +614,15 @@ export default function TestExecutionDetails() {
                           <label className="text-[10px] sm:text-xs font-semibold text-muted-foreground">
                             {labels[field]}
                           </label>
+
+                          {/* READ-ONLY TEXT */}
+                          <div className="h-8 flex items-center justify-center text-sm font-medium bg-muted/5 rounded-md border border-transparent">
+                            {row[field] === 0 && field !== "total"
+                              ? "-"
+                              : row[field]}
+                          </div>
+
+                          {/* HIDDEN EDIT FEATURE
                           <Input
                             type="number"
                             min="0"
@@ -584,6 +641,7 @@ export default function TestExecutionDetails() {
                               )
                             }
                           />
+                          */}
                         </div>
                       );
                     })}
