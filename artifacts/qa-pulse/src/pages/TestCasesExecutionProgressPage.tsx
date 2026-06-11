@@ -54,7 +54,8 @@ export default function TestCasesExecutionProgressPage() {
   // LOAD FROM DB ON MOUNT
   useEffect(() => {
     Promise.all([fetchTestCases(ticketId), fetchModules(), fetchUsers()])
-      .then(([testCases, modules, users]) => {
+      .then(([result, modules, users]) => {
+        const testCases = result?.testCases || [];
         if (testCases.length === 0) {
           setData([createEmptyRow()]); // Give them 1 empty row to start
         } else {
