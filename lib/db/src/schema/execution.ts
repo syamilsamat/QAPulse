@@ -39,3 +39,18 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   qaPic: text("qa_pic"),
   rowOrder: integer("row_order").notNull().default(0),
 });
+
+// 4. Execution Summary Table (aggregated module-level data for the Execution Details page)
+export const executionSummariesTable = pgTable("execution_summaries", {
+  id: serial("id").primaryKey(),
+  redmineTicketId: text("redmine_ticket_id").notNull(),
+  module: text("module").notNull(),
+  total: integer("total").notNull().default(0),
+  passed: integer("passed").notNull().default(0),
+  failed: integer("failed").notNull().default(0),
+  blocked: integer("blocked").notNull().default(0),
+  inProgress: integer("in_progress").notNull().default(0),
+  notExecuted: integer("not_executed").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

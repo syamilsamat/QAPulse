@@ -76,11 +76,25 @@ export default function TestExecutionDetails() {
     if (!searchTicketId.trim()) return;
     setIsLoading(true);
     try {
-      // 1. Fetch raw test cases from the progress page DB
-      const testCases = await fetchTestCases(searchTicketId);
+      // 1. Check for saved summary data FIRST (prioritize user's saved edits)
+      const res = await fetch(
+        `/api/pmo/execution-details?redmineId=${encodeURIComponent(searchTicketId)}`,
+      );
+      const savedData = await res.json();
 
-      if (testCases && testCases.length > 0) {
-        // 2. Aggregate logic: Group by Module and Count Results
+      if (savedData && savedData.length > 0) {
+        setData(savedData);
+        setCurrentTicketId(searchTicketId);
+        toast({ title: `Loaded saved report data for Ticket #${searchTicketId}` });
+        setIsLoading(false);
+        return;
+      }
+
+      // 2. Fallback: Aggregate from raw test cases if no saved summary exists
+      const result = await fetchTestCases(searchTicketId);
+      const testCases = result?.testCases || [];
+
+      if (testCases.length > 0) {
         const moduleMap: Record<string, ExecutionRow> = {};
 
         testCases.forEach((tc: any) => {
@@ -119,25 +133,12 @@ export default function TestExecutionDetails() {
         setData(aggregatedData);
         setCurrentTicketId(searchTicketId);
         toast({ title: `Calculated metrics from Test Cases for Ticket #${searchTicketId}` });
-
       } else {
-        // 3. Fallback: Check if there's existing summary data on the PMO endpoint if no detailed test cases exist
-        const res = await fetch(
-          `/api/pmo/execution-details?redmineId=${encodeURIComponent(searchTicketId)}`,
-        );
-        const fetchedData = await res.json();
-
-        if (fetchedData && fetchedData.length > 0) {
-          setData(fetchedData);
-          setCurrentTicketId(searchTicketId);
-          toast({ title: `Loaded existing report data for Ticket #${searchTicketId}` });
-        } else {
-          toast({
-            title: `No existing data for #${searchTicketId}. Starting fresh.`,
-          });
-          setData([]);
-          setCurrentTicketId(searchTicketId);
-        }
+        toast({
+          title: `No existing data for #${searchTicketId}. Starting fresh.`,
+        });
+        setData([]);
+        setCurrentTicketId(searchTicketId);
       }
     } catch (err) {
       toast({ variant: "destructive", title: "Failed to load execution data" });

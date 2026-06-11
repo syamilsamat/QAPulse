@@ -1,11 +1,13 @@
 import { Router, type IRouter } from "express";
 import express from "express";
+import { eq } from "drizzle-orm";
 import {
   db,
   requirementsTable,
   testCasesTable,
   tasksTable,
   usersTable,
+  executionSummariesTable,
 } from "@workspace/db";
 
 let mysql2: any = null;
@@ -15,28 +17,70 @@ try {
 
 const router: IRouter = Router();
 
-// --- IN-MEMORY STORE FOR EXECUTION DETAILS ---
-// Maps a Redmine Ticket ID to its array of test execution rows
-const executionStore: Record<string, any[]> = {};
-
-// Endpoint to GET execution details by Ticket ID
-router.get("/pmo/execution-details", (req, res) => {
+// Endpoint to GET execution details by Ticket ID (from DB)
+router.get("/pmo/execution-details", async (req, res) => {
   const { redmineId } = req.query;
   if (redmineId && typeof redmineId === "string") {
-    res.json(executionStore[redmineId] || []);
+    try {
+      const rows = await db
+        .select()
+        .from(executionSummariesTable)
+        .where(eq(executionSummariesTable.redmineTicketId, redmineId));
+
+      // Transform DB rows to match frontend ExecutionRow shape
+      const data = rows.map((r) => ({
+        id: r.id.toString(),
+        module: r.module,
+        total: r.total,
+        passed: r.passed,
+        failed: r.failed,
+        blocked: r.blocked,
+        inProg: r.inProgress,
+        notExec: r.notExecuted,
+      }));
+
+      res.json(data);
+    } catch (err) {
+      console.error("Error fetching execution details:", err);
+      res.status(500).json({ error: "Database error" });
+    }
   } else {
     res.json([]);
   }
 });
 
-// Endpoint to POST/SAVE execution details under a Ticket ID
-router.post("/pmo/execution-details", express.json(), (req, res) => {
+// Endpoint to POST/SAVE execution details under a Ticket ID (to DB)
+router.post("/pmo/execution-details", express.json(), async (req, res) => {
   const { redmineId, details } = req.body;
-  if (redmineId && Array.isArray(details)) {
-    executionStore[redmineId] = details;
-    res.json({ success: true });
-  } else {
+  if (!redmineId || !Array.isArray(details)) {
     res.status(400).json({ error: "Missing redmineId or details array" });
+    return;
+  }
+
+  try {
+    // Delete existing summaries for this ticket
+    await db
+      .delete(executionSummariesTable)
+      .where(eq(executionSummariesTable.redmineTicketId, redmineId));
+
+    // Insert new summaries
+    for (const row of details) {
+      await db.insert(executionSummariesTable).values({
+        redmineTicketId: redmineId,
+        module: row.module || "",
+        total: row.total || 0,
+        passed: row.passed || 0,
+        failed: row.failed || 0,
+        blocked: row.blocked || 0,
+        inProgress: row.inProg || 0,
+        notExecuted: row.notExec || 0,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error saving execution details:", err);
+    res.status(500).json({ error: "Database error" });
   }
 });
 
