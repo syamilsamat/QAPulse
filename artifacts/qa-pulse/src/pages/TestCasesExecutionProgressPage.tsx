@@ -3,7 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
@@ -14,6 +14,9 @@ import {
   Trash2,
   FileSpreadsheet,
   Loader2,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx-js-style";
@@ -37,6 +40,66 @@ const RESULT_OPTIONS = [
   "",
 ];
 
+// Define synonym mappings for robust auto-detection
+const COLUMN_MAPPINGS: Record<string, string[]> = {
+  caseId: ["case id", "test case id", "tc id", "id"],
+  userStory: [
+    "user story",
+    "story",
+    "requirement",
+    "requirement id",
+    "redmine user story",
+  ],
+  scenario: ["scenario", "tracker scenario"],
+  preCondition: [
+    "pre condition",
+    "preconditions",
+    "pre-conditions",
+    "precondition",
+  ],
+  caseName: ["case", "case name", "title"],
+  testSteps: ["test steps", "steps", "testing steps"],
+  testData: ["test data", "data", "Test Data"],
+  expectedResult: ["expected result", "expected outcome", "expected results"],
+  result: ["result", "status", "test result"],
+  defectNumber: [
+    "redmine defect",
+    "defect id",
+    "bug id",
+    "redmine id",
+    "redmine defect number",
+  ],
+  qaPic: ["qa pic", "QA PIC", "qa owner", "tester", "assigned qa"],
+  comments: [
+    "additional / comments / issues",
+    "additional/comments/issues",
+    "comments",
+    "additional",
+    "issues",
+    "remarks",
+  ],
+  moduleName: ["module name", "module", "feature"],
+};
+
+// EXPLICIT IGNORE LIST: Any sheet name matching these will be completely skipped
+const IGNORED_SHEETS = [
+  "doc info",
+  "review log",
+  "review & rework effort",
+  "pareto analysis",
+  "capa",
+];
+
+interface ImportSummary {
+  status: "Success" | "Partial Success" | "Failed";
+  totalWorksheetsScanned: number;
+  totalWorksheetsImported: number;
+  totalRowsImported: number;
+  totalRowsSkipped: number;
+  missingColumns: string[];
+  duplicateCaseIds: string[];
+}
+
 export default function TestCasesExecutionProgressPage() {
   const [, params] = useRoute("/test-cases/execution/:id");
   const [, setLocation] = useLocation();
@@ -51,6 +114,10 @@ export default function TestCasesExecutionProgressPage() {
   const [data, setData] = useState<ExecutionTestCase[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(
+    null,
+  );
 
   // LOAD FROM DB ON MOUNT
   useEffect(() => {
@@ -70,14 +137,12 @@ export default function TestCasesExecutionProgressPage() {
               .filter(Boolean)
           : [];
 
-        // Filter modules if the file has selected modules
         const filteredModules =
           selectedModuleNames.length > 0
             ? allModules.filter((m) => selectedModuleNames.includes(m.name))
             : allModules;
 
         if (testCases.length === 0) {
-          // Single module: auto-populate first row
           if (selectedModuleNames.length === 1) {
             const firstRow = createEmptyRow();
             firstRow.moduleName = selectedModuleNames[0];
@@ -135,7 +200,7 @@ export default function TestCasesExecutionProgressPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await saveTestCases(ticketId, data, null); // Pass null or standard args as per updated api
+      await saveTestCases(ticketId, data, null);
       toast({ title: `Database saved for Ticket #${ticketId}` });
     } catch (err) {
       toast({ variant: "destructive", title: "Failed to save to database" });
@@ -145,7 +210,6 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   const handleDownloadExcel = () => {
-    // 1. Map data to the exact template headers
     const exportData = data.map((row) => ({
       Module: row.moduleName || "",
       "Case ID": row.caseId || "",
@@ -180,20 +244,13 @@ export default function TestCasesExecutionProgressPage() {
 
     const ws = XLSX.utils.json_to_sheet(exportData, { header: headerOrder });
 
-    // 2. Apply Custom Styles (Gridlines, Colors, Fonts)
     if (ws["!ref"]) {
       const range = XLSX.utils.decode_range(ws["!ref"]);
-
       for (let R = range.s.r; R <= range.e.r; ++R) {
         for (let C = range.s.c; C <= range.e.c; ++C) {
           const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+          if (!ws[cell_ref]) ws[cell_ref] = { t: "s", v: "" };
 
-          // If a cell is empty, we must initialize it to apply grid lines to it
-          if (!ws[cell_ref]) {
-            ws[cell_ref] = { t: "s", v: "" };
-          }
-
-          // Apply standard grid borders and text wrapping to ALL cells
           ws[cell_ref].s = {
             border: {
               top: { style: "thin", color: { rgb: "000000" } },
@@ -204,13 +261,12 @@ export default function TestCasesExecutionProgressPage() {
             alignment: { vertical: "top", wrapText: true },
           };
 
-          // Apply Header-specific styles (Row 0)
           if (R === 0) {
             ws[cell_ref].s.fill = {
               patternType: "solid",
               fgColor: { rgb: "1F4E78" },
-            }; // Dark Blue
-            ws[cell_ref].s.font = { bold: true, color: { rgb: "FFFFFF" } }; // Bold White Text
+            };
+            ws[cell_ref].s.font = { bold: true, color: { rgb: "FFFFFF" } };
             ws[cell_ref].s.alignment = {
               vertical: "center",
               horizontal: "center",
@@ -221,21 +277,20 @@ export default function TestCasesExecutionProgressPage() {
       }
     }
 
-    // 3. Set standard column widths so it looks nice out-of-the-box
     ws["!cols"] = [
-      { wch: 15 }, // Module
-      { wch: 12 }, // Case ID
-      { wch: 15 }, // User Story
-      { wch: 20 }, // Scenario
-      { wch: 25 }, // Pre Condition
-      { wch: 25 }, // Case
-      { wch: 35 }, // Test Steps
-      { wch: 20 }, // Test Data
-      { wch: 25 }, // Expected Result
-      { wch: 15 }, // Result
-      { wch: 15 }, // Redmine Defect
-      { wch: 30 }, // Additional/Comments/Issues
-      { wch: 20 }, // QA PIC
+      { wch: 15 },
+      { wch: 12 },
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 25 },
+      { wch: 25 },
+      { wch: 35 },
+      { wch: 20 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 30 },
+      { wch: 20 },
     ];
 
     const wb = XLSX.utils.book_new();
@@ -243,62 +298,294 @@ export default function TestCasesExecutionProgressPage() {
     XLSX.writeFile(wb, `Test_Execution_${ticketId}.xlsx`);
   };
 
+  const normalizeHeader = (val: any) => {
+    if (typeof val !== "string") return "";
+    return val
+      .toLowerCase()
+      .replace(/[\n\r\t]/g, " ")
+      .trim();
+  };
+
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsImporting(true);
+
     try {
       const arrayBuffer = await file.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: "array" });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<any>(sheet);
 
-      const importedData: ExecutionTestCase[] = rows.map((row) => ({
-        id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
-        moduleName: row["Module Name"] || "",
-        caseId: row["Case ID"] || "",
-        userStory: row["Redmine User Story"] || "",
-        scenario: row["Tracker Scenario"] || "",
-        preCondition: row["Pre Condition"] || "",
-        caseName: row["Case"] || "",
-        testSteps: row["Test Steps"] || "",
-        testData: row["Test Data"] || "",
-        expectedResult: row["Expected Result"] || "",
-        result: row["Result"] || "",
-        defectNumber: row["Redmine Defect Number"] || "",
-        comments: row["Additional / Comments / Issues"] || "",
-        qaPic: row["QA PIC"] || "",
-      }));
+      let totalRowsImported = 0;
+      let totalRowsSkipped = 0;
+      let totalWorksheetsImported = 0;
+      const missingColumnsSet = new Set<string>();
+      const duplicateCaseIdsSet = new Set<string>();
+      const seenCaseIds = new Set<string>();
+      const consolidatedData: ExecutionTestCase[] = [];
 
-      setData(importedData);
-      toast({
-        title: `Imported ${importedData.length} test cases. Remember to save!`,
+      const allRequiredKeys = Object.keys(COLUMN_MAPPINGS).filter(
+        (k) => k !== "moduleName",
+      );
+      const MIN_REQUIRED_COLUMNS = 7;
+
+      for (const sheetName of wb.SheetNames) {
+        // EXPLICIT SHEET IGNORING
+        if (IGNORED_SHEETS.includes(sheetName.toLowerCase().trim())) {
+          continue;
+        }
+
+        const sheet = wb.Sheets[sheetName];
+        const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
+          header: 1,
+          blankrows: false,
+          raw: false,
+        });
+
+        if (rawData.length === 0) continue;
+
+        let headerRowIndex = -1;
+        let bestMatchCount = 0;
+        let columnMapIndex: Record<string, number> = {};
+
+        // Find the Header Row (Search top 30 rows)
+        for (let r = 0; r < Math.min(rawData.length, 30); r++) {
+          const row = rawData[r];
+          if (!Array.isArray(row)) continue;
+
+          let currentMatchCount = 0;
+          let currentMap: Record<string, number> = {};
+
+          row.forEach((cellValue, colIndex) => {
+            const normalizedCell = normalizeHeader(cellValue);
+            if (!normalizedCell) return;
+
+            for (const [key, synonyms] of Object.entries(COLUMN_MAPPINGS)) {
+              if (synonyms.includes(normalizedCell)) {
+                currentMap[key] = colIndex;
+                currentMatchCount++;
+                break;
+              }
+            }
+          });
+
+          const hasCoreTestColumns =
+            currentMap["caseId"] !== undefined &&
+            currentMap["testSteps"] !== undefined &&
+            currentMap["expectedResult"] !== undefined;
+
+          if (currentMatchCount >= MIN_REQUIRED_COLUMNS && hasCoreTestColumns) {
+            if (currentMatchCount > bestMatchCount) {
+              bestMatchCount = currentMatchCount;
+              columnMapIndex = currentMap;
+              headerRowIndex = r;
+            }
+          }
+        }
+
+        // If we didn't meet the strict threshold, ignore the entire worksheet
+        if (headerRowIndex === -1) continue;
+
+        totalWorksheetsImported++;
+
+        // Track missing columns for this valid sheet
+        allRequiredKeys.forEach((k) => {
+          if (columnMapIndex[k] === undefined) missingColumnsSet.add(k);
+        });
+
+        // Extract rows
+        for (let r = headerRowIndex + 1; r < rawData.length; r++) {
+          const row = rawData[r];
+
+          if (!row || row.length === 0) {
+            totalRowsSkipped++;
+            continue;
+          }
+
+          const extracted: Record<string, string> = {};
+          let hasMeaningfulData = false;
+
+          for (const [key, colIdx] of Object.entries(columnMapIndex)) {
+            const val = row[colIdx];
+            if (
+              val !== undefined &&
+              val !== null &&
+              String(val).trim() !== ""
+            ) {
+              extracted[key] = String(val).trim();
+              hasMeaningfulData = true;
+            } else {
+              extracted[key] = "";
+            }
+          }
+
+          if (!hasMeaningfulData) {
+            totalRowsSkipped++;
+            continue;
+          }
+
+          // STRICT DUPLICATE CHECK: Ensure we only flag actual text as duplicates
+          const cid = extracted.caseId;
+          if (cid && cid.trim() !== "") {
+            if (seenCaseIds.has(cid)) {
+              duplicateCaseIdsSet.add(cid);
+            } else {
+              seenCaseIds.add(cid);
+            }
+          }
+
+          consolidatedData.push({
+            id:
+              Date.now().toString() +
+              Math.random().toString(36).substring(2, 8),
+            moduleName: extracted.moduleName || "",
+            caseId: extracted.caseId || "",
+            userStory: extracted.userStory || "",
+            scenario: extracted.scenario || "",
+            preCondition: extracted.preCondition || "",
+            caseName: extracted.caseName || "",
+            testSteps: extracted.testSteps || "",
+            testData: extracted.testData || "",
+            expectedResult: extracted.expectedResult || "",
+            result: extracted.result || "",
+            defectNumber: extracted.defectNumber || "",
+            comments: extracted.comments || "",
+            qaPic: extracted.qaPic || "",
+          });
+
+          totalRowsImported++;
+        }
+      }
+
+      if (consolidatedData.length > 0) {
+        setData(consolidatedData);
+      }
+
+      setImportSummary({
+        status:
+          totalRowsImported > 0
+            ? missingColumnsSet.size > 0 || duplicateCaseIdsSet.size > 0
+              ? "Partial Success"
+              : "Success"
+            : "Failed",
+        totalWorksheetsScanned: wb.SheetNames.length,
+        totalWorksheetsImported,
+        totalRowsImported,
+        totalRowsSkipped,
+        missingColumns: Array.from(missingColumnsSet),
+        duplicateCaseIds: Array.from(duplicateCaseIdsSet),
       });
     } catch (err) {
       toast({
         variant: "destructive",
-        title: "Import failed. Invalid Excel file.",
+        title: "Import failed",
+        description: "Invalid Excel structure or corrupted file.",
       });
     } finally {
+      setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   if (isLoading)
     return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="w-8 h-8 animate-spin" />
+      <div className="flex justify-center items-center h-full min-h-[50vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
 
-  // Common input styling for desktop table ensuring identical fonts and inline display
   const tableInputClass =
     "h-full min-h-[40px] w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-0";
   const tableSelectClass =
     "w-full h-full min-h-[40px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative";
 
   return (
-    <div className="space-y-4 flex flex-col h-[calc(100vh-6rem)]">
+    <div className="space-y-4 flex flex-col h-[calc(100vh-6rem)] relative">
+      {/* Import Summary Overlay */}
+      {importSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <Card className="max-w-md w-full bg-background shadow-2xl overflow-hidden border-border">
+            <div
+              className={`p-4 border-b flex items-center gap-2 text-white ${importSummary.status === "Success" ? "bg-green-600" : importSummary.status === "Failed" ? "bg-red-600" : "bg-amber-500"}`}
+            >
+              {importSummary.status === "Success" && (
+                <CheckCircle className="w-5 h-5" />
+              )}
+              {importSummary.status === "Failed" && (
+                <XCircle className="w-5 h-5" />
+              )}
+              {importSummary.status === "Partial Success" && (
+                <AlertTriangle className="w-5 h-5" />
+              )}
+              <h2 className="text-lg font-bold">
+                Import Summary: {importSummary.status}
+              </h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">Sheets Scanned</p>
+                  <p className="text-2xl font-semibold">
+                    {importSummary.totalWorksheetsScanned}
+                  </p>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">
+                    Valid Sheets Imported
+                  </p>
+                  <p className="text-2xl font-semibold text-primary">
+                    {importSummary.totalWorksheetsImported}
+                  </p>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">Rows Imported</p>
+                  <p className="text-2xl font-semibold">
+                    {importSummary.totalRowsImported}
+                  </p>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">
+                    Empty Rows Skipped
+                  </p>
+                  <p className="text-2xl font-semibold">
+                    {importSummary.totalRowsSkipped}
+                  </p>
+                </div>
+              </div>
+
+              {importSummary.missingColumns.length > 0 && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md">
+                  <p className="text-sm font-semibold text-amber-600 flex items-center gap-2 mb-1">
+                    <AlertTriangle className="w-4 h-4" /> Missing Columns
+                    Detected
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {importSummary.missingColumns.join(", ")}
+                  </p>
+                </div>
+              )}
+
+              {importSummary.duplicateCaseIds.length > 0 && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+                  <p className="text-sm font-semibold text-red-600 flex items-center gap-2 mb-1">
+                    <XCircle className="w-4 h-4" /> Duplicate Case IDs Found
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {importSummary.duplicateCaseIds.join(", ")}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2">
+                <Button onClick={() => setImportSummary(null)}>
+                  Acknowledge & Continue
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* HEADER & ACTION BUTTONS */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0 border-b pb-4">
         <div className="flex items-center gap-3">
@@ -331,9 +618,15 @@ export default function TestCasesExecutionProgressPage() {
             variant="outline"
             size="sm"
             onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
             className="flex-1 lg:flex-none gap-2"
           >
-            <Upload className="w-4 h-4" /> Import
+            {isImporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Upload className="w-4 h-4" />
+            )}
+            Import
           </Button>
           <Button
             variant="outline"
@@ -499,16 +792,19 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Input
-                      className={tableInputClass}
+                    <Textarea
+                      className={`${tableInputClass} resize-none overflow-hidden h-auto min-h-[40px] py-2`}
                       value={row.testSteps || ""}
-                      onChange={(e) =>
+                      rows={1}
+                      onChange={(e) => {
+                        e.target.style.height = "inherit";
+                        e.target.style.height = `${e.target.scrollHeight}px`;
                         updateCell(
                           row.id as string,
                           "testSteps",
                           e.target.value,
-                        )
-                      }
+                        );
+                      }}
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
@@ -521,16 +817,19 @@ export default function TestCasesExecutionProgressPage() {
                     />
                   </td>
                   <td className="border border-border p-0 relative align-middle">
-                    <Input
-                      className={tableInputClass}
+                    <Textarea
+                      className={`${tableInputClass} resize-none overflow-hidden h-auto min-h-[40px] py-2`}
                       value={row.expectedResult || ""}
-                      onChange={(e) =>
+                      rows={1}
+                      onChange={(e) => {
+                        e.target.style.height = "inherit";
+                        e.target.style.height = `${e.target.scrollHeight}px`;
                         updateCell(
                           row.id as string,
                           "expectedResult",
                           e.target.value,
-                        )
-                      }
+                        );
+                      }}
                     />
                   </td>
                   <td className="border border-border p-0 bg-primary/5 relative align-middle">

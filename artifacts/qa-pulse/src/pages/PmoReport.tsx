@@ -2,6 +2,8 @@ import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { toPng } from "html-to-image";
+import { jsPDF } from "jspdf";
 import {
   PieChart,
   Pie,
@@ -40,7 +42,8 @@ import {
   Menu,
   X,
   ShieldAlert,
-  Printer,
+  Download,
+  Mail,
   Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -133,7 +136,7 @@ interface PmoReportData {
     category: string;
     assignee: string;
     createdAt: string;
-    reopenedCount?: number; // ADDED THIS FIELD
+    reopenedCount?: number;
   }>;
 }
 
@@ -539,7 +542,6 @@ function RedmineSection({
                     Sub-issues / Child Tasks
                   </p>
 
-                  {/* DESKTOP VIEW */}
                   <div className="hidden md:block overflow-x-auto rounded-lg border">
                     <table className="w-full text-xs">
                       <thead>
@@ -612,7 +614,6 @@ function RedmineSection({
                     </table>
                   </div>
 
-                  {/* MOBILE VIEW */}
                   <div className="grid grid-cols-1 gap-2 md:hidden">
                     {data.children.map((c) => (
                       <div
@@ -702,6 +703,8 @@ export default function PmoReport() {
   const [redmineId, setRedmineId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeDefectsPage, setActiveDefectsPage] = useState(1);
+  const [showAllDefects, setShowAllDefects] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // AI Dashboard State
   const [riskResult, setRiskResult] = useState<any>(null);
@@ -713,7 +716,6 @@ export default function PmoReport() {
   const { data, isLoading, error } = useQuery<PmoReportData>({
     queryKey: ["pmo-report", redmineId],
     queryFn: async () => {
-      // 1. Fetch the main report (Defects & Redmine Data)
       const resp = await fetch(
         `${getApiUrl()}/pmo/report?redmineId=${encodeURIComponent(redmineId!)}`,
         {
@@ -729,7 +731,6 @@ export default function PmoReport() {
 
       const reportData = await resp.json();
 
-      // 2. Fetch the execution details directly to bypass the backend executionStore bug
       try {
         const execResp = await fetch(
           `${getApiUrl()}/pmo/execution-details?redmineId=${encodeURIComponent(redmineId!)}`,
@@ -802,6 +803,7 @@ export default function PmoReport() {
     },
     enabled: !!redmineId,
     retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const handleSearch = () => {
@@ -809,7 +811,6 @@ export default function PmoReport() {
     if (!clean) return;
     setRedmineId(clean);
 
-    // Reset AI reports when searching a new ID
     setRiskResult(null);
     setReadinessResult(null);
     setGeneratedAt(null);
@@ -818,7 +819,6 @@ export default function PmoReport() {
   const runRisk = async () => {
     setRiskLoading(true);
     try {
-      // Pass the fetched Redmine 'data' object directly to the AI
       const result = await callAi(token, "/ai/risk-score", {
         redmineData: data,
       });
@@ -838,7 +838,6 @@ export default function PmoReport() {
   const runReadiness = async () => {
     setReadinessLoading(true);
     try {
-      // Pass the fetched Redmine 'data' object directly to the AI
       const result = await callAi(token, "/ai/release-readiness", {
         redmineData: data,
       });
@@ -855,8 +854,215 @@ export default function PmoReport() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const getFormattedDateString = () => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const min = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    return `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
+  };
+
+  /** 
+  const generateReportImage = async (): Promise<string | null> => {
+    if (!reportRef.current) return null;
+    setIsExporting(true);
+
+    try {
+      // toPng handles modern CSS variables like oklch natively
+      const dataUrl = await toPng(reportRef.current, {
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+        pixelRatio: 2, // Ensures high quality (equivalent to scale: 2)
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error("Failed to generate image:", error);
+      return null;
+    } finally {
+      setIsExporting(false);
+    }
+  };
+  */
+
+  const generateReportPDF = async (): Promise<Blob | null> => {
+    if (!reportRef.current) return null;
+    setIsExporting(true);
+
+    try {
+      // 1. Capture the DOM as a high-quality image
+      const dataUrl = await toPng(reportRef.current, {
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+        pixelRatio: 2,
+      });
+
+      // 2. Create an A4 PDF
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "px",
+        format: "a4",
+      });
+
+      // 3. Calculate scaling to fit the image inside the A4 width
+      const imgProps = pdf.getImageProperties(dataUrl);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      // 4. Render image to PDF, splitting across multiple pages if necessary
+      let heightLeft = pdfHeight;
+      let position = 0;
+
+      pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, pdfHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - pdfHeight;
+        pdf.addPage();
+        pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, pdfHeight);
+        heightLeft -= pageHeight;
+      }
+
+      // Return the PDF as a Blob (safer for large files than Data URLs)
+      return pdf.output("blob");
+    } catch (error) {
+      console.error("Failed to generate PDF:", error);
+      return null;
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  /** 
+  const handleDownloadReport = async () => {
+    const dataUrl = await generateReportImage();
+    if (!dataUrl) {
+      toast({
+        variant: "destructive",
+        title: "Export Failed",
+        description: "Could not generate the report image.",
+      });
+      return;
+    }
+
+    const reportName = data?.issueSubject
+      ? data.issueSubject.replace(/[^a-z0-9]/gi, "_")
+      : `Ticket_${redmineId}`;
+    const fileName = `Report_${reportName}_${getFormattedDateString()}.png`;
+
+    const link = document.createElement("a");
+    link.download = fileName;
+    link.href = dataUrl;
+    link.click();
+  };
+  */
+  const handleDownloadReport = async () => {
+    const pdfBlob = await generateReportPDF();
+    if (!pdfBlob) {
+      toast({
+        variant: "destructive",
+        title: "Export Failed",
+        description: "Could not generate the report PDF.",
+      });
+      return;
+    }
+
+    const reportName = data?.issueSubject
+      ? data.issueSubject.replace(/[^a-z0-9]/gi, "_")
+      : `Ticket_${redmineId}`;
+    const fileName = `Report_${reportName}_${getFormattedDateString()}.pdf`;
+
+    // Create a temporary URL for the Blob and trigger download
+    const url = URL.createObjectURL(pdfBlob);
+    const link = document.createElement("a");
+    link.download = fileName;
+    link.href = url;
+    link.click();
+
+    // Clean up memory
+    URL.revokeObjectURL(url);
+  };
+
+  /** const handleSendReport = async () => {
+    // 1. Generate the report image
+    const dataUrl = await generateReportImage();
+    if (!dataUrl) {
+      toast({
+        variant: "destructive",
+        title: "Export Failed",
+        description: "Could not generate the report image.",
+      });
+      return;
+    }
+
+    // 2. Setup variables for the template and file name
+    const reportName = data?.issueSubject || `Ticket #${redmineId}`;
+    const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.png`;
+    const genDate = new Date().toLocaleDateString();
+    const userName = user?.name || "System User";
+
+    // 3. Download the image first (since mailto: cannot attach files automatically)
+    const link = document.createElement("a");
+    link.download = fileName;
+    link.href = dataUrl;
+    link.click();
+
+    // 4. Construct the exact email template requested
+    const subjectText = `[Report]- ${reportName}`;
+    const bodyText = `Dear PMO,
+
+  Please find the attached report for your review.
+
+  Report Details:
+  • Report Name: ${reportName}
+  • Generated Date: ${genDate}
+
+  [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
+
+    // 5. Open the user's default email client
+    window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
+  }; */
+  const handleSendReport = async () => {
+    const pdfBlob = await generateReportPDF();
+    if (!pdfBlob) {
+      toast({
+        variant: "destructive",
+        title: "Export Failed",
+        description: "Could not generate the report PDF.",
+      });
+      return;
+    }
+
+    const reportName = data?.issueSubject || `Ticket #${redmineId}`;
+    const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.pdf`;
+    const genDate = new Date().toLocaleDateString();
+    const userName = user?.name || "System User";
+
+    // Download the file to the user's machine first
+    const url = URL.createObjectURL(pdfBlob);
+    const link = document.createElement("a");
+    link.download = fileName;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    // 4. Construct the exact email template requested
+    const subjectText = `[Report]- ${reportName}`;
+    const bodyText = `Dear PMO,
+
+    Please find the attached report for your review.
+
+    Report Details:
+    • Report Name: ${reportName}
+    • Generated Date: ${genDate}
+
+    [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
+
+    // Open the user's default email client
+    window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
   };
 
   const execData = data
@@ -910,13 +1116,6 @@ export default function PmoReport() {
 
   return (
     <>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white !important; }
-          .print-page { box-shadow: none !important; }
-        }
-      `}</style>
       <div
         className={
           isStandalonePMO
@@ -974,14 +1173,33 @@ export default function PmoReport() {
                 </div>
               </div>
               {data && (
-                <Button
-                  variant="outline"
-                  onClick={handlePrint}
-                  className="gap-2 no-print"
-                >
-                  <Printer className="w-4 h-4" />
-                  Download / Print Report
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadReport}
+                    disabled={isExporting}
+                    className="gap-2"
+                  >
+                    {isExporting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    Download Report
+                  </Button>
+                  <Button
+                    onClick={handleSendReport}
+                    disabled={isExporting}
+                    className="gap-2"
+                  >
+                    {isExporting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Mail className="w-4 h-4" />
+                    )}
+                    Send Report
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -1040,8 +1258,11 @@ export default function PmoReport() {
               })()}
 
             {data && (
-              <div ref={reportRef} className="print-page space-y-6">
-                <div className="hidden print:block text-center mb-6">
+              <div
+                ref={reportRef}
+                className="bg-background rounded-xl p-4 sm:p-6 shadow-sm border space-y-6"
+              >
+                <div className="text-center mb-6">
                   <h1 className="text-2xl font-bold">
                     QA Pulse — Report Dashboard
                   </h1>
@@ -1088,7 +1309,6 @@ export default function PmoReport() {
                   </div>
                 </div>
 
-                {/* --- AI Analysis Section --- */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Risk Card */}
                   <Card>
@@ -1111,6 +1331,7 @@ export default function PmoReport() {
                           disabled={riskLoading}
                           onClick={runRisk}
                           className="no-print w-full sm:w-auto shrink-0"
+                          data-html2canvas-ignore="true"
                         >
                           {riskLoading ? (
                             <>
@@ -1228,6 +1449,7 @@ export default function PmoReport() {
                           disabled={readinessLoading}
                           onClick={runReadiness}
                           className="no-print w-full sm:w-auto shrink-0"
+                          data-html2canvas-ignore="true"
                         >
                           {readinessLoading ? (
                             <>
@@ -1290,7 +1512,6 @@ export default function PmoReport() {
                               {readinessResult.verdict}
                             </p>
 
-                            {/* --- UPDATED EXPECTED RELEASE DATE BLOCK --- */}
                             {readinessResult.expectedReleaseDate && (
                               <div className="mt-3 w-full bg-background border border-border rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row items-start gap-1 sm:gap-4 shadow-sm text-sm text-left">
                                 <div className="flex items-start gap-2 shrink-0">
@@ -1305,7 +1526,6 @@ export default function PmoReport() {
                                 </div>
                               </div>
                             )}
-                            {/* ----------------------------------------- */}
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-4">
                             {readinessResult.positives?.length > 0 && (
@@ -1355,7 +1575,6 @@ export default function PmoReport() {
                   </Card>
                 </div>
 
-                {/* --- Rest of Original Report Cards --- */}
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-2">
@@ -1402,6 +1621,7 @@ export default function PmoReport() {
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
                                 <Pie
+                                  isAnimationActive={false}
                                   data={execData}
                                   cx="50%"
                                   cy="45%"
@@ -1430,7 +1650,6 @@ export default function PmoReport() {
                           </div>
 
                           <div className="flex flex-col gap-2 w-full">
-                            {/* First Row: Exactly 3 items */}
                             <div className="grid grid-cols-3 gap-2">
                               <StatBox
                                 label="PASSED"
@@ -1449,7 +1668,6 @@ export default function PmoReport() {
                               />
                             </div>
 
-                            {/* Second Row: Exactly 2 items */}
                             <div className="grid grid-cols-2 gap-2">
                               <StatBox
                                 label="IN PROGRESS"
@@ -1479,7 +1697,6 @@ export default function PmoReport() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        {/* DESKTOP VIEW */}
                         <div className="hidden md:block overflow-x-auto">
                           <table className="w-full text-sm min-w-[600px]">
                             <thead>
@@ -1583,7 +1800,6 @@ export default function PmoReport() {
                           </table>
                         </div>
 
-                        {/* MOBILE VIEW */}
                         <div className="grid grid-cols-1 gap-3 md:hidden">
                           {data.moduleDetails.map((m, i) => (
                             <div
@@ -1701,6 +1917,7 @@ export default function PmoReport() {
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
                                 <Pie
+                                  isAnimationActive={false}
                                   data={defectData}
                                   cx="50%"
                                   cy="45%"
@@ -1784,7 +2001,6 @@ export default function PmoReport() {
                     </CardHeader>
                     <CardContent className="px-0 sm:px-6">
                       <div className="space-y-4">
-                        {/* DESKTOP VIEW */}
                         <div className="hidden md:block overflow-x-auto rounded-lg border">
                           <table className="w-full text-sm min-w-[700px]">
                             <thead>
@@ -1816,214 +2032,244 @@ export default function PmoReport() {
                               </tr>
                             </thead>
                             <tbody>
-                              {data.activeDefects
-                                .slice(
-                                  (activeDefectsPage - 1) * 10,
-                                  activeDefectsPage * 10,
-                                )
-                                .map((d) => (
-                                  <tr
-                                    key={d.id}
-                                    className="border-b hover:bg-muted/20 transition-colors"
+                              {(showAllDefects
+                                ? data.activeDefects
+                                : data.activeDefects.slice(
+                                    (activeDefectsPage - 1) * 10,
+                                    activeDefectsPage * 10,
+                                  )
+                              ).map((d) => (
+                                <tr
+                                  key={d.id}
+                                  className="border-b hover:bg-muted/20 transition-colors"
+                                >
+                                  <td className="py-2 px-3 text-muted-foreground">
+                                    #{d.id}
+                                  </td>
+                                  <td
+                                    className="py-2 px-3 font-medium max-w-[220px] truncate"
+                                    title={d.name}
                                   >
-                                    <td className="py-2 px-3 text-muted-foreground">
-                                      #{d.id}
-                                    </td>
-                                    <td
-                                      className="py-2 px-3 font-medium max-w-[220px] truncate"
-                                      title={d.name}
+                                    {d.name}
+                                  </td>
+                                  <td className="text-center py-2 px-2">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
                                     >
-                                      {d.name}
-                                    </td>
-                                    <td className="text-center py-2 px-2">
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
-                                      >
-                                        {d.priority}
-                                      </span>
-                                    </td>
-                                    <td className="text-center py-2 px-2">
-                                      {(() => {
-                                        const formattedStatus = d.status
-                                          .replace(/_/g, " ")
-                                          .replace(/\b\w/g, (c) =>
-                                            c.toUpperCase(),
-                                          );
-                                        const color =
-                                          DEFECT_STATUS_HEX[formattedStatus] ||
-                                          "#9ca3af";
-
-                                        return (
-                                          <span
-                                            className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
-                                            style={{
-                                              color: color,
-                                              borderColor: color,
-                                              backgroundColor: `${color}1A`,
-                                            }}
-                                          >
-                                            {d.status}
-                                          </span>
+                                      {d.priority}
+                                    </span>
+                                  </td>
+                                  <td className="text-center py-2 px-2">
+                                    {(() => {
+                                      const formattedStatus = d.status
+                                        .replace(/_/g, " ")
+                                        .replace(/\b\w/g, (c) =>
+                                          c.toUpperCase(),
                                         );
-                                      })()}
-                                    </td>
-                                    <td className="py-2 px-2 text-muted-foreground">
-                                      {d.category || "—"}
-                                    </td>
-                                    <td className="py-2 px-2 font-medium">
-                                      {d.assignee}
-                                    </td>
-                                    <td className="text-center py-2 px-3 text-muted-foreground text-xs">
-                                      {format(
-                                        new Date(d.createdAt),
-                                        "dd/MM/yyyy",
-                                      )}
-                                    </td>
-                                    <td className="text-center py-2 px-3">
-                                      {d.reopenedCount &&
-                                      d.reopenedCount > 0 ? (
-                                        <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full text-xs">
-                                          {d.reopenedCount}x
+                                      const color =
+                                        DEFECT_STATUS_HEX[formattedStatus] ||
+                                        "#9ca3af";
+
+                                      return (
+                                        <span
+                                          className="px-2 py-1 rounded text-xs font-medium border whitespace-nowrap"
+                                          style={{
+                                            color: color,
+                                            borderColor: color,
+                                            backgroundColor: `${color}1A`,
+                                          }}
+                                        >
+                                          {d.status}
                                         </span>
-                                      ) : (
-                                        <span className="text-muted-foreground text-xs font-medium bg-muted px-2 py-0.5 rounded-full">
-                                          0
-                                        </span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
+                                      );
+                                    })()}
+                                  </td>
+                                  <td className="py-2 px-2 text-muted-foreground">
+                                    {d.category || "—"}
+                                  </td>
+                                  <td className="py-2 px-2 font-medium">
+                                    {d.assignee}
+                                  </td>
+                                  <td className="text-center py-2 px-3 text-muted-foreground text-xs">
+                                    {format(
+                                      new Date(d.createdAt),
+                                      "dd/MM/yyyy",
+                                    )}
+                                  </td>
+                                  <td className="text-center py-2 px-3">
+                                    {d.reopenedCount && d.reopenedCount > 0 ? (
+                                      <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full text-xs">
+                                        {d.reopenedCount}x
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs font-medium bg-muted px-2 py-0.5 rounded-full">
+                                        0
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
 
-                        {/* MOBILE VIEW */}
                         <div className="grid grid-cols-1 gap-3 md:hidden px-4 sm:px-0">
-                          {data.activeDefects
-                            .slice(
-                              (activeDefectsPage - 1) * 10,
-                              activeDefectsPage * 10,
-                            )
-                            .map((d) => {
-                              const formattedStatus = d.status
-                                .replace(/_/g, " ")
-                                .replace(/\b\w/g, (c) => c.toUpperCase());
-                              const color =
-                                DEFECT_STATUS_HEX[formattedStatus] || "#9ca3af";
+                          {(showAllDefects
+                            ? data.activeDefects
+                            : data.activeDefects.slice(
+                                (activeDefectsPage - 1) * 10,
+                                activeDefectsPage * 10,
+                              )
+                          ).map((d) => {
+                            const formattedStatus = d.status
+                              .replace(/_/g, " ")
+                              .replace(/\b\w/g, (c) => c.toUpperCase());
+                            const color =
+                              DEFECT_STATUS_HEX[formattedStatus] || "#9ca3af";
 
-                              return (
-                                <div
-                                  key={d.id}
-                                  className="p-3 border rounded-xl bg-card shadow-sm space-y-2"
-                                >
-                                  <div className="flex justify-between items-start gap-2">
-                                    <span className="font-mono text-xs font-semibold text-muted-foreground shrink-0">
-                                      #{d.id}
-                                    </span>
+                            return (
+                              <div
+                                key={d.id}
+                                className="p-3 border rounded-xl bg-card shadow-sm space-y-2"
+                              >
+                                <div className="flex justify-between items-start gap-2">
+                                  <span className="font-mono text-xs font-semibold text-muted-foreground shrink-0">
+                                    #{d.id}
+                                  </span>
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                                    style={{
+                                      color: color,
+                                      backgroundColor: `${color}1A`,
+                                      border: `1px solid ${color}40`,
+                                    }}
+                                  >
+                                    {d.status}
+                                  </span>
+                                </div>
+
+                                <p className="font-medium text-sm leading-tight">
+                                  {d.name}
+                                </p>
+
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t mt-2">
+                                  <div className="flex gap-2 items-center">
                                     <span
-                                      className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
-                                      style={{
-                                        color: color,
-                                        backgroundColor: `${color}1A`,
-                                        border: `1px solid ${color}40`,
-                                      }}
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
                                     >
-                                      {d.status}
+                                      {d.priority}
                                     </span>
+                                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                                      {d.category || "No Category"}
+                                    </span>
+                                    {d.reopenedCount && d.reopenedCount > 0 ? (
+                                      <span className="bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded text-[10px]">
+                                        Reopened: {d.reopenedCount}x
+                                      </span>
+                                    ) : null}
                                   </div>
-
-                                  <p className="font-medium text-sm leading-tight">
-                                    {d.name}
-                                  </p>
-
-                                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t mt-2">
-                                    <div className="flex gap-2 items-center">
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_COLOR[d.priority] ?? "bg-gray-100 text-gray-700"}`}
-                                      >
-                                        {d.priority}
-                                      </span>
-                                      <span className="text-xs text-muted-foreground truncate max-w-[100px]">
-                                        {d.category || "No Category"}
-                                      </span>
-                                      {d.reopenedCount &&
-                                      d.reopenedCount > 0 ? (
-                                        <span className="bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded text-[10px]">
-                                          Reopened: {d.reopenedCount}x
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="text-xs font-medium">
-                                        {d.assignee}
-                                      </p>
-                                      <p className="text-[10px] text-muted-foreground">
-                                        {format(
-                                          new Date(d.createdAt),
-                                          "dd MMM yy",
-                                        )}
-                                      </p>
-                                    </div>
+                                  <div className="text-right">
+                                    <p className="text-xs font-medium">
+                                      {d.assignee}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {format(
+                                        new Date(d.createdAt),
+                                        "dd MMM yy",
+                                      )}
+                                    </p>
                                   </div>
                                 </div>
-                              );
-                            })}
+                              </div>
+                            );
+                          })}
                         </div>
 
-                        {/* PAGINATION CONTROLS */}
                         {data.activeDefects.length > 10 && (
-                          <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t md:rounded-b-lg">
-                            <div className="text-xs text-muted-foreground">
-                              Showing{" "}
-                              <span className="font-medium">
-                                {(activeDefectsPage - 1) * 10 + 1}
-                              </span>{" "}
-                              to{" "}
-                              <span className="font-medium">
-                                {Math.min(
-                                  activeDefectsPage * 10,
-                                  data.activeDefects.length,
-                                )}
-                              </span>{" "}
-                              of{" "}
-                              <span className="font-medium">
-                                {data.activeDefects.length}
-                              </span>{" "}
-                              defects
+                          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-muted/10 border-t md:rounded-b-lg">
+                            <div className="text-xs text-muted-foreground text-center sm:text-left">
+                              {showAllDefects ? (
+                                <>
+                                  Showing all{" "}
+                                  <span className="font-medium">
+                                    {data.activeDefects.length}
+                                  </span>{" "}
+                                  defects
+                                </>
+                              ) : (
+                                <>
+                                  Showing{" "}
+                                  <span className="font-medium">
+                                    {(activeDefectsPage - 1) * 10 + 1}
+                                  </span>{" "}
+                                  to{" "}
+                                  <span className="font-medium">
+                                    {Math.min(
+                                      activeDefectsPage * 10,
+                                      data.activeDefects.length,
+                                    )}
+                                  </span>{" "}
+                                  of{" "}
+                                  <span className="font-medium">
+                                    {data.activeDefects.length}
+                                  </span>{" "}
+                                  defects
+                                </>
+                              )}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap justify-center">
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="h-8 text-xs"
                                 onClick={() =>
-                                  setActiveDefectsPage((p) =>
-                                    Math.max(1, p - 1),
-                                  )
+                                  setShowAllDefects(!showAllDefects)
                                 }
-                                disabled={activeDefectsPage === 1}
+                                data-html2canvas-ignore="true"
                               >
-                                Previous
+                                {showAllDefects ? "Show Less" : "See All"}
                               </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 text-xs"
-                                onClick={() =>
-                                  setActiveDefectsPage((p) =>
-                                    Math.min(
-                                      Math.ceil(data.activeDefects.length / 10),
-                                      p + 1,
-                                    ),
-                                  )
-                                }
-                                disabled={
-                                  activeDefectsPage >=
-                                  Math.ceil(data.activeDefects.length / 10)
-                                }
-                              >
-                                Next
-                              </Button>
+
+                              {!showAllDefects && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() =>
+                                      setActiveDefectsPage((p) =>
+                                        Math.max(1, p - 1),
+                                      )
+                                    }
+                                    disabled={activeDefectsPage === 1}
+                                    data-html2canvas-ignore="true"
+                                  >
+                                    Previous
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() =>
+                                      setActiveDefectsPage((p) =>
+                                        Math.min(
+                                          Math.ceil(
+                                            data.activeDefects.length / 10,
+                                          ),
+                                          p + 1,
+                                        ),
+                                      )
+                                    }
+                                    disabled={
+                                      activeDefectsPage >=
+                                      Math.ceil(data.activeDefects.length / 10)
+                                    }
+                                    data-html2canvas-ignore="true"
+                                  >
+                                    Next
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </div>
                         )}

@@ -6,6 +6,7 @@ packages:
 
 allowBuilds:
   '@google/genai': true
+  core-js: true
   esbuild: true
   protobufjs: true
 
@@ -47,6 +48,7 @@ minimumReleaseAgeExclude:
 onlyBuiltDependencies:
   - '@google/genai'
   - '@swc/core'
+  - core-js
   - esbuild
   - msw
   - unrs-resolver
