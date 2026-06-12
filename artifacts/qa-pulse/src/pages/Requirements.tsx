@@ -207,12 +207,20 @@ export default function Requirements() {
 
     if (search) {
       const searchLower = search.toLowerCase();
-      const matchesTitle = r.title.toLowerCase().includes(searchLower);
-      const matchesTicket = r.redmineTicketId
-        ?.toLowerCase()
-        .includes(searchLower);
+      // Clean the search string so "#12345" matches "12345"
+      const cleanTicketSearch = searchLower.replace(/^#/, "");
 
-      // If the search term doesn't match the title AND doesn't match the ticket ID, filter it out
+      // Safely handle missing titles
+      const matchesTitle = r.title
+        ? r.title.toLowerCase().includes(searchLower)
+        : false;
+
+      // Safely cast the ticket ID to a string to prevent type errors
+      const matchesTicket = r.redmineTicketId
+        ? String(r.redmineTicketId).toLowerCase().includes(cleanTicketSearch)
+        : false;
+
+      // If neither matches, filter it out
       if (!matchesTitle && !matchesTicket) {
         return false;
       }
@@ -290,6 +298,7 @@ export default function Requirements() {
       .replace(/^#/, "")
       .replace(/.*\/issues\//, "");
     if (!clean) return;
+
     setRedmineLoading(true);
     try {
       const resp = await fetch(
@@ -303,18 +312,14 @@ export default function Requirements() {
       if (data.connected && data.issue) {
         const fetchedTicketId = String(data.issue.id);
 
-        // 1. Check if the requirement already exists in our list
+        // 1. Check if the requirement already exists in our local list safely
         const existingReq = requirements.find(
-          (r) => r.redmineTicketId === fetchedTicketId,
+          (r) =>
+            r.redmineTicketId && String(r.redmineTicketId) === fetchedTicketId,
         );
 
-        // 2. If it exists, set it as the editing requirement to trigger an update.
-        // Otherwise, set to null to trigger a create.
-        setEditingReq(existingReq || null);
-        setErrors({});
-
-        // 3. Populate the form. If it exists, preserve local data like projectId, module, etc.
-        setForm({
+        // 2. Map the incoming Redmine data
+        const mappedData: Partial<RequirementInput> = {
           title: data.issue.subject,
           description: data.issue.description ?? "",
           priority:
@@ -326,26 +331,39 @@ export default function Requirements() {
                 : data.issue.priority?.toLowerCase() === "low"
                   ? "low"
                   : "medium",
-          status: existingReq ? existingReq.status : "draft",
           redmineTicketId: fetchedTicketId,
-          ...(existingReq && {
-            projectId: existingReq.projectId ?? undefined,
-            module: existingReq.module ?? undefined,
-            release: existingReq.release ?? undefined,
-            assigneeId: existingReq.assigneeId ?? undefined,
-          }),
-        });
+        };
 
+        // 3. Direct Overwrite or Direct Create
+        if (existingReq) {
+          // Preserve local fields so the overwrite doesn't wipe out internal assignments
+          mappedData.status = existingReq.status;
+          mappedData.projectId = existingReq.projectId ?? undefined;
+          mappedData.module = existingReq.module ?? undefined;
+          mappedData.release = existingReq.release ?? undefined;
+          mappedData.assigneeId = existingReq.assigneeId ?? undefined;
+
+          updateMutation.mutate({
+            id: existingReq.id,
+            data: mappedData as any,
+          });
+          toast({
+            title: "Requirement Overwritten",
+            description: `Successfully updated Redmine #${fetchedTicketId}`,
+          });
+        } else {
+          // For new imports, set default local fields
+          mappedData.status = "draft";
+          createMutation.mutate({ data: mappedData as RequirementInput });
+          toast({
+            title: "Requirement Imported",
+            description: `Successfully created Redmine #${fetchedTicketId}`,
+          });
+        }
+
+        // Close the import dialog automatically
         setRedmineDialogOpen(false);
         setRedmineInput("");
-        setDialogOpen(true);
-
-        toast({
-          title: existingReq
-            ? `Updating Redmine #${data.issue.id}`
-            : `Imported Redmine #${data.issue.id}`,
-          description: data.issue.subject,
-        });
       } else {
         toast({
           variant: "destructive",
@@ -484,10 +502,16 @@ export default function Requirements() {
                               </p>
                             )}
                             {r.redmineTicketId && (
-                              <span className="text-xs text-blue-600 flex items-center gap-1 mt-0.5">
+                              <a
+                                href={`https://redmine.bestinet.my/issues/${r.redmineTicketId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-0.5 w-fit"
+                                onClick={(e) => e.stopPropagation()}
+                              >
                                 <ExternalLink className="w-3 h-3" />#
                                 {r.redmineTicketId}
-                              </span>
+                              </a>
                             )}
                           </div>
                         </TableCell>
