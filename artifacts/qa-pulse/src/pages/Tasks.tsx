@@ -170,7 +170,9 @@ function WorkloadPanel({
               const activeTasks = memberTasks.filter(
                 (t) => t.status !== "released_to_production",
               );
-              const doneTasks = memberTasks.filter((t) => t.status === "released_to_production");
+              const doneTasks = memberTasks.filter(
+                (t) => t.status === "released_to_production",
+              );
               const overdueTasks = activeTasks.filter((t) => t.isOverdue);
 
               return (
@@ -644,9 +646,16 @@ export default function Tasks() {
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
                 <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="new">New</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="blocked">Blocked</SelectItem>
                 <SelectItem value="uat">UAT</SelectItem>
                 <SelectItem value="sit">SIT</SelectItem>
-                <SelectItem value="released_to_production">Released to Production</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="released_to_production">
+                  Released to Production
+                </SelectItem>
                 <SelectItem value="overdue">
                   <span className="flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 text-destructive" />{" "}
@@ -735,9 +744,10 @@ export default function Tasks() {
                         <TableCell>
                           <div>
                             <p className="font-medium flex items-center gap-1.5">
-                              {t.isOverdue && t.status !== "released_to_production" && (
-                                <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
-                              )}
+                              {t.isOverdue &&
+                                t.status !== "released_to_production" && (
+                                  <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                )}
                               {t.name}
                             </p>
                             {t.projectName && (
@@ -763,9 +773,18 @@ export default function Tasks() {
                               </span>
                             </SelectTrigger>
                             <SelectContent className="max-h-[300px]">
+                              <SelectItem value="new">New</SelectItem>
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="in_progress">
+                                In Progress
+                              </SelectItem>
+                              <SelectItem value="blocked">Blocked</SelectItem>
                               <SelectItem value="uat">UAT</SelectItem>
                               <SelectItem value="sit">SIT</SelectItem>
-                              <SelectItem value="released_to_production">Released to Production</SelectItem>
+                              <SelectItem value="done">Done</SelectItem>
+                              <SelectItem value="released_to_production">
+                                Released to Production
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                         </TableCell>
@@ -788,7 +807,8 @@ export default function Tasks() {
                         <TableCell className="whitespace-nowrap">
                           <span
                             className={`text-sm font-medium px-2 py-0.5 rounded ${
-                              t.isOverdue && t.status !== "released_to_production"
+                              t.isOverdue &&
+                              t.status !== "released_to_production"
                                 ? "bg-red-100 text-red-700"
                                 : "text-muted-foreground"
                             }`}
@@ -982,9 +1002,16 @@ export default function Tasks() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="blocked">Blocked</SelectItem>
                     <SelectItem value="uat">UAT</SelectItem>
                     <SelectItem value="sit">SIT</SelectItem>
-                    <SelectItem value="released_to_production">Released to Production</SelectItem>
+                    <SelectItem value="done">Done</SelectItem>
+                    <SelectItem value="released_to_production">
+                      Released to Production
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1141,7 +1168,11 @@ export default function Tasks() {
             <DialogTitle className="flex items-center gap-2">
               <CalendarRange className="w-4 h-4 text-primary" />
               Task Events
-              {eventTask && <span className="text-muted-foreground text-sm font-normal">— {eventTask.name}</span>}
+              {eventTask && (
+                <span className="text-muted-foreground text-sm font-normal">
+                  — {eventTask.name}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1149,26 +1180,41 @@ export default function Tasks() {
             <div className="space-y-2">
               <h4 className="text-sm font-medium">Existing Events</h4>
               {eventsLoading ? (
-                <div className="text-sm text-muted-foreground py-2">Loading events...</div>
+                <div className="text-sm text-muted-foreground py-2">
+                  Loading events...
+                </div>
               ) : events.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-2">No events yet</div>
+                <div className="text-sm text-muted-foreground py-2">
+                  No events yet
+                </div>
               ) : (
                 <div className="space-y-2 max-h-[200px] overflow-y-auto">
                   {events.map((ev) => (
                     <div key={ev.id} className="border rounded-md p-2 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{ev.title}</span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                          ev.severity === "high" ? "bg-red-100 text-red-700" :
-                          ev.severity === "medium" ? "bg-orange-100 text-orange-700" :
-                          "bg-yellow-100 text-yellow-700"
-                        }`}>{ev.severity}</span>
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded-full ${
+                            ev.severity === "high"
+                              ? "bg-red-100 text-red-700"
+                              : ev.severity === "medium"
+                                ? "bg-orange-100 text-orange-700"
+                                : "bg-yellow-100 text-yellow-700"
+                          }`}
+                        >
+                          {ev.severity}
+                        </span>
                       </div>
-                      {ev.description && <p className="text-muted-foreground text-xs mt-1">{ev.description}</p>}
+                      {ev.description && (
+                        <p className="text-muted-foreground text-xs mt-1">
+                          {ev.description}
+                        </p>
+                      )}
                       {(ev.startDate || ev.endDate) && (
                         <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
                           <Clock className="w-3 h-3" />
-                          {ev.startDate && format(new Date(ev.startDate), "MMM d")}
+                          {ev.startDate &&
+                            format(new Date(ev.startDate), "MMM d")}
                           {ev.startDate && ev.endDate && " - "}
                           {ev.endDate && format(new Date(ev.endDate), "MMM d")}
                         </div>
@@ -1187,7 +1233,9 @@ export default function Tasks() {
                 <Input
                   placeholder="Event title"
                   value={eventForm.title}
-                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+                  onChange={(e) =>
+                    setEventForm({ ...eventForm, title: e.target.value })
+                  }
                 />
               </div>
               <div className="space-y-1.5">
@@ -1195,7 +1243,9 @@ export default function Tasks() {
                 <Textarea
                   placeholder="Event description..."
                   value={eventForm.description}
-                  onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+                  onChange={(e) =>
+                    setEventForm({ ...eventForm, description: e.target.value })
+                  }
                   rows={2}
                 />
               </div>
@@ -1205,7 +1255,9 @@ export default function Tasks() {
                   <Input
                     type="date"
                     value={eventForm.startDate}
-                    onChange={(e) => setEventForm({ ...eventForm, startDate: e.target.value })}
+                    onChange={(e) =>
+                      setEventForm({ ...eventForm, startDate: e.target.value })
+                    }
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1213,7 +1265,9 @@ export default function Tasks() {
                   <Input
                     type="date"
                     value={eventForm.endDate}
-                    onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })}
+                    onChange={(e) =>
+                      setEventForm({ ...eventForm, endDate: e.target.value })
+                    }
                   />
                 </div>
               </div>
@@ -1221,7 +1275,9 @@ export default function Tasks() {
                 <Label>Severity</Label>
                 <Select
                   value={eventForm.severity}
-                  onValueChange={(v) => setEventForm({ ...eventForm, severity: v })}
+                  onValueChange={(v) =>
+                    setEventForm({ ...eventForm, severity: v })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />

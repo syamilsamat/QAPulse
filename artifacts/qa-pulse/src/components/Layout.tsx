@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Activity, // <-- Add this
   LayoutDashboard,
   Users,
   FileText,
@@ -70,10 +71,7 @@ const NAV_ITEMS: NavItem[] = [
     label: "Tasks",
     icon: CheckSquare,
     roles: ["qa_member", "qa_lead", "admin"],
-    subItems: [
-      { href: "/tasks", label: "Task Board" },
-      { href: "/history-trail", label: "History Trail" },
-    ],
+    subItems: [{ href: "/history-trail", label: "History Trail" }],
   },
   {
     href: "/ai-features",
@@ -153,9 +151,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
-      <div className="p-6 pb-4">
-        <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-2">
-          <TestTube className="w-5 h-5 text-primary" />
+      <div className="px-6 py-6 pb-4">
+        <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
+          {/* Beautiful App-Style Pulse Icon */}
+          <div className="bg-primary/10 p-1.5 rounded-lg flex items-center justify-center">
+            <Activity className="w-6 h-6 text-primary" strokeWidth={2.5} />
+          </div>
           QA Pulse
         </h1>
       </div>

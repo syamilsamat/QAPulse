@@ -171,6 +171,9 @@ importers:
       '@heyputer/puter.js':
         specifier: ^2.5.1
         version: 2.5.1
+      pg:
+        specifier: ^8.21.0
+        version: 8.21.0
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
@@ -178,6 +181,9 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
     devDependencies:
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
       '@types/xlsx':
         specifier: ^0.0.36
         version: 0.0.36

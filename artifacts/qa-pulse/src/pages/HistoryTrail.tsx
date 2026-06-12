@@ -5,7 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { History, Search, CalendarRange, Clock, AlertTriangle } from "lucide-react";
+import {
+  History,
+  Search,
+  CalendarRange,
+  Clock,
+  AlertTriangle,
+} from "lucide-react";
 import { format } from "date-fns";
 import type { Task } from "@workspace/api-client-react";
 
@@ -33,6 +46,23 @@ interface TaskEvent {
   severity: string;
   createdBy: number | null;
   createdAt: string;
+}
+
+// Added the unified color map
+const STATUS_COLORS: Record<string, string> = {
+  uat: "bg-purple-100 text-purple-700",
+  sit: "bg-blue-100 text-blue-700",
+  released_to_production: "bg-green-100 text-green-700",
+  new: "bg-slate-100 text-slate-700",
+  pending: "bg-yellow-100 text-yellow-700",
+  in_progress: "bg-blue-100 text-blue-700",
+  blocked: "bg-red-100 text-red-700",
+  done: "bg-green-100 text-green-700",
+};
+
+// Added helper function to format status text beautifully
+function capitalize(s: string) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
 }
 
 export default function HistoryTrail() {
@@ -82,7 +112,8 @@ export default function HistoryTrail() {
 
   const filtered = tasks.filter((t) => {
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
-    if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee) return false;
+    if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee)
+      return false;
     if (search) {
       const q = search.toLowerCase();
       const matches =
@@ -118,7 +149,11 @@ export default function HistoryTrail() {
   };
 
   const uniqueAssignees = Array.from(
-    new Map(tasks.filter((t) => t.assigneeId).map((t) => [t.assigneeId, t.assigneeName])).entries(),
+    new Map(
+      tasks
+        .filter((t) => t.assigneeId)
+        .map((t) => [t.assigneeId, t.assigneeName]),
+    ).entries(),
   );
 
   return (
@@ -154,10 +189,18 @@ export default function HistoryTrail() {
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
+                {/* Updated to show ALL status options */}
                 <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="new">New</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="blocked">Blocked</SelectItem>
                 <SelectItem value="uat">UAT</SelectItem>
                 <SelectItem value="sit">SIT</SelectItem>
-                <SelectItem value="released_to_production">Released to Production</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="released_to_production">
+                  Released to Production
+                </SelectItem>
               </SelectContent>
             </Select>
             {isAdminOrLead && (
@@ -168,8 +211,8 @@ export default function HistoryTrail() {
                 <SelectContent className="max-h-[300px]">
                   <SelectItem value="all">All Members</SelectItem>
                   {uniqueAssignees.map(([id, name]) => (
-                    <SelectItem key={id} value={String(id)}>
-                      {name}
+                    <SelectItem key={id as number} value={String(id)}>
+                      {name as string}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -179,7 +222,9 @@ export default function HistoryTrail() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading...</div>
+            <div className="p-8 text-center text-muted-foreground">
+              Loading...
+            </div>
           ) : filtered.length === 0 ? (
             <div className="p-12 text-center">
               <History className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
@@ -192,10 +237,18 @@ export default function HistoryTrail() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[200px]">Task</TableHead>
-                      <TableHead className="whitespace-nowrap">Status</TableHead>
-                      <TableHead className="whitespace-nowrap">Assignee</TableHead>
-                      <TableHead className="whitespace-nowrap">Redmine ID</TableHead>
-                      <TableHead className="whitespace-nowrap">Events</TableHead>
+                      <TableHead className="whitespace-nowrap">
+                        Status
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap">
+                        Assignee
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap">
+                        Redmine ID
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap">
+                        Events
+                      </TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -222,21 +275,14 @@ export default function HistoryTrail() {
                             </div>
                           </TableCell>
                           <TableCell>
+                            {/* Updated to use dynamic STATUS_COLORS mapping */}
                             <span
                               className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                t.status === "uat"
-                                  ? "bg-purple-100 text-purple-700"
-                                  : t.status === "sit"
-                                    ? "bg-blue-100 text-blue-700"
-                                    : t.status === "released_to_production"
-                                      ? "bg-green-100 text-green-700"
-                                      : "bg-slate-100 text-slate-700"
+                                STATUS_COLORS[t.status] ||
+                                "bg-slate-100 text-slate-700"
                               }`}
                             >
-                              {t.status
-                                ? t.status.charAt(0).toUpperCase() +
-                                  t.status.slice(1).replace(/_/g, " ")
-                                : ""}
+                              {capitalize(t.status)}
                             </span>
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
@@ -254,7 +300,9 @@ export default function HistoryTrail() {
                                 #{t.redmineId}
                               </span>
                             ) : (
-                              <span className="text-sm text-muted-foreground">-</span>
+                              <span className="text-sm text-muted-foreground">
+                                -
+                              </span>
                             )}
                           </TableCell>
                           <TableCell>
@@ -271,7 +319,11 @@ export default function HistoryTrail() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="sm" className="h-8 text-xs">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 text-xs"
+                            >
                               <CalendarRange className="w-3.5 h-3.5 mr-1" />
                               View
                             </Button>
@@ -302,7 +354,9 @@ export default function HistoryTrail() {
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs"
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
                     disabled={currentPage >= totalPages}
                   >
                     Next
@@ -314,7 +368,10 @@ export default function HistoryTrail() {
         </CardContent>
       </Card>
 
-      <Dialog open={eventDialogOpen} onOpenChange={(o) => !o && setEventDialogOpen(false)}>
+      <Dialog
+        open={eventDialogOpen}
+        onOpenChange={(o) => !o && setEventDialogOpen(false)}
+      >
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -324,9 +381,13 @@ export default function HistoryTrail() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             {eventsLoading ? (
-              <div className="text-sm text-muted-foreground py-2">Loading events...</div>
+              <div className="text-sm text-muted-foreground py-2">
+                Loading events...
+              </div>
             ) : taskEvents.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-2">No events recorded</div>
+              <div className="text-sm text-muted-foreground py-2">
+                No events recorded
+              </div>
             ) : (
               taskEvents.map((ev) => (
                 <div key={ev.id} className="border rounded-md p-3 text-sm">
@@ -345,7 +406,9 @@ export default function HistoryTrail() {
                     </span>
                   </div>
                   {ev.description && (
-                    <p className="text-muted-foreground text-xs mt-1">{ev.description}</p>
+                    <p className="text-muted-foreground text-xs mt-1">
+                      {ev.description}
+                    </p>
                   )}
                   {(ev.startDate || ev.endDate) && (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">

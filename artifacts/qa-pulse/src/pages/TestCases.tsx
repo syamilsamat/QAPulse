@@ -85,22 +85,18 @@ const TYPE_COLORS: Record<string, string> = {
   automation_candidate: "bg-emerald-100 text-emerald-700",
 };
 
-// Updated column widths for the new 15-column template layout
+// Updated column widths for the new 11-column template layout
 const COL_WIDTHS = [
-  15, // Test Case ID
-  25, // Redmine User Story
-  15, // Tracker
-  35, // Test Scenario
-  30, // Pre-Conditions
-  35, // Test Case
+  15, // Case ID
+  25, // User Story
+  35, // Scenario
+  30, // Pre Condition
+  35, // Case
   50, // Test Steps
   20, // Test Data
-  40, // Expected Results
-  25, // Actual Results
-  15, // Status
-  20, // Redmine Defects
-  30, // Remarks
-  25, // Feature
+  40, // Expected Result
+  25, // Result
+  20, // Redmine Defect
   20, // QA PIC
 ];
 
@@ -109,39 +105,21 @@ async function exportToExcel(
   projectsMap: Record<number, string>,
   requirementsMap: Record<number, string>,
 ) {
-  // Map your db fields precisely to the strict template headers
+  // Map your db fields precisely to the new strict template headers
   const rows = testCases.map((tc) => {
-    // Collect extra context data into remarks so it isn't lost
-    const priority = tc.priority
-      ? tc.priority.charAt(0).toUpperCase() + tc.priority.slice(1)
-      : "";
-    const type = tc.type === "automation_candidate" ? "Automation" : "Manual";
-    const aiNote = tc.aiAssisted ? "[AI Assisted]" : "";
-    const tagsNote = tc.tags ? `Tags: ${tc.tags}` : "";
-    const remarks = [priority, type, aiNote, tagsNote]
-      .filter(Boolean)
-      .join(" | ");
-
     return {
-      "Test Case ID": `TC-${tc.id}`,
-      "Redmine User Story": tc.requirementId
+      "Case ID": `TC-${tc.id}`,
+      "User Story": tc.requirementId
         ? (requirementsMap[tc.requirementId] ?? "")
         : "",
-      Tracker: "", // Left blank as per template
-      "Test Scenario": tc.objective ?? "",
-      "Pre-Conditions": tc.preconditions ?? "",
-      "Test Case": tc.title ?? "",
+      Scenario: tc.objective ?? "",
+      "Pre Condition": tc.preconditions ?? "",
+      Case: tc.title ?? "",
       "Test Steps": tc.testSteps ?? "",
-      "Test Data": "", // Left blank as per template
-      "Expected Results": tc.expectedResult ?? "",
-      "Actual Results": "", // Left blank for manual entry
-      Status: tc.status
-        ? tc.status.charAt(0).toUpperCase() + tc.status.slice(1)
-        : "Pending",
-      // Safely access linkedBug if it exists in your schema, otherwise blank
-      "Redmine Defects": (tc as any).linkedBug ?? "",
-      Remarks: remarks,
-      Feature: tc.projectId ? (projectsMap[tc.projectId] ?? "") : "",
+      "Test Data": "", // Left blank for manual entry
+      "Expected Result": tc.expectedResult ?? "",
+      Result: "", // Left blank for manual entry
+      "Redmine Defect": (tc as any).linkedBug ?? "",
       "QA PIC": tc.authorName ?? "",
     };
   });
@@ -151,20 +129,16 @@ async function exportToExcel(
 
   // Define the strict template headers in the exact order requested
   const templateHeaders = [
-    "Test Case ID",
-    "Redmine User Story",
-    "Tracker",
-    "Test Scenario",
-    "Pre-Conditions",
-    "Test Case",
+    "Case ID",
+    "User Story",
+    "Scenario",
+    "Pre Condition",
+    "Case",
     "Test Steps",
     "Test Data",
-    "Expected Results",
-    "Actual Results",
-    "Status",
-    "Redmine Defects",
-    "Remarks",
-    "Feature",
+    "Expected Result",
+    "Result",
+    "Redmine Defect",
     "QA PIC",
   ];
 
@@ -177,11 +151,14 @@ async function exportToExcel(
 
   // Style the header row (Row 1) to make it visually distinct
   const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true };
+  headerRow.font = {
+    bold: true,
+    color: { argb: "FFFFFFFF" }, // White text
+  };
   headerRow.fill = {
     type: "pattern",
     pattern: "solid",
-    fgColor: { argb: "FFE0E0E0" }, // Light gray background
+    fgColor: { argb: "FF1F4E78" }, // Dark blue background
   };
 
   // Add the mapped rows
@@ -630,8 +607,19 @@ export default function TestCases() {
       return false;
     if (filterAI === "ai" && !t.aiAssisted) return false;
     if (filterAI === "manual" && t.aiAssisted) return false;
-    if (search && !t.title.toLowerCase().includes(search.toLowerCase()))
-      return false;
+
+    // Expanded search logic
+    if (search) {
+      const query = search.toLowerCase();
+      const matchTitle = t.title?.toLowerCase().includes(query);
+      const matchTags = t.tags?.toLowerCase().includes(query);
+      const matchAuthor = t.authorName?.toLowerCase().includes(query);
+
+      if (!matchTitle && !matchTags && !matchAuthor) {
+        return false;
+      }
+    }
+
     return true;
   });
 
