@@ -369,11 +369,14 @@ router.post("/ai/weekly-summary", async (req, res): Promise<void> => {
 
     const stats = {
       totalTasks: tasks.length,
-      completed: tasks.filter((t) => t.status === "released_to_production").length,
+      completed: tasks.filter((t) => t.status === "released_to_production")
+        .length,
       blocked: tasks.filter((t) => t.status === "blocked").length,
       inProgress: tasks.filter((t) => t.status === "sit").length,
       newThisWeek: recentTasks.filter((t) => t.status === "uat").length,
-      completedThisWeek: recentTasks.filter((t) => t.status === "released_to_production").length,
+      completedThisWeek: recentTasks.filter(
+        (t) => t.status === "released_to_production",
+      ).length,
       newTestCasesThisWeek: recentTestCases.length,
       aiAssistedTestCases: testCases.filter((tc) => tc.aiAssisted).length,
     };
@@ -600,18 +603,20 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
       positives: [],
       blockers: [],
       recommendations: [],
+      expectedReleaseDate: "Unknown", // Added fallback field
       stats: {},
       completionRate: 0,
       coverageRate: 0,
     };
 
+    // Updated System Prompt to request expectedReleaseDate
     const systemPrompt = `You are a QA release manager. Assess release readiness objectively.
        Return exactly this JSON structure:
-       { "readinessScore": 0-100, "status": "ready"|"caution"|"not_ready", "verdict": "string", "positives": ["string"], "blockers": ["string"], "recommendations": ["string"] }`;
+       { "readinessScore": 0-100, "status": "ready"|"caution"|"not_ready", "verdict": "string", "positives": ["string"], "blockers": ["string"], "recommendations": ["string"], "expectedReleaseDate": "string" }`;
 
     if (redmineData) {
       completionRate = redmineData.testExecution?.successRate || 0;
-      coverageRate = 100; // Assuming 100% since we are viewing an active defect report
+      coverageRate = 100;
 
       stats = {
         totalTasks: redmineData.testExecution?.total || 0,
@@ -628,12 +633,21 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
         coveredReqs: redmineData.requirements?.length || 0,
       };
 
-      // Extract the full defect history
       const openDefects = redmineData.activeDefects?.length || 0;
       const totalDefects = redmineData.defects?.total || 0;
       const resolvedDefects = totalDefects - openDefects;
 
-      userPrompt = `Release Readiness Data (Redmine):\n- Test pass rate: ${redmineData.testExecution?.passRate}%\n- Test success rate (Pass + In Prog): ${completionRate}%\n- Blocked test cases: ${stats.blocked}\n- Failed test cases: ${redmineData.testExecution?.failed || 0}\n- Total defects found: ${totalDefects}\n- Resolved/Verified defects: ${resolvedDefects}\n- Active/Open defects: ${openDefects}\n- Total test cases: ${stats.totalTestCases}\n\nAssess release readiness and return ONLY JSON. Important: If 'Resolved/Verified defects' is high, treat this as a strong positive signal of system stabilization. If 'Active/Open defects' is 0, this increases readiness significantly, provided the test execution rate is acceptable.`;
+      // NEW: Summarize the Module Test Execution Details for the AI
+      const moduleSummary =
+        redmineData.moduleDetails
+          ?.map(
+            (m: any) =>
+              `- ${m.module}: Pass=${m.passCompletion}%, Blocked=${m.blocked}, Failed=${m.failed}, Not Exec=${m.notExecuted}`,
+          )
+          .join("\n") || "No module execution data.";
+
+      // NEW: Feed the module summary into the User Prompt so the AI bases its date on it
+      userPrompt = `Release Readiness Data (Redmine):\n- Test pass rate: ${redmineData.testExecution?.passRate}%\n- Test success rate: ${completionRate}%\n- Blocked test cases: ${stats.blocked}\n- Failed test cases: ${redmineData.testExecution?.failed || 0}\n- Active/Open defects: ${openDefects}\n\nTest Execution Details by Module:\n${moduleSummary}\n\nAssess release readiness and return ONLY JSON. Provide an 'expectedReleaseDate' (e.g., 'Ready for immediate release', 'Needs 2-3 days for retesting', etc.) based on the execution details by module and open defects.`;
     } else {
       let tasks = await db.select().from(tasksTable);
       let testCases = await db.select().from(testCasesTable);
@@ -679,25 +693,24 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
           ? Math.round((stats.coveredReqs / stats.totalReqs) * 100)
           : 0;
 
-      userPrompt = `Release Readiness Data:\n- Task completion rate: ${completionRate}%\n- Blocked tasks: ${stats.blocked}\n- Overdue tasks: ${stats.overdue}\n- Open requirements: ${stats.openReqs}\n- Test coverage rate: ${coverageRate}%\n- Total test cases: ${stats.totalTestCases}\n- Automation candidates: ${stats.automationCandidates}\n\nAssess release readiness and return ONLY JSON.`;
+      userPrompt = `Release Readiness Data:\n- Task completion rate: ${completionRate}%\n- Blocked tasks: ${stats.blocked}\n- Overdue tasks: ${stats.overdue}\n- Open requirements: ${stats.openReqs}\n- Test coverage rate: ${coverageRate}%\n- Total test cases: ${stats.totalTestCases}\n- Automation candidates: ${stats.automationCandidates}\n\nAssess release readiness based on this project snapshot and return ONLY JSON. Provide positive signals, blockers, and an 'expectedReleaseDate' (e.g. 'Ready immediately', 'Requires 1 week of testing', etc.) based on completion vs overdue status.`;
     }
 
-    const content = await executeAiTask(systemPrompt, userPrompt);
+    const content = await runOpenRouterCascade(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      true,
+    );
+
     const parsedData = safeParseJSON(content, fallback);
     res.json({ ...parsedData, stats, completionRate, coverageRate });
-  } catch (error) {
-    console.error("Release Readiness Error:", error);
-    res.json({
-      readinessScore: 0,
-      status: "not_ready",
-      verdict: "System error occurred.",
-      positives: [],
-      blockers: [],
-      recommendations: [],
-      stats: {},
-      completionRate: 0,
-      coverageRate: 0,
-    });
+  } catch (error: any) {
+    console.error("Readiness error:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to calculate readiness" });
   }
 });
 

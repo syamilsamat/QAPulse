@@ -735,13 +735,18 @@ export default function PmoReport() {
           `${getApiUrl()}/pmo/execution-details?redmineId=${encodeURIComponent(redmineId!)}`,
           {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
-          }
+          },
         );
 
         if (execResp.ok) {
           const execDetails = await execResp.json();
           if (Array.isArray(execDetails) && execDetails.length > 0) {
-            let total = 0, passed = 0, failed = 0, blocked = 0, inProgress = 0, notExecuted = 0;
+            let total = 0,
+              passed = 0,
+              failed = 0,
+              blocked = 0,
+              inProgress = 0,
+              notExecuted = 0;
 
             const moduleDetails = execDetails.map((row: any) => {
               total += row.total || 0;
@@ -759,15 +764,32 @@ export default function PmoReport() {
                 blocked: row.blocked || 0,
                 inProgress: row.inProg || 0,
                 notExecuted: row.notExec || 0,
-                passCompletion: row.total > 0 ? Math.round((row.passed / row.total) * 1000) / 10 : 0,
-                totalCompletion: row.total > 0 ? Math.round(((row.total - row.notExec) / row.total) * 1000) / 10 : 0,
+                passCompletion:
+                  row.total > 0
+                    ? Math.round((row.passed / row.total) * 1000) / 10
+                    : 0,
+                totalCompletion:
+                  row.total > 0
+                    ? Math.round(
+                        ((row.total - row.notExec) / row.total) * 1000,
+                      ) / 10
+                    : 0,
               };
             });
 
             reportData.testExecution = {
-              total, passed, failed, blocked, inProgress, notExecuted,
-              passRate: total > 0 ? Math.round((passed / total) * 1000) / 10 : 0,
-              successRate: total > 0 ? Math.round(((passed + inProgress) / total) * 1000) / 10 : 0,
+              total,
+              passed,
+              failed,
+              blocked,
+              inProgress,
+              notExecuted,
+              passRate:
+                total > 0 ? Math.round((passed / total) * 1000) / 10 : 0,
+              successRate:
+                total > 0
+                  ? Math.round(((passed + inProgress) / total) * 1000) / 10
+                  : 0,
             };
             reportData.moduleDetails = moduleDetails;
           }
@@ -1267,6 +1289,23 @@ export default function PmoReport() {
                             <p className="text-sm text-muted-foreground text-center">
                               {readinessResult.verdict}
                             </p>
+
+                            {/* --- UPDATED EXPECTED RELEASE DATE BLOCK --- */}
+                            {readinessResult.expectedReleaseDate && (
+                              <div className="mt-3 w-full bg-background border border-border rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row items-start gap-1 sm:gap-4 shadow-sm text-sm text-left">
+                                <div className="flex items-start gap-2 shrink-0">
+                                  <Clock className="w-4 h-4 mt-0.5 text-muted-foreground" />
+                                  <span className="font-semibold text-foreground leading-snug whitespace-nowrap">
+                                    Expected <br className="hidden sm:block" />{" "}
+                                    Release:
+                                  </span>
+                                </div>
+                                <div className="flex-1 text-foreground leading-relaxed pt-1 sm:pt-0">
+                                  {readinessResult.expectedReleaseDate}
+                                </div>
+                              </div>
+                            )}
+                            {/* ----------------------------------------- */}
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-4">
                             {readinessResult.positives?.length > 0 && (
@@ -1841,7 +1880,8 @@ export default function PmoReport() {
                                       )}
                                     </td>
                                     <td className="text-center py-2 px-3">
-                                      {d.reopenedCount && d.reopenedCount > 0 ? (
+                                      {d.reopenedCount &&
+                                      d.reopenedCount > 0 ? (
                                         <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full text-xs">
                                           {d.reopenedCount}x
                                         </span>
@@ -1906,7 +1946,8 @@ export default function PmoReport() {
                                       <span className="text-xs text-muted-foreground truncate max-w-[100px]">
                                         {d.category || "No Category"}
                                       </span>
-                                      {d.reopenedCount && d.reopenedCount > 0 ? (
+                                      {d.reopenedCount &&
+                                      d.reopenedCount > 0 ? (
                                         <span className="bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded text-[10px]">
                                           Reopened: {d.reopenedCount}x
                                         </span>
