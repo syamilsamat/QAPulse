@@ -133,6 +133,7 @@ interface PmoReportData {
     category: string;
     assignee: string;
     createdAt: string;
+    reopenedCount?: number; // ADDED THIS FIELD
   }>;
 }
 
@@ -1770,6 +1771,9 @@ export default function PmoReport() {
                                 <th className="text-center py-2 px-3 font-medium">
                                   Created On
                                 </th>
+                                <th className="text-center py-2 px-3 font-medium">
+                                  Reopened
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1836,6 +1840,17 @@ export default function PmoReport() {
                                         "dd/MM/yyyy",
                                       )}
                                     </td>
+                                    <td className="text-center py-2 px-3">
+                                      {d.reopenedCount && d.reopenedCount > 0 ? (
+                                        <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full text-xs">
+                                          {d.reopenedCount}x
+                                        </span>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs font-medium bg-muted px-2 py-0.5 rounded-full">
+                                          0
+                                        </span>
+                                      )}
+                                    </td>
                                   </tr>
                                 ))}
                             </tbody>
@@ -1891,6 +1906,11 @@ export default function PmoReport() {
                                       <span className="text-xs text-muted-foreground truncate max-w-[100px]">
                                         {d.category || "No Category"}
                                       </span>
+                                      {d.reopenedCount && d.reopenedCount > 0 ? (
+                                        <span className="bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded text-[10px]">
+                                          Reopened: {d.reopenedCount}x
+                                        </span>
+                                      ) : null}
                                     </div>
                                     <div className="text-right">
                                       <p className="text-xs font-medium">

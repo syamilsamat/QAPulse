@@ -24,7 +24,6 @@ router.get("/pmo/execution-details", async (req, res) => {
   const { redmineId } = req.query;
   if (redmineId && typeof redmineId === "string") {
     try {
-      // 1. Check for saved summaries first
       const rows = await db
         .select()
         .from(executionSummariesTable)
@@ -45,7 +44,6 @@ router.get("/pmo/execution-details", async (req, res) => {
         return;
       }
 
-      // 2. Fallback: aggregate from raw test cases in execution_test_cases
       const [file] = await db
         .select()
         .from(executionFilesTable)
@@ -66,7 +64,6 @@ router.get("/pmo/execution-details", async (req, res) => {
         return;
       }
 
-      // Aggregate by module
       const moduleMap: Record<string, any> = {};
       testCases.forEach((tc) => {
         if (!tc.moduleName && !tc.caseName && !tc.result) return;
@@ -113,12 +110,10 @@ router.post("/pmo/execution-details", express.json(), async (req, res) => {
   }
 
   try {
-    // Delete existing summaries for this ticket
     await db
       .delete(executionSummariesTable)
       .where(eq(executionSummariesTable.redmineTicketId, redmineId));
 
-    // Insert new summaries
     for (const row of details) {
       await db.insert(executionSummariesTable).values({
         redmineTicketId: redmineId,
@@ -140,21 +135,12 @@ router.post("/pmo/execution-details", express.json(), async (req, res) => {
 });
 
 // ─── Status maps ────────────────────────────────
-function mapTestStatus(s: string): string {
-  const v = (s ?? "").toLowerCase().trim();
-  if (["done", "closed", "resolved", "verified"].includes(v)) return "passed";
-  if (["rejected", "fail", "failed"].includes(v)) return "failed";
-  if (["blocked", "roadblock"].includes(v)) return "blocked";
-  if (["in progress", "inprogress"].includes(v)) return "in_progress";
-  return "not_executed";
-}
-
 function mapDefectStatus(s: string): string {
   const v = (s ?? "").toLowerCase().trim();
   if (v === "new") return "new";
   if (["in progress", "inprogress"].includes(v)) return "in_progress";
   if (["for qa test", "forqatest"].includes(v)) return "for_qa_test";
-  if (v === "reopen") return "reopen";
+  if (v.includes("reopen")) return "reopen";
   if (v === "done") return "done";
   if (v === "roadblock") return "roadblock";
   if (v === "verified") return "verified";
@@ -193,6 +179,7 @@ function buildReportShape(
   const openDefects = defects.filter(
     (d) => !["verified", "closed"].includes(mapDefectStatus(d.status)),
   ).length;
+
   const activeDefects = defects
     .filter((d) => !["verified", "closed"].includes(mapDefectStatus(d.status)))
     .map((d) => ({
@@ -203,6 +190,7 @@ function buildReportShape(
       category: d.category,
       assignee: d.assignee,
       createdAt: d.createdOn,
+      reopenedCount: d.reopenedCount || 0, // Ensure field exists
     }));
 
   return {
@@ -236,14 +224,13 @@ function buildReportShape(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// NEW PATH 4 — Read from Saved Execution Details
+// PATH 1 — Read from Saved Execution Details
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function reportFromLocalExecutionDetails(
   issueId: string,
 ): Promise<Record<string, unknown> | null> {
   try {
-    // 1. Check for saved summaries in PostgreSQL first
     const savedRows = await db
       .select()
       .from(executionSummariesTable)
@@ -262,7 +249,6 @@ async function reportFromLocalExecutionDetails(
         notExec: r.notExecuted,
       }));
     } else {
-      // 2. Fallback: aggregate from raw test cases in execution_test_cases
       const [file] = await db
         .select()
         .from(executionFilesTable)
@@ -307,12 +293,7 @@ async function reportFromLocalExecutionDetails(
 
     if (details.length === 0) return null;
 
-    let total = 0,
-      passed = 0,
-      failed = 0,
-      blocked = 0,
-      inProgress = 0,
-      notExecuted = 0;
+    let total = 0, passed = 0, failed = 0, blocked = 0, inProgress = 0, notExecuted = 0;
     const moduleDetails: any[] = [];
 
     for (const row of details) {
@@ -356,9 +337,7 @@ async function reportFromLocalExecutionDetails(
         notExecuted,
         passRate: total > 0 ? Math.round((passed / total) * 1000) / 10 : 0,
         successRate:
-          total > 0
-            ? Math.round(((passed + inProgress) / total) * 1000) / 10
-            : 0,
+          total > 0 ? Math.round(((passed + inProgress) / total) * 1000) / 10 : 0,
       },
       moduleDetails,
       defects: { total: 0, openRate: 0, counts: {} },
@@ -374,9 +353,7 @@ async function reportFromLocalExecutionDetails(
 // DATABASE FALLBACKS FOR DEFECTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function reportFromMySQL(
-  issueId: string,
-): Promise<Record<string, unknown> | null> {
+async function reportFromMySQL(issueId: string): Promise<Record<string, unknown> | null> {
   if (!mysql2) return null;
   const cfg = {
     host: process.env.REDMINE_DB_HOST ?? "10.10.4.130",
@@ -384,7 +361,7 @@ async function reportFromMySQL(
     user: process.env.REDMINE_DB_USER ?? "bestqa",
     password: process.env.REDMINE_DB_PASSWORD ?? "",
     database: process.env.REDMINE_DB_NAME ?? "redmine",
-    connectTimeout: 8000,
+    connectTimeout: 8000, 
   };
 
   let conn: any = null;
@@ -454,15 +431,49 @@ async function reportFromMySQL(
       }
     }
 
-    const defects = Array.from(defectMap.values()).map((d: any) => ({
-      id: d.id,
-      subject: d.subject,
-      status: d.status ?? "New",
-      priority: d.priority ?? "Normal",
-      category: d.category ?? "",
-      assignee: d.assignee ?? "Unassigned",
-      createdOn: d.created_on,
-    }));
+    // --- REOPENED LOGIC (MySQL) ---
+    const defectIds = Array.from(defectMap.keys());
+    const reopenCounts: Record<number, number> = {};
+
+    if (defectIds.length > 0) {
+      const placeholders = defectIds.map(() => '?').join(',');
+
+      const [reopenRows] = (await conn.query(
+        `SELECT
+            j.journalized_id AS issue_id,
+            COUNT(*) AS reopen_count
+        FROM journal_details jd
+        JOIN journals j ON jd.journal_id = j.id
+        WHERE jd.prop_key = 'status_id'
+          AND jd.value = '8'
+          AND j.journalized_id IN (${placeholders})
+        GROUP BY j.journalized_id;`,
+        defectIds
+      )) as [any[], any];
+
+      for (const row of reopenRows) {
+        reopenCounts[row.issue_id] = Number(row.reopen_count);
+      }
+    }
+
+    const defects = Array.from(defectMap.values()).map((d: any) => {
+      const isReopenedNow = d.status?.toLowerCase().includes("reopen");
+      let count = reopenCounts[d.id] || 0;
+
+      // Smart Heuristic: If it's currently reopened but the query missed the journal, force it to 1
+      if (isReopenedNow && count === 0) count = 1;
+
+      return {
+        id: d.id,
+        subject: d.subject,
+        status: d.status ?? "New",
+        priority: d.priority ?? "Normal",
+        category: d.category ?? "",
+        assignee: d.assignee ?? "Unassigned",
+        createdOn: d.created_on,
+        reopenedCount: count 
+      };
+    });
 
     return buildReportShape(
       issueId,
@@ -471,19 +482,18 @@ async function reportFromMySQL(
         status: main.status,
         projectName: main.project_name,
       },
-      [], // We ignore MySQL test items because we're using the frontend table
+      [],
       defects,
     );
   } catch (err: any) {
+    console.error("MySQL report fetching error:", err);
     return null;
   } finally {
     if (conn) await conn.end().catch(() => {});
   }
 }
 
-async function reportFromRedmineAPI(
-  issueId: string,
-): Promise<Record<string, unknown> | null> {
+async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unknown> | null> {
   const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
   const apiKey = process.env.REDMINE_API_KEY ?? "";
   if (!baseUrl || !apiKey) return null;
@@ -528,6 +538,7 @@ async function reportFromRedmineAPI(
       category: i.category?.name ?? "",
       assignee: i.assigned_to?.name ?? "Unassigned",
       createdOn: i.created_on,
+      reopenedCount: 0 // Default, will update below
     });
 
     for (const i of subjectMatches) {
@@ -539,6 +550,42 @@ async function reportFromRedmineAPI(
         defectMap.set(i.id, toNormDefect(i));
     }
 
+    const defects = Array.from(defectMap.values());
+
+    // --- REOPENED LOGIC (API FALLBACK) ---
+    // Fetch journals for each defect explicitly to calculate the true reopen count
+    await Promise.all(
+      defects.map(async (d: any) => {
+        try {
+          let count = 0;
+          const detailedIssue = await safeJson(`${baseUrl}/issues/${d.id}.json?include=journals`);
+
+          if (detailedIssue?.issue?.journals) {
+            for (const j of detailedIssue.issue.journals) {
+              if (j.details) {
+                for (const det of j.details) {
+                  // status_id = '8' is ReOpen
+                  if (det.property === 'attr' && det.name === 'status_id' && det.new_value === '8') {
+                    count++;
+                  }
+                }
+              }
+            }
+          }
+
+          // Smart heuristic: If it's currently reopened but history missed it somehow, set to 1
+          if (count === 0 && d.status.toLowerCase().includes("reopen")) {
+            count = 1;
+          }
+
+          d.reopenedCount = count;
+        } catch {
+          // If the detailed fetch fails, use basic fallback
+          if (d.status.toLowerCase().includes("reopen")) d.reopenedCount = 1;
+        }
+      })
+    );
+
     return buildReportShape(
       issueId,
       {
@@ -546,17 +593,15 @@ async function reportFromRedmineAPI(
         status: main.status?.name ?? "",
         projectName: main.project?.name ?? "",
       },
-      [], // Ignore API test items
-      Array.from(defectMap.values()),
+      [],
+      defects,
     );
   } catch (err: any) {
     return null;
   }
 }
 
-async function reportFromLocalDB(
-  issueId: string,
-): Promise<Record<string, unknown> | null> {
+async function reportFromLocalDB(issueId: string): Promise<Record<string, unknown> | null> {
   const reqs = await db.select().from(requirementsTable);
   const matched = reqs.filter(
     (r) =>
@@ -587,6 +632,7 @@ async function reportFromLocalDB(
     category: "Bug",
     assignee: getName(t.assigneeId),
     createdOn: t.createdAt.toISOString(),
+    reopenedCount: t.status.toLowerCase().includes("reopen") ? 1 : 0
   }));
 
   return buildReportShape(
@@ -607,10 +653,8 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
   }
   const cleanId = redmineId.replace(/^#/, "").trim();
 
-  // 1. Fetch from our new local React frontend table (for test execution metrics)
   const testData = await reportFromLocalExecutionDetails(cleanId);
 
-  // 2. Fetch Defects from DBs
   let defectData = await reportFromMySQL(cleanId);
   if (!defectData) {
     defectData = await reportFromRedmineAPI(cleanId);
@@ -619,7 +663,6 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
     defectData = await reportFromLocalDB(cleanId);
   }
 
-  // 3. Merge Excel Data + Defect Data Perfectly
   if (testData && defectData) {
     res.json({
       ...testData,
@@ -641,10 +684,6 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
     return;
   }
 
-  // If nothing is found, return error
-  const host = process.env.REDMINE_DB_HOST ?? "10.10.4.130";
-  const port = process.env.REDMINE_DB_PORT ?? "3306";
-  const hasRestUrl = !!process.env.REDMINE_URL;
   res.status(503).json({
     error: `No data found for Redmine #${cleanId}.`,
     help: [
