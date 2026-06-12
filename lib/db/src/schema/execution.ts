@@ -14,6 +14,7 @@ export const executionFilesTable = pgTable("execution_files", {
   title: text("title"),
   qaPic: text("qa_pic"),
   remarks: text("remarks"),
+  selectedModules: text("selected_modules"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

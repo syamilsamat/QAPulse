@@ -11,6 +11,7 @@ export interface ExecutionFile {
   title?: string;
   qaPic?: string;
   remarks?: string;
+  selectedModules?: string;
   updatedAt: string;
 }
 
@@ -75,6 +76,19 @@ export const deleteExecutionFile = async (id: number): Promise<void> => {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error("Failed to delete file");
+};
+
+export const updateExecutionFile = async (
+  id: number,
+  data: Partial<ExecutionFile>,
+): Promise<ExecutionFile> => {
+  const res = await fetch(`/api/execution-files/${id}`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update file");
+  return res.json();
 };
 
 // UPDATED: Now returns an object containing both the testCases array and the timestamp

@@ -95,6 +95,7 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
         title: f.title,
         qaPic: f.qaPic,
         remarks: f.remarks,
+        selectedModules: f.selectedModules,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
@@ -106,7 +107,7 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
 
 router.post("/execution-files", async (req, res): Promise<void> => {
   try {
-    const { redmineTicketId, title, qaPic, remarks } = req.body;
+    const { redmineTicketId, title, qaPic, remarks, selectedModules } = req.body;
     if (!redmineTicketId || !redmineTicketId.trim()) {
       res.status(400).json({ error: "Redmine Ticket ID is required" });
       return;
@@ -118,6 +119,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
         title: title || null,
         qaPic: qaPic || null,
         remarks: remarks || null,
+        selectedModules: selectedModules || null,
       })
       .returning();
     res.status(201).json({
@@ -126,11 +128,44 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       title: file.title,
       qaPic: file.qaPic,
       remarks: file.remarks,
+      selectedModules: file.selectedModules,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
   } catch {
     res.status(500).json({ error: "Failed to create execution file" });
+  }
+});
+
+router.patch("/execution-files/:id", async (req, res): Promise<void> => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const { selectedModules } = req.body;
+    const [updated] = await db
+      .update(executionFilesTable)
+      .set({ selectedModules: selectedModules || null })
+      .where(eq(executionFilesTable.id, id))
+      .returning();
+    if (!updated) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    res.json({
+      id: updated.id,
+      redmineTicketId: updated.redmineTicketId,
+      title: updated.title,
+      qaPic: updated.qaPic,
+      remarks: updated.remarks,
+      selectedModules: updated.selectedModules,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to update execution file" });
   }
 });
 
