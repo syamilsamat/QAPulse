@@ -50,6 +50,7 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  Key,
 } from "lucide-react";
 
 type EntityType = "requirement" | "test_case" | "task" | "user";
@@ -69,11 +70,12 @@ export default function AdminSearch() {
   const [query, setQuery] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
 
   // Dialog States
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<SearchResult | null>(null);
   const [editForm, setEditForm] = useState<Record<string, any>>({});
 
@@ -113,7 +115,6 @@ export default function AdminSearch() {
       const errData = await res.json().catch(() => null);
       let errorMessage = `Failed to ${method} data`;
 
-      // If the backend returns a Zod error array (like your first screenshot)
       if (Array.isArray(errData)) {
         errorMessage = errData
           .map((e) => `${e.path?.join(".") || "Field"}: ${e.message}`)
@@ -135,6 +136,7 @@ export default function AdminSearch() {
     queryClient.invalidateQueries({ queryKey });
     setDeleteDialogOpen(false);
     setEditDialogOpen(false);
+    setResetDialogOpen(false);
     setSelectedItem(null);
     toast({ title: message });
   };
@@ -149,7 +151,7 @@ export default function AdminSearch() {
 
   // --- MUTATIONS ---
 
-  // 1. Requirements (Using existing package hooks)
+  // 1. Requirements
   const reqUpdate = useUpdateRequirement({
     mutation: {
       onSuccess: () =>
@@ -166,7 +168,7 @@ export default function AdminSearch() {
     },
   });
 
-  // 2. Test Cases (Custom Mutations)
+  // 2. Test Cases
   const tcUpdate = useMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       apiFetch(`/test-cases/${id}`, "PATCH", data),
@@ -182,7 +184,7 @@ export default function AdminSearch() {
     onError: handleError,
   });
 
-  // 3. Tasks (Custom Mutations)
+  // 3. Tasks
   const taskUpdate = useMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       apiFetch(`/tasks/${id}`, "PATCH", data),
@@ -195,7 +197,7 @@ export default function AdminSearch() {
     onError: handleError,
   });
 
-  // 4. Users (Custom Mutations)
+  // 4. Users
   const userUpdate = useMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       apiFetch(`/users/${id}`, "PATCH", data),
@@ -207,6 +209,13 @@ export default function AdminSearch() {
     onSuccess: () => handleSuccess(getListUsersQueryKey(), "User deleted"),
     onError: handleError,
   });
+  const userResetPassword = useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      apiFetch(`/users/${id}`, "PATCH", { password: "password123" }), // Adjust endpoint if your backend uses a dedicated route like `/users/${id}/reset-password`
+    onSuccess: () =>
+      handleSuccess(getListUsersQueryKey(), "Password reset to password123"),
+    onError: handleError,
+  });
 
   const isPending =
     reqUpdate.isPending ||
@@ -216,7 +225,8 @@ export default function AdminSearch() {
     taskUpdate.isPending ||
     taskDelete.isPending ||
     userUpdate.isPending ||
-    userDelete.isPending;
+    userDelete.isPending ||
+    userResetPassword.isPending;
 
   // --- ACTION HANDLERS ---
 
@@ -231,6 +241,11 @@ export default function AdminSearch() {
     setDeleteDialogOpen(true);
   };
 
+  const openResetPassword = (item: SearchResult) => {
+    setSelectedItem(item);
+    setResetDialogOpen(true);
+  };
+
   const executeDelete = () => {
     if (!selectedItem) return;
     const { id, type } = selectedItem;
@@ -241,12 +256,15 @@ export default function AdminSearch() {
     if (type === "user") userDelete.mutate({ id });
   };
 
+  const executeResetPassword = () => {
+    if (!selectedItem || selectedItem.type !== "user") return;
+    userResetPassword.mutate({ id: selectedItem.id });
+  };
+
   const executeUpdate = () => {
     if (!selectedItem) return;
     const { id, type } = selectedItem;
 
-    // Only extract the specific fields from the form to prevent Zod
-    // from rejecting read-only fields like 'id' or 'createdAt'
     const payload: Record<string, any> = {};
 
     if (type === "user") {
@@ -281,7 +299,7 @@ export default function AdminSearch() {
         (r) =>
           r.title.toLowerCase().includes(q) ||
           (r.description ?? "").toLowerCase().includes(q) ||
-          (r.module ?? "").toLowerCase().includes(q),
+          (r.module ?? "").toLowerCase().includes(q)
       )
       .forEach((r) =>
         results.push({
@@ -293,14 +311,14 @@ export default function AdminSearch() {
           badgeColor: "bg-slate-100 text-slate-700",
           meta: r.priority,
           originalData: r,
-        }),
+        })
       );
 
     testCases
       .filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
-          (t.objective ?? "").toLowerCase().includes(q),
+          (t.objective ?? "").toLowerCase().includes(q)
       )
       .forEach((t) =>
         results.push({
@@ -312,14 +330,14 @@ export default function AdminSearch() {
           badgeColor: "bg-blue-100 text-blue-700",
           meta: t.priority,
           originalData: t,
-        }),
+        })
       );
 
     tasks
       .filter(
         (t) =>
           t.name.toLowerCase().includes(q) ||
-          (t.notes ?? "").toLowerCase().includes(q),
+          (t.notes ?? "").toLowerCase().includes(q)
       )
       .forEach((t) =>
         results.push({
@@ -333,7 +351,7 @@ export default function AdminSearch() {
             ? `Due ${format(new Date(t.dueDate), "MMM d")}`
             : undefined,
           originalData: t,
-        }),
+        })
       );
 
     users
@@ -341,7 +359,7 @@ export default function AdminSearch() {
         (u) =>
           u.name.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
-          (u.team ?? "").toLowerCase().includes(q),
+          (u.team ?? "").toLowerCase().includes(q)
       )
       .forEach((u) =>
         results.push({
@@ -353,7 +371,7 @@ export default function AdminSearch() {
           badgeColor: "bg-purple-100 text-purple-700",
           meta: u.team ?? undefined,
           originalData: u,
-        }),
+        })
       );
   }
 
@@ -414,74 +432,89 @@ export default function AdminSearch() {
                 {results.length} result{results.length !== 1 ? "s" : ""} for "
                 {query}"
               </p>
-              {results.map((r, i) => (
-                <Card
-                  key={`${r.type}-${r.id}-${i}`}
-                  className="hover:shadow-sm transition-shadow"
-                >
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                      {typeIcons[r.type]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          {typeLabels[r.type]}
-                        </span>
-                        {r.badge && (
-                          <span
-                            className={`text-xs px-1.5 py-0.5 rounded font-medium ${r.badgeColor}`}
-                          >
-                            {r.badge}
-                          </span>
-                        )}
-                      </div>
-                      <p className="font-medium mt-0.5 truncate">{r.title}</p>
-                      <div className="flex items-center gap-3 mt-1">
-                        {r.subtitle && (
-                          <span className="text-xs text-muted-foreground">
-                            {r.subtitle}
-                          </span>
-                        )}
-                        {r.meta && (
-                          <span className="text-xs text-muted-foreground">
-                            · {r.meta}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+              {results.map((r, i) => {
+                // Prevent an admin from editing or deleting another admin
+                const isAnotherAdmin = 
+                  r.type === "user" && 
+                  r.originalData.role === "admin" && 
+                  r.id !== currentUser?.id;
 
-                    {/* Action Menu */}
-                    <div className="flex-shrink-0 flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        #{r.id}
-                      </span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                          >
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(r)}>
-                            <Pencil className="w-4 h-4 mr-2" /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => openDelete(r)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                return (
+                  <Card
+                    key={`${r.type}-${r.id}-${i}`}
+                    className="hover:shadow-sm transition-shadow"
+                  >
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                        {typeIcons[r.type]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            {typeLabels[r.type]}
+                          </span>
+                          {r.badge && (
+                            <span
+                              className={`text-xs px-1.5 py-0.5 rounded font-medium ${r.badgeColor}`}
+                            >
+                              {r.badge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-medium mt-0.5 truncate">{r.title}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          {r.subtitle && (
+                            <span className="text-xs text-muted-foreground">
+                              {r.subtitle}
+                            </span>
+                          )}
+                          {r.meta && (
+                            <span className="text-xs text-muted-foreground">
+                              · {r.meta}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Menu */}
+                      <div className="flex-shrink-0 flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          #{r.id}
+                        </span>
+                        {!isAnotherAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(r)}>
+                                <Pencil className="w-4 h-4 mr-2" /> Edit
+                              </DropdownMenuItem>
+                              {r.type === "user" && (
+                                <DropdownMenuItem onClick={() => openResetPassword(r)}>
+                                  <Key className="w-4 h-4 mr-2" /> Reset Password
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => openDelete(r)}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </>
@@ -556,6 +589,39 @@ export default function AdminSearch() {
         </DialogContent>
       </Dialog>
 
+      {/* Reset Password Confirmation Dialog */}
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reset User Password</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to reset the password for{" "}
+              <span className="font-semibold text-foreground">
+                {selectedItem?.title}
+              </span>
+              ? Their password will be permanently changed to{" "}
+              <span className="font-mono bg-muted px-1 rounded">
+                password123
+              </span>
+              .
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setResetDialogOpen(false)}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button onClick={executeResetPassword} disabled={isPending}>
+              {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirm Reset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Generic Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-md">
@@ -570,8 +636,8 @@ export default function AdminSearch() {
                 {selectedItem?.type === "user"
                   ? "Name"
                   : selectedItem?.type === "task"
-                    ? "Task Name"
-                    : "Title"}
+                  ? "Task Name"
+                  : "Title"}
               </Label>
               <Input
                 value={editForm.title || editForm.name || ""}
@@ -601,8 +667,8 @@ export default function AdminSearch() {
                       selectedItem?.type === "task"
                         ? "notes"
                         : selectedItem?.type === "test_case"
-                          ? "objective"
-                          : "description";
+                        ? "objective"
+                        : "description";
                     setEditForm({ ...editForm, [key]: e.target.value });
                   }}
                 />

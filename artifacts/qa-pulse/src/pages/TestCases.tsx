@@ -509,6 +509,11 @@ export default function TestCases() {
   const [filterAI, setFilterAI] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
+
+  // Bulk Delete States
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
   const [editingTC, setEditingTC] = useState<TestCase | null>(null);
   const [form, setForm] = useState<Partial<TestCaseInput>>({});
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -582,7 +587,6 @@ export default function TestCases() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-        toast({ title: "Test case deleted" });
       },
       onError: () =>
         toast({ variant: "destructive", title: "Failed to delete" }),
@@ -687,6 +691,24 @@ export default function TestCases() {
           description: "Could not generate the Excel file.",
         });
       });
+  };
+
+  const handleBulkDelete = async () => {
+    setIsDeletingBulk(true);
+    try {
+      const promises = Array.from(selectedIds).map((id) =>
+        deleteMutation.mutateAsync({ id })
+      );
+      await Promise.all(promises);
+      toast({ title: `Successfully deleted ${selectedIds.size} test cases` });
+      setSelectedIds(new Set());
+      setIsBulkDeleteDialogOpen(false);
+    } catch (error) {
+      console.error("Bulk delete failed", error);
+      toast({ variant: "destructive", title: "Failed to delete some test cases" });
+    } finally {
+      setIsDeletingBulk(false);
+    }
   };
 
   const openCreate = () => {
@@ -818,14 +840,24 @@ export default function TestCases() {
             <strong>{selectedIds.size}</strong> test case
             {selectedIds.size !== 1 ? "s" : ""} selected
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto h-7 px-2 text-xs gap-1"
-            onClick={() => setSelectedIds(new Set())}
-          >
-            <X className="w-3 h-3" /> Clear selection
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-7 px-3 text-xs gap-1"
+              onClick={() => setIsBulkDeleteDialogOpen(true)}
+            >
+              <Trash2 className="w-3 h-3" /> Delete Selected
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              <X className="w-3 h-3" /> Clear selection
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1050,7 +1082,12 @@ export default function TestCases() {
                                 <DropdownMenuItem
                                   className="text-destructive"
                                   onClick={() =>
-                                    deleteMutation.mutate({ id: tc.id })
+                                    deleteMutation.mutate(
+                                      { id: tc.id },
+                                      {
+                                        onSuccess: () => toast({ title: "Test case deleted" }),
+                                      }
+                                    )
                                   }
                                 >
                                   <Trash2 className="w-4 h-4 mr-2" />
@@ -1324,6 +1361,37 @@ export default function TestCases() {
                 : editingTC
                   ? "Save Changes"
                   : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} Test Cases?</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to permanently delete the {selectedIds.size} selected test case{selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsBulkDeleteDialogOpen(false)} 
+              disabled={isDeletingBulk}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleBulkDelete} 
+              disabled={isDeletingBulk}
+            >
+              {isDeletingBulk ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              {isDeletingBulk ? "Deleting..." : "Delete Item(s)"}
             </Button>
           </DialogFooter>
         </DialogContent>

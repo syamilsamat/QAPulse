@@ -3,22 +3,29 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
+
+// 1. Import your downloaded animated icons from itshover.com here
 import {
-  Activity, // <-- Add this
-  LayoutDashboard,
-  Users,
-  FileText,
-  TestTube,
-  CheckSquare,
-  Search,
-  Settings,
-  LogOut,
-  Menu,
-  Coffee,
-  Bell,
-  Sparkles,
-  FileBarChart2,
-} from "lucide-react";
+  HoverPulse,
+  HoverDashboard,
+  HoverUsers,
+  HoverDocument,
+  HoverFlask,
+  HoverCheckSquare,
+  HoverSearch,
+  HoverSettings,
+  HoverLogOut,
+  HoverMenu,
+  HoverCoffee,
+  HoverBell,
+  HoverSparkles,
+  HoverChart,
+  HoverList, // Submenu: Execution Details
+  HoverPlay, // Submenu: Execution Dashboard
+  HoverHistory, // Submenu: History Trail
+  AnimatedQALogo,
+} from "@/components/icons/animated";
+
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -34,82 +41,99 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+// 2. Updated interface to include subItem icons
 interface NavItem {
   href: string;
   label: string;
-  icon: typeof LayoutDashboard;
+  icon: React.ElementType;
   roles: string[];
-  subItems?: { href: string; label: string }[];
+  subItems?: { href: string; label: string; icon: React.ElementType }[];
   showBadge?: boolean;
 }
 
+// 3. Map the animated icons to the menu and submenus
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/dashboard",
     label: "Dashboard",
-    icon: LayoutDashboard,
+    icon: HoverDashboard,
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/requirements",
     label: "Requirements",
-    icon: FileText,
+    icon: HoverDocument,
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/test-cases",
     label: "Test Cases",
-    icon: TestTube,
+    icon: HoverFlask,
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      { href: "/test-cases/execution-details", label: "Execution Details" },
-      { href: "/test-cases/execution", label: "Execution Dashboard" },
+      {
+        href: "/test-cases/execution-details",
+        label: "Execution Details",
+        icon: HoverList,
+      },
+      {
+        href: "/test-cases/execution",
+        label: "Execution Dashboard",
+        icon: HoverPlay,
+      },
     ],
   },
   {
     href: "/tasks",
     label: "Tasks",
-    icon: CheckSquare,
+    icon: HoverCheckSquare,
     roles: ["qa_member", "qa_lead", "admin"],
-    subItems: [{ href: "/history-trail", label: "History Trail" }],
+    subItems: [
+      { href: "/history-trail", label: "History Trail", icon: HoverHistory },
+    ],
   },
   {
     href: "/ai-features",
     label: "AI Hub",
-    icon: Sparkles,
+    icon: HoverSparkles,
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/pmo-report",
     label: "PMO Report",
-    icon: FileBarChart2,
+    icon: HoverChart,
     roles: ["pmo", "qa_lead", "admin"],
   },
   {
     href: "/inbox",
     label: "Inbox",
-    icon: Bell,
+    icon: HoverBell,
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: true,
   },
-  { href: "/team", label: "Team", icon: Users, roles: ["qa_lead", "admin"] },
+  {
+    href: "/team",
+    label: "Team",
+    icon: HoverUsers,
+    roles: ["qa_lead", "admin"],
+  },
   {
     href: "/admin/search",
     label: "Admin Search",
-    icon: Search,
+    icon: HoverSearch,
     roles: ["admin"],
   },
   {
     href: "/team-hangouts",
     label: "Team Hangouts",
-    icon: Coffee,
+    icon: HoverCoffee,
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: false,
   },
   {
     href: "/settings",
     label: "Settings",
-    icon: Settings,
+    icon: HoverSettings,
     roles: ["qa_member", "qa_lead", "admin"],
   },
 ];
@@ -128,6 +152,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     enabled: !!user?.id && user.role !== "pmo",
     refetchInterval: 30000,
   });
+
   const unreadCount = unreadNotifs.filter((n) => !n.read).length;
 
   const handleLogout = () => {
@@ -140,12 +165,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!user) return false;
-
-    // PMO can ONLY see PMO Report
     if (user.role === "pmo") {
       return item.href === "/pmo-report";
     }
-
     return (item.roles as readonly string[]).includes(user.role);
   });
 
@@ -153,10 +175,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
       <div className="px-6 py-6 pb-4">
         <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
-          {/* Beautiful App-Style Pulse Icon */}
-          <div className="bg-primary/10 p-1.5 rounded-lg flex items-center justify-center">
-            <Activity className="w-6 h-6 text-primary" strokeWidth={2.5} />
-          </div>
+          {/* Replaced the static div and HoverPulse with the new AnimatedQALogo */}
+          <AnimatedQALogo className="w-6 h-6" />
           QA Pulse
         </h1>
       </div>
@@ -173,7 +193,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div key={item.href} className="flex flex-col">
               <Link href={item.href}>
                 <div
-                  className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors text-sm ${
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors text-sm group ${
                     location === item.href
                       ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                       : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
@@ -181,7 +201,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   <Icon
-                    className={`w-4 h-4 shrink-0 ${
+                    className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${
                       location === item.href ? "text-primary" : ""
                     }`}
                   />
@@ -197,23 +217,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </Link>
 
-              {/* Render Sub Items if they exist */}
+              {/* Render Sub Items with their new Animated Icons */}
               {item.subItems && (
                 <div className="ml-5 mt-1 flex flex-col space-y-0.5 border-l-2 border-muted/30 pl-2">
-                  {item.subItems.map((sub) => (
-                    <Link key={sub.href} href={sub.href}>
-                      <div
-                        className={`px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs ${
-                          location === sub.href
-                            ? "bg-sidebar-accent text-primary font-medium"
-                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
-                        }`}
-                        onClick={() => setIsMobileMenuOpen(false)}
-                      >
-                        {sub.label}
-                      </div>
-                    </Link>
-                  ))}
+                  {item.subItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    return (
+                      <Link key={sub.href} href={sub.href}>
+                        <div
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs group ${
+                            location === sub.href
+                              ? "bg-sidebar-accent text-primary font-medium"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
+                          }`}
+                          onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                          <SubIcon
+                            className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${
+                              location === sub.href
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            }`}
+                          />
+                          {sub.label}
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -241,10 +271,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm"
+          className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm group"
           onClick={() => setLogoutOpen(true)}
         >
-          <LogOut className="w-4 h-4" />
+          {/* Replaced LogOut with Animated Icon */}
+          <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
           Sign out
         </Button>
       </div>
@@ -254,19 +285,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <div className="flex h-screen bg-background overflow-hidden">
-        {/* Desktop Sidebar */}
         <div className="hidden md:flex w-64 shrink-0 flex-col">
           <SidebarContent />
         </div>
 
-        {/* Mobile + Desktop main area */}
         <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            {/* Mobile header */}
             <header className="h-14 flex items-center px-4 md:hidden border-b bg-card shrink-0">
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Menu className="w-5 h-5" />
+                <Button variant="ghost" size="icon" className="group">
+                  {/* Replaced standard Menu with Animated Menu */}
+                  <HoverMenu className="w-5 h-5 transition-transform group-hover:scale-110" />
                 </Button>
               </SheetTrigger>
               <h1 className="ml-4 text-lg font-bold">QA Pulse</h1>
@@ -290,7 +319,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </Sheet>
       </div>
 
-      {/* Logout Confirmation Dialog */}
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

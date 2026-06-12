@@ -86,10 +86,9 @@ import {
   X,
   ChevronDown,
   Check,
-  FileSpreadsheet,
   CalendarRange,
-  Flag,
   Clock,
+  ExternalLink,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -191,7 +190,7 @@ function WorkloadPanel({
                         {member.name.split(" ")[0]}
                       </p>
                       <p className="text-[10px] text-muted-foreground capitalize truncate">
-                        {member.role.replace("_", " ")}
+                        {member.role.replace(/_/g, " ")}
                       </p>
                     </div>
                   </div>
@@ -755,10 +754,21 @@ export default function Tasks() {
                                 {t.projectName}
                               </p>
                             )}
+                            {t.redmineId && (
+                              <a
+                                href={`https://redmine.bestinet.my/issues/${t.redmineId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-0.5 w-fit"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink className="w-3 h-3" />#{t.redmineId}
+                              </a>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap capitalize text-sm text-muted-foreground">
-                          {t.type.replace("_", " ")}
+                          {t.type.replace(/_/g, " ")}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <Select
@@ -1357,7 +1367,7 @@ export default function Tasks() {
                             </Avatar>
                             {u.name}
                             <span className="text-muted-foreground text-xs">
-                              ({u.role.replace("_", " ")})
+                              ({u.role.replace(/_/g, " ")})
                             </span>
                           </span>
                         ) : (
@@ -1413,7 +1423,7 @@ export default function Tasks() {
                               </Avatar>
                               <span className="flex-1">{u.name}</span>
                               <span className="text-xs text-muted-foreground capitalize">
-                                {u.role.replace("_", " ")}
+                                {u.role.replace(/_/g, " ")}
                               </span>
                               {assignForm.assigneeId === u.id && (
                                 <Check className="w-4 h-4 text-primary" />
@@ -1536,7 +1546,7 @@ export default function Tasks() {
                               >
                                 {tc.priority}
                               </span>
-                              {tc.type.replace("_", " ")}
+                              {tc.type.replace(/_/g, " ")}
                               {tc.projectName ? ` · ${tc.projectName}` : ""}
                             </p>
                           </div>

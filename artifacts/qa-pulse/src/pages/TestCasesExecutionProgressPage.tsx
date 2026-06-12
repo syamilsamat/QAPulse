@@ -16,7 +16,7 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle,
-  XCircle,
+  XCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx-js-style";
@@ -43,52 +43,19 @@ const RESULT_OPTIONS = [
 // Define synonym mappings for robust auto-detection
 const COLUMN_MAPPINGS: Record<string, string[]> = {
   caseId: ["case id", "test case id", "tc id", "id"],
-  userStory: [
-    "user story",
-    "story",
-    "requirement",
-    "requirement id",
-    "redmine user story",
-  ],
+  userStory: ["user story", "story", "requirement", "requirement id", "redmine user story"],
   scenario: ["scenario", "tracker scenario"],
-  preCondition: [
-    "pre condition",
-    "preconditions",
-    "pre-conditions",
-    "precondition",
-  ],
+  preCondition: ["pre condition", "preconditions", "pre-conditions", "precondition"],
   caseName: ["case", "case name", "title"],
   testSteps: ["test steps", "steps", "testing steps"],
-  testData: ["test data", "data", "Test Data"],
+  testData: ["test data", "data"],
   expectedResult: ["expected result", "expected outcome", "expected results"],
   result: ["result", "status", "test result"],
-  defectNumber: [
-    "redmine defect",
-    "defect id",
-    "bug id",
-    "redmine id",
-    "redmine defect number",
-  ],
-  qaPic: ["qa pic", "QA PIC", "qa owner", "tester", "assigned qa"],
-  comments: [
-    "additional / comments / issues",
-    "additional/comments/issues",
-    "comments",
-    "additional",
-    "issues",
-    "remarks",
-  ],
-  moduleName: ["module name", "module", "feature"],
+  defectNumber: ["redmine defect", "defect id", "bug id", "redmine id", "redmine defect number"],
+  qaPic: ["qa pic", "qa owner", "tester", "assigned qa"],
+  comments: ["additional / comments / issues", "additional/comments/issues", "comments", "additional", "issues", "remarks"],
+  moduleName: ["module name", "module", "feature"]
 };
-
-// EXPLICIT IGNORE LIST: Any sheet name matching these will be completely skipped
-const IGNORED_SHEETS = [
-  "doc info",
-  "review log",
-  "review & rework effort",
-  "pareto analysis",
-  "capa",
-];
 
 interface ImportSummary {
   status: "Success" | "Partial Success" | "Failed";
@@ -107,17 +74,13 @@ export default function TestCasesExecutionProgressPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [availableModules, setAvailableModules] = useState<ExecutionModule[]>(
-    [],
-  );
+  const [availableModules, setAvailableModules] = useState<ExecutionModule[]>([]);
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<ExecutionTestCase[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
-  const [importSummary, setImportSummary] = useState<ImportSummary | null>(
-    null,
-  );
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
 
   // LOAD FROM DB ON MOUNT
   useEffect(() => {
@@ -278,19 +241,9 @@ export default function TestCasesExecutionProgressPage() {
     }
 
     ws["!cols"] = [
-      { wch: 15 },
-      { wch: 12 },
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 35 },
-      { wch: 20 },
-      { wch: 25 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 30 },
-      { wch: 20 },
+      { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 20 },
+      { wch: 25 }, { wch: 25 }, { wch: 35 }, { wch: 20 },
+      { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 20 },
     ];
 
     const wb = XLSX.utils.book_new();
@@ -300,10 +253,7 @@ export default function TestCasesExecutionProgressPage() {
 
   const normalizeHeader = (val: any) => {
     if (typeof val !== "string") return "";
-    return val
-      .toLowerCase()
-      .replace(/[\n\r\t]/g, " ")
-      .trim();
+    return val.toLowerCase().replace(/[\n\r\t]/g, " ").trim();
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -324,23 +274,13 @@ export default function TestCasesExecutionProgressPage() {
       const seenCaseIds = new Set<string>();
       const consolidatedData: ExecutionTestCase[] = [];
 
-      const allRequiredKeys = Object.keys(COLUMN_MAPPINGS).filter(
-        (k) => k !== "moduleName",
-      );
+      const allRequiredKeys = Object.keys(COLUMN_MAPPINGS).filter(k => k !== "moduleName"); 
       const MIN_REQUIRED_COLUMNS = 7;
 
+      // Scan ALL sheets in the workbook without restricting by name
       for (const sheetName of wb.SheetNames) {
-        // EXPLICIT SHEET IGNORING
-        if (IGNORED_SHEETS.includes(sheetName.toLowerCase().trim())) {
-          continue;
-        }
-
         const sheet = wb.Sheets[sheetName];
-        const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
-          header: 1,
-          blankrows: false,
-          raw: false,
-        });
+        const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, blankrows: false, raw: false });
 
         if (rawData.length === 0) continue;
 
@@ -369,9 +309,11 @@ export default function TestCasesExecutionProgressPage() {
             }
           });
 
-          const hasCoreTestColumns =
-            currentMap["caseId"] !== undefined &&
-            currentMap["testSteps"] !== undefined &&
+          // STRICT FIX: Ensure the row genuinely looks like a test case header
+          // It MUST contain "Case ID", "Test Steps", AND "Expected Result"
+          const hasCoreTestColumns = 
+            currentMap["caseId"] !== undefined && 
+            currentMap["testSteps"] !== undefined && 
             currentMap["expectedResult"] !== undefined;
 
           if (currentMatchCount >= MIN_REQUIRED_COLUMNS && hasCoreTestColumns) {
@@ -389,7 +331,7 @@ export default function TestCasesExecutionProgressPage() {
         totalWorksheetsImported++;
 
         // Track missing columns for this valid sheet
-        allRequiredKeys.forEach((k) => {
+        allRequiredKeys.forEach(k => {
           if (columnMapIndex[k] === undefined) missingColumnsSet.add(k);
         });
 
@@ -407,11 +349,7 @@ export default function TestCasesExecutionProgressPage() {
 
           for (const [key, colIdx] of Object.entries(columnMapIndex)) {
             const val = row[colIdx];
-            if (
-              val !== undefined &&
-              val !== null &&
-              String(val).trim() !== ""
-            ) {
+            if (val !== undefined && val !== null && String(val).trim() !== "") {
               extracted[key] = String(val).trim();
               hasMeaningfulData = true;
             } else {
@@ -424,9 +362,8 @@ export default function TestCasesExecutionProgressPage() {
             continue;
           }
 
-          // STRICT DUPLICATE CHECK: Ensure we only flag actual text as duplicates
           const cid = extracted.caseId;
-          if (cid && cid.trim() !== "") {
+          if (cid) {
             if (seenCaseIds.has(cid)) {
               duplicateCaseIdsSet.add(cid);
             } else {
@@ -435,9 +372,7 @@ export default function TestCasesExecutionProgressPage() {
           }
 
           consolidatedData.push({
-            id:
-              Date.now().toString() +
-              Math.random().toString(36).substring(2, 8),
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 8),
             moduleName: extracted.moduleName || "",
             caseId: extracted.caseId || "",
             userStory: extracted.userStory || "",
@@ -462,24 +397,22 @@ export default function TestCasesExecutionProgressPage() {
       }
 
       setImportSummary({
-        status:
-          totalRowsImported > 0
-            ? missingColumnsSet.size > 0 || duplicateCaseIdsSet.size > 0
-              ? "Partial Success"
-              : "Success"
-            : "Failed",
+        status: totalRowsImported > 0 
+          ? (missingColumnsSet.size > 0 || duplicateCaseIdsSet.size > 0 ? "Partial Success" : "Success") 
+          : "Failed",
         totalWorksheetsScanned: wb.SheetNames.length,
         totalWorksheetsImported,
         totalRowsImported,
         totalRowsSkipped,
         missingColumns: Array.from(missingColumnsSet),
-        duplicateCaseIds: Array.from(duplicateCaseIdsSet),
+        duplicateCaseIds: Array.from(duplicateCaseIdsSet)
       });
+
     } catch (err) {
       toast({
         variant: "destructive",
         title: "Import failed",
-        description: "Invalid Excel structure or corrupted file.",
+        description: "Invalid Excel structure or corrupted file."
       });
     } finally {
       setIsImporting(false);
@@ -501,63 +434,41 @@ export default function TestCasesExecutionProgressPage() {
 
   return (
     <div className="space-y-4 flex flex-col h-[calc(100vh-6rem)] relative">
+
       {/* Import Summary Overlay */}
       {importSummary && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <Card className="max-w-md w-full bg-background shadow-2xl overflow-hidden border-border">
-            <div
-              className={`p-4 border-b flex items-center gap-2 text-white ${importSummary.status === "Success" ? "bg-green-600" : importSummary.status === "Failed" ? "bg-red-600" : "bg-amber-500"}`}
-            >
-              {importSummary.status === "Success" && (
-                <CheckCircle className="w-5 h-5" />
-              )}
-              {importSummary.status === "Failed" && (
-                <XCircle className="w-5 h-5" />
-              )}
-              {importSummary.status === "Partial Success" && (
-                <AlertTriangle className="w-5 h-5" />
-              )}
-              <h2 className="text-lg font-bold">
-                Import Summary: {importSummary.status}
-              </h2>
+            <div className={`p-4 border-b flex items-center gap-2 text-white ${importSummary.status === "Success" ? "bg-green-600" : importSummary.status === "Failed" ? "bg-red-600" : "bg-amber-500"}`}>
+               {importSummary.status === "Success" && <CheckCircle className="w-5 h-5" />}
+               {importSummary.status === "Failed" && <XCircle className="w-5 h-5" />}
+               {importSummary.status === "Partial Success" && <AlertTriangle className="w-5 h-5" />}
+               <h2 className="text-lg font-bold">Import Summary: {importSummary.status}</h2>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="bg-muted/50 p-3 rounded-md">
                   <p className="text-muted-foreground mb-1">Sheets Scanned</p>
-                  <p className="text-2xl font-semibold">
-                    {importSummary.totalWorksheetsScanned}
-                  </p>
+                  <p className="text-2xl font-semibold">{importSummary.totalWorksheetsScanned}</p>
                 </div>
                 <div className="bg-muted/50 p-3 rounded-md">
-                  <p className="text-muted-foreground mb-1">
-                    Valid Sheets Imported
-                  </p>
-                  <p className="text-2xl font-semibold text-primary">
-                    {importSummary.totalWorksheetsImported}
-                  </p>
+                  <p className="text-muted-foreground mb-1">Valid Sheets Imported</p>
+                  <p className="text-2xl font-semibold text-primary">{importSummary.totalWorksheetsImported}</p>
                 </div>
                 <div className="bg-muted/50 p-3 rounded-md">
                   <p className="text-muted-foreground mb-1">Rows Imported</p>
-                  <p className="text-2xl font-semibold">
-                    {importSummary.totalRowsImported}
-                  </p>
+                  <p className="text-2xl font-semibold">{importSummary.totalRowsImported}</p>
                 </div>
                 <div className="bg-muted/50 p-3 rounded-md">
-                  <p className="text-muted-foreground mb-1">
-                    Empty Rows Skipped
-                  </p>
-                  <p className="text-2xl font-semibold">
-                    {importSummary.totalRowsSkipped}
-                  </p>
+                  <p className="text-muted-foreground mb-1">Empty Rows Skipped</p>
+                  <p className="text-2xl font-semibold">{importSummary.totalRowsSkipped}</p>
                 </div>
               </div>
 
               {importSummary.missingColumns.length > 0 && (
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md">
                   <p className="text-sm font-semibold text-amber-600 flex items-center gap-2 mb-1">
-                    <AlertTriangle className="w-4 h-4" /> Missing Columns
-                    Detected
+                    <AlertTriangle className="w-4 h-4" /> Missing Columns Detected
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {importSummary.missingColumns.join(", ")}
@@ -577,9 +488,7 @@ export default function TestCasesExecutionProgressPage() {
               )}
 
               <div className="flex justify-end pt-2">
-                <Button onClick={() => setImportSummary(null)}>
-                  Acknowledge & Continue
-                </Button>
+                <Button onClick={() => setImportSummary(null)}>Acknowledge & Continue</Button>
               </div>
             </div>
           </Card>
@@ -621,11 +530,7 @@ export default function TestCasesExecutionProgressPage() {
             disabled={isImporting}
             className="flex-1 lg:flex-none gap-2"
           >
-            {isImporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4" />
-            )}
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} 
             Import
           </Button>
           <Button
@@ -667,45 +572,19 @@ export default function TestCasesExecutionProgressPage() {
             <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
               <tr className="text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="border border-border w-10 p-2 text-center">#</th>
-                <th className="border border-border w-40 p-2 text-left">
-                  Module Name
-                </th>
-                <th className="border border-border w-24 p-2 text-left">
-                  Case ID
-                </th>
-                <th className="border border-border w-32 p-2 text-left">
-                  User Story
-                </th>
-                <th className="border border-border w-40 p-2 text-left">
-                  Scenario
-                </th>
-                <th className="border border-border w-48 p-2 text-left">
-                  Pre Condition
-                </th>
-                <th className="border border-border w-48 p-2 text-left">
-                  Case
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Test Steps
-                </th>
-                <th className="border border-border w-40 p-2 text-left">
-                  Test Data
-                </th>
-                <th className="border border-border w-48 p-2 text-left">
-                  Expected Result
-                </th>
-                <th className="border border-border w-36 p-2 text-left text-primary">
-                  Result
-                </th>
-                <th className="border border-border w-32 p-2 text-left">
-                  Defect #
-                </th>
-                <th className="border border-border w-48 p-2 text-left">
-                  Comments
-                </th>
-                <th className="border border-border w-32 p-2 text-left">
-                  QA PIC
-                </th>
+                <th className="border border-border w-40 p-2 text-left">Module Name</th>
+                <th className="border border-border w-24 p-2 text-left">Case ID</th>
+                <th className="border border-border w-32 p-2 text-left">User Story</th>
+                <th className="border border-border w-40 p-2 text-left">Scenario</th>
+                <th className="border border-border w-48 p-2 text-left">Pre Condition</th>
+                <th className="border border-border w-48 p-2 text-left">Case</th>
+                <th className="border border-border w-64 p-2 text-left">Test Steps</th>
+                <th className="border border-border w-40 p-2 text-left">Test Data</th>
+                <th className="border border-border w-48 p-2 text-left">Expected Result</th>
+                <th className="border border-border w-36 p-2 text-left text-primary">Result</th>
+                <th className="border border-border w-32 p-2 text-left">Defect #</th>
+                <th className="border border-border w-48 p-2 text-left">Comments</th>
+                <th className="border border-border w-32 p-2 text-left">QA PIC</th>
                 <th className="border border-border w-10 p-2"></th>
               </tr>
             </thead>
@@ -723,11 +602,7 @@ export default function TestCasesExecutionProgressPage() {
                       className={tableSelectClass}
                       value={row.moduleName || ""}
                       onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "moduleName",
-                          e.target.value,
-                        )
+                        updateCell(row.id as string, "moduleName", e.target.value)
                       }
                     >
                       <option value="">Select...</option>
@@ -752,11 +627,7 @@ export default function TestCasesExecutionProgressPage() {
                       className={tableInputClass}
                       value={row.userStory || ""}
                       onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "userStory",
-                          e.target.value,
-                        )
+                        updateCell(row.id as string, "userStory", e.target.value)
                       }
                     />
                   </td>
@@ -774,11 +645,7 @@ export default function TestCasesExecutionProgressPage() {
                       className={tableInputClass}
                       value={row.preCondition || ""}
                       onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "preCondition",
-                          e.target.value,
-                        )
+                        updateCell(row.id as string, "preCondition", e.target.value)
                       }
                     />
                   </td>
@@ -797,13 +664,9 @@ export default function TestCasesExecutionProgressPage() {
                       value={row.testSteps || ""}
                       rows={1}
                       onChange={(e) => {
-                        e.target.style.height = "inherit";
-                        e.target.style.height = `${e.target.scrollHeight}px`;
-                        updateCell(
-                          row.id as string,
-                          "testSteps",
-                          e.target.value,
-                        );
+                         e.target.style.height = 'inherit';
+                         e.target.style.height = `${e.target.scrollHeight}px`;
+                         updateCell(row.id as string, "testSteps", e.target.value)
                       }}
                     />
                   </td>
@@ -822,13 +685,9 @@ export default function TestCasesExecutionProgressPage() {
                       value={row.expectedResult || ""}
                       rows={1}
                       onChange={(e) => {
-                        e.target.style.height = "inherit";
-                        e.target.style.height = `${e.target.scrollHeight}px`;
-                        updateCell(
-                          row.id as string,
-                          "expectedResult",
-                          e.target.value,
-                        );
+                         e.target.style.height = 'inherit';
+                         e.target.style.height = `${e.target.scrollHeight}px`;
+                         updateCell(row.id as string, "expectedResult", e.target.value)
                       }}
                     />
                   </td>
@@ -852,11 +711,7 @@ export default function TestCasesExecutionProgressPage() {
                       className={tableInputClass}
                       value={row.defectNumber || ""}
                       onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "defectNumber",
-                          e.target.value,
-                        )
+                        updateCell(row.id as string, "defectNumber", e.target.value)
                       }
                     />
                   </td>
@@ -929,39 +784,27 @@ export default function TestCasesExecutionProgressPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Module
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Module</Label>
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={row.moduleName}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "moduleName", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "moduleName", e.target.value)}
                 >
                   <option value="">Select...</option>
                   {availableModules.map((m) => (
-                    <option key={m.id} value={m.name}>
-                      {m.name}
-                    </option>
+                    <option key={m.id} value={m.name}>{m.name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Result
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Result</Label>
                 <select
                   className="flex h-9 w-full rounded-md border border-primary bg-primary/5 px-3 py-1 text-sm font-bold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={row.result}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "result", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "result", e.target.value)}
                 >
                   {RESULT_OPTIONS.map((r) => (
-                    <option key={r} value={r}>
-                      {r || "Pending"}
-                    </option>
+                    <option key={r} value={r}>{r || "Pending"}</option>
                   ))}
                 </select>
               </div>
@@ -969,117 +812,79 @@ export default function TestCasesExecutionProgressPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Case ID
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Case ID</Label>
                 <Input
                   className="h-8 text-sm"
                   value={row.caseId}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "caseId", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "caseId", e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  User Story
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">User Story</Label>
                 <Input
                   className="h-8 text-sm"
                   value={row.userStory}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "userStory", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "userStory", e.target.value)}
                 />
               </div>
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Case Name / Title
-              </Label>
+              <Label className="text-xs text-muted-foreground uppercase">Case Name / Title</Label>
               <Input
                 className="h-8 text-sm"
                 value={row.caseName}
-                onChange={(e) =>
-                  updateCell(row.id as string, "caseName", e.target.value)
-                }
+                onChange={(e) => updateCell(row.id as string, "caseName", e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Test Steps
-              </Label>
+              <Label className="text-xs text-muted-foreground uppercase">Test Steps</Label>
               <Textarea
                 className="min-h-[60px] text-sm"
                 value={row.testSteps}
-                onChange={(e) =>
-                  updateCell(row.id as string, "testSteps", e.target.value)
-                }
+                onChange={(e) => updateCell(row.id as string, "testSteps", e.target.value)}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Expected Result
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Expected Result</Label>
                 <Textarea
                   className="min-h-[60px] text-sm"
                   value={row.expectedResult}
-                  onChange={(e) =>
-                    updateCell(
-                      row.id as string,
-                      "expectedResult",
-                      e.target.value,
-                    )
-                  }
+                  onChange={(e) => updateCell(row.id as string, "expectedResult", e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Comments
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Comments</Label>
                 <Textarea
                   className="min-h-[60px] text-sm"
                   value={row.comments}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "comments", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "comments", e.target.value)}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-2 border-t">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Defect #
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Defect #</Label>
                 <Input
                   className="h-8 text-sm"
                   value={row.defectNumber}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "defectNumber", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "defectNumber", e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  QA PIC
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">QA PIC</Label>
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={row.qaPic}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "qaPic", e.target.value)
-                  }
+                  onChange={(e) => updateCell(row.id as string, "qaPic", e.target.value)}
                 >
                   <option value="">Select QA PIC...</option>
                   {qaUsers.map((u) => (
-                    <option key={u.id} value={u.name}>
-                      {u.name}
-                    </option>
+                    <option key={u.id} value={u.name}>{u.name}</option>
                   ))}
                 </select>
               </div>
