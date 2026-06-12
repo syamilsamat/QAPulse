@@ -16,12 +16,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import * as XLSX from "xlsx-js-style";
+import * as XLSX from "xlsx";
 import {
   fetchTestCases,
   saveTestCases,
   fetchModules,
   fetchUsers,
+  fetchExecutionFiles,
   type ExecutionTestCase,
   type ExecutionModule,
   type ExecutionUser,
@@ -53,15 +54,32 @@ export default function TestCasesExecutionProgressPage() {
 
   // LOAD FROM DB ON MOUNT
   useEffect(() => {
-    Promise.all([fetchTestCases(ticketId), fetchModules(), fetchUsers()])
-      .then(([result, modules, users]) => {
+    Promise.all([fetchTestCases(ticketId), fetchModules(), fetchUsers(), fetchExecutionFiles()])
+      .then(([result, allModules, users, files]) => {
         const testCases = result?.testCases || [];
+        const file = files.find((f) => f.redmineTicketId === ticketId);
+        const selectedModuleNames = file?.selectedModules
+          ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
+          : [];
+
+        // Filter modules if the file has selected modules
+        const filteredModules = selectedModuleNames.length > 0
+          ? allModules.filter((m) => selectedModuleNames.includes(m.name))
+          : allModules;
+
         if (testCases.length === 0) {
-          setData([createEmptyRow()]); // Give them 1 empty row to start
+          // Single module: auto-populate first row
+          if (selectedModuleNames.length === 1) {
+            const firstRow = createEmptyRow();
+            firstRow.moduleName = selectedModuleNames[0];
+            setData([firstRow]);
+          } else {
+            setData([createEmptyRow()]);
+          }
         } else {
           setData(testCases);
         }
-        setAvailableModules(modules);
+        setAvailableModules(filteredModules);
         setQaUsers(users);
       })
       .catch(() =>
@@ -118,99 +136,23 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   const handleDownloadExcel = () => {
-    // 1. Map data to the exact template headers
-    const exportData = data.map((row) => ({
-      Module: row.moduleName || "",
-      "Case ID": row.caseId || "",
-      "User Story": row.userStory || "",
-      Scenario: row.scenario || "",
-      "Pre Condition": row.preCondition || "",
-      Case: row.caseName || "",
-      "Test Steps": row.testSteps || "",
-      "Test Data": row.testData || "",
-      "Expected Result": row.expectedResult || "",
-      Result: row.result || "",
-      "Redmine Defect": row.defectNumber || "",
-      "Additional/Comments/Issues": row.comments || "",
-      "QA PIC": row.qaPic || "",
+    const exportData = data.map(({ id, ...row }) => ({
+      "Module Name": row.moduleName,
+      "Case ID": row.caseId,
+      "Redmine User Story": row.userStory,
+      "Tracker Scenario": row.scenario,
+      "Pre Condition": row.preCondition,
+      Case: row.caseName,
+      "Test Steps": row.testSteps,
+      "Test Data": row.testData,
+      "Expected Result": row.expectedResult,
+      Result: row.result,
+      "Redmine Defect Number": row.defectNumber,
+      "Additional / Comments / Issues": row.comments,
+      "QA PIC": row.qaPic,
     }));
 
-    const headerOrder = [
-      "Module",
-      "Case ID",
-      "User Story",
-      "Scenario",
-      "Pre Condition",
-      "Case",
-      "Test Steps",
-      "Test Data",
-      "Expected Result",
-      "Result",
-      "Redmine Defect",
-      "Additional/Comments/Issues",
-      "QA PIC",
-    ];
-
-    const ws = XLSX.utils.json_to_sheet(exportData, { header: headerOrder });
-
-    // 2. Apply Custom Styles (Gridlines, Colors, Fonts)
-    if (ws["!ref"]) {
-      const range = XLSX.utils.decode_range(ws["!ref"]);
-
-      for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-          const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
-
-          // If a cell is empty, we must initialize it to apply grid lines to it
-          if (!ws[cell_ref]) {
-            ws[cell_ref] = { t: "s", v: "" };
-          }
-
-          // Apply standard grid borders and text wrapping to ALL cells
-          ws[cell_ref].s = {
-            border: {
-              top: { style: "thin", color: { rgb: "000000" } },
-              bottom: { style: "thin", color: { rgb: "000000" } },
-              left: { style: "thin", color: { rgb: "000000" } },
-              right: { style: "thin", color: { rgb: "000000" } },
-            },
-            alignment: { vertical: "top", wrapText: true },
-          };
-
-          // Apply Header-specific styles (Row 0)
-          if (R === 0) {
-            ws[cell_ref].s.fill = {
-              patternType: "solid",
-              fgColor: { rgb: "1F4E78" },
-            }; // Dark Blue
-            ws[cell_ref].s.font = { bold: true, color: { rgb: "FFFFFF" } }; // Bold White Text
-            ws[cell_ref].s.alignment = {
-              vertical: "center",
-              horizontal: "center",
-              wrapText: true,
-            };
-          }
-        }
-      }
-    }
-
-    // 3. Set standard column widths so it looks nice out-of-the-box
-    ws["!cols"] = [
-      { wch: 15 }, // Module
-      { wch: 12 }, // Case ID
-      { wch: 15 }, // User Story
-      { wch: 20 }, // Scenario
-      { wch: 25 }, // Pre Condition
-      { wch: 25 }, // Case
-      { wch: 35 }, // Test Steps
-      { wch: 20 }, // Test Data
-      { wch: 25 }, // Expected Result
-      { wch: 15 }, // Result
-      { wch: 15 }, // Redmine Defect
-      { wch: 30 }, // Additional/Comments/Issues
-      { wch: 20 }, // QA PIC
-    ];
-
+    const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Test Cases");
     XLSX.writeFile(wb, `Test_Execution_${ticketId}.xlsx`);
@@ -226,21 +168,20 @@ export default function TestCasesExecutionProgressPage() {
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<any>(sheet);
 
-      // Map rows using exact template keys
       const importedData: ExecutionTestCase[] = rows.map((row) => ({
         id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
-        moduleName: row["Module"] || "",
+        moduleName: row["Module Name"] || "",
         caseId: row["Case ID"] || "",
-        userStory: row["User Story"] || "",
-        scenario: row["Scenario"] || "",
+        userStory: row["Redmine User Story"] || "",
+        scenario: row["Tracker Scenario"] || "",
         preCondition: row["Pre Condition"] || "",
         caseName: row["Case"] || "",
         testSteps: row["Test Steps"] || "",
         testData: row["Test Data"] || "",
         expectedResult: row["Expected Result"] || "",
         result: row["Result"] || "",
-        defectNumber: row["Redmine Defect"] || "",
-        comments: row["Additional/Comments/Issues"] || "",
+        defectNumber: row["Redmine Defect Number"] || "",
+        comments: row["Additional / Comments / Issues"] || "",
         qaPic: row["QA PIC"] || "",
       }));
 
@@ -266,10 +207,8 @@ export default function TestCasesExecutionProgressPage() {
     );
 
   // Common input styling for desktop table ensuring identical fonts and inline display
-  const tableInputClass =
-    "h-full min-h-[40px] w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-0";
-  const tableSelectClass =
-    "w-full h-full min-h-[40px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative";
+  const tableInputClass = "h-full min-h-[40px] w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-0";
+  const tableSelectClass = "w-full h-full min-h-[40px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative";
 
   return (
     <div className="space-y-4 flex flex-col h-[calc(100vh-6rem)]">
@@ -349,7 +288,7 @@ export default function TestCasesExecutionProgressPage() {
               <tr className="text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="border border-border w-10 p-2 text-center">#</th>
                 <th className="border border-border w-40 p-2 text-left">
-                  Module
+                  Module Name
                 </th>
                 <th className="border border-border w-24 p-2 text-left">
                   Case ID
@@ -366,7 +305,7 @@ export default function TestCasesExecutionProgressPage() {
                 <th className="border border-border w-48 p-2 text-left">
                   Case
                 </th>
-                <th className="border border-border w-90 p-2 text-left">
+                <th className="border border-border w-64 p-2 text-left">
                   Test Steps
                 </th>
                 <th className="border border-border w-40 p-2 text-left">
@@ -379,12 +318,12 @@ export default function TestCasesExecutionProgressPage() {
                   Result
                 </th>
                 <th className="border border-border w-32 p-2 text-left">
-                  Redmine Defect
+                  Defect #
                 </th>
                 <th className="border border-border w-48 p-2 text-left">
-                  Additional/Comments/Issues
+                  Comments
                 </th>
-                <th className="border border-border w-56 p-2 text-left">
+                <th className="border border-border w-32 p-2 text-left">
                   QA PIC
                 </th>
                 <th className="border border-border w-10 p-2"></th>
@@ -671,7 +610,7 @@ export default function TestCasesExecutionProgressPage() {
 
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground uppercase">
-                Case
+                Case Name / Title
               </Label>
               <Input
                 className="h-8 text-sm"
@@ -714,7 +653,7 @@ export default function TestCasesExecutionProgressPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground uppercase">
-                  Additional/Comments/Issues
+                  Comments
                 </Label>
                 <Textarea
                   className="min-h-[60px] text-sm"
@@ -729,7 +668,7 @@ export default function TestCasesExecutionProgressPage() {
             <div className="grid grid-cols-2 gap-3 pt-2 border-t">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground uppercase">
-                  Redmine Defect
+                  Defect #
                 </Label>
                 <Input
                   className="h-8 text-sm"

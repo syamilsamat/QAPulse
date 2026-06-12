@@ -27,11 +27,11 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   }
 
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.status === "done").length;
-  const pendingTasks = tasks.filter(t => ["new", "in_progress", "pending"].includes(t.status)).length;
+  const completedTasks = tasks.filter(t => t.status === "released_to_production").length;
+  const pendingTasks = tasks.filter(t => ["uat", "sit"].includes(t.status)).length;
   const blockedTasks = tasks.filter(t => t.status === "blocked").length;
   const overdueTasks = tasks.filter(t => {
-    if (t.status === "done" || !t.dueDate) return false;
+    if (t.status === "released_to_production" || !t.dueDate) return false;
     return new Date(t.dueDate) < now;
   }).length;
 
@@ -47,7 +47,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const blockedOrOverdueTasks = tasks
     .filter(t => {
       if (t.status === "blocked") return true;
-      if (t.status === "done" || !t.dueDate) return false;
+      if (t.status === "released_to_production" || !t.dueDate) return false;
       return new Date(t.dueDate) < now;
     })
     .map(t => ({
@@ -55,7 +55,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       name: t.name,
       status: t.status,
       dueDate: t.dueDate,
-      isOverdue: t.status !== "done" && !!t.dueDate && new Date(t.dueDate) < now,
+      isOverdue: t.status !== "released_to_production" && !!t.dueDate && new Date(t.dueDate) < now,
     }));
 
   res.json({
@@ -88,11 +88,11 @@ router.get("/dashboard/team", async (req, res): Promise<void> => {
     return {
       userId: user.id,
       userName: user.name,
-      completed: userTasks.filter(t => t.status === "done").length,
-      pending: userTasks.filter(t => ["new", "in_progress", "pending"].includes(t.status)).length,
+      completed: userTasks.filter(t => t.status === "released_to_production").length,
+      pending: userTasks.filter(t => ["uat", "sit"].includes(t.status)).length,
       blocked: userTasks.filter(t => t.status === "blocked").length,
       overdue: userTasks.filter(t => {
-        if (t.status === "done" || !t.dueDate) return false;
+        if (t.status === "released_to_production" || !t.dueDate) return false;
         return new Date(t.dueDate) < now;
       }).length,
       testCasesCreated: userTestCases.length,
@@ -141,12 +141,12 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
 
     const completed = allTasks.filter(t => {
       const updated = new Date(t.updatedAt);
-      return t.status === "done" && updated >= weekStart && updated <= weekEnd;
+      return t.status === "released_to_production" && updated >= weekStart && updated <= weekEnd;
     }).length;
 
     const pending = allTasks.filter(t => {
       const created = new Date(t.createdAt);
-      return ["new", "in_progress", "pending"].includes(t.status) && created >= weekStart && created <= weekEnd;
+      return ["uat", "sit"].includes(t.status) && created >= weekStart && created <= weekEnd;
     }).length;
 
     const created = allTasks.filter(t => {

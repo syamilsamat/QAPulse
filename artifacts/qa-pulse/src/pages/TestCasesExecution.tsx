@@ -68,6 +68,7 @@ export default function TestCasesExecution() {
     title: "",
     qaPic: "",
     remarks: "",
+    selectedModules: [] as number[],
   });
   const [newModule, setNewModule] = useState("");
 
@@ -99,15 +100,20 @@ export default function TestCasesExecution() {
   const handleCreateFile = async () => {
     if (!fileForm.redmineTicketId.trim()) return;
     try {
+      const selectedModuleNames = fileForm.selectedModules
+        .map((id) => modules.find((m) => m.id === id)?.name)
+        .filter(Boolean)
+        .join(",");
       const newFile = await createExecutionFile({
         redmineTicketId: fileForm.redmineTicketId.trim(),
         title: fileForm.title,
         qaPic: fileForm.qaPic,
         remarks: fileForm.remarks,
+        selectedModules: selectedModuleNames || undefined,
       });
       setFiles([newFile, ...files]);
       setNewFileOpen(false);
-      setFileForm({ redmineTicketId: "", title: "", qaPic: "", remarks: "" });
+      setFileForm({ redmineTicketId: "", title: "", qaPic: "", remarks: "", selectedModules: [] });
       toast({ title: `File created successfully` });
     } catch (err) {
       toast({
@@ -353,6 +359,50 @@ export default function TestCasesExecution() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="space-y-1">
+              <Label>Modules</Label>
+              <div className="border rounded-md p-2 max-h-[160px] overflow-y-auto space-y-1">
+                {modules.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-2">
+                    No modules available.
+                  </p>
+                ) : (
+                  modules.map((m) => (
+                    <label
+                      key={m.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
+                        checked={fileForm.selectedModules.includes(m.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFileForm({
+                              ...fileForm,
+                              selectedModules: [...fileForm.selectedModules, m.id],
+                            });
+                          } else {
+                            setFileForm({
+                              ...fileForm,
+                              selectedModules: fileForm.selectedModules.filter(
+                                (id) => id !== m.id,
+                              ),
+                            });
+                          }
+                        }}
+                      />
+                      {m.name}
+                    </label>
+                  ))
+                )}
+              </div>
+              {fileForm.selectedModules.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {fileForm.selectedModules.length} module(s) selected
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">

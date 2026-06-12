@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, notificationsTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, notificationsTable, taskEventsTable } from "@workspace/db";
 import {
   CreateTaskBody,
   UpdateTaskBody,
@@ -15,7 +15,7 @@ import {
 const router: IRouter = Router();
 
 function isOverdue(task: typeof tasksTable.$inferSelect): boolean {
-  if (task.status === "done") return false;
+  if (task.status === "done" || task.status === "released_to_production") return false;
   if (!task.dueDate) return false;
   return new Date(task.dueDate) < new Date();
 }
@@ -55,6 +55,7 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
     id: task.id,
     name: task.name,
     type: task.type,
+    redmineId: task.redmineId,
     requirementId: task.requirementId,
     requirementTitle,
     testCaseId: task.testCaseId,
@@ -247,6 +248,63 @@ router.post("/tasks/:id/assign", async (req, res): Promise<void> => {
   await notifyUser(parsed.data.assigneeId, "Task assigned", `Task "${task.name}" was assigned to you.`, "task", "task", task.id);
 
   res.json(await formatTask(task));
+});
+
+/* ────────────────────────────────
+   TASK EVENTS
+   ──────────────────────────────── */
+
+router.get("/tasks/events/all", async (req, res): Promise<void> => {
+  const events = await db
+    .select()
+    .from(taskEventsTable)
+    .orderBy(taskEventsTable.createdAt);
+  res.json(events);
+});
+
+router.get("/tasks/:id/events", async (req, res): Promise<void> => {
+  const params = GetTaskParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const events = await db
+    .select()
+    .from(taskEventsTable)
+    .where(eq(taskEventsTable.taskId, params.data.id))
+    .orderBy(taskEventsTable.createdAt);
+
+  res.json(events);
+});
+
+router.post("/tasks/:id/events", async (req, res): Promise<void> => {
+  const params = GetTaskParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const { title, description, startDate, endDate, severity, createdBy } = req.body;
+  if (!title || !title.trim()) {
+    res.status(400).json({ error: "Event title is required" });
+    return;
+  }
+
+  const [event] = await db
+    .insert(taskEventsTable)
+    .values({
+      taskId: params.data.id,
+      title: title.trim(),
+      description: description || null,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      severity: severity || "medium",
+      createdBy: createdBy || null,
+    })
+    .returning();
+
+  res.status(201).json(event);
 });
 
 export default router;

@@ -58,6 +58,12 @@ export const fetchExecutionFiles = async (): Promise<ExecutionFile[]> => {
   return res.json();
 };
 
+export const fetchExecutionFile = async (id: number): Promise<ExecutionFile> => {
+  const res = await fetch(`/api/execution-files/${id}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch file");
+  return res.json();
+};
+
 export const createExecutionFile = async (
   data: Partial<ExecutionFile>,
 ): Promise<ExecutionFile> => {

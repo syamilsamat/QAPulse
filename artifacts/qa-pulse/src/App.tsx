@@ -17,6 +17,7 @@ import Dashboard from "@/pages/Dashboard";
 import Requirements from "@/pages/Requirements";
 import TestCases from "@/pages/TestCases";
 import Tasks from "@/pages/Tasks";
+import HistoryTrail from "@/pages/HistoryTrail";
 import Team from "@/pages/Team";
 import AdminSearch from "@/pages/AdminSearch";
 import Settings from "@/pages/Settings";
@@ -163,6 +164,13 @@ function Router() {
       <Route path="/tasks">
         <ProtectedRoute
           component={Tasks}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      <Route path="/history-trail">
+        <ProtectedRoute
+          component={HistoryTrail}
           roles={["qa_member", "qa_lead", "admin"]}
         />
       </Route>

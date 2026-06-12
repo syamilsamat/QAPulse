@@ -169,6 +169,36 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/execution-files/:id", async (req, res): Promise<void> => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const [file] = await db
+      .select()
+      .from(executionFilesTable)
+      .where(eq(executionFilesTable.id, id));
+    if (!file) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    res.json({
+      id: file.id,
+      redmineTicketId: file.redmineTicketId,
+      title: file.title,
+      qaPic: file.qaPic,
+      remarks: file.remarks,
+      selectedModules: file.selectedModules,
+      createdAt: file.createdAt,
+      updatedAt: file.updatedAt,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to fetch execution file" });
+  }
+});
+
 router.delete("/execution-files/:id", async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id, 10);

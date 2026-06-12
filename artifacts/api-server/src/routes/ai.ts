@@ -369,11 +369,11 @@ router.post("/ai/weekly-summary", async (req, res): Promise<void> => {
 
     const stats = {
       totalTasks: tasks.length,
-      completed: tasks.filter((t) => t.status === "done").length,
+      completed: tasks.filter((t) => t.status === "released_to_production").length,
       blocked: tasks.filter((t) => t.status === "blocked").length,
-      inProgress: tasks.filter((t) => t.status === "in_progress").length,
-      newThisWeek: recentTasks.filter((t) => t.status === "new").length,
-      completedThisWeek: recentTasks.filter((t) => t.status === "done").length,
+      inProgress: tasks.filter((t) => t.status === "sit").length,
+      newThisWeek: recentTasks.filter((t) => t.status === "uat").length,
+      completedThisWeek: recentTasks.filter((t) => t.status === "released_to_production").length,
       newTestCasesThisWeek: recentTestCases.length,
       aiAssistedTestCases: testCases.filter((tc) => tc.aiAssisted).length,
     };
@@ -571,7 +571,7 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
         )
         .join("\n");
 
-      userPrompt = `Module Risk Data:\n${moduleList || "No module data available"}\n\nTotal tasks: ${tasks.length}\nBlocked: ${tasks.filter((t) => t.status === "blocked").length}\nOverdue: ${tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").length}\n\nGenerate risk scores and return ONLY JSON.`;
+      userPrompt = `Module Risk Data:\n${moduleList || "No module data available"}\n\nTotal tasks: ${tasks.length}\nBlocked: ${tasks.filter((t) => t.status === "blocked").length}\nOverdue: ${tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "released_to_production").length}\n\nGenerate risk scores and return ONLY JSON.`;
     }
 
     const content = await executeAiTask(systemPrompt, userPrompt);
@@ -651,13 +651,13 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
 
       stats = {
         totalTasks: tasks.length,
-        done: tasks.filter((t) => t.status === "done").length,
+        done: tasks.filter((t) => t.status === "released_to_production").length,
         blocked: tasks.filter((t) => t.status === "blocked").length,
         overdue: tasks.filter(
           (t) =>
             t.dueDate &&
             new Date(t.dueDate) < new Date() &&
-            t.status !== "done",
+            t.status !== "released_to_production",
         ).length,
         totalReqs: requirements.length,
         openReqs: requirements.filter((r) => r.status !== "done").length,
@@ -719,7 +719,7 @@ router.post("/ai/chat", async (req, res): Promise<void> => {
 
     const context = `You are QA Pulse AI Copilot, a specialized QA assistant embedded in a QA management platform.
 Current system data snapshot:
-- Tasks: ${allTasks.length} total, ${allTasks.filter((t) => t.status === "blocked").length} blocked, ${allTasks.filter((t) => t.status === "done").length} done
+- Tasks: ${allTasks.length} total, ${allTasks.filter((t) => t.status === "blocked").length} blocked, ${allTasks.filter((t) => t.status === "released_to_production").length} done
 - Requirements: ${allReqs.length} total, ${allReqs.filter((r) => r.status !== "done").length} open
 - Test Cases: ${allTCs.length} total, ${allTCs.filter((tc) => tc.aiAssisted).length} AI-assisted
 

@@ -33,7 +33,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const NAV_ITEMS = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  roles: string[];
+  subItems?: { href: string; label: string }[];
+  showBadge?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   {
     href: "/dashboard",
     label: "Dashboard",
@@ -52,14 +61,8 @@ const NAV_ITEMS = [
     icon: TestTube,
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      {
-        href: "/test-cases/execution-details",
-        label: "Execution Details",
-      },
-      {
-        href: "/test-cases/execution",
-        label: "Execution Dashboard",
-      },
+      { href: "/test-cases/execution-details", label: "Execution Details" },
+      { href: "/test-cases/execution", label: "Execution Dashboard" },
     ],
   },
   {
@@ -67,6 +70,10 @@ const NAV_ITEMS = [
     label: "Tasks",
     icon: CheckSquare,
     roles: ["qa_member", "qa_lead", "admin"],
+    subItems: [
+      { href: "/tasks", label: "Task Board" },
+      { href: "/history-trail", label: "History Trail" },
+    ],
   },
   {
     href: "/ai-features",
@@ -107,7 +114,7 @@ const NAV_ITEMS = [
     icon: Settings,
     roles: ["qa_member", "qa_lead", "admin"],
   },
-] as const;
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout: localLogout } = useAuth();
@@ -159,7 +166,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           const isParentActive =
             location === item.href ||
             item.subItems?.some((sub) => location === sub.href);
-          const badge = (item as any).showBadge ? unreadCount : 0;
+          const badge = item.showBadge ? unreadCount : 0;
 
           return (
             <div key={item.href} className="flex flex-col">

@@ -86,10 +86,17 @@ import {
   X,
   ChevronDown,
   Check,
+  FileSpreadsheet,
+  CalendarRange,
+  Flag,
+  Clock,
 } from "lucide-react";
 import { format } from "date-fns";
 
 const STATUS_COLORS: Record<string, string> = {
+  uat: "bg-purple-100 text-purple-700",
+  sit: "bg-blue-100 text-blue-700",
+  released_to_production: "bg-green-100 text-green-700",
   new: "bg-slate-100 text-slate-700",
   pending: "bg-yellow-100 text-yellow-700",
   in_progress: "bg-blue-100 text-blue-700",
@@ -161,9 +168,9 @@ function WorkloadPanel({
                 (t) => t.assigneeId === member.id,
               );
               const activeTasks = memberTasks.filter(
-                (t) => t.status !== "done",
+                (t) => t.status !== "released_to_production",
               );
-              const doneTasks = memberTasks.filter((t) => t.status === "done");
+              const doneTasks = memberTasks.filter((t) => t.status === "released_to_production");
               const overdueTasks = activeTasks.filter((t) => t.isOverdue);
 
               return (
@@ -297,6 +304,19 @@ export default function Tasks() {
   }>({ testCaseIds: [], dueDate: "" });
   const [tcSearch, setTcSearch] = useState("");
 
+  // Event dialog state
+  const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [eventTask, setEventTask] = useState<Task | null>(null);
+  const [eventForm, setEventForm] = useState({
+    title: "",
+    description: "",
+    startDate: "",
+    endDate: "",
+    severity: "medium",
+  });
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
 
@@ -396,7 +416,7 @@ export default function Tasks() {
   const filtered = tasks.filter((t) => {
     if (!isAdminOrLead && t.assigneeId !== user?.id) return false;
     if (filterStatus === "overdue") {
-      if (!t.isOverdue || t.status === "done") return false;
+      if (!t.isOverdue || t.status === "released_to_production") return false;
     } else if (filterStatus !== "all" && t.status !== filterStatus)
       return false;
     if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee)
@@ -416,7 +436,7 @@ export default function Tasks() {
 
   const openCreate = () => {
     setEditingTask(null);
-    setForm({ status: "new", type: "testing" });
+    setForm({ status: "uat", type: "testing" });
     setDialogOpen(true);
   };
 
@@ -426,6 +446,7 @@ export default function Tasks() {
       name: t.name,
       type: t.type,
       status: t.status,
+      redmineId: t.redmineId ?? undefined,
       requirementId: t.requirementId ?? undefined,
       projectId: t.projectId ?? undefined,
       assigneeId: t.assigneeId ?? undefined,
@@ -437,6 +458,59 @@ export default function Tasks() {
       notes: t.notes ?? undefined,
     });
     setDialogOpen(true);
+  };
+
+  const openEventDialog = async (t: Task) => {
+    setEventTask(t);
+    setEventForm({
+      title: "",
+      description: "",
+      startDate: "",
+      endDate: "",
+      severity: "medium",
+    });
+    setEventDialogOpen(true);
+    setEventsLoading(true);
+    try {
+      const res = await fetch(`/api/tasks/${t.id}/events`);
+      if (res.ok) setEvents(await res.json());
+    } catch {
+      setEvents([]);
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
+  const handleCreateEvent = async () => {
+    if (!eventTask || !eventForm.title.trim()) return;
+    try {
+      const res = await fetch(`/api/tasks/${eventTask.id}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: eventForm.title.trim(),
+          description: eventForm.description || undefined,
+          startDate: eventForm.startDate || undefined,
+          endDate: eventForm.endDate || undefined,
+          severity: eventForm.severity,
+          createdBy: user?.id,
+        }),
+      });
+      if (res.ok) {
+        const newEvent = await res.json();
+        setEvents((prev) => [newEvent, ...prev]);
+        setEventForm({
+          title: "",
+          description: "",
+          startDate: "",
+          endDate: "",
+          severity: "medium",
+        });
+        toast({ title: "Event added" });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Failed to add event" });
+    }
   };
 
   const openAssignDialog = (userId?: number) => {
@@ -468,7 +542,7 @@ export default function Tasks() {
           data: {
             name: `Test: ${tc?.title ?? `Test Case #${tcId}`}`,
             type: "testing",
-            status: "in_progress",
+            status: "uat",
             assigneeId: assignForm.assigneeId,
             testCaseId: tcId,
             projectId: tc?.projectId ?? assignForm.projectId,
@@ -570,11 +644,9 @@ export default function Tasks() {
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="blocked">Blocked</SelectItem>
-                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="uat">UAT</SelectItem>
+                <SelectItem value="sit">SIT</SelectItem>
+                <SelectItem value="released_to_production">Released to Production</SelectItem>
                 <SelectItem value="overdue">
                   <span className="flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 text-destructive" />{" "}
@@ -658,12 +730,12 @@ export default function Tasks() {
                     {paginatedTasks.map((t) => (
                       <TableRow
                         key={t.id}
-                        className={`hover:bg-muted/40 ${t.isOverdue && t.status !== "done" ? "bg-red-50/40" : ""}`}
+                        className={`hover:bg-muted/40 ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
                       >
                         <TableCell>
                           <div>
                             <p className="font-medium flex items-center gap-1.5">
-                              {t.isOverdue && t.status !== "done" && (
+                              {t.isOverdue && t.status !== "released_to_production" && (
                                 <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
                               )}
                               {t.name}
@@ -691,13 +763,9 @@ export default function Tasks() {
                               </span>
                             </SelectTrigger>
                             <SelectContent className="max-h-[300px]">
-                              <SelectItem value="new">New</SelectItem>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="in_progress">
-                                In Progress
-                              </SelectItem>
-                              <SelectItem value="blocked">Blocked</SelectItem>
-                              <SelectItem value="done">Done</SelectItem>
+                              <SelectItem value="uat">UAT</SelectItem>
+                              <SelectItem value="sit">SIT</SelectItem>
+                              <SelectItem value="released_to_production">Released to Production</SelectItem>
                             </SelectContent>
                           </Select>
                         </TableCell>
@@ -720,7 +788,7 @@ export default function Tasks() {
                         <TableCell className="whitespace-nowrap">
                           <span
                             className={`text-sm font-medium px-2 py-0.5 rounded ${
-                              t.isOverdue && t.status !== "done"
+                              t.isOverdue && t.status !== "released_to_production"
                                 ? "bg-red-100 text-red-700"
                                 : "text-muted-foreground"
                             }`}
@@ -764,7 +832,13 @@ export default function Tasks() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => openEdit(t)}>
                                 <Pencil className="w-4 h-4 mr-2" />
-                                Edit
+                                Update
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openEventDialog(t)}
+                              >
+                                <CalendarRange className="w-4 h-4 mr-2" />
+                                Event
                               </DropdownMenuItem>
                               {isAdminOrLead && t.assigneeId === null && (
                                 <DropdownMenuItem
@@ -901,18 +975,16 @@ export default function Tasks() {
               <div className="space-y-1.5">
                 <Label>Status</Label>
                 <Select
-                  value={form.status ?? "new"}
+                  value={form.status ?? "uat"}
                   onValueChange={(v) => setForm({ ...form, status: v as any })}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
-                    <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="blocked">Blocked</SelectItem>
-                    <SelectItem value="done">Done</SelectItem>
+                    <SelectItem value="uat">UAT</SelectItem>
+                    <SelectItem value="sit">SIT</SelectItem>
+                    <SelectItem value="released_to_production">Released to Production</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1017,24 +1089,14 @@ export default function Tasks() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Requirement</Label>
-              <Select
-                value={form.requirementId ? String(form.requirementId) : ""}
-                onValueChange={(v) =>
-                  setForm({ ...form, requirementId: Number(v) })
+              <Label>Redmine ID</Label>
+              <Input
+                placeholder="Link to Execution Dashboard (e.g. 29303)"
+                value={form.redmineId ?? ""}
+                onChange={(e) =>
+                  setForm({ ...form, redmineId: e.target.value })
                 }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Link to requirement..." />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {requirements.map((r) => (
-                    <SelectItem key={r.id} value={String(r.id)}>
-                      {r.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Notes</Label>
@@ -1063,6 +1125,125 @@ export default function Tasks() {
                 : editingTask
                   ? "Save Changes"
                   : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={eventDialogOpen}
+        onOpenChange={(o) => {
+          if (!o) setEventDialogOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarRange className="w-4 h-4 text-primary" />
+              Task Events
+              {eventTask && <span className="text-muted-foreground text-sm font-normal">— {eventTask.name}</span>}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Existing Events */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Existing Events</h4>
+              {eventsLoading ? (
+                <div className="text-sm text-muted-foreground py-2">Loading events...</div>
+              ) : events.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-2">No events yet</div>
+              ) : (
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {events.map((ev) => (
+                    <div key={ev.id} className="border rounded-md p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{ev.title}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                          ev.severity === "high" ? "bg-red-100 text-red-700" :
+                          ev.severity === "medium" ? "bg-orange-100 text-orange-700" :
+                          "bg-yellow-100 text-yellow-700"
+                        }`}>{ev.severity}</span>
+                      </div>
+                      {ev.description && <p className="text-muted-foreground text-xs mt-1">{ev.description}</p>}
+                      {(ev.startDate || ev.endDate) && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                          <Clock className="w-3 h-3" />
+                          {ev.startDate && format(new Date(ev.startDate), "MMM d")}
+                          {ev.startDate && ev.endDate && " - "}
+                          {ev.endDate && format(new Date(ev.endDate), "MMM d")}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add New Event */}
+            <div className="border-t pt-4 space-y-3">
+              <h4 className="text-sm font-medium">Add New Event</h4>
+              <div className="space-y-1.5">
+                <Label>Title *</Label>
+                <Input
+                  placeholder="Event title"
+                  value={eventForm.title}
+                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Description</Label>
+                <Textarea
+                  placeholder="Event description..."
+                  value={eventForm.description}
+                  onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+                  rows={2}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Start Date</Label>
+                  <Input
+                    type="date"
+                    value={eventForm.startDate}
+                    onChange={(e) => setEventForm({ ...eventForm, startDate: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>End Date</Label>
+                  <Input
+                    type="date"
+                    value={eventForm.endDate}
+                    onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Severity</Label>
+                <Select
+                  value={eventForm.severity}
+                  onValueChange={(v) => setEventForm({ ...eventForm, severity: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEventDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateEvent}
+              disabled={!eventForm.title.trim()}
+            >
+              Add Event
             </Button>
           </DialogFooter>
         </DialogContent>

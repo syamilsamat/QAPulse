@@ -127,13 +127,13 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
     .from(tasksTable)
     .where(eq(tasksTable.assigneeId, id));
 
-  const tasksCompleted = tasks.filter((t) => t.status === "done").length;
+  const tasksCompleted = tasks.filter((t) => t.status === "released_to_production").length;
   const tasksPending = tasks.filter((t) =>
-    ["new", "in_progress", "pending"].includes(t.status),
+    ["uat", "sit"].includes(t.status),
   ).length;
   const tasksBlocked = tasks.filter((t) => t.status === "blocked").length;
   const tasksOverdue = tasks.filter((t) => {
-    if (t.status === "done") return false;
+    if (t.status === "released_to_production") return false;
     if (!t.dueDate) return false;
     return new Date(t.dueDate) < now;
   }).length;
@@ -148,14 +148,14 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
   ).length;
 
   const completedOnTime = tasks.filter((t) => {
-    if (t.status !== "done") return false;
+    if (t.status !== "released_to_production") return false;
     if (!t.dueDate) return true;
     return new Date(t.updatedAt) <= new Date(t.dueDate);
   }).length;
 
   const onTimeRate =
     tasksCompleted > 0 ? (completedOnTime / tasksCompleted) * 100 : 0;
-  const totalNonDone = tasks.filter((t) => t.status !== "done").length;
+  const totalNonDone = tasks.filter((t) => t.status !== "released_to_production").length;
   const overdueRate =
     totalNonDone > 0 ? (tasksOverdue / totalNonDone) * 100 : 0;
 

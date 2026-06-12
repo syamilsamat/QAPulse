@@ -1,18 +1,20 @@
 import { pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
 
 export const tasksTable = pgTable("tasks", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   type: text("type").notNull().default("test_case_creation"),
+  redmineId: text("redmine_id"),
   requirementId: integer("requirement_id"),
   testCaseId: integer("test_case_id"),
   projectId: integer("project_id"),
   assigneeId: integer("assignee_id"),
   startDate: text("start_date"),
   dueDate: text("due_date"),
-  status: text("status").notNull().default("new"),
+  status: text("status").notNull().default("uat"),
   estimatedHours: real("estimated_hours"),
   actualHours: real("actual_hours"),
   completionPercentage: integer("completion_percentage").default(0),
@@ -24,3 +26,20 @@ export const tasksTable = pgTable("tasks", {
 export const insertTaskSchema = createInsertSchema(tasksTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type Task = typeof tasksTable.$inferSelect;
+
+export const taskEventsTable = pgTable("task_events", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasksTable.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  startDate: text("start_date"),
+  endDate: text("end_date"),
+  severity: text("severity").notNull().default("medium"),
+  createdBy: integer("created_by").references(() => usersTable.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertTaskEventSchema = createInsertSchema(taskEventsTable).omit({ id: true, createdAt: true });
+export type InsertTaskEvent = z.infer<typeof insertTaskEventSchema>;
+export type TaskEvent = typeof taskEventsTable.$inferSelect;
+
