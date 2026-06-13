@@ -33,7 +33,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -121,7 +121,13 @@ export default function TestCasesExecution() {
       });
       setFiles([newFile, ...files]);
       setNewFileOpen(false);
-      setFileForm({ redmineTicketId: "", title: "", qaPic: "", remarks: "", selectedModules: [] });
+      setFileForm({
+        redmineTicketId: "",
+        title: "",
+        qaPic: "",
+        remarks: "",
+        selectedModules: [],
+      });
       toast({ title: `File created successfully` });
     } catch (err) {
       toast({
@@ -165,11 +171,16 @@ export default function TestCasesExecution() {
     try {
       await Promise.all(filesToDelete.map((id) => deleteExecutionFile(id)));
       setFiles(files.filter((f) => !filesToDelete.includes(f.id)));
-      setSelectedFiles(selectedFiles.filter(id => !filesToDelete.includes(id)));
+      setSelectedFiles(
+        selectedFiles.filter((id) => !filesToDelete.includes(id)),
+      );
 
       toast({ title: `Successfully deleted ${filesToDelete.length} file(s)` });
     } catch (err) {
-      toast({ variant: "destructive", title: "Failed to delete one or more files" });
+      toast({
+        variant: "destructive",
+        title: "Failed to delete one or more files",
+      });
     } finally {
       setIsDeleting(false);
       setDeleteConfirmOpen(false);
@@ -271,9 +282,9 @@ export default function TestCasesExecution() {
             <CardTitle className="text-lg flex items-center gap-4">
               Saved Execution Files
               {selectedFiles.length > 0 && (
-                <Button 
-                  variant="destructive" 
-                  size="sm" 
+                <Button
+                  variant="destructive"
+                  size="sm"
                   className="h-8"
                   onClick={() => confirmDelete(selectedFiles)}
                 >
@@ -302,7 +313,10 @@ export default function TestCasesExecution() {
                   <input
                     type="checkbox"
                     className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-                    checked={filteredFiles.length > 0 && selectedFiles.length === filteredFiles.length}
+                    checked={
+                      filteredFiles.length > 0 &&
+                      selectedFiles.length === filteredFiles.length
+                    }
                     onChange={(e) => handleSelectAll(e.target.checked)}
                   />
                 </TableHead>
@@ -330,7 +344,7 @@ export default function TestCasesExecution() {
                     />
                   </TableCell>
                   <TableCell className="border-r border-border font-bold text-primary">
-                    {f.redmineTicketId}.xlsx
+                    #{f.redmineTicketId}
                   </TableCell>
                   <TableCell className="border-r border-border">
                     {f.title || "—"}
@@ -343,18 +357,19 @@ export default function TestCasesExecution() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          setLocation(
-                            `/test-cases/execution/${f.redmineTicketId}`,
-                          )
-                        }
-                        className="text-blue-600 hover:text-blue-800"
+                      <a
+                        href={`/test-cases/execution/${f.redmineTicketId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
-                        <Edit className="w-4 h-4 mr-2" />
-                      </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          <Edit className="w-4 h-4 mr-2" />
+                        </Button>
+                      </a>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -393,7 +408,11 @@ export default function TestCasesExecution() {
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete {filesToDelete.length > 1 ? `these ${filesToDelete.length} files` : "this file"}? This action cannot be undone.
+              Are you sure you want to delete{" "}
+              {filesToDelete.length > 1
+                ? `these ${filesToDelete.length} files`
+                : "this file"}
+              ? This action cannot be undone.
             </p>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
@@ -405,9 +424,9 @@ export default function TestCasesExecution() {
             >
               Cancel
             </Button>
-            <Button 
-              variant="destructive" 
-              onClick={executeDelete} 
+            <Button
+              variant="destructive"
+              onClick={executeDelete}
               disabled={isDeleting}
               className="w-full sm:w-auto"
             >
@@ -490,7 +509,10 @@ export default function TestCasesExecution() {
                           if (e.target.checked) {
                             setFileForm({
                               ...fileForm,
-                              selectedModules: [...fileForm.selectedModules, m.id],
+                              selectedModules: [
+                                ...fileForm.selectedModules,
+                                m.id,
+                              ],
                             });
                           } else {
                             setFileForm({
