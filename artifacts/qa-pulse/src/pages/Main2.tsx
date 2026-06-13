@@ -109,8 +109,10 @@ const Main2: React.FC = () => {
               Introducing AI Intelligence Hub
             </span>
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight mb-6 md:mb-8 leading-tight text-slate-900">
-              Smarter QA. Better Releases. <br className="hidden sm:block" />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-950 via-slate-900 to-blue-600 flex items-center justify-center shadow-sm py-1">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-950 via-slate-900 to-blue-600 flex items-center justify-center">
+              Smarter QA, Better Releases. <br className="hidden sm:block" />
+              </span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-950 via-slate-900 to-blue-600 flex items-center justify-center">
                 Powered by AI.
               </span>
             </h1>
