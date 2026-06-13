@@ -3,7 +3,6 @@ import {
   Route,
   Router as WouterRouter,
   Redirect,
-  useLocation,
 } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -13,6 +12,7 @@ import { Layout } from "@/components/Layout";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
+import Main2 from "@/pages/Main2";
 import Dashboard from "@/pages/Dashboard";
 import Requirements from "@/pages/Requirements";
 import TestCases from "@/pages/TestCases";
@@ -92,6 +92,21 @@ function Router() {
 
   return (
     <Switch>
+      {/* NEW LANDING PAGE ROUTE 
+        If logged in, go to the app. If logged out, show Main2 landing page!
+      */}
+      <Route path="/">
+        {user ? (
+          user.role === "pmo" ? (
+            <Redirect to="/pmo-report" />
+          ) : (
+            <Redirect to="/dashboard" />
+          )
+        ) : (
+          <Main2 />
+        )}
+      </Route>
+
       <Route path="/login">
         {user ? (
           user.role === "pmo" ? (
@@ -102,10 +117,6 @@ function Router() {
         ) : (
           <Login />
         )}
-      </Route>
-
-      <Route path="/">
-        <Redirect to="/dashboard" />
       </Route>
 
       <Route path="/dashboard">
@@ -122,7 +133,6 @@ function Router() {
         />
       </Route>
 
-      {/* 1. The Summary Page */}
       <Route path="/test-cases/execution-details">
         <ProtectedRoute
           component={TestExecutionDetails}
@@ -130,7 +140,6 @@ function Router() {
         />
       </Route>
 
-      {/* 2. The Dashboard (File Manager) */}
       <Route path="/test-cases/execution">
         <ProtectedRoute
           component={TestCasesExecution}
@@ -138,18 +147,9 @@ function Router() {
         />
       </Route>
 
-      {/* 3. The Spreadsheet Page (Dynamic ID) */}
       <Route path="/test-cases/execution/:id">
         <ProtectedRoute
           component={TestCasesExecutionProgressPage}
-          roles={["qa_member", "qa_lead", "admin"]}
-        />
-      </Route>
-
-      {/* The main Test Cases page */}
-      <Route path="/test-cases">
-        <ProtectedRoute
-          component={TestCases}
           roles={["qa_member", "qa_lead", "admin"]}
         />
       </Route>
