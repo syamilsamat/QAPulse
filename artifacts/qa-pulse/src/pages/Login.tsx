@@ -15,9 +15,15 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+
+// 1. Import your downloaded animated icons from itshover.com here
+import {
+  AnimatedQALogo,
+} from "@/components/icons/animated";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Lock, ShieldCheck, Eye, EyeOff } from "lucide-react";
+import { Lock, ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -118,7 +124,19 @@ export default function Login() {
   // ── Force password change overlay ──────────────────────────────────────────
   if (pendingUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative">
+        <Button
+          variant="ghost"
+          className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            setPendingUser(null);
+            setLocation("/");
+          }}
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Home
+        </Button>
+
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center text-center space-y-2">
             <div className="p-3 bg-primary/10 rounded-full">
@@ -212,21 +230,25 @@ export default function Login() {
 
   // ── Normal login form ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative">
+      <Button
+        variant="ghost"
+        className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground"
+        onClick={() => setLocation("/")}
+      >
+        <ArrowLeft className="w-4 h-4 mr-2" />
+        Back to Home
+      </Button>
+
       <div className="w-full max-w-md space-y-8">
         <div className="flex flex-col items-center justify-center text-center">
-          <img
-            src={`${import.meta.env.BASE_URL}logo-qa-pulse.png`}
-            alt="QA Pulse"
-            className="h-60 w-auto object-contain" // Reduced height from h-60 to remove extra space
-          />
-          {/* Added header text with Montserrat bold font */}
-          <h1
-            className="mt-6 mb-3 text-3xl text-foreground"
-            style={{ fontWeight: 700 }}
-          >
-            WELCOME TO QA PULSE
-          </h1>
+          <div>
+            <AnimatedQALogo className="w-17 h-17"/>
+          </div>
+          <span className="text-xl font-bold text-slate-900 tracking-tight">
+            <br />
+            Welcome To QA Pulse
+          </span>
           <p className="text-muted-foreground text-sm">
             Sign in to QA Pulse to manage your workflows
           </p>

@@ -233,18 +233,19 @@ export function HoverHistory({ className, ...props }: LucideProps) {
 
 export function AnimatedQALogo({ className }: { className?: string }) {
   return (
-    <div className="relative flex items-center justify-center p-1.5 bg-primary/10 rounded-lg group">
-      {/* 1. Continuous soft background pulse */}
-      <div className="absolute inset-0 bg-primary/20 animate-pulse rounded-lg" />
+    <div className="relative flex items-center justify-center p-1.5 rounded-lg group bg-gradient-to-br from-black via-slate-900 to-blue-600">
 
-      {/* 2. Radar ping effect that triggers on hover */}
-      <div className="absolute inset-0 bg-primary/30 rounded-lg opacity-0 group-hover:animate-ping" />
+      {/* Soft pulse background */}
+      <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-slate-950/40 via-slate-900/40 to-blue-500/30 animate-pulse" />
 
-      {/* 3. The main Activity/Pulse line */}
+      {/* Radar ping on hover */}
+      <div className="absolute inset-0 rounded-lg bg-blue-500/30 opacity-0 group-hover:opacity-100 group-hover:animate-ping" />
+
+      {/* Activity icon */}
       <Activity
         className={cn(
-          "relative z-10 text-primary transition-all duration-500 group-hover:scale-110 group-hover:text-primary",
-          className,
+          "relative z-10 text-white transition-all duration-500 group-hover:scale-110 group-hover:text-blue-200",
+          className
         )}
         strokeWidth={2.5}
       />

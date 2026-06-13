@@ -176,7 +176,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="px-6 py-6 pb-4">
         <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
           {/* Replaced the static div and HoverPulse with the new AnimatedQALogo */}
-          <AnimatedQALogo className="w-6 h-6" />
+          <AnimatedQALogo className="w-6 h-6"/>
           QA Pulse
         </h1>
       </div>
