@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { HoverList } from "@/components/icons/animated";
 // Add this import near the top of your file
 import { fetchTestCases } from "@/lib/execution-api";
 import {
@@ -300,7 +301,8 @@ export default function TestExecutionDetails() {
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b pb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <FileSpreadsheet className="w-6 h-6 sm:w-7 sm:h-7 text-primary shrink-0" />
+            {/* 2. Replaced FileSpreadsheet with HoverList */}
+            <HoverList className="w-6 h-6 sm:w-7 sm:h-7 text-primary shrink-0 group" />
             Execution Details
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground mt-1">

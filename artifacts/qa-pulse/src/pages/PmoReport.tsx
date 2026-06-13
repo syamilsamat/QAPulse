@@ -23,8 +23,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getApiUrl } from "@/lib/api";
+import { HoverChart } from "@/components/icons/animated"; // Added HoverChart Import
 import {
-  FileBarChart2,
   Search,
   CheckCircle2,
   AlertTriangle,
@@ -45,7 +45,7 @@ import {
   Download,
   Mail,
   Loader2,
-} from "lucide-react";
+} from "lucide-react"; // Removed FileBarChart2
 import { format } from "date-fns";
 import {
   AlertDialog,
@@ -277,9 +277,9 @@ function Sidebar({
         </Button>
 
         <div className="p-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 group cursor-default">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <FileBarChart2 className="w-4 h-4 text-primary-foreground" />
+              <HoverChart className="w-4 h-4 text-primary-foreground" />
             </div>
             <div>
               <p className="font-bold text-sidebar-foreground text-sm leading-tight">
@@ -293,8 +293,8 @@ function Sidebar({
         </div>
 
         <nav className="flex-1 p-3 space-y-1">
-          <div className="px-3 py-2 rounded-lg bg-primary/10 flex items-center gap-2">
-            <FileBarChart2 className="w-4 h-4 text-primary" />
+          <div className="px-3 py-2 rounded-lg bg-primary/10 flex items-center gap-2 group cursor-pointer">
+            <HoverChart className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium text-primary">
               Report Dashboard
             </span>
@@ -865,54 +865,28 @@ export default function PmoReport() {
     return `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
   };
 
-  /** 
-  const generateReportImage = async (): Promise<string | null> => {
-    if (!reportRef.current) return null;
-    setIsExporting(true);
-
-    try {
-      // toPng handles modern CSS variables like oklch natively
-      const dataUrl = await toPng(reportRef.current, {
-        cacheBust: true,
-        backgroundColor: "#ffffff",
-        pixelRatio: 2, // Ensures high quality (equivalent to scale: 2)
-      });
-      return dataUrl;
-    } catch (error) {
-      console.error("Failed to generate image:", error);
-      return null;
-    } finally {
-      setIsExporting(false);
-    }
-  };
-  */
-
   const generateReportPDF = async (): Promise<Blob | null> => {
     if (!reportRef.current) return null;
     setIsExporting(true);
 
     try {
-      // 1. Capture the DOM as a high-quality image
       const dataUrl = await toPng(reportRef.current, {
         cacheBust: true,
         backgroundColor: "#ffffff",
         pixelRatio: 2,
       });
 
-      // 2. Create an A4 PDF
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "px",
         format: "a4",
       });
 
-      // 3. Calculate scaling to fit the image inside the A4 width
       const imgProps = pdf.getImageProperties(dataUrl);
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
       const pageHeight = pdf.internal.pageSize.getHeight();
 
-      // 4. Render image to PDF, splitting across multiple pages if necessary
       let heightLeft = pdfHeight;
       let position = 0;
 
@@ -926,7 +900,6 @@ export default function PmoReport() {
         heightLeft -= pageHeight;
       }
 
-      // Return the PDF as a Blob (safer for large files than Data URLs)
       return pdf.output("blob");
     } catch (error) {
       console.error("Failed to generate PDF:", error);
@@ -936,29 +909,6 @@ export default function PmoReport() {
     }
   };
 
-  /** 
-  const handleDownloadReport = async () => {
-    const dataUrl = await generateReportImage();
-    if (!dataUrl) {
-      toast({
-        variant: "destructive",
-        title: "Export Failed",
-        description: "Could not generate the report image.",
-      });
-      return;
-    }
-
-    const reportName = data?.issueSubject
-      ? data.issueSubject.replace(/[^a-z0-9]/gi, "_")
-      : `Ticket_${redmineId}`;
-    const fileName = `Report_${reportName}_${getFormattedDateString()}.png`;
-
-    const link = document.createElement("a");
-    link.download = fileName;
-    link.href = dataUrl;
-    link.click();
-  };
-  */
   const handleDownloadReport = async () => {
     const pdfBlob = await generateReportPDF();
     if (!pdfBlob) {
@@ -975,56 +925,15 @@ export default function PmoReport() {
       : `Ticket_${redmineId}`;
     const fileName = `Report_${reportName}_${getFormattedDateString()}.pdf`;
 
-    // Create a temporary URL for the Blob and trigger download
     const url = URL.createObjectURL(pdfBlob);
     const link = document.createElement("a");
     link.download = fileName;
     link.href = url;
     link.click();
 
-    // Clean up memory
     URL.revokeObjectURL(url);
   };
 
-  /** const handleSendReport = async () => {
-    // 1. Generate the report image
-    const dataUrl = await generateReportImage();
-    if (!dataUrl) {
-      toast({
-        variant: "destructive",
-        title: "Export Failed",
-        description: "Could not generate the report image.",
-      });
-      return;
-    }
-
-    // 2. Setup variables for the template and file name
-    const reportName = data?.issueSubject || `Ticket #${redmineId}`;
-    const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.png`;
-    const genDate = new Date().toLocaleDateString();
-    const userName = user?.name || "System User";
-
-    // 3. Download the image first (since mailto: cannot attach files automatically)
-    const link = document.createElement("a");
-    link.download = fileName;
-    link.href = dataUrl;
-    link.click();
-
-    // 4. Construct the exact email template requested
-    const subjectText = `[Report]- ${reportName}`;
-    const bodyText = `Dear PMO,
-
-  Please find the attached report for your review.
-
-  Report Details:
-  • Report Name: ${reportName}
-  • Generated Date: ${genDate}
-
-  [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
-
-    // 5. Open the user's default email client
-    window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
-  }; */
   const handleSendReport = async () => {
     const pdfBlob = await generateReportPDF();
     if (!pdfBlob) {
@@ -1041,7 +950,6 @@ export default function PmoReport() {
     const genDate = new Date().toLocaleDateString();
     const userName = user?.name || "System User";
 
-    // Download the file to the user's machine first
     const url = URL.createObjectURL(pdfBlob);
     const link = document.createElement("a");
     link.download = fileName;
@@ -1049,7 +957,6 @@ export default function PmoReport() {
     link.click();
     URL.revokeObjectURL(url);
 
-    // 4. Construct the exact email template requested
     const subjectText = `[Report]- ${reportName}`;
     const bodyText = `Dear PMO,
 
@@ -1061,7 +968,6 @@ export default function PmoReport() {
 
     [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
 
-    // Open the user's default email client
     window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
   };
 
@@ -1161,10 +1067,8 @@ export default function PmoReport() {
 
           <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10 hidden sm:block">
-                  <FileBarChart2 className="w-5 h-5 text-primary" />
-                </div>
+              <div className="flex items-center gap-3 group">
+                <HoverChart className="w-7 h-7 text-primary shrink-0 hidden sm:block" />
                 <div>
                   <h1 className="text-xl font-bold">PMO Report Portal</h1>
                   <p className="text-xs text-muted-foreground">

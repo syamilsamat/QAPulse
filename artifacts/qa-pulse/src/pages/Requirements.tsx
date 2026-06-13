@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -61,6 +62,7 @@ import {
   FolderPlus,
   Download,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { getApiUrl } from "@/lib/api";
@@ -112,6 +114,12 @@ export default function Requirements() {
   const [redmineInput, setRedmineInput] = useState("");
   const [redmineLoading, setRedmineLoading] = useState(false);
 
+  // --- NEW: Selection and Delete Confirmation State ---
+  const [selectedReqs, setSelectedReqs] = useState<number[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [reqsToDelete, setReqsToDelete] = useState<number[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const { data: requirements = [], isLoading } = useQuery({
     queryKey: getListRequirementsQueryKey(),
     queryFn: () => listRequirements(),
@@ -127,9 +135,10 @@ export default function Requirements() {
     queryFn: () => listUsers(),
   });
 
-  // Reset page layout safely when active query filters drop items
+  // Reset page layout and selections safely when active query filters drop items
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedReqs([]);
   }, [search, filterStatus, filterPriority, filterProject]);
 
   const createMutation = useCreateRequirement({
@@ -176,7 +185,7 @@ export default function Requirements() {
         queryClient.invalidateQueries({
           queryKey: getListRequirementsQueryKey(),
         });
-        toast({ title: "Requirement deleted" });
+        // Removed the success toast here to prevent spamming during bulk deletions
       },
       onError: () =>
         toast({
@@ -207,20 +216,16 @@ export default function Requirements() {
 
     if (search) {
       const searchLower = search.toLowerCase();
-      // Clean the search string so "#12345" matches "12345"
       const cleanTicketSearch = searchLower.replace(/^#/, "");
 
-      // Safely handle missing titles
       const matchesTitle = r.title
         ? r.title.toLowerCase().includes(searchLower)
         : false;
 
-      // Safely cast the ticket ID to a string to prevent type errors
       const matchesTicket = r.redmineTicketId
         ? String(r.redmineTicketId).toLowerCase().includes(cleanTicketSearch)
         : false;
 
-      // If neither matches, filter it out
       if (!matchesTitle && !matchesTicket) {
         return false;
       }
@@ -235,6 +240,45 @@ export default function Requirements() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   );
+
+  // --- NEW: Selection & Deletion Logic ---
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedReqs(filtered.map((r) => r.id));
+    } else {
+      setSelectedReqs([]);
+    }
+  };
+
+  const handleSelectReq = (id: number, checked: boolean) => {
+    if (checked) {
+      setSelectedReqs((prev) => [...prev, id]);
+    } else {
+      setSelectedReqs((prev) => prev.filter((reqId) => reqId !== id));
+    }
+  };
+
+  const confirmDelete = (ids: number[]) => {
+    setReqsToDelete(ids);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await Promise.all(
+        reqsToDelete.map((id) => deleteMutation.mutateAsync({ id }))
+      );
+      setSelectedReqs((prev) => prev.filter((id) => !reqsToDelete.includes(id)));
+      toast({ title: `Successfully deleted ${reqsToDelete.length} requirement(s)` });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Failed to delete one or more requirements" });
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmOpen(false);
+      setReqsToDelete([]);
+    }
+  };
 
   const openCreate = () => {
     setEditingReq(null);
@@ -312,13 +356,11 @@ export default function Requirements() {
       if (data.connected && data.issue) {
         const fetchedTicketId = String(data.issue.id);
 
-        // 1. Check if the requirement already exists in our local list safely
         const existingReq = requirements.find(
           (r) =>
             r.redmineTicketId && String(r.redmineTicketId) === fetchedTicketId,
         );
 
-        // 2. Map the incoming Redmine data
         const mappedData: Partial<RequirementInput> = {
           title: data.issue.subject,
           description: data.issue.description ?? "",
@@ -334,9 +376,7 @@ export default function Requirements() {
           redmineTicketId: fetchedTicketId,
         };
 
-        // 3. Direct Overwrite or Direct Create
         if (existingReq) {
-          // Preserve local fields so the overwrite doesn't wipe out internal assignments
           mappedData.status = existingReq.status;
           mappedData.projectId = existingReq.projectId ?? undefined;
           mappedData.module = existingReq.module ?? undefined;
@@ -352,7 +392,6 @@ export default function Requirements() {
             description: `Successfully updated Redmine #${fetchedTicketId}`,
           });
         } else {
-          // For new imports, set default local fields
           mappedData.status = "draft";
           createMutation.mutate({ data: mappedData as RequirementInput });
           toast({
@@ -361,7 +400,6 @@ export default function Requirements() {
           });
         }
 
-        // Close the import dialog automatically
         setRedmineDialogOpen(false);
         setRedmineInput("");
       } else {
@@ -413,6 +451,18 @@ export default function Requirements() {
       <Card>
         <CardHeader className="pb-4">
           <div className="flex flex-col sm:flex-row gap-3">
+            {/* NEW: Batch Delete Action */}
+            {selectedReqs.length > 0 && (
+              <Button 
+                variant="destructive" 
+                className="shrink-0"
+                onClick={() => confirmDelete(selectedReqs)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Selected ({selectedReqs.length})
+              </Button>
+            )}
+
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -481,6 +531,14 @@ export default function Requirements() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {/* NEW: Checkbox Header */}
+                      <TableHead className="w-12 text-center">
+                        <Checkbox
+                          checked={filtered.length > 0 && selectedReqs.length === filtered.length}
+                          onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                          aria-label="Select all requirements"
+                        />
+                      </TableHead>
                       <TableHead>Title</TableHead>
                       <TableHead>Project</TableHead>
                       <TableHead>Priority</TableHead>
@@ -493,6 +551,14 @@ export default function Requirements() {
                   <TableBody>
                     {paginatedRequirements.map((r) => (
                       <TableRow key={r.id} className="hover:bg-muted/40">
+                        {/* NEW: Checkbox Cell */}
+                        <TableCell className="text-center">
+                          <Checkbox
+                            checked={selectedReqs.includes(r.id)}
+                            onCheckedChange={(checked) => handleSelectReq(r.id, !!checked)}
+                            aria-label={`Select requirement ${r.title}`}
+                          />
+                        </TableCell>
                         <TableCell>
                           <div>
                             <p className="font-medium">{r.title}</p>
@@ -556,9 +622,7 @@ export default function Requirements() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() =>
-                                  deleteMutation.mutate({ id: r.id })
-                                }
+                                onClick={() => confirmDelete([r.id])} // UPDATED
                               >
                                 <Trash2 className="w-4 h-4 mr-2" />
                                 Delete
@@ -613,6 +677,48 @@ export default function Requirements() {
           )}
         </CardContent>
       </Card>
+
+      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete {reqsToDelete.length > 1 ? `these ${reqsToDelete.length} requirements` : "this requirement"}? This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={executeDelete} 
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Confirm Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create/Edit Requirement Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { HoverSparkles } from "@/components/icons/animated";
 import {
   listRequirements,
   getListRequirementsQueryKey,
@@ -164,7 +165,10 @@ export default function AiFeatures() {
   useEffect(() => {
     if (historyLoaded && user?.id && typeof window !== "undefined") {
       if (chatMessages.length > 0) {
-        localStorage.setItem(`qa-copilot-history-${user.id}`, JSON.stringify(chatMessages));
+        localStorage.setItem(
+          `qa-copilot-history-${user.id}`,
+          JSON.stringify(chatMessages),
+        );
       } else {
         localStorage.removeItem(`qa-copilot-history-${user.id}`);
       }
@@ -228,9 +232,9 @@ export default function AiFeatures() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-primary/10">
-          <Sparkles className="w-6 h-6 text-primary" />
-        </div>
+        {/* 2. Removed the background div container and replaced Sparkles with HoverSparkles */}
+        <HoverSparkles className="w-8 h-8 text-primary shrink-0 group" />
+
         <div>
           <h1 className="text-2xl font-bold">AI Intelligence Hub</h1>
           <p className="text-sm text-muted-foreground">

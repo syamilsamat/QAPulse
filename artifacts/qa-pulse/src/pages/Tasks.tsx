@@ -89,6 +89,7 @@ import {
   CalendarRange,
   Clock,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -318,6 +319,12 @@ export default function Tasks() {
   const [events, setEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
+  // --- NEW: Selection and Delete Confirmation State ---
+  const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [tasksToDelete, setTasksToDelete] = useState<number[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
 
@@ -349,6 +356,7 @@ export default function Tasks() {
 
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedTasks([]); // Reset selection when filters change
   }, [search, filterStatus, filterAssignee, filterProject]);
 
   const createMutation = useCreateTask({
@@ -385,7 +393,7 @@ export default function Tasks() {
     mutation: {
       onSuccess: () => {
         invalidate();
-        toast({ title: "Task deleted" });
+        // Removed individual toast to avoid spam on bulk deletion
       },
       onError: () =>
         toast({ variant: "destructive", title: "Failed to delete task" }),
@@ -434,6 +442,45 @@ export default function Tasks() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   );
+
+  // --- NEW: Selection & Deletion Logic ---
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedTasks(filtered.map((t) => t.id));
+    } else {
+      setSelectedTasks([]);
+    }
+  };
+
+  const handleSelectTask = (id: number, checked: boolean) => {
+    if (checked) {
+      setSelectedTasks((prev) => [...prev, id]);
+    } else {
+      setSelectedTasks((prev) => prev.filter((taskId) => taskId !== id));
+    }
+  };
+
+  const confirmDelete = (ids: number[]) => {
+    setTasksToDelete(ids);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await Promise.all(
+        tasksToDelete.map((id) => deleteMutation.mutateAsync({ id }))
+      );
+      setSelectedTasks((prev) => prev.filter((id) => !tasksToDelete.includes(id)));
+      toast({ title: `Successfully deleted ${tasksToDelete.length} task(s)` });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Failed to delete one or more tasks" });
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmOpen(false);
+      setTasksToDelete([]);
+    }
+  };
 
   const openCreate = () => {
     setEditingTask(null);
@@ -617,6 +664,18 @@ export default function Tasks() {
       <Card>
         <CardHeader className="pb-4">
           <div className="flex flex-col sm:flex-row gap-3">
+            {/* NEW: Batch Delete Action */}
+            {selectedTasks.length > 0 && (
+              <Button 
+                variant="destructive" 
+                className="shrink-0"
+                onClick={() => confirmDelete(selectedTasks)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Selected ({selectedTasks.length})
+              </Button>
+            )}
+
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -711,13 +770,19 @@ export default function Tasks() {
             </div>
           ) : (
             <div className="flex flex-col w-full">
-              {/* Added responsive horizontal scrolling container */}
               <div className="overflow-x-auto w-full pb-2">
                 <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow>
+                      {/* NEW: Checkbox Header */}
+                      <TableHead className="w-12 text-center">
+                        <Checkbox
+                          checked={filtered.length > 0 && selectedTasks.length === filtered.length}
+                          onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                          aria-label="Select all tasks"
+                        />
+                      </TableHead>
                       <TableHead className="min-w-[200px]">Task</TableHead>
-                      {/* Added whitespace-nowrap to prevent column collapses */}
                       <TableHead className="whitespace-nowrap">Type</TableHead>
                       <TableHead className="whitespace-nowrap min-w-[120px]">
                         Status
@@ -740,6 +805,14 @@ export default function Tasks() {
                         key={t.id}
                         className={`hover:bg-muted/40 ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
                       >
+                        {/* NEW: Checkbox Cell */}
+                        <TableCell className="text-center">
+                          <Checkbox
+                            checked={selectedTasks.includes(t.id)}
+                            onCheckedChange={(checked) => handleSelectTask(t.id, !!checked)}
+                            aria-label={`Select task ${t.name}`}
+                          />
+                        </TableCell>
                         <TableCell>
                           <div>
                             <p className="font-medium flex items-center gap-1.5">
@@ -908,9 +981,7 @@ export default function Tasks() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
-                                onClick={() =>
-                                  deleteMutation.mutate({ id: t.id })
-                                }
+                                onClick={() => confirmDelete([t.id])} // UPDATED
                               >
                                 <Trash2 className="w-4 h-4 mr-2" />
                                 Delete
@@ -964,6 +1035,48 @@ export default function Tasks() {
           )}
         </CardContent>
       </Card>
+
+      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete {tasksToDelete.length > 1 ? `these ${tasksToDelete.length} tasks` : "this task"}? This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={executeDelete} 
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Confirm Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

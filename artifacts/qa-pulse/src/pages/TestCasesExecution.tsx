@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { HoverPlay } from "@/components/icons/animated";
 import {
   Table,
   TableBody,
@@ -32,6 +33,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  AlertTriangle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -80,6 +82,12 @@ export default function TestCasesExecution() {
     name: string;
   } | null>(null);
 
+  // --- NEW: Selection and Delete Confirmation State ---
+  const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [filesToDelete, setFilesToDelete] = useState<number[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // LOAD DATA ON MOUNT
   useEffect(() => {
     Promise.all([fetchExecutionFiles(), fetchModules(), fetchUsers()])
@@ -123,13 +131,49 @@ export default function TestCasesExecution() {
     }
   };
 
-  const handleDeleteFile = async (id: number) => {
+  // --- NEW: Selection Logic ---
+  const filteredFiles = files.filter(
+    (f) =>
+      f.redmineTicketId.includes(search) ||
+      f.title?.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedFiles(filteredFiles.map((f) => f.id));
+    } else {
+      setSelectedFiles([]);
+    }
+  };
+
+  const handleSelectFile = (id: number, checked: boolean) => {
+    if (checked) {
+      setSelectedFiles((prev) => [...prev, id]);
+    } else {
+      setSelectedFiles((prev) => prev.filter((fileId) => fileId !== id));
+    }
+  };
+
+  // --- NEW: Confirmation & Delete Logic ---
+  const confirmDelete = (ids: number[]) => {
+    setFilesToDelete(ids);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    setIsDeleting(true);
     try {
-      await deleteExecutionFile(id);
-      setFiles(files.filter((f) => f.id !== id));
-      toast({ title: "Execution file deleted" });
+      await Promise.all(filesToDelete.map((id) => deleteExecutionFile(id)));
+      setFiles(files.filter((f) => !filesToDelete.includes(f.id)));
+      setSelectedFiles(selectedFiles.filter(id => !filesToDelete.includes(id)));
+
+      toast({ title: `Successfully deleted ${filesToDelete.length} file(s)` });
     } catch (err) {
-      toast({ variant: "destructive", title: "Failed to delete file" });
+      toast({ variant: "destructive", title: "Failed to delete one or more files" });
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmOpen(false);
+      setFilesToDelete([]);
     }
   };
 
@@ -164,7 +208,6 @@ export default function TestCasesExecution() {
       await deleteModule(id);
       setModules(modules.filter((m) => m.id !== id));
 
-      // Handle edge case where deleting the last item on a page leaves the page empty
       const remainingFiltered = modules.filter(
         (m) =>
           m.id !== id &&
@@ -179,12 +222,6 @@ export default function TestCasesExecution() {
       toast({ variant: "destructive", title: "Failed to delete module" });
     }
   };
-
-  const filteredFiles = files.filter(
-    (f) =>
-      f.redmineTicketId.includes(search) ||
-      f.title?.toLowerCase().includes(search.toLowerCase()),
-  );
 
   // Module Pagination & Filter Logic
   const itemsPerPage = 10;
@@ -209,7 +246,7 @@ export default function TestCasesExecution() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
-            <FileSpreadsheet className="w-7 h-7 text-primary" /> Execution
+            <HoverPlay className="w-7 h-7 text-primary group" /> Execution
             Dashboard
           </h1>
           <p className="text-muted-foreground mt-1">Manage test case files.</p>
@@ -231,7 +268,20 @@ export default function TestCasesExecution() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-            <CardTitle className="text-lg">Saved Execution Files</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-4">
+              Saved Execution Files
+              {selectedFiles.length > 0 && (
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  className="h-8"
+                  onClick={() => confirmDelete(selectedFiles)}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Selected ({selectedFiles.length})
+                </Button>
+              )}
+            </CardTitle>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -244,10 +294,18 @@ export default function TestCasesExecution() {
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          {/* UPDATED: Added border classes to create vertical lines between columns */}
           <Table className="border-collapse border border-border min-w-[800px]">
             <TableHeader className="bg-muted/50">
               <TableRow>
+                {/* --- NEW: Checkbox Header --- */}
+                <TableHead className="w-[50px] border-r border-border text-center">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                    checked={filteredFiles.length > 0 && selectedFiles.length === filteredFiles.length}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                  />
+                </TableHead>
                 <TableHead className="border-r border-border">
                   Ticket ID
                 </TableHead>
@@ -262,6 +320,15 @@ export default function TestCasesExecution() {
             <TableBody>
               {filteredFiles.map((f) => (
                 <TableRow key={f.id} className="border-b border-border">
+                  {/* --- NEW: Checkbox Cell --- */}
+                  <TableCell className="border-r border-border text-center">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                      checked={selectedFiles.includes(f.id)}
+                      onChange={(e) => handleSelectFile(f.id, e.target.checked)}
+                    />
+                  </TableCell>
                   <TableCell className="border-r border-border font-bold text-primary">
                     {f.redmineTicketId}.xlsx
                   </TableCell>
@@ -286,12 +353,12 @@ export default function TestCasesExecution() {
                         }
                         className="text-blue-600 hover:text-blue-800"
                       >
-                        <Edit className="w-4 h-4 mr-2" /> Open Spreadsheet
+                        <Edit className="w-4 h-4 mr-2" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDeleteFile(f.id)}
+                        onClick={() => confirmDelete([f.id])} // Updated
                         className="text-red-600 hover:text-red-800 hover:bg-red-50"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -303,7 +370,7 @@ export default function TestCasesExecution() {
               {filteredFiles.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="text-center py-6 text-muted-foreground"
                   >
                     No files found matching your search.
@@ -315,7 +382,49 @@ export default function TestCasesExecution() {
         </CardContent>
       </Card>
 
-      {/* NEW FILE DIALOG */}
+      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete {filesToDelete.length > 1 ? `these ${filesToDelete.length} files` : "this file"}? This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={executeDelete} 
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Confirm Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* NEW FILE DIALOG (Unchanged) */}
       <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
         <DialogContent className="w-[95vw] sm:max-w-[425px]">
           <DialogHeader>
@@ -420,7 +529,7 @@ export default function TestCasesExecution() {
         </DialogContent>
       </Dialog>
 
-      {/* MANAGE MODULES DIALOG */}
+      {/* MANAGE MODULES DIALOG (Unchanged) */}
       <Dialog
         open={modulesOpen}
         onOpenChange={(open) => {
@@ -432,14 +541,12 @@ export default function TestCasesExecution() {
           }
         }}
       >
-        {/* UPDATED: Mobile friendly width and padding */}
         <DialogContent className="w-[95vw] sm:max-w-[500px] p-4 sm:p-6 max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Manage Reusable Modules</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2 flex flex-col overflow-hidden">
-            {/* Add New Module - Stacked on Mobile */}
             <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 placeholder="New Module Name..."
@@ -456,7 +563,6 @@ export default function TestCasesExecution() {
               </Button>
             </div>
 
-            {/* Search Modules */}
             <div className="relative shrink-0">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -470,7 +576,6 @@ export default function TestCasesExecution() {
               />
             </div>
 
-            {/* Modules List */}
             <div className="border rounded-md p-2 flex flex-col overflow-y-auto flex-1 min-h-[300px]">
               <div className="flex-1 space-y-1">
                 {paginatedModules.length === 0 ? (
@@ -488,7 +593,6 @@ export default function TestCasesExecution() {
                         key={mod.id}
                         className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-md group gap-2"
                       >
-                        {/* Display Number & Name/Edit Input */}
                         {isEditing ? (
                           <div className="flex-1 flex items-center gap-2">
                             <span className="text-sm font-medium text-muted-foreground w-5 sm:w-6 text-right shrink-0">
@@ -523,8 +627,6 @@ export default function TestCasesExecution() {
                           </div>
                         )}
 
-                        {/* Actions (Edit/Save/Delete/Cancel) */}
-                        {/* UPDATED: opacity-100 on mobile, hover reveal on sm screens and up */}
                         <div className="flex items-center gap-1 shrink-0">
                           {isEditing ? (
                             <>
@@ -577,7 +679,6 @@ export default function TestCasesExecution() {
                 )}
               </div>
 
-              {/* Pagination Controls */}
               {totalPages > 1 && (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t mt-3 shrink-0">
                   <span className="text-xs text-muted-foreground">
