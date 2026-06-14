@@ -124,10 +124,13 @@ export default function Login() {
   // ── Force password change overlay ──────────────────────────────────────────
   if (pendingUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative">
+      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative overflow-hidden">
+        {/* Soft background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] md:w-[800px] md:h-[800px] bg-blue-400/10 rounded-full blur-[80px] md:blur-[100px] pointer-events-none" />
+
         <Button
           variant="ghost"
-          className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground"
+          className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground z-10"
           onClick={() => {
             setPendingUser(null);
             setLocation("/");
@@ -137,7 +140,7 @@ export default function Login() {
           Back to Home
         </Button>
 
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full max-w-md space-y-6 relative z-10">
           <div className="flex flex-col items-center text-center space-y-2">
             <div className="p-3 bg-primary/10 rounded-full">
               <ShieldCheck className="w-8 h-8 text-primary" />
@@ -230,17 +233,20 @@ export default function Login() {
 
   // ── Normal login form ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative">
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative overflow-hidden">
+      {/* Soft background glow */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] md:w-[800px] md:h-[800px] bg-blue-400/10 rounded-full blur-[80px] md:blur-[100px] pointer-events-none" />
+
       <Button
         variant="ghost"
-        className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground"
+        className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground z-10"
         onClick={() => setLocation("/")}
       >
         <ArrowLeft className="w-4 h-4 mr-2" />
         Back to Home
       </Button>
 
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-md space-y-8 relative z-10">
         <div className="flex flex-col items-center justify-center text-center">
           <div>
             <AnimatedQALogo className="w-17 h-17"/>
