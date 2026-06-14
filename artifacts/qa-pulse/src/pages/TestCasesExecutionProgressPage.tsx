@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +31,12 @@ import {
   CheckCircle,
   XCircle,
   Sparkles,
+  Search,
+  X,
+  Filter,
+  BarChart,
+  PieChart,
+  Users,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx-js-style";
@@ -87,6 +99,11 @@ const COLUMN_MAPPINGS: Record<string, string[]> = {
   ],
   moduleName: ["module name", "module", "feature"],
 };
+
+const tableInputClass =
+  "h-full w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 min-h-[80px] resize-none block";
+const tableSelectClass =
+  "w-full h-full min-h-[80px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative block";
 
 interface ImportSummary {
   status: "Success" | "Partial Success" | "Failed";
@@ -214,6 +231,422 @@ const CopilotTextarea = ({
   );
 };
 
+// --- MEMOIZED ROW COMPONENTS FOR PERFORMANCE ---
+interface RowProps {
+  row: ExecutionTestCase;
+  index: number;
+  isSelected: boolean;
+  onToggleSelect: (id: string | number, checked: boolean) => void;
+  onUpdate: (
+    id: string | number,
+    field: keyof ExecutionTestCase,
+    value: string,
+  ) => void;
+  onDelete: (id: string | number) => void;
+  availableModules: ExecutionModule[];
+  qaUsers: ExecutionUser[];
+}
+
+const DesktopTableRow = React.memo(
+  ({
+    row,
+    index,
+    isSelected,
+    onToggleSelect,
+    onUpdate,
+    onDelete,
+    availableModules,
+    qaUsers,
+  }: RowProps) => {
+    return (
+      <tr className="hover:bg-muted/10 group align-top">
+        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
+          <input
+            type="checkbox"
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+            checked={isSelected}
+            onChange={(e) =>
+              onToggleSelect(row.id as string | number, e.target.checked)
+            }
+          />
+        </td>
+        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
+          {index + 1}
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <select
+            className={tableSelectClass}
+            value={row.moduleName || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "moduleName", e.target.value)
+            }
+          >
+            <option value="">Select...</option>
+            {availableModules.map((m) => (
+              <option key={m.id} value={m.name}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.caseId || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "caseId", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.userStory || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "userStory", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <CopilotTextarea
+            className={tableInputClass}
+            value={row.scenario || ""}
+            fieldName="Scenario"
+            minHeight="80px"
+            onChange={(val: string) =>
+              onUpdate(row.id as string, "scenario", val)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.preCondition || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "preCondition", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <CopilotTextarea
+            className={tableInputClass}
+            value={row.caseName || ""}
+            fieldName="Case Name"
+            minHeight="80px"
+            onChange={(val: string) =>
+              onUpdate(row.id as string, "caseName", val)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <CopilotTextarea
+            className={tableInputClass}
+            value={row.testSteps || ""}
+            fieldName="Test Steps"
+            minHeight="80px"
+            onChange={(val: string) =>
+              onUpdate(row.id as string, "testSteps", val)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.testData || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "testData", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <CopilotTextarea
+            className={tableInputClass}
+            value={row.expectedResult || ""}
+            fieldName="Expected Results"
+            minHeight="80px"
+            onChange={(val: string) =>
+              onUpdate(row.id as string, "expectedResult", val)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 bg-primary/5 relative align-top">
+          <select
+            className={`${tableSelectClass} font-semibold`}
+            value={row.result || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "result", e.target.value)
+            }
+          >
+            {RESULT_OPTIONS.map((r) => (
+              <option key={r} value={r}>
+                {r || "Select..."}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.defectNumber || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "defectNumber", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.comments || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "comments", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          <select
+            className={`${tableSelectClass}`}
+            value={row.qaPic || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "qaPic", e.target.value)
+            }
+          >
+            <option value="">Select QA PIC...</option>
+            {qaUsers.map((u) => (
+              <option key={u.id} value={u.name}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td className="border border-border p-0 text-center align-top pt-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity mx-auto block"
+            onClick={() => onDelete(row.id as string | number)}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </td>
+      </tr>
+    );
+  },
+);
+
+const MobileCardRow = React.memo(
+  ({
+    row,
+    index,
+    isSelected,
+    onToggleSelect,
+    onUpdate,
+    onDelete,
+    availableModules,
+    qaUsers,
+  }: RowProps) => {
+    return (
+      <Card
+        className={`p-3 space-y-3 shadow-sm relative transition-colors ${isSelected ? "bg-primary/5 border-primary/30" : ""}`}
+      >
+        <div className="absolute top-2 right-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-destructive h-8 w-8"
+            onClick={() => onDelete(row.id as string | number)}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2 mb-1">
+          <input
+            type="checkbox"
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer text-primary focus:ring-primary"
+            checked={isSelected}
+            onChange={(e) =>
+              onToggleSelect(row.id as string | number, e.target.checked)
+            }
+          />
+          <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs font-bold">
+            #{index + 1}
+          </span>
+          <span className="font-semibold text-sm">Test Case</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Module
+            </Label>
+            <select
+              className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+              value={row.moduleName}
+              onChange={(e) =>
+                onUpdate(row.id as string, "moduleName", e.target.value)
+              }
+            >
+              <option value="">Select...</option>
+              {availableModules.map((m) => (
+                <option key={m.id} value={m.name}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Result
+            </Label>
+            <select
+              className="flex min-h-[40px] w-full rounded-md border border-primary bg-primary/5 px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1"
+              value={row.result}
+              onChange={(e) =>
+                onUpdate(row.id as string, "result", e.target.value)
+              }
+            >
+              {RESULT_OPTIONS.map((r) => (
+                <option key={r} value={r}>
+                  {r || "Pending"}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Case ID
+            </Label>
+            <Textarea
+              className="min-h-[60px] text-xs p-2"
+              value={row.caseId}
+              onChange={(e) =>
+                onUpdate(row.id as string, "caseId", e.target.value)
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              User Story
+            </Label>
+            <Textarea
+              className="min-h-[60px] text-xs p-2"
+              value={row.userStory}
+              onChange={(e) =>
+                onUpdate(row.id as string, "userStory", e.target.value)
+              }
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Scenario <Sparkles className="w-3 h-3 text-primary" />
+          </Label>
+          <div className="border border-input rounded-md focus-within:ring-1">
+            <CopilotTextarea
+              className="text-xs p-2 bg-transparent"
+              value={row.scenario}
+              fieldName="Scenario"
+              minHeight="60px"
+              onChange={(val: string) =>
+                onUpdate(row.id as string, "scenario", val)
+              }
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Case Name / Title <Sparkles className="w-3 h-3 text-primary" />
+          </Label>
+          <div className="border border-input rounded-md focus-within:ring-1">
+            <CopilotTextarea
+              className="text-xs p-2 bg-transparent"
+              value={row.caseName}
+              fieldName="Case Name"
+              minHeight="60px"
+              onChange={(val: string) =>
+                onUpdate(row.id as string, "caseName", val)
+              }
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Test Steps <Sparkles className="w-3 h-3 text-primary" />
+          </Label>
+          <div className="border border-input rounded-md focus-within:ring-1">
+            <CopilotTextarea
+              className="text-xs p-2 bg-transparent"
+              value={row.testSteps}
+              fieldName="Test Steps"
+              minHeight="80px"
+              onChange={(val: string) =>
+                onUpdate(row.id as string, "testSteps", val)
+              }
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Expected Result <Sparkles className="w-3 h-3 text-primary" />
+          </Label>
+          <div className="border border-input rounded-md focus-within:ring-1">
+            <CopilotTextarea
+              className="text-xs p-2 bg-transparent"
+              value={row.expectedResult}
+              fieldName="Expected Result"
+              minHeight="60px"
+              onChange={(val: string) =>
+                onUpdate(row.id as string, "expectedResult", val)
+              }
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Defect #
+            </Label>
+            <Textarea
+              className="min-h-[40px] text-xs p-2"
+              value={row.defectNumber}
+              onChange={(e) =>
+                onUpdate(row.id as string, "defectNumber", e.target.value)
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              QA PIC
+            </Label>
+            <select
+              className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+              value={row.qaPic}
+              onChange={(e) =>
+                onUpdate(row.id as string, "qaPic", e.target.value)
+              }
+            >
+              <option value="">Select QA PIC...</option>
+              {qaUsers.map((u) => (
+                <option key={u.id} value={u.name}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Card>
+    );
+  },
+);
+
 export default function TestCasesExecutionProgressPage() {
   const [, params] = useRoute("/test-cases/execution/:id");
   const [, setLocation] = useLocation();
@@ -241,10 +674,15 @@ export default function TestCasesExecutionProgressPage() {
   const [showModuleSelectDialog, setShowModuleSelectDialog] = useState(false);
   const [selectedImportModule, setSelectedImportModule] = useState<string>("");
 
-  // --- NEW: Multiple Selection & Delete States ---
   const [selectedRows, setSelectedRows] = useState<(string | number)[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [rowsToDelete, setRowsToDelete] = useState<(string | number)[]>([]);
+
+  // Search & Filtering State
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [moduleFilters, setModuleFilters] = useState<string[]>([]);
+  const [resultFilters, setResultFilters] = useState<string[]>([]);
+  const [qaFilters, setQaFilters] = useState<string[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -310,34 +748,115 @@ export default function TestCasesExecutionProgressPage() {
 
   const handleAddRow = () => setData((prev) => [...prev, createEmptyRow()]);
 
-  const updateCell = (
-    id: string | number,
-    field: keyof ExecutionTestCase,
-    value: string,
-  ) => {
-    setData((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
-    );
+  // STABLE CALLBACKS FOR MEMOIZED ROWS
+  const updateCell = useCallback(
+    (id: string | number, field: keyof ExecutionTestCase, value: string) => {
+      setData((prev) =>
+        prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+      );
+    },
+    [],
+  );
+
+  const handleSelectRow = useCallback(
+    (id: string | number, checked: boolean) => {
+      if (checked) {
+        setSelectedRows((prev) => [...prev, id]);
+      } else {
+        setSelectedRows((prev) => prev.filter((rowId) => rowId !== id));
+      }
+    },
+    [],
+  );
+
+  const requestSingleDelete = useCallback((id: string | number) => {
+    setRowsToDelete([id]);
+    setDeleteConfirmOpen(true);
+  }, []);
+
+  // Search & Filter Logic
+  const toggleFilter = (type: "module" | "result" | "qa", value: string) => {
+    if (type === "module") {
+      setModuleFilters((prev) =>
+        prev.includes(value)
+          ? prev.filter((v) => v !== value)
+          : [...prev, value],
+      );
+    } else if (type === "result") {
+      setResultFilters((prev) =>
+        prev.includes(value)
+          ? prev.filter((v) => v !== value)
+          : [...prev, value],
+      );
+    } else if (type === "qa") {
+      setQaFilters((prev) =>
+        prev.includes(value)
+          ? prev.filter((v) => v !== value)
+          : [...prev, value],
+      );
+    }
   };
 
-  // --- NEW: Multiple Selection Logic ---
+  const filteredData = useMemo(() => {
+    return data.filter((row) => {
+      if (globalSearch.trim()) {
+        const searchLower = globalSearch.toLowerCase();
+        const rowValues = Object.values(row).map((v) =>
+          String(v).toLowerCase(),
+        );
+        const matchesSearch = rowValues.some((v) => v.includes(searchLower));
+        if (!matchesSearch) return false;
+      }
+      if (moduleFilters.length > 0) {
+        if (!moduleFilters.includes(row.moduleName || "")) return false;
+      }
+      if (resultFilters.length > 0) {
+        if (!resultFilters.includes(row.result || "")) return false;
+      }
+      if (qaFilters.length > 0) {
+        if (!qaFilters.includes(row.qaPic || "")) return false;
+      }
+      return true;
+    });
+  }, [data, globalSearch, moduleFilters, resultFilters, qaFilters]);
+
+  // Summary Statistics
+  const summaryStats = useMemo(() => {
+    let totalExecuted = 0;
+    let totalUnexecuted = 0;
+    const resultsCount: Record<string, number> = {};
+    const qaCount: Record<string, number> = {};
+
+    filteredData.forEach((row) => {
+      if (
+        !row.result ||
+        row.result === "Not Executed" ||
+        row.result === "Pending"
+      ) {
+        totalUnexecuted++;
+      } else {
+        totalExecuted++;
+      }
+
+      const resKey = row.result || "Pending";
+      resultsCount[resKey] = (resultsCount[resKey] || 0) + 1;
+
+      const qaKey = row.qaPic || "Unassigned";
+      qaCount[qaKey] = (qaCount[qaKey] || 0) + 1;
+    });
+
+    return { totalExecuted, totalUnexecuted, resultsCount, qaCount };
+  }, [filteredData]);
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedRows(data.map((row) => row.id as string | number));
+      setSelectedRows(filteredData.map((row) => row.id as string | number));
     } else {
       setSelectedRows([]);
     }
   };
 
-  const handleSelectRow = (id: string | number, checked: boolean) => {
-    if (checked) {
-      setSelectedRows((prev) => [...prev, id]);
-    } else {
-      setSelectedRows((prev) => prev.filter((rowId) => rowId !== id));
-    }
-  };
-
-  const confirmDelete = (ids: (string | number)[]) => {
+  const confirmDeleteMulti = (ids: (string | number)[]) => {
     setRowsToDelete(ids);
     setDeleteConfirmOpen(true);
   };
@@ -355,7 +874,7 @@ export default function TestCasesExecutionProgressPage() {
     setIsSaving(true);
     try {
       await saveTestCases(ticketId, data, null);
-      toast({ title: `Database saved for Ticket #${ticketId}` });
+      toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
     } catch (err) {
       toast({ variant: "destructive", title: "Failed to save to database" });
     } finally {
@@ -364,7 +883,7 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   const handleDownloadExcel = () => {
-    const exportData = data.map((row) => ({
+    const exportData = filteredData.map((row) => ({
       Module: row.moduleName || "",
       "Case ID": row.caseId || "",
       "User Story": row.userStory || "",
@@ -674,14 +1193,17 @@ export default function TestCasesExecutionProgressPage() {
       </div>
     );
 
-  const tableInputClass =
-    "h-full w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 min-h-[80px] resize-none block";
-  const tableSelectClass =
-    "w-full h-full min-h-[80px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative block";
+  const uniqueModules = Array.from(
+    new Set(data.map((r) => r.moduleName || "")),
+  ).filter(Boolean);
+  const uniqueQA = Array.from(new Set(data.map((r) => r.qaPic || ""))).filter(
+    Boolean,
+  );
+  const totalActiveFilters =
+    moduleFilters.length + resultFilters.length + qaFilters.length;
 
   return (
-    <div className="space-y-4 flex flex-col h-[calc(100vh-6rem)] relative">
-      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
+    <div className="space-y-3 flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100vh-6rem)] relative">
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -722,7 +1244,6 @@ export default function TestCasesExecutionProgressPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Module Selection Dialog for Import */}
       <Dialog
         open={showModuleSelectDialog}
         onOpenChange={setShowModuleSelectDialog}
@@ -758,7 +1279,6 @@ export default function TestCasesExecutionProgressPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Import Summary Overlay */}
       {importSummary && !showModuleSelectDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <Card className="max-w-md w-full bg-background shadow-2xl overflow-hidden border-border">
@@ -844,7 +1364,7 @@ export default function TestCasesExecutionProgressPage() {
       )}
 
       {/* HEADER & ACTION BUTTONS */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0 border-b pb-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -869,12 +1389,11 @@ export default function TestCasesExecutionProgressPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {/* --- NEW: Delete Selected Button --- */}
           {selectedRows.length > 0 && (
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => confirmDelete(selectedRows)}
+              onClick={() => confirmDeleteMulti(selectedRows)}
               className="flex-1 lg:flex-none gap-2"
             >
               <Trash2 className="w-4 h-4" /> Delete Selected (
@@ -934,496 +1453,269 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       </div>
 
-      {/* DESKTOP SPREADSHEET VIEW (Hidden on Mobile) */}
-      <Card className="hidden lg:flex flex-1 overflow-hidden border rounded-md shadow-sm">
-        <div className="flex-1 overflow-auto bg-card">
-          <table className="w-full text-sm border-collapse min-w-[2840px]">
-            <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
-              <tr className="text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="border border-border w-10 p-2 text-center">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-                    checked={
-                      data.length > 0 && selectedRows.length === data.length
-                    }
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                  />
-                </th>
-                <th className="border border-border w-10 p-2 text-center">#</th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Module Name
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Case ID
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  User Story
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Scenario <Sparkles className="w-3 h-3 inline text-primary" />
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Pre Condition
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Case <Sparkles className="w-3 h-3 inline text-primary" />
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Test Steps{" "}
-                  <Sparkles className="w-3 h-3 inline text-primary" />
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Test Data
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Expected Result{" "}
-                  <Sparkles className="w-3 h-3 inline text-primary" />
-                </th>
-                <th className="border border-border w-64 p-2 text-left text-primary">
-                  Result
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Defect #
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  Comments
-                </th>
-                <th className="border border-border w-64 p-2 text-left">
-                  QA PIC
-                </th>
-                <th className="border border-border w-10 p-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row, index) => (
-                <tr
-                  key={row.id as string}
-                  className="hover:bg-muted/10 group align-top"
+      {/* GLOBAL SEARCH & FILTER BAR */}
+      <div className="flex flex-col gap-2 bg-muted/30 border border-border p-2 rounded-lg shrink-0">
+        <div className="flex flex-col lg:flex-row gap-2 items-start lg:items-center justify-between">
+          <div className="relative w-full lg:w-96 shrink-0">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search across all columns..."
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              className="pl-9 pr-9 bg-background h-8 text-xs"
+            />
+            {globalSearch && (
+              <button
+                onClick={() => setGlobalSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground w-full lg:w-auto justify-end">
+            <Filter className="w-3.5 h-3.5" />
+            <span>
+              {filteredData.length} records found
+              {totalActiveFilters > 0
+                ? ` (${totalActiveFilters} filters active)`
+                : ""}
+            </span>
+            {totalActiveFilters > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] px-2 ml-2"
+                onClick={() => {
+                  setModuleFilters([]);
+                  setResultFilters([]);
+                  setQaFilters([]);
+                }}
+              >
+                Clear Filters
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Filter Badges Container */}
+        <div className="flex flex-col lg:flex-row gap-3 overflow-hidden mt-1">
+          {/* Module Filters */}
+          <div className="flex-1 min-w-0">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">
+              Filter by Module
+            </Label>
+            <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-y-auto">
+              {uniqueModules.length > 0 ? (
+                uniqueModules.map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => toggleFilter("module", m)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                      moduleFilters.includes(m)
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))
+              ) : (
+                <span className="text-[10px] text-muted-foreground italic">
+                  No modules available
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Result Filters */}
+          <div className="flex-1 min-w-0">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">
+              Filter by Result
+            </Label>
+            <div className="flex flex-wrap gap-1.5">
+              {RESULT_OPTIONS.filter(Boolean).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => toggleFilter("result", r)}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                    resultFilters.includes(r)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
                 >
-                  <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
+                  {r}
+                </button>
+              ))}
+              <button
+                onClick={() => toggleFilter("result", "")}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  resultFilters.includes("")
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Pending/Empty
+              </button>
+            </div>
+          </div>
+
+          {/* QA PIC Filters */}
+          <div className="flex-1 min-w-0">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">
+              Filter by QA PIC
+            </Label>
+            <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-y-auto">
+              {uniqueQA.length > 0 ? (
+                uniqueQA.map((qa) => (
+                  <button
+                    key={qa}
+                    onClick={() => toggleFilter("qa", qa)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                      qaFilters.includes(qa)
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {qa}
+                  </button>
+                ))
+              ) : (
+                <span className="text-[10px] text-muted-foreground italic">
+                  No QA assigned
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* DESKTOP SPREADSHEET VIEW */}
+      <Card className="hidden lg:flex flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]">
+        {filteredData.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8">
+            <Search className="w-10 h-10 mb-4 opacity-20" />
+            <p>No test cases match your current filters and search criteria.</p>
+            <Button
+              variant="link"
+              onClick={() => {
+                setGlobalSearch("");
+                setModuleFilters([]);
+                setResultFilters([]);
+                setQaFilters([]);
+              }}
+            >
+              Clear all filters
+            </Button>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto bg-card">
+            <table className="w-full text-sm border-collapse min-w-[2840px]">
+              <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
+                <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <th className="border border-border w-10 p-2 text-center">
                     <input
                       type="checkbox"
                       className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-                      checked={selectedRows.includes(row.id as string | number)}
-                      onChange={(e) =>
-                        handleSelectRow(
-                          row.id as string | number,
-                          e.target.checked,
-                        )
+                      checked={
+                        filteredData.length > 0 &&
+                        selectedRows.length === filteredData.length
                       }
+                      onChange={(e) => handleSelectAll(e.target.checked)}
                     />
-                  </td>
-                  <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
-                    {index + 1}
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <select
-                      className={tableSelectClass}
-                      value={row.moduleName || ""}
-                      onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "moduleName",
-                          e.target.value,
-                        )
-                      }
-                    >
-                      <option value="">Select...</option>
-                      {availableModules.map((m) => (
-                        <option key={m.id} value={m.name}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <Textarea
-                      className={tableInputClass}
-                      value={row.caseId || ""}
-                      onChange={(e) =>
-                        updateCell(row.id as string, "caseId", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <Textarea
-                      className={tableInputClass}
-                      value={row.userStory || ""}
-                      onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "userStory",
-                          e.target.value,
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <CopilotTextarea
-                      className={tableInputClass}
-                      value={row.scenario || ""}
-                      fieldName="Scenario"
-                      minHeight="80px"
-                      onChange={(val: string) =>
-                        updateCell(row.id as string, "scenario", val)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <Textarea
-                      className={tableInputClass}
-                      value={row.preCondition || ""}
-                      onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "preCondition",
-                          e.target.value,
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <CopilotTextarea
-                      className={tableInputClass}
-                      value={row.caseName || ""}
-                      fieldName="Case Name"
-                      minHeight="80px"
-                      onChange={(val: string) =>
-                        updateCell(row.id as string, "caseName", val)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <CopilotTextarea
-                      className={tableInputClass}
-                      value={row.testSteps || ""}
-                      fieldName="Test Steps"
-                      minHeight="80px"
-                      onChange={(val: string) =>
-                        updateCell(row.id as string, "testSteps", val)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <Textarea
-                      className={tableInputClass}
-                      value={row.testData || ""}
-                      onChange={(e) =>
-                        updateCell(row.id as string, "testData", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <CopilotTextarea
-                      className={tableInputClass}
-                      value={row.expectedResult || ""}
-                      fieldName="Expected Results"
-                      minHeight="80px"
-                      onChange={(val: string) =>
-                        updateCell(row.id as string, "expectedResult", val)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 bg-primary/5 relative align-top">
-                    <select
-                      className={`${tableSelectClass} font-semibold`}
-                      value={row.result || ""}
-                      onChange={(e) =>
-                        updateCell(row.id as string, "result", e.target.value)
-                      }
-                    >
-                      {RESULT_OPTIONS.map((r) => (
-                        <option key={r} value={r}>
-                          {r || "Select..."}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <Textarea
-                      className={tableInputClass}
-                      value={row.defectNumber || ""}
-                      onChange={(e) =>
-                        updateCell(
-                          row.id as string,
-                          "defectNumber",
-                          e.target.value,
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <Textarea
-                      className={tableInputClass}
-                      value={row.comments || ""}
-                      onChange={(e) =>
-                        updateCell(row.id as string, "comments", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td className="border border-border p-0 relative align-top">
-                    <select
-                      className={`${tableSelectClass}`}
-                      value={row.qaPic || ""}
-                      onChange={(e) =>
-                        updateCell(row.id as string, "qaPic", e.target.value)
-                      }
-                    >
-                      <option value="">Select QA PIC...</option>
-                      {qaUsers.map((u) => (
-                        <option key={u.id} value={u.name}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="border border-border p-0 text-center align-top pt-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity mx-auto block"
-                      onClick={() => confirmDelete([row.id as string | number])}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </td>
+                  </th>
+                  <th className="border border-border w-10 p-2 text-center">
+                    #
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Module Name
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Case ID
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    User Story
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Scenario{" "}
+                    <Sparkles className="w-3 h-3 inline text-primary" />
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Pre Condition
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Case <Sparkles className="w-3 h-3 inline text-primary" />
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Test Steps{" "}
+                    <Sparkles className="w-3 h-3 inline text-primary" />
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Test Data
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Expected Result{" "}
+                    <Sparkles className="w-3 h-3 inline text-primary" />
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left text-primary">
+                    Result
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Defect #
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Comments
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    QA PIC
+                  </th>
+                  <th className="border border-border w-10 p-2"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredData.map((row, index) => (
+                  <DesktopTableRow
+                    key={row.id as string}
+                    row={row}
+                    index={index}
+                    isSelected={selectedRows.includes(
+                      row.id as string | number,
+                    )}
+                    onToggleSelect={handleSelectRow}
+                    onUpdate={updateCell}
+                    onDelete={requestSingleDelete}
+                    availableModules={availableModules}
+                    qaUsers={qaUsers}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
-      {/* MOBILE CARD VIEW (Hidden on Desktop) */}
-      <div className="lg:hidden flex flex-col gap-4 overflow-y-auto pb-6">
-        {data.map((row, index) => (
-          <Card
-            key={row.id as string}
-            className={`p-4 space-y-4 shadow-sm relative transition-colors ${selectedRows.includes(row.id as string | number) ? "bg-primary/5 border-primary/30" : ""}`}
-          >
-            <div className="absolute top-2 right-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive"
-                onClick={() => confirmDelete([row.id as string | number])}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-3 mb-2">
-              <input
-                type="checkbox"
-                className="w-5 h-5 rounded border-gray-300 cursor-pointer text-primary focus:ring-primary"
-                checked={selectedRows.includes(row.id as string | number)}
-                onChange={(e) =>
-                  handleSelectRow(row.id as string | number, e.target.checked)
-                }
-              />
-              <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs font-bold">
-                #{index + 1}
-              </span>
-              <span className="font-semibold text-sm">Test Case</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Module
-                </Label>
-                <select
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={row.moduleName}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "moduleName", e.target.value)
-                  }
-                >
-                  <option value="">Select...</option>
-                  {availableModules.map((m) => (
-                    <option key={m.id} value={m.name}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Result
-                </Label>
-                <select
-                  className="flex min-h-[80px] w-full rounded-md border border-primary bg-primary/5 px-3 py-1 text-sm font-bold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={row.result}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "result", e.target.value)
-                  }
-                >
-                  {RESULT_OPTIONS.map((r) => (
-                    <option key={r} value={r}>
-                      {r || "Pending"}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Case ID
-                </Label>
-                <Textarea
-                  className="min-h-[80px] text-sm"
-                  value={row.caseId}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "caseId", e.target.value)
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  User Story
-                </Label>
-                <Textarea
-                  className="min-h-[80px] text-sm"
-                  value={row.userStory}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "userStory", e.target.value)
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-                Scenario <Sparkles className="w-3 h-3 text-primary" />
-              </Label>
-              <div className="border border-input rounded-md focus-within:ring-1 focus-within:ring-ring">
-                <CopilotTextarea
-                  className="text-sm p-2 bg-transparent"
-                  value={row.scenario}
-                  fieldName="Scenario"
-                  minHeight="80px"
-                  onChange={(val: string) =>
-                    updateCell(row.id as string, "scenario", val)
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Pre Condition
-              </Label>
-              <Textarea
-                className="min-h-[80px] text-sm w-full border border-input rounded-md p-2 bg-transparent"
-                value={row.preCondition}
-                onChange={(e) =>
-                  updateCell(row.id as string, "preCondition", e.target.value)
-                }
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-                Case Name / Title <Sparkles className="w-3 h-3 text-primary" />
-              </Label>
-              <div className="border border-input rounded-md focus-within:ring-1 focus-within:ring-ring">
-                <CopilotTextarea
-                  className="text-sm p-2 bg-transparent"
-                  value={row.caseName}
-                  fieldName="Case Name"
-                  minHeight="80px"
-                  onChange={(val: string) =>
-                    updateCell(row.id as string, "caseName", val)
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-                Test Steps <Sparkles className="w-3 h-3 text-primary" />
-              </Label>
-              <div className="border border-input rounded-md focus-within:ring-1 focus-within:ring-ring">
-                <CopilotTextarea
-                  className="text-sm p-2 bg-transparent"
-                  value={row.testSteps}
-                  fieldName="Test Steps"
-                  minHeight="80px"
-                  onChange={(val: string) =>
-                    updateCell(row.id as string, "testSteps", val)
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-                Expected Result <Sparkles className="w-3 h-3 text-primary" />
-              </Label>
-              <div className="border border-input rounded-md focus-within:ring-1 focus-within:ring-ring">
-                <CopilotTextarea
-                  className="text-sm p-2 bg-transparent"
-                  value={row.expectedResult}
-                  fieldName="Expected Result"
-                  minHeight="80px"
-                  onChange={(val: string) =>
-                    updateCell(row.id as string, "expectedResult", val)
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Comments
-              </Label>
-              <Textarea
-                className="min-h-[80px] text-sm"
-                value={row.comments}
-                onChange={(e) =>
-                  updateCell(row.id as string, "comments", e.target.value)
-                }
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Defect #
-                </Label>
-                <Textarea
-                  className="min-h-[80px] text-sm"
-                  value={row.defectNumber}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "defectNumber", e.target.value)
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  QA PIC
-                </Label>
-                <select
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={row.qaPic}
-                  onChange={(e) =>
-                    updateCell(row.id as string, "qaPic", e.target.value)
-                  }
-                >
-                  <option value="">Select QA PIC...</option>
-                  {qaUsers.map((u) => (
-                    <option key={u.id} value={u.name}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </Card>
-        ))}
+      {/* MOBILE CARD VIEW */}
+      <div className="lg:hidden flex-1 flex flex-col gap-3 overflow-y-auto min-h-[450px] pb-4">
+        {filteredData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-muted-foreground p-8 border border-dashed rounded-lg">
+            <Search className="w-8 h-8 mb-4 opacity-20" />
+            <p className="text-center text-sm">No test cases match filters.</p>
+          </div>
+        ) : (
+          filteredData.map((row, index) => (
+            <MobileCardRow
+              key={row.id as string}
+              row={row}
+              index={index}
+              isSelected={selectedRows.includes(row.id as string | number)}
+              onToggleSelect={handleSelectRow}
+              onUpdate={updateCell}
+              onDelete={requestSingleDelete}
+              availableModules={availableModules}
+              qaUsers={qaUsers}
+            />
+          ))
+        )}
         <Button
           variant="secondary"
           className="w-full py-6 border-dashed"
@@ -1431,6 +1723,90 @@ export default function TestCasesExecutionProgressPage() {
         >
           <Plus className="w-5 h-5 mr-2" /> Add Another Row
         </Button>
+      </div>
+
+      {/* RESULT ANALYTICS & SUMMARY PANEL */}
+      <div className="shrink-0 pt-2 pb-2 border-t mt-1">
+        <h2 className="text-sm font-bold mb-2 flex items-center gap-2">
+          <BarChart className="w-4 h-4 text-primary" /> Summary Statistics
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Card className="p-2.5 bg-primary/5 border-primary/20">
+            <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 mb-2">
+              <PieChart className="w-3.5 h-3.5" /> Execution Progress
+            </h3>
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-xs">Total Filtered</span>
+                <span className="font-bold text-sm">{filteredData.length}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs">Executed</span>
+                <span className="font-bold text-green-600 text-sm">
+                  {summaryStats.totalExecuted}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs">Unexecuted</span>
+                <span className="font-bold text-muted-foreground text-sm">
+                  {summaryStats.totalUnexecuted}
+                </span>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-2.5">
+            <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 mb-2">
+              <BarChart className="w-3.5 h-3.5" /> Result Breakdown
+            </h3>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 max-h-[64px] overflow-y-auto pr-1">
+              {Object.entries(summaryStats.resultsCount)
+                .sort(([, a], [, b]) => b - a)
+                .map(([result, count]) => (
+                  <div
+                    key={result}
+                    className="flex justify-between items-center bg-muted/30 p-1 rounded text-xs"
+                  >
+                    <span className="truncate max-w-[70px]" title={result}>
+                      {result}
+                    </span>
+                    <span className="font-bold bg-background px-1.5 py-0.5 rounded shadow-sm">
+                      {count}
+                    </span>
+                  </div>
+                ))}
+              {Object.keys(summaryStats.resultsCount).length === 0 && (
+                <span className="text-xs text-muted-foreground italic col-span-2">
+                  No data.
+                </span>
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-2.5">
+            <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 mb-2">
+              <Users className="w-3.5 h-3.5" /> QA Ownership
+            </h3>
+            <div className="space-y-1.5 max-h-[64px] overflow-y-auto pr-1">
+              {Object.entries(summaryStats.qaCount)
+                .sort(([, a], [, b]) => b - a)
+                .map(([qa, count]) => (
+                  <div
+                    key={qa}
+                    className="flex justify-between items-center text-xs border-b border-muted pb-1 last:border-0 last:pb-0"
+                  >
+                    <span className="truncate max-w-[100px]">{qa}</span>
+                    <span className="font-bold">{count} cases</span>
+                  </div>
+                ))}
+              {Object.keys(summaryStats.qaCount).length === 0 && (
+                <span className="text-xs text-muted-foreground italic">
+                  No data.
+                </span>
+              )}
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

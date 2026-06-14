@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HoverList } from "@/components/icons/animated";
-// Add this import near the top of your file
 import { fetchTestCases } from "@/lib/execution-api";
 import {
   Table,
@@ -22,15 +21,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Upload,
-  Plus,
-  Trash2,
-  Save,
-  FileSpreadsheet,
-  Loader2,
-  Search,
-} from "lucide-react";
+import { Upload, Plus, Trash2, Loader2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
@@ -51,7 +42,6 @@ export default function TestExecutionDetails() {
 
   const [data, setData] = useState<ExecutionRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Ticket ID Management
   const [currentTicketId, setCurrentTicketId] = useState("");
@@ -72,9 +62,17 @@ export default function TestExecutionDetails() {
     return `${(((total - notExec) / total) * 100).toFixed(1)}%`;
   };
 
-  // --- Data Loading & Saving ---
+  // --- Data Loading & Autosaving ---
   const handleLoadTicket = async () => {
-    if (!searchTicketId.trim()) return;
+    if (!searchTicketId.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Redmine Ticket ID Required",
+        description: "Please enter a Redmine Ticket ID before loading.",
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
       // Always aggregate from the latest raw test cases (the source of truth)
@@ -121,18 +119,38 @@ export default function TestExecutionDetails() {
         const aggregatedData = Object.values(moduleMap);
         setData(aggregatedData);
         setCurrentTicketId(searchTicketId);
+
+        // --- Autosave Logic ---
+        const saveRes = await fetch("/api/pmo/execution-details", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            redmineId: searchTicketId,
+            details: aggregatedData,
+          }),
+        });
+
+        if (!saveRes.ok) throw new Error("Autosave failed on server");
+
         toast({
-          title: `Calculated metrics from Test Cases for Ticket #${searchTicketId}`,
+          title: `Ticket #${searchTicketId} Loaded & Saved`,
+          description:
+            "Execution metrics have been successfully aggregated and updated in the PMO report.",
         });
       } else {
         toast({
-          title: `No existing data for #${searchTicketId}. Starting fresh.`,
+          variant: "destructive",
+          title: "Ticket Not Found or Empty",
+          description: `No test case data found for Ticket #${searchTicketId}. Please verify the ID exists.`,
         });
         setData([]);
-        setCurrentTicketId(searchTicketId);
+        setCurrentTicketId("");
       }
     } catch (err) {
-      toast({ variant: "destructive", title: "Failed to load execution data" });
+      toast({
+        variant: "destructive",
+        title: "Failed to process execution data",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +171,7 @@ export default function TestExecutionDetails() {
           description: "A QA tester just saved changes. Refreshing metrics...",
         });
         // Re-run the fetch logic silently to update the numbers
-        handleLoadTicket(currentTicketId);
+        handleLoadTicket();
       }
     };
 
@@ -162,34 +180,7 @@ export default function TestExecutionDetails() {
     };
   }, [currentTicketId]); // Re-bind if the user switches tickets
 
-  const handleSaveToReport = async () => {
-    if (!currentTicketId.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Ticket ID Required",
-        description: "Please enter or load a Redmine Ticket ID before saving.",
-      });
-      return;
-    }
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/pmo/execution-details", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ redmineId: currentTicketId, details: data }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      toast({
-        title: `Successfully saved to PMO Report under #${currentTicketId}!`,
-      });
-    } catch (err) {
-      toast({ variant: "destructive", title: "Could not save data" });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // --- Inline Editing Logic ---
+  // --- Inline Editing Logic (Hidden by default based on provided code) ---
   const updateRow = (
     id: string,
     field: keyof ExecutionRow,
@@ -280,9 +271,10 @@ export default function TestExecutionDetails() {
       setCurrentTicketId(importTicketId); // Set the active ticket ID to the one they typed
       setIsImportDialogOpen(false); // Close the dialog
 
+      // Optionally, you can call the autosave endpoint here too if you want imported data to save automatically
       toast({
         title: "Import Successful",
-        description: `Loaded ${importedData.length} modules for Ticket #${importTicketId}. Click "Save Changes" to apply.`,
+        description: `Loaded ${importedData.length} modules for Ticket #${importTicketId}.`,
       });
     } catch (error) {
       toast({
@@ -301,12 +293,12 @@ export default function TestExecutionDetails() {
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b pb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            {/* 2. Replaced FileSpreadsheet with HoverList */}
             <HoverList className="w-6 h-6 sm:w-7 sm:h-7 text-primary shrink-0 group" />
             Execution Details
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground mt-1">
-            Load a ticket, edit the cells, or import an Excel file.
+            Load a ticket to auto-generate and auto-save its test execution
+            progress.
           </p>
         </div>
 
@@ -317,7 +309,7 @@ export default function TestExecutionDetails() {
               #
             </span>
             <Input
-              placeholder="Load Ticket ID..."
+              placeholder="Load Redmine ID..."
               value={searchTicketId}
               onChange={(e) => setSearchTicketId(e.target.value)}
               className="pl-7 bg-background"
@@ -330,7 +322,7 @@ export default function TestExecutionDetails() {
             className="shrink-0"
           >
             {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
               <Search className="w-4 h-4 mr-2" />
             )}
@@ -342,44 +334,10 @@ export default function TestExecutionDetails() {
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-md font-medium text-sm">
-          Editing Ticket:{" "}
+          Viewing Ticket:{" "}
           <span className="font-bold text-base">
-            {currentTicketId || "None (Unsaved)"}
+            {currentTicketId || "None"}
           </span>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {/* --- HIDDEN BUTTONS START ---
-              To re-enable, simply remove the { /* and * / } brackets around these buttons. */}
-          {/*
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              setImportTicketId("");
-              setIsImportDialogOpen(true);
-            }}
-          >
-            <Upload className="w-4 h-4" /> Import Excel
-          </Button>
-          <Button variant="secondary" onClick={handleAddRow} className="gap-2">
-            <Plus className="w-4 h-4" /> Add Row
-          </Button>
-          */}
-          {/* --- HIDDEN BUTTONS END --- */}
-
-          <Button
-            onClick={handleSaveToReport}
-            disabled={isSaving || !currentTicketId}
-            className="gap-2"
-          >
-            {isSaving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            Save Changes
-          </Button>
         </div>
       </div>
 
@@ -440,26 +398,12 @@ export default function TestExecutionDetails() {
                       key={row.id}
                       className="hover:bg-muted/10 transition-colors group"
                     >
-                      {/* MODULE COLUMN */}
                       <TableCell className="p-1 px-3">
-                        {/* READ-ONLY TEXT */}
                         <span className="uppercase text-sm font-medium">
                           {row.module || "UNNAMED MODULE"}
                         </span>
-
-                        {/* HIDDEN EDIT FEATURE 
-                        <Input
-                          className="h-8 border-transparent bg-transparent hover:border-input focus-visible:ring-1 uppercase text-sm font-medium"
-                          value={row.module}
-                          placeholder="Module Name"
-                          onChange={(e) =>
-                            updateRow(row.id, "module", e.target.value)
-                          }
-                        />
-                        */}
                       </TableCell>
 
-                      {/* NUMBER COLUMNS */}
                       {(
                         [
                           "total",
@@ -471,37 +415,14 @@ export default function TestExecutionDetails() {
                         ] as const
                       ).map((field) => (
                         <TableCell key={field} className="p-1 text-center">
-                          {/* READ-ONLY TEXT */}
                           <span className="text-sm">
                             {row[field] === 0 && field !== "total"
                               ? "-"
                               : row[field]}
                           </span>
-
-                          {/* HIDDEN EDIT FEATURE
-                          <Input
-                            type="number"
-                            min="0"
-                            className="h-8 border-transparent bg-transparent hover:border-input focus-visible:ring-1 text-center shadow-none"
-                            value={
-                              row[field] === 0 && field !== "total"
-                                ? ""
-                                : row[field]
-                            }
-                            placeholder="0"
-                            onChange={(e) =>
-                              updateRow(
-                                row.id,
-                                field,
-                                parseInt(e.target.value) || 0,
-                              )
-                            }
-                          />
-                          */}
                         </TableCell>
                       ))}
 
-                      {/* CALCULATED COLUMNS */}
                       <TableCell className="text-center font-semibold text-primary bg-primary/5">
                         {calculatePassCompletion(row.passed, row.total)}
                       </TableCell>
@@ -509,19 +430,7 @@ export default function TestExecutionDetails() {
                         {calculateTotalCompletion(row.total, row.notExec)}
                       </TableCell>
 
-                      {/* DELETE BUTTON COLUMN */}
-                      <TableCell className="text-right p-1 pr-3">
-                        {/* HIDDEN DELETE FEATURE
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(row.id)}
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                        */}
-                      </TableCell>
+                      <TableCell className="text-right p-1 pr-3"></TableCell>
                     </TableRow>
                   ))
                 )}
@@ -546,34 +455,10 @@ export default function TestExecutionDetails() {
                       <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                         Module Name
                       </label>
-
-                      {/* READ-ONLY TEXT */}
                       <div className="h-9 flex items-center px-3 font-bold text-sm uppercase bg-muted/10 rounded-md">
                         {row.module || "UNNAMED MODULE"}
                       </div>
-
-                      {/* HIDDEN EDIT FEATURE
-                      <Input
-                        className="h-9 uppercase font-bold text-sm bg-muted/30 focus:bg-background"
-                        value={row.module}
-                        placeholder="Enter Module Name"
-                        onChange={(e) =>
-                          updateRow(row.id, "module", e.target.value)
-                        }
-                      />
-                      */}
                     </div>
-
-                    {/* HIDDEN DELETE FEATURE
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(row.id)}
-                      className="text-destructive shrink-0 mt-5 h-9 w-9 bg-destructive/10 hover:bg-destructive/20"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                    */}
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
@@ -600,34 +485,11 @@ export default function TestExecutionDetails() {
                           <label className="text-[10px] sm:text-xs font-semibold text-muted-foreground">
                             {labels[field]}
                           </label>
-
-                          {/* READ-ONLY TEXT */}
                           <div className="h-8 flex items-center justify-center text-sm font-medium bg-muted/5 rounded-md border border-transparent">
                             {row[field] === 0 && field !== "total"
                               ? "-"
                               : row[field]}
                           </div>
-
-                          {/* HIDDEN EDIT FEATURE
-                          <Input
-                            type="number"
-                            min="0"
-                            className="h-8 text-center text-sm shadow-none"
-                            value={
-                              row[field] === 0 && field !== "total"
-                                ? ""
-                                : row[field]
-                            }
-                            placeholder="0"
-                            onChange={(e) =>
-                              updateRow(
-                                row.id,
-                                field,
-                                parseInt(e.target.value) || 0,
-                              )
-                            }
-                          />
-                          */}
                         </div>
                       );
                     })}
@@ -687,7 +549,6 @@ export default function TestExecutionDetails() {
             </div>
             <div className="space-y-2">
               <Label>Upload File</Label>
-              {/* Hidden file input mapped to a styled button */}
               <input
                 type="file"
                 accept=".xlsx, .xls, .csv"
@@ -704,7 +565,7 @@ export default function TestExecutionDetails() {
                     toast({
                       variant: "destructive",
                       title: "Missing ID",
-                      description: "Please enter a Ticket ID first.",
+                      description: "Please enter a Redmine Ticket ID first.",
                     });
                     return;
                   }

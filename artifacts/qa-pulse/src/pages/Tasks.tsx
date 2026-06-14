@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listTasks,
@@ -9,8 +9,6 @@ import {
   getListUsersQueryKey,
   listRequirements,
   getListRequirementsQueryKey,
-  listTestCases,
-  getListTestCasesQueryKey,
   useCreateTask,
   useUpdateTask,
   useDeleteTask,
@@ -135,7 +133,6 @@ function WorkloadPanel({
     page * ITEMS_PER_PAGE,
   );
 
-  // Reset to first page when searching
   useEffect(() => {
     setPage(1);
   }, [search]);
@@ -162,7 +159,7 @@ function WorkloadPanel({
             No team members found matching "{search}"
           </p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {paginatedMembers.map((member) => {
               const memberTasks = tasks.filter(
                 (t) => t.assigneeId === member.id,
@@ -181,16 +178,16 @@ function WorkloadPanel({
                   className="flex flex-col gap-2 p-3 rounded-lg border bg-card hover:bg-muted/40 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <Avatar className="w-7 h-7 shrink-0">
+                    <Avatar className="w-8 h-8 shrink-0">
                       <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
                         {member.name.substring(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold truncate">
+                      <p className="text-sm sm:text-xs font-semibold truncate">
                         {member.name.split(" ")[0]}
                       </p>
-                      <p className="text-[10px] text-muted-foreground capitalize truncate">
+                      <p className="text-[11px] sm:text-[10px] text-muted-foreground capitalize truncate">
                         {member.role.replace(/_/g, " ")}
                       </p>
                     </div>
@@ -223,10 +220,10 @@ function WorkloadPanel({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-6 text-[11px] mt-auto"
+                    className="h-7 text-xs mt-auto w-full"
                     onClick={() => onAssign(member.id)}
                   >
-                    <UserCheck className="w-3 h-3 mr-1" /> Assign Task
+                    <UserCheck className="w-3.5 h-3.5 mr-1.5" /> Assign Tasks
                   </Button>
                 </div>
               );
@@ -234,7 +231,6 @@ function WorkloadPanel({
           </div>
         )}
 
-        {/* Pagination Controls */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50">
             <span className="text-xs text-muted-foreground">
@@ -290,21 +286,22 @@ export default function Tasks() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [form, setForm] = useState<Partial<TaskInput>>({});
 
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  // Multi-select assign dialog state
+  // Task Assignment Dialog State (Bulk assignment from workload panel)
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assigneeComboOpen, setAssigneeComboOpen] = useState(false);
-  const [projectComboOpen, setProjectComboOpen] = useState(false);
   const [assignForm, setAssignForm] = useState<{
-    testCaseIds: number[];
+    taskIds: number[];
     assigneeId?: number;
-    dueDate: string;
-    projectId?: number;
-  }>({ testCaseIds: [], dueDate: "" });
-  const [tcSearch, setTcSearch] = useState("");
+  }>({ taskIds: [] });
+  const [taskSearch, setTaskSearch] = useState("");
+
+  // Single Assignment Dialog State (From individual task dropdown)
+  const [singleAssignOpen, setSingleAssignOpen] = useState(false);
+  const [taskToAssign, setTaskToAssign] = useState<Task | null>(null);
+  const [singleAssignSearch, setSingleAssignSearch] = useState("");
 
   // Event dialog state
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -319,7 +316,6 @@ export default function Tasks() {
   const [events, setEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
-  // --- NEW: Selection and Delete Confirmation State ---
   const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [tasksToDelete, setTasksToDelete] = useState<number[]>([]);
@@ -348,15 +344,9 @@ export default function Tasks() {
     queryFn: () => listRequirements(),
   });
 
-  const { data: testCases = [] } = useQuery({
-    queryKey: getListTestCasesQueryKey(),
-    queryFn: () => listTestCases(),
-    enabled: isAdminOrLead,
-  });
-
   useEffect(() => {
     setCurrentPage(1);
-    setSelectedTasks([]); // Reset selection when filters change
+    setSelectedTasks([]);
   }, [search, filterStatus, filterAssignee, filterProject]);
 
   const createMutation = useCreateTask({
@@ -370,10 +360,6 @@ export default function Tasks() {
       onError: () =>
         toast({ variant: "destructive", title: "Failed to create task" }),
     },
-  });
-
-  const bulkAssignMutation = useCreateTask({
-    mutation: { onSuccess: () => {}, onError: () => {} },
   });
 
   const updateMutation = useUpdateTask({
@@ -393,7 +379,6 @@ export default function Tasks() {
     mutation: {
       onSuccess: () => {
         invalidate();
-        // Removed individual toast to avoid spam on bulk deletion
       },
       onError: () =>
         toast({ variant: "destructive", title: "Failed to delete task" }),
@@ -415,7 +400,7 @@ export default function Tasks() {
     mutation: {
       onSuccess: () => {
         invalidate();
-        toast({ title: "Task assigned" });
+        toast({ title: "Task assigned successfully" });
       },
       onError: () =>
         toast({ variant: "destructive", title: "Failed to assign task" }),
@@ -424,16 +409,29 @@ export default function Tasks() {
 
   const filtered = tasks.filter((t) => {
     if (!isAdminOrLead && t.assigneeId !== user?.id) return false;
+
+    // Status filters
     if (filterStatus === "overdue") {
       if (!t.isOverdue || t.status === "released_to_production") return false;
-    } else if (filterStatus !== "all" && t.status !== filterStatus)
+    } else if (filterStatus !== "all" && t.status !== filterStatus) {
       return false;
-    if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee)
-      return false;
-    if (filterProject !== "all" && String(t.projectId) !== filterProject)
-      return false;
-    if (search && !t.name.toLowerCase().includes(search.toLowerCase()))
-      return false;
+    }
+
+    // Assignee / Project filters
+    if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee) return false;
+    if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
+
+    // Search filter (Task Name OR Redmine ID)
+    if (search) {
+      const searchLower = search.toLowerCase();
+      const matchName = t.name.toLowerCase().includes(searchLower);
+      const matchRedmineId = t.redmineId ? String(t.redmineId).toLowerCase().includes(searchLower) : false;
+
+      if (!matchName && !matchRedmineId) {
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -443,7 +441,6 @@ export default function Tasks() {
     currentPage * ITEMS_PER_PAGE,
   );
 
-  // --- NEW: Selection & Deletion Logic ---
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedTasks(filtered.map((t) => t.id));
@@ -562,9 +559,15 @@ export default function Tasks() {
   };
 
   const openAssignDialog = (userId?: number) => {
-    setAssignForm({ testCaseIds: [], dueDate: "", assigneeId: userId });
-    setTcSearch("");
+    setAssignForm({ taskIds: [], assigneeId: userId });
+    setTaskSearch("");
     setAssignDialogOpen(true);
+  };
+
+  const openSingleAssignDialog = (task: Task) => {
+    setTaskToAssign(task);
+    setSingleAssignSearch("");
+    setSingleAssignOpen(true);
   };
 
   const handleSubmit = () => {
@@ -578,33 +581,24 @@ export default function Tasks() {
 
   const [isAssigning, setIsAssigning] = useState(false);
 
-  const handleAssignTestCases = async () => {
-    if (!assignForm.assigneeId) return;
-    if (assignForm.testCaseIds.length === 0) return;
+  const handleAssignTasks = async () => {
+    if (!assignForm.assigneeId || assignForm.taskIds.length === 0) return;
 
     setIsAssigning(true);
     try {
-      const promises = assignForm.testCaseIds.map((tcId) => {
-        const tc = testCases.find((t) => t.id === tcId);
-        return bulkAssignMutation.mutateAsync({
-          data: {
-            name: `Test: ${tc?.title ?? `Test Case #${tcId}`}`,
-            type: "testing",
-            status: "uat",
-            assigneeId: assignForm.assigneeId,
-            testCaseId: tcId,
-            projectId: tc?.projectId ?? assignForm.projectId,
-            dueDate: assignForm.dueDate || undefined,
-          } as TaskInput,
-        });
-      });
+      const promises = assignForm.taskIds.map((taskId) =>
+        assignMutation.mutateAsync({
+          id: taskId,
+          data: { assigneeId: assignForm.assigneeId! },
+        })
+      );
       await Promise.all(promises);
       invalidate();
       toast({
-        title: `${assignForm.testCaseIds.length} test case${assignForm.testCaseIds.length > 1 ? "s" : ""} assigned successfully`,
+        title: `${assignForm.taskIds.length} task${assignForm.taskIds.length > 1 ? "s" : ""} assigned successfully`,
       });
       setAssignDialogOpen(false);
-      setAssignForm({ testCaseIds: [], dueDate: "" });
+      setAssignForm({ taskIds: [] });
     } catch {
       toast({ variant: "destructive", title: "Some assignments failed" });
     } finally {
@@ -612,19 +606,22 @@ export default function Tasks() {
     }
   };
 
-  const toggleTestCaseSelection = (tcId: number) => {
+  const toggleTaskSelection = (taskId: number) => {
     setAssignForm((prev) => ({
       ...prev,
-      testCaseIds: prev.testCaseIds.includes(tcId)
-        ? prev.testCaseIds.filter((id) => id !== tcId)
-        : [...prev.testCaseIds, tcId],
+      taskIds: prev.taskIds.includes(taskId)
+        ? prev.taskIds.filter((id) => id !== taskId)
+        : [...prev.taskIds, taskId],
     }));
   };
 
-  const filteredTestCases = testCases.filter(
-    (tc) =>
-      !tcSearch || tc.title.toLowerCase().includes(tcSearch.toLowerCase()),
-  );
+  const assignableTasks = useMemo(() => {
+    return tasks.filter(
+      (t) =>
+        t.status !== "released_to_production" &&
+        (!taskSearch || t.name.toLowerCase().includes(taskSearch.toLowerCase()))
+    );
+  }, [tasks, taskSearch]);
 
   const quickStatusChange = (task: Task, newStatus: string) => {
     updateMutation.mutate({ id: task.id, data: { status: newStatus as any } });
@@ -646,8 +643,8 @@ export default function Tasks() {
             Track and manage QA tasks
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={openCreate} className="gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
             <Plus className="w-4 h-4" /> New Task
           </Button>
         </div>
@@ -663,12 +660,11 @@ export default function Tasks() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            {/* NEW: Batch Delete Action */}
+          <div className="flex flex-col md:flex-row gap-3">
             {selectedTasks.length > 0 && (
               <Button 
                 variant="destructive" 
-                className="shrink-0"
+                className="shrink-0 w-full md:w-auto"
                 onClick={() => confirmDelete(selectedTasks)}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
@@ -679,64 +675,66 @@ export default function Tasks() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                className="pl-9"
-                placeholder="Search tasks..."
+                className="pl-9 w-full"
+                placeholder="Search tasks or Redmine ID..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select value={filterProject} onValueChange={setFilterProject}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Project" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="blocked">Blocked</SelectItem>
-                <SelectItem value="uat">UAT</SelectItem>
-                <SelectItem value="sit">SIT</SelectItem>
-                <SelectItem value="done">Done</SelectItem>
-                <SelectItem value="released_to_production">
-                  Released to Production
-                </SelectItem>
-                <SelectItem value="overdue">
-                  <span className="flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-destructive" />{" "}
-                    Overdue
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {isAdminOrLead && (
-              <Select value={filterAssignee} onValueChange={setFilterAssignee}>
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+              <Select value={filterProject} onValueChange={setFilterProject}>
                 <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Assignee" />
+                  <SelectValue placeholder="Project" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Assignees</SelectItem>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {u.name}
+                  <SelectItem value="all">All Projects</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            )}
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="w-full sm:w-36">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="new">New</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="blocked">Blocked</SelectItem>
+                  <SelectItem value="uat">UAT</SelectItem>
+                  <SelectItem value="sit">SIT</SelectItem>
+                  <SelectItem value="done">Done</SelectItem>
+                  <SelectItem value="released_to_production">
+                    Released to Production
+                  </SelectItem>
+                  <SelectItem value="overdue">
+                    <span className="flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-destructive" />{" "}
+                      Overdue
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {isAdminOrLead && (
+                <Select value={filterAssignee} onValueChange={setFilterAssignee}>
+                  <SelectTrigger className="w-full sm:w-40">
+                    <SelectValue placeholder="Assignee" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    <SelectItem value="all">All Assignees</SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
           {filterStatus === "overdue" && (
             <div className="flex items-center gap-2 mt-1 px-1">
@@ -774,7 +772,6 @@ export default function Tasks() {
                 <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow>
-                      {/* NEW: Checkbox Header */}
                       <TableHead className="w-12 text-center">
                         <Checkbox
                           checked={filtered.length > 0 && selectedTasks.length === filtered.length}
@@ -805,7 +802,6 @@ export default function Tasks() {
                         key={t.id}
                         className={`hover:bg-muted/40 ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
                       >
-                        {/* NEW: Checkbox Cell */}
                         <TableCell className="text-center">
                           <Checkbox
                             checked={selectedTasks.includes(t.id)}
@@ -943,27 +939,16 @@ export default function Tasks() {
                                 <CalendarRange className="w-4 h-4 mr-2" />
                                 Event
                               </DropdownMenuItem>
-                              {isAdminOrLead && t.assigneeId === null && (
+
+                              {isAdminOrLead && (
                                 <DropdownMenuItem
-                                  onClick={() => openAssignDialog()}
+                                  onClick={() => openSingleAssignDialog(t)}
                                 >
                                   <UserCheck className="w-4 h-4 mr-2" />
-                                  Assign to member
+                                  {t.assigneeId ? "Re-assign member" : "Assign to member"}
                                 </DropdownMenuItem>
                               )}
-                              {isAdminOrLead && t.assigneeId !== null && (
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    assignMutation.mutate({
-                                      id: t.id,
-                                      data: { assigneeId: t.assigneeId! },
-                                    })
-                                  }
-                                >
-                                  <UserCheck className="w-4 h-4 mr-2" />
-                                  Re-assign
-                                </DropdownMenuItem>
-                              )}
+
                               {canRelease(t) && t.assigneeId !== null && (
                                 <>
                                   <DropdownMenuSeparator />
@@ -981,7 +966,7 @@ export default function Tasks() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
-                                onClick={() => confirmDelete([t.id])} // UPDATED
+                                onClick={() => confirmDelete([t.id])} 
                               >
                                 <Trash2 className="w-4 h-4 mr-2" />
                                 Delete
@@ -1036,9 +1021,8 @@ export default function Tasks() {
         </CardContent>
       </Card>
 
-      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[400px] w-[96vw]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
@@ -1078,8 +1062,9 @@ export default function Tasks() {
         </DialogContent>
       </Dialog>
 
+      {/* --- CREATE / EDIT DIALOG --- */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingTask ? "Edit Task" : "New Task"}</DialogTitle>
           </DialogHeader>
@@ -1092,7 +1077,8 @@ export default function Tasks() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Type</Label>
                 <Select
@@ -1104,17 +1090,14 @@ export default function Tasks() {
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
                     <SelectItem value="testing">Testing</SelectItem>
-                    <SelectItem value="bug_verification">
-                      Bug Verification
-                    </SelectItem>
-                    <SelectItem value="test_case_creation">
-                      Test Case Creation
-                    </SelectItem>
+                    <SelectItem value="bug_verification">Bug Verification</SelectItem>
+                    <SelectItem value="test_case_creation">Test Case Creation</SelectItem>
                     <SelectItem value="regression">Regression</SelectItem>
                     <SelectItem value="automation">Automation</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="space-y-1.5">
                 <Label>Status</Label>
                 <Select
@@ -1132,12 +1115,11 @@ export default function Tasks() {
                     <SelectItem value="uat">UAT</SelectItem>
                     <SelectItem value="sit">SIT</SelectItem>
                     <SelectItem value="done">Done</SelectItem>
-                    <SelectItem value="released_to_production">
-                      Released to Production
-                    </SelectItem>
+                    <SelectItem value="released_to_production">Released to Production</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="space-y-1.5">
                 <Label>Project</Label>
                 <Select
@@ -1158,6 +1140,7 @@ export default function Tasks() {
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="space-y-1.5">
                 <Label>Assignee</Label>
                 <Select
@@ -1178,6 +1161,7 @@ export default function Tasks() {
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="space-y-1.5">
                 <Label>Start Date</Label>
                 <Input
@@ -1188,6 +1172,7 @@ export default function Tasks() {
                   }
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label>Due Date</Label>
                 <Input
@@ -1198,6 +1183,7 @@ export default function Tasks() {
                   }
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label>Estimated Hours</Label>
                 <Input
@@ -1210,6 +1196,7 @@ export default function Tasks() {
                   }
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label>Actual Hours</Label>
                 <Input
@@ -1222,6 +1209,7 @@ export default function Tasks() {
                   }
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label>Completion %</Label>
                 <Input
@@ -1238,6 +1226,7 @@ export default function Tasks() {
                 />
               </div>
             </div>
+
             <div className="space-y-1.5">
               <Label>Redmine ID</Label>
               <Input
@@ -1248,6 +1237,7 @@ export default function Tasks() {
                 }
               />
             </div>
+
             <div className="space-y-1.5">
               <Label>Notes</Label>
               <Textarea
@@ -1258,17 +1248,14 @@ export default function Tasks() {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
             <Button
+              className="w-full sm:w-auto"
               onClick={handleSubmit}
-              disabled={
-                !form.name ||
-                createMutation.isPending ||
-                updateMutation.isPending
-              }
+              disabled={!form.name || createMutation.isPending || updateMutation.isPending}
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Saving..."
@@ -1280,13 +1267,14 @@ export default function Tasks() {
         </DialogContent>
       </Dialog>
 
+      {/* --- EVENT DIALOG --- */}
       <Dialog
         open={eventDialogOpen}
         onOpenChange={(o) => {
           if (!o) setEventDialogOpen(false);
         }}
       >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarRange className="w-4 h-4 text-primary" />
@@ -1299,7 +1287,6 @@ export default function Tasks() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* Existing Events */}
             <div className="space-y-2">
               <h4 className="text-sm font-medium">Existing Events</h4>
               {eventsLoading ? (
@@ -1311,7 +1298,7 @@ export default function Tasks() {
                   No events yet
                 </div>
               ) : (
-                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2">
                   {events.map((ev) => (
                     <div key={ev.id} className="border rounded-md p-2 text-sm">
                       <div className="flex items-center justify-between">
@@ -1348,7 +1335,6 @@ export default function Tasks() {
               )}
             </div>
 
-            {/* Add New Event */}
             <div className="border-t pt-4 space-y-3">
               <h4 className="text-sm font-medium">Add New Event</h4>
               <div className="space-y-1.5">
@@ -1372,7 +1358,7 @@ export default function Tasks() {
                   rows={2}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Start Date</Label>
                   <Input
@@ -1414,11 +1400,12 @@ export default function Tasks() {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEventDialogOpen(false)}>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEventDialogOpen(false)}>
               Cancel
             </Button>
             <Button
+              className="w-full sm:w-auto"
               onClick={handleCreateEvent}
               disabled={!eventForm.title.trim()}
             >
@@ -1428,22 +1415,83 @@ export default function Tasks() {
         </DialogContent>
       </Dialog>
 
+      {/* --- SINGLE ASSIGNMENT DIALOG --- */}
+      <Dialog open={singleAssignOpen} onOpenChange={setSingleAssignOpen}>
+        <DialogContent className="sm:max-w-[400px] w-[96vw] max-h-[80vh] flex flex-col p-4">
+          <DialogHeader>
+            <DialogTitle>Assign Member</DialogTitle>
+          </DialogHeader>
+          <div className="relative mt-2">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search members..."
+              className="pl-8 h-9"
+              value={singleAssignSearch}
+              onChange={(e) => setSingleAssignSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto mt-4 space-y-1 pr-1">
+            {users
+              .filter((u) => u.role === "qa_member" || u.role === "qa_lead")
+              .filter(
+                (u) =>
+                  !singleAssignSearch ||
+                  u.name.toLowerCase().includes(singleAssignSearch.toLowerCase())
+              )
+              .map((u) => (
+                <div
+                  key={u.id}
+                  className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
+                    taskToAssign?.assigneeId === u.id
+                      ? "bg-primary/10 hover:bg-primary/20"
+                      : "hover:bg-muted"
+                  }`}
+                  onClick={() => {
+                    if (taskToAssign) {
+                      assignMutation.mutate({
+                        id: taskToAssign.id,
+                        data: { assigneeId: u.id },
+                      });
+                      setSingleAssignOpen(false);
+                    }
+                  }}
+                >
+                  <Avatar className="w-8 h-8">
+                    <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                      {u.name.substring(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{u.name}</p>
+                    <p className="text-xs text-muted-foreground capitalize truncate">
+                      {u.role.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                  {taskToAssign?.assigneeId === u.id && (
+                    <Check className="w-4 h-4 text-primary shrink-0" />
+                  )}
+                </div>
+              ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- BULK ASSIGNMENT DIALOG --- */}
       <Dialog
         open={assignDialogOpen}
         onOpenChange={(o) => {
           if (!o) {
             setAssignDialogOpen(false);
-            setAssignForm({ testCaseIds: [], dueDate: "" });
-            setTcSearch("");
+            setAssignForm({ taskIds: [] });
+            setTaskSearch("");
             setAssigneeComboOpen(false);
-            setProjectComboOpen(false);
           }
         }}
       >
-        <DialogContent className="w-[min(92vw,64rem)] max-w-[64rem] max-h-[90vh] overflow-y-auto left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        <DialogContent className="w-[min(96vw,64rem)] max-w-[64rem] max-h-[90vh] overflow-y-auto left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
-              <UserCheck className="w-4 h-4 text-primary" /> Assign Test Cases
+              <UserCheck className="w-4 h-4 text-primary" /> Assign Tasks
             </DialogTitle>
           </DialogHeader>
 
@@ -1535,7 +1583,7 @@ export default function Tasks() {
                                 </AvatarFallback>
                               </Avatar>
                               <span className="flex-1">{u.name}</span>
-                              <span className="text-xs text-muted-foreground capitalize">
+                              <span className="text-xs text-muted-foreground capitalize hidden sm:inline">
                                 {u.role.replace(/_/g, " ")}
                               </span>
                               {assignForm.assigneeId === u.id && (
@@ -1553,11 +1601,11 @@ export default function Tasks() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">
-                  Test Cases <span className="text-destructive">*</span>
+                  Select Tasks <span className="text-destructive">*</span>
                 </Label>
-                {assignForm.testCaseIds.length > 0 && (
+                {assignForm.taskIds.length > 0 && (
                   <Badge variant="secondary" className="text-xs font-medium">
-                    {assignForm.testCaseIds.length} selected
+                    {assignForm.taskIds.length} selected
                   </Badge>
                 )}
               </div>
@@ -1566,14 +1614,14 @@ export default function Tasks() {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
                 <Input
                   className="pl-8 h-8 text-sm"
-                  placeholder="Search test cases..."
-                  value={tcSearch}
-                  onChange={(e) => setTcSearch(e.target.value)}
+                  placeholder="Search existing tasks..."
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
                 />
-                {tcSearch && (
+                {taskSearch && (
                   <button
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setTcSearch("")}
+                    onClick={() => setTaskSearch("")}
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -1584,22 +1632,22 @@ export default function Tasks() {
                 <div
                   className="flex items-center gap-3 px-3 py-2.5 bg-muted/50 border-b cursor-pointer hover:bg-muted/70 transition-colors select-none"
                   onClick={() => {
-                    const allIds = filteredTestCases.map((t) => t.id);
+                    const allIds = assignableTasks.map((t) => t.id);
                     const allSelected = allIds.every((id) =>
-                      assignForm.testCaseIds.includes(id),
+                      assignForm.taskIds.includes(id),
                     );
                     if (allSelected) {
                       setAssignForm((prev) => ({
                         ...prev,
-                        testCaseIds: prev.testCaseIds.filter(
+                        taskIds: prev.taskIds.filter(
                           (id) => !allIds.includes(id),
                         ),
                       }));
                     } else {
                       setAssignForm((prev) => ({
                         ...prev,
-                        testCaseIds: [
-                          ...new Set([...prev.testCaseIds, ...allIds]),
+                        taskIds: [
+                          ...new Set([...prev.taskIds, ...allIds]),
                         ],
                       }));
                     }
@@ -1607,60 +1655,47 @@ export default function Tasks() {
                 >
                   <Checkbox
                     checked={
-                      filteredTestCases.length > 0 &&
-                      filteredTestCases.every((t) =>
-                        assignForm.testCaseIds.includes(t.id),
+                      assignableTasks.length > 0 &&
+                      assignableTasks.every((t) =>
+                        assignForm.taskIds.includes(t.id),
                       )
                     }
                     onCheckedChange={() => {}}
                     className="pointer-events-none"
                   />
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Select all ({filteredTestCases.length})
+                    Select all ({assignableTasks.length})
                   </span>
                 </div>
 
                 <div className="max-h-56 overflow-y-auto divide-y">
-                  {filteredTestCases.length === 0 ? (
+                  {assignableTasks.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No test cases found
+                      No active tasks found
                     </p>
                   ) : (
-                    filteredTestCases.map((tc) => {
-                      const selected = assignForm.testCaseIds.includes(tc.id);
+                    assignableTasks.map((task) => {
+                      const selected = assignForm.taskIds.includes(task.id);
                       return (
                         <div
-                          key={tc.id}
+                          key={task.id}
                           className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors select-none ${selected ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"}`}
-                          onClick={() => toggleTestCaseSelection(tc.id)}
+                          onClick={() => toggleTaskSelection(task.id)}
                         >
                           <Checkbox
                             checked={selected}
                             onCheckedChange={() =>
-                              toggleTestCaseSelection(tc.id)
+                              toggleTaskSelection(task.id)
                             }
                             className="pointer-events-none shrink-0"
                           />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium leading-snug truncate">
-                              {tc.title}
+                              {task.name}
                             </p>
-                            <p className="text-xs text-muted-foreground capitalize mt-0.5">
-                              <span
-                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium mr-1.5 ${
-                                  tc.priority === "critical"
-                                    ? "bg-red-100 text-red-700"
-                                    : tc.priority === "high"
-                                      ? "bg-orange-100 text-orange-700"
-                                      : tc.priority === "medium"
-                                        ? "bg-yellow-100 text-yellow-700"
-                                        : "bg-gray-100 text-gray-600"
-                                }`}
-                              >
-                                {tc.priority}
-                              </span>
-                              {tc.type.replace(/_/g, " ")}
-                              {tc.projectName ? ` · ${tc.projectName}` : ""}
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {task.assigneeName ? `Currently: ${task.assigneeName} • ` : "Unassigned • "}
+                              {task.projectName ?? "No Project"}
                             </p>
                           </div>
                           {selected && (
@@ -1673,10 +1708,10 @@ export default function Tasks() {
                 </div>
               </div>
 
-              {assignForm.testCaseIds.length > 0 && (
+              {assignForm.taskIds.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pt-1">
-                  {assignForm.testCaseIds.map((id) => {
-                    const tc = testCases.find((t) => t.id === id);
+                  {assignForm.taskIds.map((id) => {
+                    const t = tasks.find((task) => task.id === id);
                     return (
                       <Badge
                         key={id}
@@ -1684,11 +1719,11 @@ export default function Tasks() {
                         className="gap-1 text-xs pl-2 pr-1 py-1"
                       >
                         <span className="truncate max-w-[140px]">
-                          {tc?.title ?? `TC #${id}`}
+                          {t?.name ?? `Task #${id}`}
                         </span>
                         <button
                           className="ml-0.5 rounded hover:bg-muted-foreground/20 p-0.5 transition-colors"
-                          onClick={() => toggleTestCaseSelection(id)}
+                          onClick={() => toggleTaskSelection(id)}
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -1698,125 +1733,33 @@ export default function Tasks() {
                 </div>
               )}
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Due Date</Label>
-                <div className="relative">
-                  <Input
-                    type="date"
-                    value={assignForm.dueDate}
-                    onChange={(e) =>
-                      setAssignForm({ ...assignForm, dueDate: e.target.value })
-                    }
-                    className="h-9 pr-9"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Project Override</Label>
-                <Popover
-                  open={projectComboOpen}
-                  onOpenChange={setProjectComboOpen}
-                >
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      className="w-full justify-between font-normal h-9 px-3"
-                    >
-                      {assignForm.projectId ? (
-                        <span className="truncate">
-                          {projects.find((p) => p.id === assignForm.projectId)
-                            ?.name ?? "Select..."}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          From test case...
-                        </span>
-                      )}
-                      <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[var(--radix-popover-trigger-width)] p-0"
-                    align="start"
-                  >
-                    <Command>
-                      <CommandInput
-                        placeholder="Search project..."
-                        className="h-9"
-                      />
-                      <CommandList>
-                        <CommandEmpty>No project found.</CommandEmpty>
-                        <CommandGroup>
-                          {assignForm.projectId && (
-                            <CommandItem
-                              value="__clear__"
-                              onSelect={() => {
-                                setAssignForm({
-                                  ...assignForm,
-                                  projectId: undefined,
-                                });
-                                setProjectComboOpen(false);
-                              }}
-                              className="text-muted-foreground italic cursor-pointer"
-                            >
-                              Clear override
-                            </CommandItem>
-                          )}
-                          {projects.map((p) => (
-                            <CommandItem
-                              key={p.id}
-                              value={p.name}
-                              onSelect={() => {
-                                setAssignForm({
-                                  ...assignForm,
-                                  projectId: p.id,
-                                });
-                                setProjectComboOpen(false);
-                              }}
-                              className="cursor-pointer"
-                            >
-                              {p.name}
-                              {assignForm.projectId === p.id && (
-                                <Check className="ml-auto w-4 h-4 text-primary" />
-                              )}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 mt-4">
             <Button
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => setAssignDialogOpen(false)}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleAssignTestCases}
+              onClick={handleAssignTasks}
               disabled={
-                assignForm.testCaseIds.length === 0 ||
+                assignForm.taskIds.length === 0 ||
                 !assignForm.assigneeId ||
                 isAssigning
               }
-              className="min-w-[140px]"
+              className="w-full sm:w-auto min-w-[140px]"
             >
               {isAssigning ? (
                 <>
-                  <span className="animate-spin mr-2">⟳</span>Assigning...
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Assigning...
                 </>
-              ) : assignForm.testCaseIds.length > 0 ? (
-                `Assign ${assignForm.testCaseIds.length} Test Case${assignForm.testCaseIds.length !== 1 ? "s" : ""}`
+              ) : assignForm.taskIds.length > 0 ? (
+                `Assign ${assignForm.taskIds.length} Task${assignForm.taskIds.length !== 1 ? "s" : ""}`
               ) : (
-                "Assign Test Cases"
+                "Assign Tasks"
               )}
             </Button>
           </DialogFooter>
