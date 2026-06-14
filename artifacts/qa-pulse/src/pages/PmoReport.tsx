@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getApiUrl } from "@/lib/api";
-import { HoverChart } from "@/components/icons/animated"; // Added HoverChart Import
+import { HoverChart, AnimatedQALogo } from "@/components/icons/animated";
 import {
   Search,
   CheckCircle2,
@@ -277,10 +277,10 @@ function Sidebar({
         </Button>
 
         <div className="p-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-2 group cursor-default">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <HoverChart className="w-4 h-4 text-primary-foreground" />
-            </div>
+          <div className="flex items-center gap-3 group cursor-default">
+            {/* Replaced the blue square with AnimatedQALogo */}
+            <AnimatedQALogo className="w-5 h-5" />
+
             <div>
               <p className="font-bold text-sidebar-foreground text-sm leading-tight">
                 QA Pulse
@@ -704,7 +704,8 @@ export default function PmoReport() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeDefectsPage, setActiveDefectsPage] = useState(1);
   const [showAllDefects, setShowAllDefects] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
 
   // AI Dashboard State
   const [riskResult, setRiskResult] = useState<any>(null);
@@ -867,7 +868,7 @@ export default function PmoReport() {
 
   const generateReportPDF = async (): Promise<Blob | null> => {
     if (!reportRef.current) return null;
-    setIsExporting(true);
+    // Remove the setIsExporting(true) line here
 
     try {
       const dataUrl = await toPng(reportRef.current, {
@@ -904,71 +905,80 @@ export default function PmoReport() {
     } catch (error) {
       console.error("Failed to generate PDF:", error);
       return null;
-    } finally {
-      setIsExporting(false);
     }
+    // Remove the finally block that had setIsExporting(false)
   };
 
   const handleDownloadReport = async () => {
-    const pdfBlob = await generateReportPDF();
-    if (!pdfBlob) {
-      toast({
-        variant: "destructive",
-        title: "Export Failed",
-        description: "Could not generate the report PDF.",
-      });
-      return;
+    setIsDownloading(true);
+    try {
+      const pdfBlob = await generateReportPDF();
+      if (!pdfBlob) {
+        toast({
+          variant: "destructive",
+          title: "Export Failed",
+          description: "Could not generate the report PDF.",
+        });
+        return;
+      }
+
+      const reportName = data?.issueSubject
+        ? data.issueSubject.replace(/[^a-z0-9]/gi, "_")
+        : `Ticket_${redmineId}`;
+      const fileName = `Report_${reportName}_${getFormattedDateString()}.pdf`;
+
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement("a");
+      link.download = fileName;
+      link.href = url;
+      link.click();
+
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsDownloading(false);
     }
-
-    const reportName = data?.issueSubject
-      ? data.issueSubject.replace(/[^a-z0-9]/gi, "_")
-      : `Ticket_${redmineId}`;
-    const fileName = `Report_${reportName}_${getFormattedDateString()}.pdf`;
-
-    const url = URL.createObjectURL(pdfBlob);
-    const link = document.createElement("a");
-    link.download = fileName;
-    link.href = url;
-    link.click();
-
-    URL.revokeObjectURL(url);
   };
 
   const handleSendReport = async () => {
-    const pdfBlob = await generateReportPDF();
-    if (!pdfBlob) {
-      toast({
-        variant: "destructive",
-        title: "Export Failed",
-        description: "Could not generate the report PDF.",
-      });
-      return;
+    setIsSending(true);
+    try {
+      const pdfBlob = await generateReportPDF();
+      if (!pdfBlob) {
+        toast({
+          variant: "destructive",
+          title: "Export Failed",
+          description: "Could not generate the report PDF.",
+        });
+        return;
+      }
+
+      const reportName = data?.issueSubject || `Ticket #${redmineId}`;
+      const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.pdf`;
+      const genDate = new Date().toLocaleDateString();
+      const userName = user?.name || "System User";
+
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement("a");
+      link.download = fileName;
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      const subjectText = `[Report]- ${reportName}`;
+      const bodyText = `Dear PMO,
+
+      Please find the attached report for your review.
+
+      Report Details:
+      • Report Name: ${reportName}
+      • Generated Date: ${genDate}
+
+      [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
+
+      window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
+    } finally {
+      setIsSending(false);
     }
-
-    const reportName = data?.issueSubject || `Ticket #${redmineId}`;
-    const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.pdf`;
-    const genDate = new Date().toLocaleDateString();
-    const userName = user?.name || "System User";
-
-    const url = URL.createObjectURL(pdfBlob);
-    const link = document.createElement("a");
-    link.download = fileName;
-    link.href = url;
-    link.click();
-    URL.revokeObjectURL(url);
-
-    const subjectText = `[Report]- ${reportName}`;
-    const bodyText = `Dear PMO,
-
-    Please find the attached report for your review.
-
-    Report Details:
-    • Report Name: ${reportName}
-    • Generated Date: ${genDate}
-
-    [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
-
-    window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
   };
 
   const execData = data
@@ -1081,10 +1091,10 @@ export default function PmoReport() {
                   <Button
                     variant="outline"
                     onClick={handleDownloadReport}
-                    disabled={isExporting}
+                    disabled={isDownloading || isSending}
                     className="gap-2"
                   >
-                    {isExporting ? (
+                    {isDownloading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Download className="w-4 h-4" />
@@ -1093,10 +1103,10 @@ export default function PmoReport() {
                   </Button>
                   <Button
                     onClick={handleSendReport}
-                    disabled={isExporting}
+                    disabled={isDownloading || isSending}
                     className="gap-2"
                   >
-                    {isExporting ? (
+                    {isSending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Mail className="w-4 h-4" />

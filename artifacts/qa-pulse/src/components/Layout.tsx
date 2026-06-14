@@ -140,7 +140,8 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout: localLogout } = useAuth();
-  const [location] = useLocation();
+  // UPDATED: Added setLocation here
+  const [location, setLocation] = useLocation();
   const logoutMutation = useLogout();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -155,11 +156,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const unreadCount = unreadNotifs.filter((n) => !n.read).length;
 
+  // UPDATED: Added redirection logic on both success and error
   const handleLogout = () => {
     setLogoutOpen(false);
     logoutMutation.mutate(undefined, {
-      onSuccess: () => localLogout(),
-      onError: () => localLogout(),
+      onSuccess: () => {
+        localLogout();
+        setLocation("/");
+      },
+      onError: () => {
+        localLogout();
+        setLocation("/");
+      },
     });
   };
 
@@ -176,7 +184,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="px-6 py-6 pb-4">
         <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
           {/* Replaced the static div and HoverPulse with the new AnimatedQALogo */}
-          <AnimatedQALogo className="w-6 h-6"/>
+          <AnimatedQALogo className="w-6 h-6" />
           QA Pulse
         </h1>
       </div>

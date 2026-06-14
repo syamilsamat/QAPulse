@@ -303,7 +303,7 @@ export default function Login() {
               />
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full rounded-full bg-gradient-to-r from-black via-slate-900 to-blue-600 text-white border-0 shadow-md transition-all duration-300 hover:animate-pulse hover:shadow-[0_0_15px_rgba(37,99,235,0.4)] hover:scale-[1.02]"
                 disabled={loginMutation.isPending}
               >
                 {loginMutation.isPending ? "Signing in..." : "Sign in"}

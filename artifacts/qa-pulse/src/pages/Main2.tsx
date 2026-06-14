@@ -110,7 +110,7 @@ const Main2: React.FC = () => {
             </span>
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight mb-6 md:mb-8 leading-tight text-slate-900">
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-950 via-slate-900 to-blue-600 flex items-center justify-center">
-              Smarter QA, Better Releases. <br className="hidden sm:block" />
+                Smarter QA, Better Releases. <br className="hidden sm:block" />
               </span>
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-950 via-slate-900 to-blue-600 flex items-center justify-center">
                 Powered by AI.
@@ -152,10 +152,26 @@ const Main2: React.FC = () => {
                   </span>
                 </div>
                 {[
-                  { icon: <LayoutDashboard className="w-5 h-5 md:w-4 md:h-4" />, label: "Dashboard", active: true },
-                  { icon: <ListChecks className="w-5 h-5 md:w-4 md:h-4" />, label: "Requirements", active: false },
-                  { icon: <TestTube className="w-5 h-5 md:w-4 md:h-4" />, label: "Test Cases", active: false },
-                  { icon: <BrainCircuit className="w-5 h-5 md:w-4 md:h-4" />, label: "AI Hub", active: false },
+                  {
+                    icon: <LayoutDashboard className="w-5 h-5 md:w-4 md:h-4" />,
+                    label: "Dashboard",
+                    active: true,
+                  },
+                  {
+                    icon: <ListChecks className="w-5 h-5 md:w-4 md:h-4" />,
+                    label: "Requirements",
+                    active: false,
+                  },
+                  {
+                    icon: <TestTube className="w-5 h-5 md:w-4 md:h-4" />,
+                    label: "Test Cases",
+                    active: false,
+                  },
+                  {
+                    icon: <BrainCircuit className="w-5 h-5 md:w-4 md:h-4" />,
+                    label: "AI Hub",
+                    active: false,
+                  },
                 ].map((item, idx) => (
                   <div
                     key={idx}
@@ -323,7 +339,9 @@ const Main2: React.FC = () => {
                             >
                               <div className="p-1 md:p-1.5 bg-white/10 rounded-md shrink-0">
                                 {React.cloneElement(step.icon, {
-                                  className: "w-3 h-3 md:w-4 md:h-4 " + step.icon.props.className
+                                  className:
+                                    "w-3 h-3 md:w-4 md:h-4 " +
+                                    step.icon.props.className,
                                 })}
                               </div>
                               <span className="text-[10px] md:text-xs font-medium text-slate-200 truncate">
@@ -356,7 +374,7 @@ const Main2: React.FC = () => {
       <section className="py-16 md:py-24 bg-white border-t border-slate-200 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-10 md:mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3 md:mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4 md:mb-6 bg-gradient-to-r from-black to-blue-600 bg-clip-text text-transparent">
               A Unified QA Ecosystem
             </h2>
             <p className="text-base text-slate-600 max-w-2xl mx-auto">
@@ -416,13 +434,14 @@ const Main2: React.FC = () => {
 
       {/* --- AI-POWERED FEATURES SECTION --- */}
       <section className="py-16 md:py-24 px-4 sm:px-6 relative bg-slate-50">
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[300px] md:w-[600px] h-[300px] md:h-[600px] bg-indigo-200/40 rounded-full blur-[80px] md:blur-[100px] pointer-events-none" />
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[300px] md:w-[600px] h-[300px] md:h-[600px] bg-blue-200/40 rounded-full blur-[80px] md:blur-[100px] pointer-events-none" />
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col lg:flex-row gap-10 md:gap-12 items-center">
             <div className="flex-1 w-full">
-              <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 md:mb-6">
-                Meet your new{" "}
-                <span className="text-indigo-600">AI Intelligence Hub</span>
+              <h2 className="text-3xl md:text-4xl font-bold mb-4 md:mb-6 bg-gradient-to-r from-black to-blue-600 bg-clip-text text-transparent">
+                Meet your new
+                <br />
+                AI Intelligence Hub
               </h2>
               <p className="text-base md:text-lg text-slate-600 mb-6 md:mb-8 leading-relaxed">
                 QA Pulse uses advanced conversational AI to eliminate repetitive
@@ -441,7 +460,7 @@ const Main2: React.FC = () => {
                     key={i}
                     className="flex items-start md:items-center gap-3 text-sm md:text-base text-slate-700 font-medium"
                   >
-                    <CheckCircle2 className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5 md:mt-0" />
+                    <CheckCircle2 className="w-5 h-5 text-blue-500 shrink-0 mt-0.5 md:mt-0" />
                     <span>{item}</span>
                   </li>
                 ))}
@@ -457,10 +476,10 @@ const Main2: React.FC = () => {
               ].map((card, i) => (
                 <div
                   key={i}
-                  className="p-5 md:p-6 rounded-2xl bg-white border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-400 hover:shadow-md transition-all flex flex-row sm:flex-col items-center sm:items-start gap-4 sm:gap-0"
+                  className="p-5 md:p-6 rounded-2xl bg-white border border-slate-200 shadow-sm relative overflow-hidden group hover:border-blue-400 hover:shadow-md transition-all flex flex-row sm:flex-col items-center sm:items-start gap-4 sm:gap-0"
                 >
-                  <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-100 blur-[30px] rounded-full group-hover:bg-indigo-200 transition-colors" />
-                  <div className="text-indigo-600 sm:mb-4 shrink-0">
+                  <div className="absolute top-0 right-0 w-20 h-20 bg-blue-100 blur-[30px] rounded-full group-hover:bg-blue-200 transition-colors" />
+                  <div className="text-blue-600 sm:mb-4 shrink-0">
                     {card.icon}
                   </div>
                   <h4 className="text-slate-800 font-medium">{card.title}</h4>
@@ -649,7 +668,7 @@ const Main2: React.FC = () => {
               </span>
             </div>
             <p className="text-sm text-slate-500 mb-6 max-w-xs">
-              Smarter QA. Better Releases. Powered by AI.
+              Smarter QA, Better Releases. Powered by AI.
             </p>
             <p className="text-xs text-slate-400 font-medium">v1.0.0-MVP</p>
           </div>
@@ -659,10 +678,26 @@ const Main2: React.FC = () => {
               Product
             </h4>
             <ul className="space-y-2 text-sm text-slate-600">
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Features</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">AI Intelligence Hub</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">PMO Dashboard</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Redmine Integration</a></li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Features
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  AI Intelligence Hub
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  PMO Dashboard
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Redmine Integration
+                </a>
+              </li>
             </ul>
           </div>
 
@@ -671,10 +706,26 @@ const Main2: React.FC = () => {
               Resources
             </h4>
             <ul className="space-y-2 text-sm text-slate-600">
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Documentation</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">API Reference</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Release Notes</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Community</a></li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Documentation
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  API Reference
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Release Notes
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Community
+                </a>
+              </li>
             </ul>
           </div>
 
@@ -683,9 +734,21 @@ const Main2: React.FC = () => {
               Support
             </h4>
             <ul className="space-y-2 text-sm text-slate-600">
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Help Center</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">Contact Admin</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition-colors">System Status</a></li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Help Center
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  Contact Admin
+                </a>
+              </li>
+              <li>
+                <a href="#" className="hover:text-blue-600 transition-colors">
+                  System Status
+                </a>
+              </li>
             </ul>
           </div>
         </div>
@@ -696,8 +759,12 @@ const Main2: React.FC = () => {
             rights reserved.
           </p>
           <div className="flex space-x-4 md:space-x-6">
-            <a href="#" className="hover:text-slate-900 transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-slate-900 transition-colors">Terms of Service</a>
+            <a href="#" className="hover:text-slate-900 transition-colors">
+              Privacy Policy
+            </a>
+            <a href="#" className="hover:text-slate-900 transition-colors">
+              Terms of Service
+            </a>
           </div>
         </div>
       </footer>
