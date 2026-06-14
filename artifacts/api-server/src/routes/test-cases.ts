@@ -26,18 +26,49 @@ const ai = new GoogleGenAI({});
 const router: IRouter = Router();
 
 /**
- * Bulletproof JSON Parser
- * Strips rogue markdown blocks and returns the fallback if parsing fails.
+ * Bulletproof JSON Parser with Auto-Salvage
+ * Strips rogue markdown blocks and attempts to recover partially generated
+ * arrays if the AI payload was truncated mid-generation.
  */
 function safeParseJSON(content: string, fallback: any) {
+  let cleaned = content
+    .replace(/```json\n?/gi, "")
+    .replace(/```\n?/g, "")
+    .trim();
+
   try {
-    const cleaned = content
-      .replace(/```json\n?/gi, "")
-      .replace(/```\n?/g, "")
-      .trim();
+    // Attempt standard parse first
     return JSON.parse(cleaned);
   } catch (error) {
-    console.error("🔴 JSON Parse Error! Raw AI Output:", content);
+    console.error(
+      "🔴 JSON Parse Error! Output was likely truncated. Attempting data salvage...",
+    );
+
+    // SALVAGE OPERATION:
+    // Because our target schema does not use nested objects (only arrays of strings),
+    // the last '}' character in the string will always represent the end of the last
+    // fully generated test case object.
+    const lastClosingBrace = cleaned.lastIndexOf("}");
+
+    if (lastClosingBrace !== -1) {
+      try {
+        // Snip off the broken incomplete text at the end, and forcefully
+        // close the JSON array and root object so it becomes valid again.
+        const salvagedText = cleaned.substring(0, lastClosingBrace + 1) + "]}";
+        const salvagedJSON = JSON.parse(salvagedText);
+
+        if (salvagedJSON && Array.isArray(salvagedJSON.testCases)) {
+          console.log(
+            `✅ Salvage successful! Recovered ${salvagedJSON.testCases.length} test cases.`,
+          );
+          return salvagedJSON;
+        }
+      } catch (salvageError) {
+        console.error("❌ Salvage operation failed. Returning fallback.");
+      }
+    }
+
+    // If parsing still fails, return the empty fallback
     return fallback;
   }
 }
@@ -202,37 +233,53 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
     useTemplateOnly,
   } = parsed.data;
 
-  let historicalContext = "";
+  // --- NEW ANTI-DUPLICATION LOGIC ---
+  let existingContext = "";
   let similarCount = 0;
-
   try {
-    const allTestCases = await db.select().from(testCasesTable).limit(5);
-    if (allTestCases.length > 0) {
-      historicalContext =
-        "\n\nReference existing test cases for style:\n" +
-        allTestCases
-          .slice(0, 2)
+    let query: any = db
+      .select({
+        title: testCasesTable.title,
+        objective: testCasesTable.objective,
+      })
+      .from(testCasesTable);
+
+    // Filter by the specific requirement if one is selected
+    if (requirementId) {
+      query = query.where(eq(testCasesTable.requirementId, requirementId));
+    }
+
+    // Fetch up to 30 existing cases (limits token consumption)
+    const existingCases = await query.limit(30);
+    similarCount = existingCases.length;
+
+    if (existingCases.length > 0) {
+      existingContext =
+        "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. You MUST NOT generate these scenarios again. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
+        existingCases
           .map(
-            (tc, i) =>
-              `Example ${i + 1}: Title: ${tc.title}\nObjective: ${tc.objective || "N/A"}\nSteps: ${tc.testSteps || "N/A"}\nExpected: ${tc.expectedResult || "N/A"}`,
+            (tc: any) =>
+              `- Title: ${tc.title} | Objective: ${tc.objective || "N/A"}`,
           )
-          .join("\n\n");
-      similarCount = Math.min(allTestCases.length, 2);
+          .join("\n");
     }
   } catch (dbErr) {
     console.warn(
-      "Could not read historical test cases, skipping context injection.",
+      "Could not read historical test cases for duplication check.",
+      dbErr,
     );
   }
+  // ----------------------------------
 
   const caseTypes = [];
   if (generatePositive !== false) caseTypes.push("positive path");
   if (generateNegative) caseTypes.push("negative validation");
   if (generateEdgeCases) caseTypes.push("extreme boundary condition");
 
-  // Enhancements: Explicitly ask for 3-5 high-value test cases to prevent cutoff
-  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 or 6 highly detailed and target-specific test cases based on the requirements.
-    Do NOT generate 10 cases. Keep it strictly between 5 and 6 total cases to avoid payload truncation.
+  // Enhanced System Instruction to enforce uniqueness AND array formatting
+  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 8 or 12 highly detailed and target-specific test cases based on the requirements.
+    Do NOT generate 15 cases. Keep it strictly between 8 and 12 total cases to avoid payload truncation.
+    CRITICAL: Review the "Existing Test Cases" provided in the prompt. You MUST generate entirely NEW test cases that cover different scenarios, edge cases, or perspectives not already covered by the existing ones.
 
     Return ONLY a valid JSON object matching this structure:
     { 
@@ -240,7 +287,7 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
         "title": "string", 
         "objective": "string", 
         "preconditions": "string", 
-        "testSteps": "1. step\\n2. step", 
+        "testSteps": ["1. First step", "2. Second step", "3. Third step"], 
         "expectedResult": "string", 
         "type": "manual" | "automation_candidate", 
         "priority": "low" | "medium" | "high" | "critical", 
@@ -253,12 +300,12 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
 Description: ${requirementDescription || "N/A"}
 Module: ${featureModule || "N/A"}
 Focus Scenarios: ${caseTypes.join(", ")}
-Notes: ${additionalNotes || "None"} ${historicalContext}`;
+Notes: ${additionalNotes || "None"} ${existingContext}`;
 
   const fallbackObject = { testCases: [] };
   let finalRawText = "";
 
-  // 1. Define the strict JSON schema for Gemini
+  // 1. Define the strict JSON schema for Gemini with Array implementation
   const responseSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -270,7 +317,10 @@ Notes: ${additionalNotes || "None"} ${historicalContext}`;
             title: { type: Type.STRING },
             objective: { type: Type.STRING },
             preconditions: { type: Type.STRING },
-            testSteps: { type: Type.STRING },
+            testSteps: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
             expectedResult: { type: Type.STRING },
             type: {
               type: Type.STRING,
@@ -304,7 +354,7 @@ Notes: ${additionalNotes || "None"} ${historicalContext}`;
       contents: userPrompt,
       config: {
         systemInstruction,
-        maxOutputTokens: 4000,
+        maxOutputTokens: 8192,
         responseMimeType: "application/json",
         responseSchema: responseSchema, // 2. Inject the schema here
       },
@@ -359,8 +409,21 @@ Notes: ${additionalNotes || "None"} ${historicalContext}`;
 
   const parsedPayload = safeParseJSON(finalRawText, fallbackObject);
 
+  // Map the array of steps back into a properly formatted string
+  const formattedTestCases = (parsedPayload.testCases ?? []).map((tc: any) => {
+    if (Array.isArray(tc.testSteps)) {
+      // If the AI correctly returned an array, join it with proper newlines
+      tc.testSteps = tc.testSteps.join("\n");
+    } else if (typeof tc.testSteps === "string") {
+      // FALLBACK: If a fallback AI ignored the array instruction and returned a flat string,
+      // this RegEx forces a newline before any number followed by a dot (e.g., "1.", "2.")
+      tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
+    }
+    return tc;
+  });
+
   res.json({
-    testCases: parsedPayload.testCases ?? [],
+    testCases: formattedTestCases,
     similarTestCasesUsed: similarCount,
     templateUsed: useTemplateOnly ? "standard_template" : "hybrid",
   });
@@ -445,7 +508,6 @@ router.patch("/test-cases/:id", async (req, res): Promise<void> => {
   const parsed = UpdateTestCaseBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
-    return;
     return;
   }
   const [tc] = await db

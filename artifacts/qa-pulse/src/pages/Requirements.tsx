@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listRequirements,
@@ -63,6 +63,7 @@ import {
   Download,
   Loader2,
   AlertTriangle,
+  ArrowUpDown,
 } from "lucide-react";
 import { format } from "date-fns";
 import { getApiUrl } from "@/lib/api";
@@ -88,10 +89,14 @@ export default function Requirements() {
   const { user, token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Filtering, Search & Sorting State
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterProject, setFilterProject] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("newest");
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
   const [form, setForm] = useState<Partial<RequirementInput>>({});
@@ -114,7 +119,7 @@ export default function Requirements() {
   const [redmineInput, setRedmineInput] = useState("");
   const [redmineLoading, setRedmineLoading] = useState(false);
 
-  // --- NEW: Selection and Delete Confirmation State ---
+  // Selection and Delete Confirmation State
   const [selectedReqs, setSelectedReqs] = useState<number[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [reqsToDelete, setReqsToDelete] = useState<number[]>([]);
@@ -139,7 +144,7 @@ export default function Requirements() {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedReqs([]);
-  }, [search, filterStatus, filterPriority, filterProject]);
+  }, [search, filterStatus, filterPriority, filterProject, sortBy]);
 
   const createMutation = useCreateRequirement({
     mutation: {
@@ -185,7 +190,6 @@ export default function Requirements() {
         queryClient.invalidateQueries({
           queryKey: getListRequirementsQueryKey(),
         });
-        // Removed the success toast here to prevent spamming during bulk deletions
       },
       onError: () =>
         toast({
@@ -208,31 +212,63 @@ export default function Requirements() {
     },
   });
 
-  const filtered = requirements.filter((r) => {
-    if (filterStatus !== "all" && r.status !== filterStatus) return false;
-    if (filterPriority !== "all" && r.priority !== filterPriority) return false;
-    if (filterProject !== "all" && String(r.projectId) !== filterProject)
-      return false;
+  const filtered = useMemo(() => {
+    // 1. Filter the dataset
+    let result = requirements.filter((r) => {
+      if (filterStatus !== "all" && r.status !== filterStatus) return false;
+      if (filterPriority !== "all" && r.priority !== filterPriority) return false;
+      if (filterProject !== "all" && String(r.projectId) !== filterProject) return false;
 
-    if (search) {
-      const searchLower = search.toLowerCase();
-      const cleanTicketSearch = searchLower.replace(/^#/, "");
+      // Expanded Search Logic
+      if (search) {
+        const searchLower = search.toLowerCase();
+        const cleanTicketSearch = searchLower.replace(/^#/, "");
 
-      const matchesTitle = r.title
-        ? r.title.toLowerCase().includes(searchLower)
-        : false;
+        const matchesTitle = r.title
+          ? r.title.toLowerCase().includes(searchLower)
+          : false;
 
-      const matchesTicket = r.redmineTicketId
-        ? String(r.redmineTicketId).toLowerCase().includes(cleanTicketSearch)
-        : false;
+        const matchesTicket = r.redmineTicketId
+          ? String(r.redmineTicketId).toLowerCase().includes(cleanTicketSearch)
+          : false;
 
-      if (!matchesTitle && !matchesTicket) {
-        return false;
+        const matchesAssignee = r.assigneeName
+          ? r.assigneeName.toLowerCase().includes(searchLower)
+          : false;
+
+        const matchesRelease = r.release
+          ? r.release.toLowerCase().includes(searchLower)
+          : false;
+
+        if (!matchesTitle && !matchesTicket && !matchesAssignee && !matchesRelease) {
+          return false;
+        }
       }
-    }
+      return true;
+    });
 
-    return true;
-  });
+    // 2. Sort the dataset
+    result.sort((a: any, b: any) => {
+      if (sortBy === "newest") {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      if (sortBy === "oldest") {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      if (sortBy === "updated") {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }
+      if (sortBy === "priority") {
+        const pMap: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+        const pA = pMap[a.priority] || 0;
+        const pB = pMap[b.priority] || 0;
+        return pB - pA; // High to Low
+      }
+      return 0;
+    });
+
+    return result;
+  }, [requirements, search, filterStatus, filterPriority, filterProject, sortBy]);
 
   // Apply array subset segmentation limits for pagination parameters
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
@@ -241,7 +277,7 @@ export default function Requirements() {
     currentPage * ITEMS_PER_PAGE,
   );
 
-  // --- NEW: Selection & Deletion Logic ---
+  // Selection & Deletion Logic
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedReqs(filtered.map((r) => r.id));
@@ -427,88 +463,122 @@ export default function Requirements() {
             Manage and track project requirements
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={() => setProjectDialogOpen(true)}
-            className="gap-2"
+            className="gap-2 w-full sm:w-auto"
           >
             <FolderPlus className="w-4 h-4" /> New Project
           </Button>
           <Button
             variant="outline"
             onClick={() => setRedmineDialogOpen(true)}
-            className="gap-2"
+            className="gap-2 w-full sm:w-auto"
           >
-            <Download className="w-4 h-4" /> Requirement From Redmine
+            <Download className="w-4 h-4" /> From Redmine
           </Button>
-          <Button onClick={openCreate} className="gap-2">
+          <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
             <Plus className="w-4 h-4" /> New Requirement
           </Button>
         </div>
       </div>
 
+      {/* Selection banner */}
+      {selectedReqs.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
+            <span>
+              <strong>{selectedReqs.length}</strong> requirement
+              {selectedReqs.length !== 1 ? "s" : ""} selected
+            </span>
+          </div>
+          <div className="sm:ml-auto flex w-full sm:w-auto items-center gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1"
+              onClick={() => confirmDelete(selectedReqs)}
+            >
+              <Trash2 className="w-3 h-3" /> Delete Selected
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none px-2 text-xs gap-1"
+              onClick={() => setSelectedReqs([])}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            {/* NEW: Batch Delete Action */}
-            {selectedReqs.length > 0 && (
-              <Button 
-                variant="destructive" 
-                className="shrink-0"
-                onClick={() => confirmDelete(selectedReqs)}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Selected ({selectedReqs.length})
-              </Button>
-            )}
-
-            <div className="relative flex-1">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="relative w-full lg:flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                className="pl-9"
-                placeholder="Search requirements..."
+                className="pl-9 w-full"
+                placeholder="Search by title, ID, assignee, or release..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select value={filterProject} onValueChange={setFilterProject}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="in_review">In Review</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="deprecated">Deprecated</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterPriority} onValueChange={setFilterPriority}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Priority" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Priority</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Extended Grid Layout for the Filters + Sort Dropdowns */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto shrink-0">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="bg-muted/30">
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
+                  <SelectValue placeholder="Sort By" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="updated">Recently Updated</SelectItem>
+                  <SelectItem value="priority">Highest Priority</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterProject} onValueChange={setFilterProject}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Project" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Projects</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="in_review">In Review</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="deprecated">Deprecated</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterPriority} onValueChange={setFilterPriority}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Priority</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -527,11 +597,10 @@ export default function Requirements() {
             </div>
           ) : (
             <div className="flex flex-col">
-              <div className="overflow-x-auto">
-                <Table>
+              <div className="overflow-x-auto w-full">
+                <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow>
-                      {/* NEW: Checkbox Header */}
                       <TableHead className="w-12 text-center">
                         <Checkbox
                           checked={filtered.length > 0 && selectedReqs.length === filtered.length}
@@ -550,8 +619,7 @@ export default function Requirements() {
                   </TableHeader>
                   <TableBody>
                     {paginatedRequirements.map((r) => (
-                      <TableRow key={r.id} className="hover:bg-muted/40">
-                        {/* NEW: Checkbox Cell */}
+                      <TableRow key={r.id} className={`hover:bg-muted/40 ${selectedReqs.includes(r.id) ? "bg-primary/5" : ""}`}>
                         <TableCell className="text-center">
                           <Checkbox
                             checked={selectedReqs.includes(r.id)}
@@ -561,7 +629,7 @@ export default function Requirements() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{r.title}</p>
+                            <p className="font-medium line-clamp-2">{r.title}</p>
                             {r.module && (
                               <p className="text-xs text-muted-foreground">
                                 {r.module}
@@ -581,27 +649,27 @@ export default function Requirements() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                           {r.projectName ?? "—"}
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[r.priority]}`}
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PRIORITY_COLORS[r.priority]}`}
                           >
                             {capitalize(r.priority)}
                           </span>
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[r.status]}`}
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_COLORS[r.status]}`}
                           >
                             {capitalize(r.status)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-sm">
+                        <TableCell className="text-sm whitespace-nowrap">
                           {r.assigneeName ?? "—"}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                           {r.release ?? "—"}
                         </TableCell>
                         <TableCell>
@@ -622,7 +690,7 @@ export default function Requirements() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() => confirmDelete([r.id])} // UPDATED
+                                onClick={() => confirmDelete([r.id])}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" />
                                 Delete
@@ -637,8 +705,8 @@ export default function Requirements() {
               </div>
 
               {/* Pagination Controls */}
-              <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
-                <div className="text-xs text-muted-foreground">
+              <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-muted/10 border-t gap-3">
+                <div className="text-xs text-muted-foreground text-center sm:text-left w-full sm:w-auto">
                   Showing{" "}
                   <span className="font-medium">
                     {(currentPage - 1) * ITEMS_PER_PAGE + 1}
@@ -650,11 +718,11 @@ export default function Requirements() {
                   of <span className="font-medium">{filtered.length}</span>{" "}
                   requirements
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto justify-center">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs flex-1 sm:flex-none"
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                   >
@@ -663,7 +731,7 @@ export default function Requirements() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs flex-1 sm:flex-none"
                     onClick={() =>
                       setCurrentPage((p) => Math.min(totalPages, p + 1))
                     }
@@ -678,9 +746,9 @@ export default function Requirements() {
         </CardContent>
       </Card>
 
-      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
+      {/* DELETE CONFIRMATION DIALOG */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
@@ -722,7 +790,7 @@ export default function Requirements() {
 
       {/* Create/Edit Requirement Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
           <DialogHeader>
             <DialogTitle>
               {editingReq ? "Edit Requirement" : "New Requirement"}
@@ -754,7 +822,7 @@ export default function Requirements() {
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Project</Label>
                 <Select
@@ -766,7 +834,7 @@ export default function Requirements() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select project" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.name}
@@ -790,7 +858,7 @@ export default function Requirements() {
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="low">Low</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
                     <SelectItem value="high">High</SelectItem>
@@ -811,7 +879,7 @@ export default function Requirements() {
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="in_review">In Review</SelectItem>
                     <SelectItem value="approved">Approved</SelectItem>
@@ -830,7 +898,7 @@ export default function Requirements() {
                   <SelectTrigger>
                     <SelectValue placeholder="Assign to..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {users.map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>
                         {u.name}
@@ -869,13 +937,14 @@ export default function Requirements() {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
               Cancel
             </Button>
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending || updateMutation.isPending}
+              className="w-full sm:w-auto"
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Saving..."
@@ -889,7 +958,7 @@ export default function Requirements() {
 
       {/* Redmine Import Dialog */}
       <Dialog open={redmineDialogOpen} onOpenChange={setRedmineDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:w-full max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Download className="w-5 h-5 text-primary" /> Import from Redmine
@@ -913,19 +982,21 @@ export default function Requirements() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
             <Button
               variant="outline"
               onClick={() => {
                 setRedmineDialogOpen(false);
                 setRedmineInput("");
               }}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button
               onClick={handleImportFromRedmine}
               disabled={redmineLoading || !redmineInput.trim()}
+              className="w-full sm:w-auto"
             >
               {redmineLoading ? (
                 <>
@@ -942,7 +1013,7 @@ export default function Requirements() {
 
       {/* New Project Dialog */}
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:w-full max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FolderPlus className="w-5 h-5 text-primary" /> New Project
@@ -986,7 +1057,7 @@ export default function Requirements() {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px]">
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="on_hold">On Hold</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
@@ -994,16 +1065,18 @@ export default function Requirements() {
               </Select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
             <Button
               variant="outline"
               onClick={() => setProjectDialogOpen(false)}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button
               onClick={handleCreateProject}
               disabled={createProjectMutation.isPending}
+              className="w-full sm:w-auto"
             >
               {createProjectMutation.isPending
                 ? "Creating..."

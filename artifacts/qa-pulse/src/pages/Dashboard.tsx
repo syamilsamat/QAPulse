@@ -31,12 +31,22 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
-import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { 
+  BarChart, 
+  Bar, 
+  CartesianGrid, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer 
+} from "recharts";
 import { createPortal } from "react-dom";
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths,
   isSameMonth, isToday, parseISO,
 } from "date-fns";
+
 
 const ROLE_LABELS: Record<string, string> = {
   qa_member: "QA Member",
@@ -50,6 +60,46 @@ const EVENT_TYPE_COLORS: Record<string, { bg: string; text: string; border: stri
   deadline: { bg: "bg-red-100",     text: "text-red-700",     border: "border-red-200",     dot: "bg-red-500" },
   release:  { bg: "bg-green-100",   text: "text-green-700",   border: "border-green-200",   dot: "bg-green-500" },
   other:    { bg: "bg-slate-100",   text: "text-slate-700",   border: "border-slate-200",   dot: "bg-slate-400" },
+};
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    // Format the date label safely
+    let formattedLabel = label;
+    try {
+      const d = new Date(label);
+      if (!isNaN(d.getTime())) {
+        formattedLabel = `Week of ${format(d, "MMM d, yyyy")}`;
+      }
+    } catch {
+      // Keep original label if parsing fails
+    }
+
+    return (
+      <div className="bg-card border border-border rounded-lg shadow-xl p-3 min-w-[150px]">
+        <p className="text-sm font-semibold mb-2 border-b pb-1">{formattedLabel}</p>
+        <div className="space-y-1.5">
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-3 h-3 rounded-sm shrink-0 shadow-sm"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="text-muted-foreground capitalize">
+                  {entry.name}
+                </span>
+              </div>
+              <span className="font-medium text-foreground">
+                {entry.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return null;
 };
 
 function getEventColors(type: string) {
@@ -790,23 +840,29 @@ export default function Dashboard() {
 
       {/* Charts + Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="col-span-1 lg:col-span-2">
+        <Card className="col-span-1 lg:col-span-2 flex flex-col overflow-hidden">
           <CardHeader>
-            <CardTitle>Weekly Trends</CardTitle>
+            <CardTitle>Weekly Task Progression</CardTitle>
             <CardDescription>
               {selectedMember
-                ? "Global trend — tasks completed vs. test cases created"
-                : "Tasks completed vs. test cases created"}
+                ? `Task status breakdown for ${selectedMember.name}`
+                : "Overall team task status breakdown"}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pb-4">
             {isLoadingTrend ? (
-              <Skeleton className="h-[300px] w-full" />
+              <Skeleton className="h-[350px] w-full" />
             ) : weeklyTrend && weeklyTrend.length > 0 ? (
-              <div className="h-[300px] w-full">
+              <div className="h-[350px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={weeklyTrend} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                  <BarChart 
+                    data={weeklyTrend} 
+                    // 1. Increased bottom and left margins to make room for the axis labels
+                    margin={{ top: 10, right: 10, bottom: 20, left: 0 }} 
+                  >
+                    {/* 2. Changed vertical={false} to vertical={true} for a full grid */}
+                    <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="var(--border)" />
+
                     <XAxis
                       dataKey="week"
                       tickFormatter={(v) => {
@@ -817,26 +873,68 @@ export default function Dashboard() {
                       }}
                       stroke="var(--muted-foreground)"
                       fontSize={12}
-                    />
-                    <YAxis stroke="var(--muted-foreground)" fontSize={12} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "8px" }}
-                      labelFormatter={(v) => {
-                        try {
-                          const d = new Date(v);
-                          return isNaN(d.getTime()) ? v : `Week of ${format(d, "MMM d, yyyy")}`;
-                        } catch { return v; }
+                      tickMargin={10}
+                      // 3. Added label for the X-axis
+                      label={{ 
+                        value: "Weeks", 
+                        position: "insideBottom", 
+                        offset: -15, 
+                        fill: "var(--muted-foreground)", 
+                        fontSize: 12,
+                        fontWeight: 500
                       }}
                     />
-                    <Legend />
-                    <Line type="monotone" dataKey="completed" name="Completed" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                    <Line type="monotone" dataKey="pending" name="Pending" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} strokeDasharray="4 2" />
-                    <Line type="monotone" dataKey="testCases" name="Test Cases Created" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                  </LineChart>
+
+                    <YAxis 
+                      stroke="var(--muted-foreground)" 
+                      fontSize={12} 
+                      allowDecimals={false} 
+                      tickFormatter={(val) => (val === 0 ? "" : val)} 
+                      // 4. Added label for the Y-axis (rotated)
+                      label={{ 
+                        value: "Number of Tasks", 
+                        angle: -90, 
+                        position: "insideLeft", 
+                        offset: 15, 
+                        fill: "var(--muted-foreground)", 
+                        fontSize: 12,
+                        fontWeight: 500,
+                        style: { textAnchor: 'middle' }
+                      }}
+                    />
+
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'var(--muted)', opacity: 0.2 }} />
+
+                    <Legend 
+                      iconType="circle"
+                      wrapperStyle={{ 
+                        fontSize: '12px', 
+                        paddingTop: '25px', // Increased slightly to clear the X-axis label
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        justifyContent: 'center',
+                        gap: '8px'
+                      }} 
+                    />
+
+                    {/* Swapped to a bright, vibrant Cyan (Tailwind cyan-400) */}
+                    <Bar dataKey="new" stackId="a" fill="#22d3ee" name="New" /> 
+
+                    {/* Swapped to a vivid, punchy Yellow (Tailwind yellow-400) */}
+                    <Bar dataKey="pending" stackId="a" fill="#facc15" name="Pending" />
+                    <Bar dataKey="in_progress" stackId="a" fill="#27A3F5" name="In Progress" /> 
+                    <Bar dataKey="blocked" stackId="a" fill="#E00404" name="Blocked" /> 
+                    <Bar dataKey="sit" stackId="a" fill="#93c5fd" name="SIT" /> 
+                    <Bar dataKey="uat" stackId="a" fill="#A038F2" name="UAT" /> 
+                    <Bar dataKey="done" stackId="a" fill="#86efac" name="Done" /> 
+                    <Bar dataKey="released_to_production" stackId="a" fill="#22c55e" name="Released" /> 
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">No trend data available</div>
+              <div className="h-[350px] flex items-center justify-center text-muted-foreground">
+                No trend data available
+              </div>
             )}
           </CardContent>
         </Card>

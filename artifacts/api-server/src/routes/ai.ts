@@ -14,18 +14,49 @@ const router: IRouter = Router();
 const ai = new GoogleGenAI({});
 
 /**
- * Bulletproof JSON Parser
- * Strips rogue markdown blocks and returns the fallback if parsing fails.
+ * Bulletproof JSON Parser with Auto-Salvage
+ * Strips rogue markdown blocks and attempts to recover partially generated
+ * arrays if the AI payload was truncated mid-generation.
  */
 function safeParseJSON(content: string, fallback: any) {
+  let cleaned = content
+    .replace(/```json\n?/gi, "")
+    .replace(/```\n?/g, "")
+    .trim();
+
   try {
-    const cleaned = content
-      .replace(/```json\n?/gi, "")
-      .replace(/```\n?/g, "")
-      .trim();
+    // Attempt standard parse first
     return JSON.parse(cleaned);
   } catch (error) {
-    console.error("🔴 JSON Parse Error! Raw AI Output:", content);
+    console.error("🔴 JSON Parse Error! Output was likely truncated. Attempting data salvage...");
+
+    // SALVAGE OPERATION:
+    // We look for the last fully completed object (ending in '}') and 
+    // forcefully close the array and root object to rescue the valid data.
+    const lastClosingBrace = cleaned.lastIndexOf("}");
+
+    if (lastClosingBrace !== -1) {
+      try {
+        // Snip off the broken incomplete text at the end, and seal the JSON.
+        const salvagedText = cleaned.substring(0, lastClosingBrace + 1) + "]}";
+        const salvagedJSON = JSON.parse(salvagedText);
+
+        // Verify that the salvage actually produced the arrays we expect in ai.ts
+        if (
+          salvagedJSON && 
+          (Array.isArray(salvagedJSON.duplicates) || 
+           Array.isArray(salvagedJSON.edgeCases) || 
+           Array.isArray(salvagedJSON.gaps))
+        ) {
+          console.log(`✅ Salvage successful! Recovered truncated AI analysis.`);
+          return salvagedJSON;
+        }
+      } catch (salvageError) {
+        console.error("❌ Salvage operation failed. Returning fallback.");
+      }
+    }
+
+    // If parsing still fails, return the empty fallback
     return fallback;
   }
 }

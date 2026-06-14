@@ -88,6 +88,7 @@ import {
   Clock,
   ExternalLink,
   Loader2,
+  ArrowUpDown,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -277,10 +278,12 @@ export default function Tasks() {
   const queryClient = useQueryClient();
   const isAdminOrLead = user?.role === "admin" || user?.role === "qa_lead";
 
+  // Search & Filter States
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [filterProject, setFilterProject] = useState("all");
+  const [sortBy, setSortBy] = useState("newest"); // New sorting state
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -344,10 +347,11 @@ export default function Tasks() {
     queryFn: () => listRequirements(),
   });
 
+  // Automatically reset layout pages back to index 1 upon modifying table filters/sort
   useEffect(() => {
     setCurrentPage(1);
     setSelectedTasks([]);
-  }, [search, filterStatus, filterAssignee, filterProject]);
+  }, [search, filterStatus, filterAssignee, filterProject, sortBy]);
 
   const createMutation = useCreateTask({
     mutation: {
@@ -407,33 +411,56 @@ export default function Tasks() {
     },
   });
 
-  const filtered = tasks.filter((t) => {
-    if (!isAdminOrLead && t.assigneeId !== user?.id) return false;
+  const filtered = useMemo(() => {
+    // 1. Filter the dataset
+    let result = tasks.filter((t) => {
+      if (!isAdminOrLead && t.assigneeId !== user?.id) return false;
 
-    // Status filters
-    if (filterStatus === "overdue") {
-      if (!t.isOverdue || t.status === "released_to_production") return false;
-    } else if (filterStatus !== "all" && t.status !== filterStatus) {
-      return false;
-    }
-
-    // Assignee / Project filters
-    if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee) return false;
-    if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
-
-    // Search filter (Task Name OR Redmine ID)
-    if (search) {
-      const searchLower = search.toLowerCase();
-      const matchName = t.name.toLowerCase().includes(searchLower);
-      const matchRedmineId = t.redmineId ? String(t.redmineId).toLowerCase().includes(searchLower) : false;
-
-      if (!matchName && !matchRedmineId) {
+      // Status filters
+      if (filterStatus === "overdue") {
+        if (!t.isOverdue || t.status === "released_to_production") return false;
+      } else if (filterStatus !== "all" && t.status !== filterStatus) {
         return false;
       }
-    }
 
-    return true;
-  });
+      // Assignee / Project filters
+      if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee) return false;
+      if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
+
+      // Search filter (Task Name OR Redmine ID)
+      if (search) {
+        const searchLower = search.toLowerCase();
+        const matchName = t.name.toLowerCase().includes(searchLower);
+        const matchRedmineId = t.redmineId ? String(t.redmineId).toLowerCase().includes(searchLower) : false;
+
+        if (!matchName && !matchRedmineId) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // 2. Sort the dataset
+    result.sort((a: any, b: any) => {
+      if (sortBy === "newest") {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
+      if (sortBy === "oldest") {
+        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      }
+      if (sortBy === "updated") {
+        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      }
+      if (sortBy === "due_date") {
+        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        return dateA - dateB;
+      }
+      return 0;
+    });
+
+    return result;
+  }, [tasks, search, filterStatus, filterAssignee, filterProject, sortBy, user, isAdminOrLead]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTasks = filtered.slice(
@@ -660,11 +687,11 @@ export default function Tasks() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex flex-col lg:flex-row gap-3">
             {selectedTasks.length > 0 && (
               <Button 
                 variant="destructive" 
-                className="shrink-0 w-full md:w-auto"
+                className="shrink-0 w-full lg:w-auto"
                 onClick={() => confirmDelete(selectedTasks)}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
@@ -672,7 +699,7 @@ export default function Tasks() {
               </Button>
             )}
 
-            <div className="relative flex-1">
+            <div className="relative w-full lg:flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9 w-full"
@@ -681,9 +708,24 @@ export default function Tasks() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+
+            {/* Extended Grid Layout for the Filters + Sort Dropdowns */}
+            <div className={`grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-row gap-3 w-full lg:w-auto shrink-0`}>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-full lg:w-40 bg-muted/30">
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
+                  <SelectValue placeholder="Sort By" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="updated">Recently Updated</SelectItem>
+                  <SelectItem value="due_date">Due Date</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Select value={filterProject} onValueChange={setFilterProject}>
-                <SelectTrigger className="w-full sm:w-40">
+                <SelectTrigger className="w-full lg:w-40">
                   <SelectValue placeholder="Project" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
@@ -695,8 +737,9 @@ export default function Tasks() {
                   ))}
                 </SelectContent>
               </Select>
+
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-full sm:w-36">
+                <SelectTrigger className="w-full lg:w-36">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
@@ -719,9 +762,10 @@ export default function Tasks() {
                   </SelectItem>
                 </SelectContent>
               </Select>
+
               {isAdminOrLead && (
                 <Select value={filterAssignee} onValueChange={setFilterAssignee}>
-                  <SelectTrigger className="w-full sm:w-40">
+                  <SelectTrigger className="w-full lg:w-40">
                     <SelectValue placeholder="Assignee" />
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
@@ -800,7 +844,7 @@ export default function Tasks() {
                     {paginatedTasks.map((t) => (
                       <TableRow
                         key={t.id}
-                        className={`hover:bg-muted/40 ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
+                        className={`hover:bg-muted/40 ${selectedTasks.includes(t.id) ? "bg-primary/5" : ""} ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
                       >
                         <TableCell className="text-center">
                           <Checkbox
@@ -980,8 +1024,8 @@ export default function Tasks() {
                 </Table>
               </div>
 
-              <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
-                <div className="text-xs text-muted-foreground">
+              <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-muted/10 border-t gap-3">
+                <div className="text-xs text-muted-foreground text-center sm:text-left w-full sm:w-auto">
                   Showing{" "}
                   <span className="font-medium">
                     {(currentPage - 1) * ITEMS_PER_PAGE + 1}
@@ -993,11 +1037,11 @@ export default function Tasks() {
                   of <span className="font-medium">{filtered.length}</span>{" "}
                   tasks
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto justify-center">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs flex-1 sm:flex-none"
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                   >
@@ -1006,7 +1050,7 @@ export default function Tasks() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs flex-1 sm:flex-none"
                     onClick={() =>
                       setCurrentPage((p) => Math.min(totalPages, p + 1))
                     }
@@ -1391,7 +1435,7 @@ export default function Tasks() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="low">Low</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
                     <SelectItem value="high">High</SelectItem>
@@ -1430,7 +1474,7 @@ export default function Tasks() {
               onChange={(e) => setSingleAssignSearch(e.target.value)}
             />
           </div>
-          <div className="flex-1 overflow-y-auto mt-4 space-y-1 pr-1">
+          <div className="flex-1 overflow-y-auto mt-4 space-y-1 pr-1 max-h-[300px]">
             {users
               .filter((u) => u.role === "qa_member" || u.role === "qa_lead")
               .filter(
@@ -1544,7 +1588,7 @@ export default function Tasks() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent
-                  className="w-[var(--radix-popover-trigger-width)] p-0"
+                  className="w-[var(--radix-popover-trigger-width)] p-0 max-h-[300px] overflow-y-auto"
                   align="start"
                 >
                   <Command>

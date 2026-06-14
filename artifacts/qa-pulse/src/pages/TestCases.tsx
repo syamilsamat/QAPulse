@@ -68,6 +68,7 @@ import {
   ChevronDown,
   FileSpreadsheet,
   X,
+  ArrowUpDown,
 } from "lucide-react";
 import React from "react";
 import { format } from "date-fns";
@@ -194,16 +195,19 @@ function AIGenerateDialog({
   onClose,
   requirements,
   projects,
+  users,
   onSuccess,
 }: {
   open: boolean;
   onClose: () => void;
   requirements: any[];
   projects: any[];
+  users: any[];
   onSuccess: (testCases: any[], formData: any) => void;
 }) {
+  const { user: currentUser } = useAuth();
   const [form, setForm] = useState<
-    Partial<AIGenerateInput & { projectId?: number }>
+    Partial<AIGenerateInput & { projectId?: number; authorId?: number }>
   >({
     generatePositive: true,
     generateNegative: false,
@@ -239,7 +243,7 @@ function AIGenerateDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" /> AI Test Case
@@ -249,7 +253,7 @@ function AIGenerateDialog({
 
         {step === "form" ? (
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Project (optional)</Label>
                 <Select
@@ -261,7 +265,7 @@ function AIGenerateDialog({
                   <SelectTrigger>
                     <SelectValue placeholder="Select a project..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.name}
@@ -289,7 +293,7 @@ function AIGenerateDialog({
                   <SelectTrigger>
                     <SelectValue placeholder="Select a requirement..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {requirements.map((r) => (
                       <SelectItem key={r.id} value={String(r.id)}>
                         {r.title}
@@ -323,7 +327,7 @@ function AIGenerateDialog({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Module</Label>
                 <Input
@@ -343,11 +347,31 @@ function AIGenerateDialog({
                   <SelectTrigger>
                     <SelectValue placeholder="Any" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="low">Low</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
                     <SelectItem value="high">High</SelectItem>
                     <SelectItem value="critical">Critical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Assign Author</Label>
+                <Select
+                  value={form.authorId ? String(form.authorId) : ""}
+                  onValueChange={(v) =>
+                    setForm({ ...form, authorId: Number(v) })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Current User" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -367,7 +391,7 @@ function AIGenerateDialog({
 
             <div className="space-y-2">
               <Label>Generate</Label>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
                 <div className="flex items-center gap-2">
                   <Checkbox
                     checked={form.generatePositive ?? true}
@@ -428,7 +452,7 @@ function AIGenerateDialog({
                   <CardContent className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-medium text-sm">{tc.title}</p>
-                      <div className="flex gap-1.5 shrink-0">
+                      <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
                         <span
                           className={`text-xs px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[tc.priority] ?? "bg-slate-100 text-slate-700"}`}
                         >
@@ -458,15 +482,15 @@ function AIGenerateDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+        <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
+          <Button variant="outline" onClick={handleClose} className="w-full sm:w-auto">
             Cancel
           </Button>
           {step === "form" ? (
             <Button
               onClick={handleGenerate}
               disabled={!form.requirementTitle || generateMutation.isPending}
-              className="gap-2"
+              className="gap-2 w-full sm:w-auto"
             >
               {generateMutation.isPending ? (
                 <>
@@ -486,7 +510,7 @@ function AIGenerateDialog({
                 onSuccess(preview, form);
                 handleClose();
               }}
-              className="gap-2"
+              className="gap-2 w-full sm:w-auto"
             >
               <Plus className="w-4 h-4" />
               Save All ({preview.length})
@@ -502,11 +526,15 @@ export default function TestCases() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Filtering & Search States
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterProject, setFilterProject] = useState("all");
   const [filterAI, setFilterAI] = useState("all");
+  const [sortBy, setSortBy] = useState("newest"); // New sorting state
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
 
@@ -552,10 +580,10 @@ export default function TestCases() {
     [requirements],
   );
 
-  // Automatically reset layout pages back to index 1 upon modifying table filters
+  // Automatically reset layout pages back to index 1 upon modifying table filters/sort
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterType, filterPriority, filterProject, filterAI]);
+  }, [search, filterType, filterPriority, filterProject, filterAI, sortBy]);
 
   const createMutation = useCreateTestCase({
     mutation: {
@@ -604,28 +632,50 @@ export default function TestCases() {
     },
   });
 
-  const filtered = testCases.filter((t) => {
-    if (filterType !== "all" && t.type !== filterType) return false;
-    if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-    if (filterProject !== "all" && String(t.projectId) !== filterProject)
-      return false;
-    if (filterAI === "ai" && !t.aiAssisted) return false;
-    if (filterAI === "manual" && t.aiAssisted) return false;
+  const filtered = useMemo(() => {
+    // 1. Filter the dataset
+    let result = testCases.filter((t) => {
+      if (filterType !== "all" && t.type !== filterType) return false;
+      if (filterPriority !== "all" && t.priority !== filterPriority) return false;
+      if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
+      if (filterAI === "ai" && !t.aiAssisted) return false;
+      if (filterAI === "manual" && t.aiAssisted) return false;
 
-    // Expanded search logic
-    if (search) {
-      const query = search.toLowerCase();
-      const matchTitle = t.title?.toLowerCase().includes(query);
-      const matchTags = t.tags?.toLowerCase().includes(query);
-      const matchAuthor = t.authorName?.toLowerCase().includes(query);
+      if (search) {
+        const query = search.toLowerCase();
+        const matchTitle = t.title?.toLowerCase().includes(query);
+        const matchTags = t.tags?.toLowerCase().includes(query);
+        const matchAuthor = t.authorName?.toLowerCase().includes(query);
 
-      if (!matchTitle && !matchTags && !matchAuthor) {
-        return false;
+        if (!matchTitle && !matchTags && !matchAuthor) {
+          return false;
+        }
       }
-    }
+      return true;
+    });
 
-    return true;
-  });
+    // 2. Sort the dataset
+    result.sort((a, b) => {
+      if (sortBy === "newest") {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      if (sortBy === "oldest") {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      if (sortBy === "updated") {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }
+      if (sortBy === "priority") {
+        const pMap: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+        const pA = pMap[a.priority] || 0;
+        const pB = pMap[b.priority] || 0;
+        return pB - pA; // High to Low
+      }
+      return 0;
+    });
+
+    return result;
+  }, [testCases, search, filterType, filterPriority, filterProject, filterAI, sortBy]);
 
   // Calculate Paginated Sub-datasets
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
@@ -778,6 +828,8 @@ export default function TestCases() {
           aiAssisted: true,
           requirementId: formData?.requirementId,
           projectId: formData?.projectId,
+          // Use explicitly selected author, or fallback to the current logged-in user
+          authorId: formData?.authorId || user?.id,
         } as TestCaseInput,
       }),
     );
@@ -812,39 +864,43 @@ export default function TestCases() {
           <Button
             variant="outline"
             onClick={handleExport}
-            className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300"
+            className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 w-full sm:w-auto"
           >
             <FileSpreadsheet className="w-4 h-4" />
             {selectedIds.size > 0
               ? `Export ${selectedIds.size} selected`
               : "Export to Excel"}
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => setAiDialogOpen(true)}
-            className="gap-2"
-          >
-            <Sparkles className="w-4 h-4 text-primary" /> AI Generate
-          </Button>
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="w-4 h-4" /> New Test Case
-          </Button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={() => setAiDialogOpen(true)}
+              className="gap-2 flex-1 sm:flex-none"
+            >
+              <Sparkles className="w-4 h-4 text-primary" /> AI Generate
+            </Button>
+            <Button onClick={openCreate} className="gap-2 flex-1 sm:flex-none">
+              <Plus className="w-4 h-4" /> New Case
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Selection banner */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-primary/5 border border-primary/20 text-sm">
-          <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
-          <span>
-            <strong>{selectedIds.size}</strong> test case
-            {selectedIds.size !== 1 ? "s" : ""} selected
-          </span>
-          <div className="ml-auto flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
+            <span>
+              <strong>{selectedIds.size}</strong> test case
+              {selectedIds.size !== 1 ? "s" : ""} selected
+            </span>
+          </div>
+          <div className="sm:ml-auto flex w-full sm:w-auto items-center gap-2">
             <Button
               variant="destructive"
               size="sm"
-              className="h-7 px-3 text-xs gap-1"
+              className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1"
               onClick={() => setIsBulkDeleteDialogOpen(true)}
             >
               <Trash2 className="w-3 h-3" /> Delete Selected
@@ -852,7 +908,7 @@ export default function TestCases() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs gap-1"
+              className="h-8 flex-1 sm:flex-none px-2 text-xs gap-1"
               onClick={() => setSelectedIds(new Set())}
             >
               <X className="w-3 h-3" /> Clear selection
@@ -863,61 +919,76 @@ export default function TestCases() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="relative w-full lg:flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                className="pl-9"
+                className="pl-9 w-full"
                 placeholder="Search test cases..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select value={filterProject} onValueChange={setFilterProject}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="manual">Manual</SelectItem>
-                <SelectItem value="automation_candidate">Automation</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterPriority} onValueChange={setFilterPriority}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Priority" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Priority</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterAI} onValueChange={setFilterAI}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Sources</SelectItem>
-                <SelectItem value="ai">AI Assisted</SelectItem>
-                <SelectItem value="manual">Manual Only</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Extended Grid Layout for the Filters + Sort Dropdowns */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 w-full lg:w-auto shrink-0">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="bg-muted/30">
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  <SelectValue placeholder="Sort By" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="updated">Recently Updated</SelectItem>
+                  <SelectItem value="priority">Highest Priority</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterProject} onValueChange={setFilterProject}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Project" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Projects</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterType} onValueChange={setFilterType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="automation_candidate">Automation</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterPriority} onValueChange={setFilterPriority}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Priority</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterAI} onValueChange={setFilterAI}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Source" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Sources</SelectItem>
+                  <SelectItem value="ai">AI Assisted</SelectItem>
+                  <SelectItem value="manual">Manual Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -929,7 +1000,7 @@ export default function TestCases() {
             <div className="p-12 text-center">
               <TestTube className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
               <p className="text-muted-foreground">No test cases found</p>
-              <div className="flex justify-center gap-2 mt-4">
+              <div className="flex flex-col sm:flex-row justify-center gap-2 mt-4">
                 <Button variant="outline" onClick={() => setAiDialogOpen(true)}>
                   <Sparkles className="w-4 h-4 mr-2" />
                   AI Generate
@@ -942,8 +1013,8 @@ export default function TestCases() {
             </div>
           ) : (
             <div className="flex flex-col">
-              <div className="overflow-x-auto">
-                <Table>
+              <div className="overflow-x-auto w-full">
+                <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
                       <th className="w-10 pl-4">
@@ -994,7 +1065,7 @@ export default function TestCases() {
                             />
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-medium">{tc.title}</span>
                               {tc.aiAssisted && (
                                 <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5">
@@ -1004,14 +1075,14 @@ export default function TestCases() {
                               )}
                             </div>
                             {tc.requirementTitle && (
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-muted-foreground line-clamp-1">
                                 {tc.requirementTitle}
                               </p>
                             )}
                           </TableCell>
                           <TableCell>
                             <span
-                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[tc.type]}`}
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${TYPE_COLORS[tc.type]}`}
                             >
                               {tc.type === "automation_candidate"
                                 ? "Automation"
@@ -1037,7 +1108,7 @@ export default function TestCases() {
                                   .map((tag) => (
                                     <span
                                       key={tag}
-                                      className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                                      className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap"
                                     >
                                       {tag.trim()}
                                     </span>
@@ -1099,7 +1170,7 @@ export default function TestCases() {
                         </TableRow>
                         {expandedId === tc.id && (
                           <TableRow className="bg-muted/20">
-                            <TableCell colSpan={8} className="px-8 py-4">
+                            <TableCell colSpan={8} className="px-4 sm:px-8 py-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                 {tc.objective && (
                                   <div>
@@ -1122,7 +1193,7 @@ export default function TestCases() {
                                     <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
                                       Test Steps
                                     </p>
-                                    <div className="bg-card border rounded p-3 whitespace-pre-line font-mono text-xs">
+                                    <div className="bg-card border rounded p-3 whitespace-pre-line font-mono text-xs overflow-x-auto">
                                       {tc.testSteps}
                                     </div>
                                   </div>
@@ -1148,8 +1219,8 @@ export default function TestCases() {
               </div>
 
               {/* Dynamic Table Pagination Footer */}
-              <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
-                <div className="text-xs text-muted-foreground">
+              <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-muted/10 border-t gap-3">
+                <div className="text-xs text-muted-foreground text-center sm:text-left w-full sm:w-auto">
                   Showing{" "}
                   <span className="font-medium">
                     {(currentPage - 1) * ITEMS_PER_PAGE + 1}
@@ -1161,11 +1232,11 @@ export default function TestCases() {
                   of <span className="font-medium">{filtered.length}</span> test
                   cases
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto justify-center">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs flex-1 sm:flex-none"
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                   >
@@ -1174,7 +1245,7 @@ export default function TestCases() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs flex-1 sm:flex-none"
                     onClick={() =>
                       setCurrentPage((p) => Math.min(totalPages, p + 1))
                     }
@@ -1194,11 +1265,12 @@ export default function TestCases() {
         onClose={() => setAiDialogOpen(false)}
         requirements={requirements}
         projects={projects}
+        users={users}
         onSuccess={handleAISuccess}
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
           <DialogHeader>
             <DialogTitle>
               {editingTC ? "Edit Test Case" : "New Test Case"}
@@ -1213,7 +1285,7 @@ export default function TestCases() {
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Type</Label>
                 <Select
@@ -1223,7 +1295,7 @@ export default function TestCases() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="manual">Manual</SelectItem>
                     <SelectItem value="automation_candidate">
                       Automation Candidate
@@ -1242,7 +1314,7 @@ export default function TestCases() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     <SelectItem value="low">Low</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
                     <SelectItem value="high">High</SelectItem>
@@ -1261,7 +1333,7 @@ export default function TestCases() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.name}
@@ -1281,7 +1353,7 @@ export default function TestCases() {
                   <SelectTrigger>
                     <SelectValue placeholder="Link to..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px]">
                     {requirements.map((r) => (
                       <SelectItem key={r.id} value={String(r.id)}>
                         {r.title}
@@ -1344,8 +1416,8 @@ export default function TestCases() {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
               Cancel
             </Button>
             <Button
@@ -1355,6 +1427,7 @@ export default function TestCases() {
                 createMutation.isPending ||
                 updateMutation.isPending
               }
+              className="w-full sm:w-auto"
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Saving..."
@@ -1368,7 +1441,7 @@ export default function TestCases() {
 
       {/* Bulk Delete Confirmation Dialog */}
       <Dialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
-        <DialogContent>
+        <DialogContent className="w-[95vw] sm:w-full">
           <DialogHeader>
             <DialogTitle>Delete {selectedIds.size} Test Cases?</DialogTitle>
           </DialogHeader>
@@ -1377,11 +1450,12 @@ export default function TestCases() {
               Are you sure you want to permanently delete the {selectedIds.size} selected test case{selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.
             </p>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
             <Button 
               variant="outline" 
               onClick={() => setIsBulkDeleteDialogOpen(false)} 
               disabled={isDeletingBulk}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
@@ -1389,6 +1463,7 @@ export default function TestCases() {
               variant="destructive" 
               onClick={handleBulkDelete} 
               disabled={isDeletingBulk}
+              className="w-full sm:w-auto"
             >
               {isDeletingBulk ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
               {isDeletingBulk ? "Deleting..." : "Delete Item(s)"}

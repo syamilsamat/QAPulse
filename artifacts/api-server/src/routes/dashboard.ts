@@ -114,11 +114,9 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
   const userId = parsed.success ? parsed.data.userId : undefined;
 
   let allTasks = await db.select().from(tasksTable);
-  let allTestCases = await db.select().from(testCasesTable);
 
   if (userId) {
     allTasks = allTasks.filter((t) => t.assigneeId === userId);
-    allTestCases = allTestCases.filter((tc) => tc.authorId === userId);
   }
 
   const now = new Date();
@@ -139,27 +137,33 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
     // ISO date string so the frontend chart can parse it
     const weekIso = weekStart.toISOString().split("T")[0];
 
-    const completed = allTasks.filter(t => {
+    // Get all tasks that were updated/active during this specific week
+    const weekTasks = allTasks.filter(t => {
       const updated = new Date(t.updatedAt);
-      return t.status === "released_to_production" && updated >= weekStart && updated <= weekEnd;
-    }).length;
+      return updated >= weekStart && updated <= weekEnd;
+    });
 
-    const pending = allTasks.filter(t => {
-      const created = new Date(t.createdAt);
-      return ["uat", "sit"].includes(t.status) && created >= weekStart && created <= weekEnd;
-    }).length;
+    // Count tasks by their exact status
+    const newCount = weekTasks.filter(t => t.status === "new").length;
+    const pendingCount = weekTasks.filter(t => t.status === "pending").length;
+    const inProgressCount = weekTasks.filter(t => t.status === "in_progress").length;
+    const blockedCount = weekTasks.filter(t => t.status === "blocked").length;
+    const sitCount = weekTasks.filter(t => t.status === "sit").length;
+    const uatCount = weekTasks.filter(t => t.status === "uat").length;
+    const doneCount = weekTasks.filter(t => t.status === "done").length;
+    const releasedCount = weekTasks.filter(t => t.status === "released_to_production").length;
 
-    const created = allTasks.filter(t => {
-      const c = new Date(t.createdAt);
-      return c >= weekStart && c <= weekEnd;
-    }).length;
-
-    const testCases = allTestCases.filter(tc => {
-      const c = new Date(tc.createdAt);
-      return c >= weekStart && c <= weekEnd;
-    }).length;
-
-    trendData.push({ week: weekIso, completed, pending, created, testCases });
+    trendData.push({ 
+      week: weekIso, 
+      new: newCount,
+      pending: pendingCount,
+      in_progress: inProgressCount,
+      blocked: blockedCount,
+      sit: sitCount,
+      uat: uatCount,
+      done: doneCount,
+      released_to_production: releasedCount
+    });
   }
 
   res.json(trendData);
