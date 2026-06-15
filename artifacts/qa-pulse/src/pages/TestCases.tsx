@@ -667,7 +667,7 @@ export default function TestCases() {
                           <TableCell className="py-3">
                             <div className="flex items-center gap-2">
                               <span className="font-medium line-clamp-1">{tc.title}</span>
-                              {tc.aiAssisted && <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary uppercase shrink-0">AI</Badge>}
+                              {tc.aiAssisted && <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary uppercase shrink-0"><Sparkles className="w-2 h-2 text-primary" />AI</Badge>}
                             </div>
                           </TableCell>
                           <TableCell className="py-3 text-muted-foreground truncate">{tc.qaPic || tc.authorName || "—"}</TableCell>
