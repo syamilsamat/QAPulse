@@ -25,11 +25,6 @@ const ai = new GoogleGenAI({});
 
 const router: IRouter = Router();
 
-/**
- * Bulletproof JSON Parser with Auto-Salvage
- * Strips rogue markdown blocks and attempts to recover partially generated
- * arrays if the AI payload was truncated mid-generation.
- */
 function safeParseJSON(content: string, fallback: any) {
   let cleaned = content
     .replace(/```json\n?/gi, "")
@@ -37,74 +32,44 @@ function safeParseJSON(content: string, fallback: any) {
     .trim();
 
   try {
-    // Attempt standard parse first
     return JSON.parse(cleaned);
   } catch (error) {
-    console.error(
-      "🔴 JSON Parse Error! Output was likely truncated. Attempting data salvage...",
-    );
-
-    // SALVAGE OPERATION:
-    // Because our target schema does not use nested objects (only arrays of strings),
-    // the last '}' character in the string will always represent the end of the last
-    // fully generated test case object.
+    console.error("🔴 JSON Parse Error! Output was likely truncated. Attempting data salvage...");
     const lastClosingBrace = cleaned.lastIndexOf("}");
 
     if (lastClosingBrace !== -1) {
       try {
-        // Snip off the broken incomplete text at the end, and forcefully
-        // close the JSON array and root object so it becomes valid again.
         const salvagedText = cleaned.substring(0, lastClosingBrace + 1) + "]}";
         const salvagedJSON = JSON.parse(salvagedText);
 
         if (salvagedJSON && Array.isArray(salvagedJSON.testCases)) {
-          console.log(
-            `✅ Salvage successful! Recovered ${salvagedJSON.testCases.length} test cases.`,
-          );
+          console.log(`✅ Salvage successful! Recovered ${salvagedJSON.testCases.length} test cases.`);
           return salvagedJSON;
         }
       } catch (salvageError) {
         console.error("❌ Salvage operation failed. Returning fallback.");
       }
     }
-
-    // If parsing still fails, return the empty fallback
     return fallback;
   }
 }
 
-/**
- * Fallback AI Call via OpenRouter Cascade
- * Iterates through a list of models until one successfully returns the payload.
- */
-async function callFallbackAI(
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<string> {
+async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise<string> {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openRouterKey) {
-    throw new Error("Missing OPENROUTER_API_KEY environment variable.");
-  }
+  if (!openRouterKey) throw new Error("Missing OPENROUTER_API_KEY environment variable.");
 
   console.log("🔄 Pivoting to Fallback AI Cascade via OpenRouter...");
-
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
   ];
 
-  // The Cascade Order: Expanded to include your new models!
   const fallbackModels = [
     "meta-llama/llama-3.2-3b-instruct:free",
     "liquid/lfm-2.5-1.2b-instruct-20260120",
     "openai/gpt-oss-120b",
     "qwen/qwen3-coder",
     "moonshotai/kimi-k2.6",
-    "nousresearch/hermes-3-llama-3.1-405b",
-    "nvidia/nemotron-3.5-content-safety-20260604",
-    "sourceful/riverflow-v2.5-pro-20260605",
-    "sourceful/riverflow-v2.5-fast-20260605",
-    "z-ai/glm-4.5-air",
     "google/gemma-4-31b-it",
   ];
 
@@ -115,100 +80,74 @@ async function callFallbackAI(
         model: model,
         messages: messages,
         max_tokens: 8192,
-        // Since test cases always require JSON, we force it here.
         response_format: { type: "json_object" },
       };
 
-      const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${openRouterKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openRouterKey}`,
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify(body),
+      });
 
       if (response.ok) {
         const data = await response.json();
-        if (
-          data.choices &&
-          data.choices.length > 0 &&
-          data.choices[0].message?.content
-        ) {
+        if (data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
           console.log(`✅ Success with Fallback Node: ${model}`);
           return data.choices[0].message.content;
         }
-      } else {
-        const errorBody = await response.text();
-        console.warn(
-          `⚠️ Node [${model}] failed: ${response.status} - ${errorBody}`,
-        );
       }
     } catch (error) {
-      console.warn(
-        `⚠️ Network error with Node [${model}]:`,
-        (error as Error).message,
-      );
+      console.warn(`⚠️ Network error with Node [${model}]:`, (error as Error).message);
     }
   }
-
-  // If the loop finishes without returning, every AI is down.
-  throw new Error(
-    "❌ Crucial system failure: All primary and fallback AI nodes are completely exhausted. The world might be doomed.",
-  );
+  throw new Error("❌ Crucial system failure: All primary and fallback AI nodes are completely exhausted.");
 }
 
-async function formatTestCase(tc: typeof testCasesTable.$inferSelect) {
+async function formatTestCase(tc: any) {
   let authorName = null;
   let projectName = null;
   let requirementTitle = null;
 
   if (tc.authorId) {
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, tc.authorId));
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, tc.authorId));
     authorName = user?.name ?? null;
   }
   if (tc.projectId) {
-    const [project] = await db
-      .select()
-      .from(projectsTable)
-      .where(eq(projectsTable.id, tc.projectId));
+    const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, tc.projectId));
     projectName = project?.name ?? null;
   }
   if (tc.requirementId) {
-    const [req] = await db
-      .select()
-      .from(requirementsTable)
-      .where(eq(requirementsTable.id, tc.requirementId));
+    const [req] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, tc.requirementId));
     requirementTitle = req?.title ?? null;
   }
 
   return {
     id: tc.id,
-    title: tc.title,
-    objective: tc.objective,
+    title: tc.title, 
+    redmineUserStory: tc.redmineUserStory,
+    tracker: tc.tracker,
+    scenario: tc.scenario,
     preconditions: tc.preconditions,
     testSteps: tc.testSteps,
+    testData: tc.testData,
     expectedResult: tc.expectedResult,
-    type: tc.type,
-    priority: tc.priority,
+    redmineDefectId: tc.redmineDefectId,
+    comments: tc.comments,
+    qaPic: tc.qaPic,
     tags: tc.tags,
     requirementId: tc.requirementId,
     requirementTitle,
     projectId: tc.projectId,
     projectName,
-    linkedBug: tc.linkedBug,
     authorId: tc.authorId,
     authorName,
     aiAssisted: tc.aiAssisted,
     status: tc.status,
-    createdAt: tc.createdAt.toISOString(),
-    updatedAt: tc.updatedAt.toISOString(),
+    createdAt: tc.createdAt?.toISOString() || new Date().toISOString(),
+    updatedAt: tc.updatedAt?.toISOString() || new Date().toISOString(),
   };
 }
 
@@ -223,7 +162,6 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
     requirementTitle,
     requirementDescription,
     module: featureModule,
-    priority,
     tags,
     additionalNotes,
     requirementId,
@@ -233,79 +171,50 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
     useTemplateOnly,
   } = parsed.data;
 
-  // --- NEW ANTI-DUPLICATION LOGIC ---
   let existingContext = "";
   let similarCount = 0;
   try {
-    let query: any = db
-      .select({
-        title: testCasesTable.title,
-        objective: testCasesTable.objective,
-      })
-      .from(testCasesTable);
+    let query: any = db.select({ title: testCasesTable.title, scenario: (testCasesTable as any).scenario }).from(testCasesTable);
+    if (requirementId) query = query.where(eq(testCasesTable.requirementId, requirementId));
 
-    // Filter by the specific requirement if one is selected
-    if (requirementId) {
-      query = query.where(eq(testCasesTable.requirementId, requirementId));
-    }
-
-    // Fetch up to 30 existing cases (limits token consumption)
     const existingCases = await query.limit(30);
     similarCount = existingCases.length;
 
     if (existingCases.length > 0) {
-      existingContext =
-        "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. You MUST NOT generate these scenarios again. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
-        existingCases
-          .map(
-            (tc: any) =>
-              `- Title: ${tc.title} | Objective: ${tc.objective || "N/A"}`,
-          )
-          .join("\n");
+      existingContext = "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
+        existingCases.map((tc: any) => `- Title: ${tc.title} | Scenario: ${tc.scenario || "N/A"}`).join("\n");
     }
   } catch (dbErr) {
-    console.warn(
-      "Could not read historical test cases for duplication check.",
-      dbErr,
-    );
+    console.warn("Could not read historical test cases.", dbErr);
   }
-  // ----------------------------------
 
   const caseTypes = [];
   if (generatePositive !== false) caseTypes.push("positive path");
   if (generateNegative) caseTypes.push("negative validation");
   if (generateEdgeCases) caseTypes.push("extreme boundary condition");
 
-  // Enhanced System Instruction to enforce uniqueness AND array formatting
-  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 8 or 12 highly detailed and target-specific test cases based on the requirements.
-    Do NOT generate 15 cases. Keep it strictly between 8 and 12 total cases to avoid payload truncation.
-    CRITICAL: Review the "Existing Test Cases" provided in the prompt. You MUST generate entirely NEW test cases that cover different scenarios, edge cases, or perspectives not already covered by the existing ones.
-
+  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 8 to 12 highly detailed test cases based on the requirements.
+    CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
     Return ONLY a valid JSON object matching this structure:
     { 
       "testCases": [{ 
-        "title": "string", 
-        "objective": "string", 
+        "title": "string (The Case Name)", 
+        "redmineUserStory": "string (Extract from context if available)",
+        "tracker": "string",
+        "scenario": "string (Detailed scenario description)",
         "preconditions": "string", 
-        "testSteps": ["1. First step", "2. Second step", "3. Third step"], 
+        "testSteps": ["1. First step", "2. Second step"], 
+        "testData": "string",
         "expectedResult": "string", 
-        "type": "manual" | "automation_candidate", 
-        "priority": "low" | "medium" | "high" | "critical", 
-        "tags": "string", 
-        "automationCandidate": boolean 
+        "tags": "string"
       }] 
     }`;
 
-  const userPrompt = `Requirement Title: ${requirementTitle}
-Description: ${requirementDescription || "N/A"}
-Module: ${featureModule || "N/A"}
-Focus Scenarios: ${caseTypes.join(", ")}
-Notes: ${additionalNotes || "None"} ${existingContext}`;
+  const userPrompt = `Requirement Hierarchy & Descriptions:\n${requirementDescription || "N/A"}\n\nModule: ${featureModule || "N/A"}\nFocus Scenarios: ${caseTypes.join(", ")}\nNotes: ${additionalNotes || "None"} ${existingContext}`;
 
   const fallbackObject = { testCases: [] };
   let finalRawText = "";
 
-  // 1. Define the strict JSON schema for Gemini with Array implementation
   const responseSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -315,32 +224,16 @@ Notes: ${additionalNotes || "None"} ${existingContext}`;
           type: Type.OBJECT,
           properties: {
             title: { type: Type.STRING },
-            objective: { type: Type.STRING },
+            redmineUserStory: { type: Type.STRING },
+            tracker: { type: Type.STRING },
+            scenario: { type: Type.STRING },
             preconditions: { type: Type.STRING },
-            testSteps: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
+            testSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+            testData: { type: Type.STRING },
             expectedResult: { type: Type.STRING },
-            type: {
-              type: Type.STRING,
-              enum: ["manual", "automation_candidate"],
-            },
-            priority: {
-              type: Type.STRING,
-              enum: ["low", "medium", "high", "critical"],
-            },
             tags: { type: Type.STRING },
-            automationCandidate: { type: Type.BOOLEAN },
           },
-          required: [
-            "title",
-            "objective",
-            "testSteps",
-            "expectedResult",
-            "type",
-            "priority",
-          ],
+          required: ["title", "scenario", "testSteps", "expectedResult"],
         },
       },
     },
@@ -348,7 +241,6 @@ Notes: ${additionalNotes || "None"} ${existingContext}`;
   };
 
   try {
-    console.log("ℹ️ Attempting primary Generation via Gemini...");
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: userPrompt,
@@ -356,110 +248,41 @@ Notes: ${additionalNotes || "None"} ${existingContext}`;
         systemInstruction,
         maxOutputTokens: 8192,
         responseMimeType: "application/json",
-        responseSchema: responseSchema, // 2. Inject the schema here
+        responseSchema: responseSchema,
       },
     });
     finalRawText = response.text ?? '{"testCases": []}';
   } catch (error: any) {
-    const isQuotaExceeded =
-      error.status === 429 ||
-      error.message?.includes("quota") ||
-      error.message?.includes("Quota");
-    const isServiceUnavailable =
-      error.status === 503 ||
-      error.message?.includes("temporary") ||
-      error.message?.includes("high demand") ||
-      error.message?.includes("UNAVAILABLE");
-
-    if (isQuotaExceeded || isServiceUnavailable) {
-      if (isServiceUnavailable) {
-        console.warn(
-          "⚠️ Primary Gemini API is experiencing high demand (503). Attempting immediate fallback...",
-        );
-      } else {
-        console.warn(
-          "⚠️ Primary Gemini API Quota Exceeded (429). Attempting fallback...",
-        );
-      }
-
-      try {
-        finalRawText = await callFallbackAI(systemInstruction, userPrompt);
-      } catch (fallbackError) {
-        console.error(
-          "❌ Both Gemini and OpenRouter Fallback APIs failed:",
-          fallbackError,
-        );
-        res.status(500).json({
-          error: "All generative AI streams exhausted or down for the moment.",
-        });
-        return;
-      }
-    } else {
-      console.error(
-        "❌ Gemini failed with an unhandled error condition:",
-        error,
-      );
-      res.status(500).json({
-        error:
-          "Generative infrastructure encountered an unrecoverable failure.",
-      });
+    console.warn("Primary API failed. Attempting fallback...");
+    try {
+      finalRawText = await callFallbackAI(systemInstruction, userPrompt);
+    } catch (fallbackError) {
+      res.status(500).json({ error: "All generative AI streams exhausted." });
       return;
     }
   }
 
   const parsedPayload = safeParseJSON(finalRawText, fallbackObject);
-
-  // Map the array of steps back into a properly formatted string
   const formattedTestCases = (parsedPayload.testCases ?? []).map((tc: any) => {
-    if (Array.isArray(tc.testSteps)) {
-      // If the AI correctly returned an array, join it with proper newlines
-      tc.testSteps = tc.testSteps.join("\n");
-    } else if (typeof tc.testSteps === "string") {
-      // FALLBACK: If a fallback AI ignored the array instruction and returned a flat string,
-      // this RegEx forces a newline before any number followed by a dot (e.g., "1.", "2.")
-      tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
-    }
+    if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
+    else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
     return tc;
   });
 
-  res.json({
-    testCases: formattedTestCases,
-    similarTestCasesUsed: similarCount,
-    templateUsed: useTemplateOnly ? "standard_template" : "hybrid",
-  });
+  res.json({ testCases: formattedTestCases, similarTestCasesUsed: similarCount, templateUsed: useTemplateOnly ? "standard_template" : "hybrid" });
 });
 
-// ========================================================
-// CRUD & Utility Endpoints
-// ========================================================
 router.get("/test-cases", async (req, res): Promise<void> => {
   const parsed = ListTestCasesQueryParams.safeParse(req.query);
-  let tcs = await db
-    .select()
-    .from(testCasesTable)
-    .orderBy(testCasesTable.createdAt);
+  let tcs = await db.select().from(testCasesTable).orderBy(testCasesTable.createdAt);
+
   if (parsed.success) {
-    const {
-      projectId,
-      requirementId,
-      authorId,
-      type,
-      priority,
-      aiAssisted,
-      search,
-    } = parsed.data;
+    const { projectId, requirementId, authorId, aiAssisted, search } = parsed.data;
     if (projectId) tcs = tcs.filter((t) => t.projectId === projectId);
-    if (requirementId)
-      tcs = tcs.filter((t) => t.requirementId === requirementId);
+    if (requirementId) tcs = tcs.filter((t) => t.requirementId === requirementId);
     if (authorId) tcs = tcs.filter((t) => t.authorId === authorId);
-    if (type) tcs = tcs.filter((t) => t.type === type);
-    if (priority) tcs = tcs.filter((t) => t.priority === priority);
-    if (aiAssisted !== undefined)
-      tcs = tcs.filter((t) => t.aiAssisted === aiAssisted);
-    if (search)
-      tcs = tcs.filter((t) =>
-        t.title.toLowerCase().includes(search.toLowerCase()),
-      );
+    if (aiAssisted !== undefined) tcs = tcs.filter((t) => t.aiAssisted === aiAssisted);
+    if (search) tcs = tcs.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()));
   }
   const formatted = await Promise.all(tcs.map(formatTestCase));
   res.json(formatted);
@@ -484,80 +307,43 @@ router.post("/test-cases", async (req, res): Promise<void> => {
 
 router.get("/test-cases/:id", async (req, res): Promise<void> => {
   const params = GetTestCaseParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  const [tc] = await db
-    .select()
-    .from(testCasesTable)
-    .where(eq(testCasesTable.id, params.data.id));
-  if (!tc) {
-    res.status(404).json({ error: "Test case not found" });
-    return;
-  }
+  if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
+
+  const [tc] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
+  if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
   res.json(await formatTestCase(tc));
 });
 
 router.patch("/test-cases/:id", async (req, res): Promise<void> => {
   const params = UpdateTestCaseParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
+  if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
+
   const parsed = UpdateTestCaseBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const [tc] = await db
-    .update(testCasesTable)
-    .set(parsed.data)
-    .where(eq(testCasesTable.id, params.data.id))
-    .returning();
-  if (!tc) {
-    res.status(404).json({ error: "Test case not found" });
-    return;
-  }
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.message }) as any;
+
+  const [tc] = await db.update(testCasesTable).set(parsed.data).where(eq(testCasesTable.id, params.data.id)).returning();
+  if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
   res.json(await formatTestCase(tc));
 });
 
 router.delete("/test-cases/:id", async (req, res): Promise<void> => {
   const params = DeleteTestCaseParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  const [tc] = await db
-    .delete(testCasesTable)
-    .where(eq(testCasesTable.id, params.data.id))
-    .returning();
-  if (!tc) {
-    res.status(404).json({ error: "Test case not found" });
-    return;
-  }
+  if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
+
+  const [tc] = await db.delete(testCasesTable).where(eq(testCasesTable.id, params.data.id)).returning();
+  if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
   res.sendStatus(204);
 });
 
 router.post("/test-cases/:id/clone", async (req, res): Promise<void> => {
   const params = CloneTestCaseParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  const [original] = await db
-    .select()
-    .from(testCasesTable)
-    .where(eq(testCasesTable.id, params.data.id));
-  if (!original) {
-    res.status(404).json({ error: "Test case not found" });
-    return;
-  }
+  if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
+
+  const [original] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
+  if (!original) return res.status(404).json({ error: "Test case not found" }) as any;
+
   const { id, createdAt, updatedAt, ...rest } = original;
-  const [cloned] = await db
-    .insert(testCasesTable)
-    .values({ ...rest, title: `${original.title} (Copy)`, aiAssisted: false })
-    .returning();
+  const [cloned] = await db.insert(testCasesTable).values({ ...rest, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
   res.status(201).json(await formatTestCase(cloned));
 });
 

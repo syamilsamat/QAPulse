@@ -302,7 +302,10 @@ export const CreateRequirementBody = zod.object({
   "release": zod.string().optional(),
   "assigneeId": zod.number().optional(),
   "redmineTicketId": zod.string().optional(),
+  "tracker": zod.string().optional(),
+  "parentId": zod.number().optional(),
   "status": zod.string()
+  
 })
 
 export const CreateRequirementResponse = zod.void()

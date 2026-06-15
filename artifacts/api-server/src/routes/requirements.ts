@@ -1,9 +1,14 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, requirementsTable, usersTable, projectsTable, activityTable } from "@workspace/db";
+import { 
+  db, 
+  requirementsTable, 
+  usersTable, 
+  projectsTable, 
+  activityTable,
+  insertRequirementSchema 
+} from "@workspace/db";
 import {
-  CreateRequirementBody,
-  UpdateRequirementBody,
   GetRequirementParams,
   UpdateRequirementParams,
   DeleteRequirementParams,
@@ -30,6 +35,8 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     title: req.title,
     description: req.description,
     module: req.module,
+    tracker: req.tracker,
+    parentId: req.parentId,
     projectId: req.projectId,
     projectName,
     priority: req.priority,
@@ -63,7 +70,7 @@ router.get("/requirements", async (req, res): Promise<void> => {
 });
 
 router.post("/requirements", async (req, res): Promise<void> => {
-  const parsed = CreateRequirementBody.safeParse(req.body);
+  const parsed = insertRequirementSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -104,7 +111,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const parsed = UpdateRequirementBody.safeParse(req.body);
+  const parsed = insertRequirementSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -114,6 +121,27 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
   if (!requirement) {
     res.status(404).json({ error: "Requirement not found" });
     return;
+  }
+
+  // --- CASCADE UPDATES TO CHILDREN ---
+  // If Project or Module was modified, cascade those specific changes to all descendants
+  const cascadeData: any = {};
+  if (parsed.data.projectId !== undefined) cascadeData.projectId = parsed.data.projectId;
+  if (parsed.data.module !== undefined) cascadeData.module = parsed.data.module;
+
+  if (Object.keys(cascadeData).length > 0) {
+    async function cascadeUpdate(parentId: number) {
+      const children = await db.select().from(requirementsTable).where(eq(requirementsTable.parentId, parentId));
+
+      console.log(`Found ${children.length} children for Parent ID ${parentId}`); // <-- ADD THIS
+
+      for (const child of children) {
+        console.log(`Cascading update to Child ID ${child.id}:`, cascadeData); // <-- ADD THIS
+        await db.update(requirementsTable).set(cascadeData).where(eq(requirementsTable.id, child.id));
+        await cascadeUpdate(child.id); // Recursively update sub-children
+      }
+    }
+    await cascadeUpdate(requirement.id);
   }
 
   res.json(await formatRequirement(requirement));

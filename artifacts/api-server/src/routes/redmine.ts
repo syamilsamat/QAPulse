@@ -80,11 +80,14 @@ router.get("/pmo/redmine/:issueId", async (req, res): Promise<void> => {
         id: apiIssue.id,
         subject: apiIssue.subject,
         description: apiIssue.description,
-        status: apiIssue.status?.name,
-        tracker: apiIssue.tracker?.name,
-        priority: apiIssue.priority?.name,
-        assignee: apiIssue.assigned_to?.name,
-        author: apiIssue.author?.name,
+
+        // Keep these as objects because the frontend calls data.issue.status?.name
+        status: apiIssue.status,
+        tracker: apiIssue.tracker,
+        priority: apiIssue.priority,
+        assignee: apiIssue.assigned_to,
+        author: apiIssue.author,
+
         projectName: apiIssue.project?.name,
         doneRatio: apiIssue.done_ratio,
         estimatedHours: apiIssue.estimated_hours,
@@ -92,6 +95,9 @@ router.get("/pmo/redmine/:issueId", async (req, res): Promise<void> => {
         dueDate: apiIssue.due_date,
         createdOn: apiIssue.created_on,
         updatedOn: apiIssue.updated_on,
+
+        // CRITICAL FIX: Pass the children array through to the frontend
+        children: apiIssue.children 
       },
     });
   } catch (err: any) {

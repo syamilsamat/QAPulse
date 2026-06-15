@@ -14,7 +14,6 @@ import {
   useDeleteTestCase,
   useCloneTestCase,
   useGenerateTestCasesWithAI,
-  type TestCase,
   type TestCaseInput,
   type AIGenerateInput,
 } from "@workspace/api-client-react";
@@ -23,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -65,121 +65,57 @@ import {
   TestTube,
   Sparkles,
   Loader2,
-  ChevronDown,
   FileSpreadsheet,
   X,
   ArrowUpDown,
+  AlignLeft
 } from "lucide-react";
 import React from "react";
 import { format } from "date-fns";
 import ExcelJS from "exceljs";
 
-const PRIORITY_COLORS: Record<string, string> = {
-  low: "bg-slate-100 text-slate-700",
-  medium: "bg-blue-100 text-blue-700",
-  high: "bg-orange-100 text-orange-700",
-  critical: "bg-red-100 text-red-700",
-};
+const COL_WIDTHS = [ 15, 25, 35, 30, 35, 50, 20, 40, 25, 20, 20 ];
 
-const TYPE_COLORS: Record<string, string> = {
-  manual: "bg-slate-100 text-slate-700",
-  automation_candidate: "bg-emerald-100 text-emerald-700",
-};
-
-// Updated column widths for the new 11-column template layout
-const COL_WIDTHS = [
-  15, // Case ID
-  25, // User Story
-  35, // Scenario
-  30, // Pre Condition
-  35, // Case
-  50, // Test Steps
-  20, // Test Data
-  40, // Expected Result
-  25, // Result
-  20, // Redmine Defect
-  20, // QA PIC
-];
-
-async function exportToExcel(
-  testCases: TestCase[],
-  projectsMap: Record<number, string>,
-  requirementsMap: Record<number, string>,
-) {
-  // Map your db fields precisely to the new strict template headers
-  const rows = testCases.map((tc) => {
-    return {
-      "Case ID": `TC-${tc.id}`,
-      "User Story": tc.requirementId
-        ? (requirementsMap[tc.requirementId] ?? "")
-        : "",
-      Scenario: tc.objective ?? "",
-      "Pre Condition": tc.preconditions ?? "",
-      Case: tc.title ?? "",
-      "Test Steps": tc.testSteps ?? "",
-      "Test Data": "", // Left blank for manual entry
-      "Expected Result": tc.expectedResult ?? "",
-      Result: "", // Left blank for manual entry
-      "Redmine Defect": (tc as any).linkedBug ?? "",
-      "QA PIC": tc.authorName ?? "",
-    };
-  });
+async function exportToExcel(testCases: any[], projectsMap: Record<number, string>) {
+  const rows = testCases.map((tc) => ({
+    "Case ID": `TC-${tc.id}`,
+    "User Story": tc.redmineUserStory ?? "",
+    "Tracker": tc.tracker ?? "",
+    "Scenario": tc.scenario ?? "",
+    "Pre Condition": tc.preconditions ?? "",
+    "Case": tc.title ?? "",
+    "Test Steps": tc.testSteps ?? "",
+    "Test Data": tc.testData ?? "",
+    "Expected Result": tc.expectedResult ?? "",
+    "Result": "",
+    "Redmine Defect": tc.redmineDefectId ?? "",
+    "Additional/Comments/Issues": tc.comments ?? "",
+    "QA PIC": tc.qaPic ?? tc.authorName ?? "",
+  }));
 
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Test Cases");
 
-  // Define the strict template headers in the exact order requested
   const templateHeaders = [
-    "Case ID",
-    "User Story",
-    "Scenario",
-    "Pre Condition",
-    "Case",
-    "Test Steps",
-    "Test Data",
-    "Expected Result",
-    "Result",
-    "Redmine Defect",
-    "QA PIC",
+    "Case ID", "User Story", "Tracker", "Scenario", "Pre Condition", "Case", 
+    "Test Steps", "Test Data", "Expected Result", "Result", "Redmine Defect", 
+    "Additional/Comments/Issues", "QA PIC"
   ];
 
-  // Apply the headers and column widths
-  worksheet.columns = templateHeaders.map((header, i) => ({
-    header: header,
-    key: header,
-    width: COL_WIDTHS[i] ?? 20,
-  }));
+  worksheet.columns = templateHeaders.map((header, i) => ({ header, key: header, width: COL_WIDTHS[i] ?? 20 }));
 
-  // Style the header row (Row 1) to make it visually distinct
   const headerRow = worksheet.getRow(1);
-  headerRow.font = {
-    bold: true,
-    color: { argb: "FFFFFFFF" }, // White text
-  };
-  headerRow.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF1F4E78" }, // Dark blue background
-  };
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E78" } };
 
-  // Add the mapped rows
-  if (rows.length > 0) {
-    rows.forEach((row) => worksheet.addRow(row));
-  }
+  if (rows.length > 0) rows.forEach((row) => worksheet.addRow(row));
 
-  // Wrap text in cells so long test steps and descriptions are readable
   worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber > 1) {
-      row.alignment = { vertical: "top", wrapText: true };
-    }
+    if (rowNumber > 1) row.alignment = { vertical: "top", wrapText: true };
   });
 
-  // Generate and download the file
   const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -190,64 +126,58 @@ async function exportToExcel(
   URL.revokeObjectURL(url);
 }
 
-function AIGenerateDialog({
-  open,
-  onClose,
-  requirements,
-  projects,
-  users,
-  onSuccess,
-}: {
-  open: boolean;
-  onClose: () => void;
-  requirements: any[];
-  projects: any[];
-  users: any[];
-  onSuccess: (testCases: any[], formData: any) => void;
-}) {
+function AIGenerateDialog({ open, onClose, requirements, projects, users, onSuccess }: any) {
   const { user: currentUser } = useAuth();
-  const [form, setForm] = useState<
-    Partial<AIGenerateInput & { projectId?: number; authorId?: number }>
-  >({
-    generatePositive: true,
-    generateNegative: false,
-    generateEdgeCases: false,
+  const [form, setForm] = useState<Partial<AIGenerateInput & { projectId?: number; authorId?: number }>>({
+    generatePositive: true, generateNegative: false, generateEdgeCases: false,
   });
+  const [availableReqs, setAvailableReqs] = useState<any[]>([]);
+  const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<any[]>([]);
   const [step, setStep] = useState<"form" | "preview">("form");
   const generateMutation = useGenerateTestCasesWithAI();
 
   const handleGenerate = () => {
     if (!form.requirementTitle) return;
-    generateMutation.mutate(
-      { data: form as AIGenerateInput },
-      {
-        onSuccess: (data) => {
-          setPreview(data.testCases ?? []);
-          setStep("preview");
-        },
+
+    // Combine checked Parent and Child descriptions into a single block for the AI prompt
+    const selectedDesc = availableReqs
+      .filter(r => selectedReqIds.has(r.id))
+      .map(r => `${r.parentId ? 'Child' : 'Parent'} [${r.redmineTicketId ? '#' + r.redmineTicketId : 'ID:' + r.id}] ${r.title}:\n${r.description || 'No description'}`)
+      .join("\n\n---\n\n");
+
+    generateMutation.mutate({ data: { ...form, requirementDescription: selectedDesc } as AIGenerateInput }, {
+      onSuccess: (data) => {
+        setPreview(data.testCases ?? []);
+        setStep("preview");
       },
-    );
+    });
+  };
+
+  const toggleReqSelection = (id: number) => {
+    setSelectedReqIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleClose = () => {
     setStep("form");
     setPreview([]);
-    setForm({
-      generatePositive: true,
-      generateNegative: false,
-      generateEdgeCases: false,
-    });
+    setAvailableReqs([]);
+    setSelectedReqIds(new Set());
+    setForm({ generatePositive: true, generateNegative: false, generateEdgeCases: false });
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" /> AI Test Case
-            Generation
+            <Sparkles className="w-5 h-5 text-primary" /> AI Test Case Generation
           </DialogTitle>
         </DialogHeader>
 
@@ -256,122 +186,82 @@ function AIGenerateDialog({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Project (optional)</Label>
-                <Select
-                  value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, projectId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a project..." />
-                  </SelectTrigger>
+                <Select value={form.projectId ? String(form.projectId) : ""} onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}>
+                  <SelectTrigger><SelectValue placeholder="Select a project..." /></SelectTrigger>
                   <SelectContent className="max-h-[300px]">
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
+                    {projects.map((p: any) => (<SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-1.5">
-                <Label>Requirement (optional)</Label>
+                <Label>Base Requirement (optional)</Label>
                 <Select
                   value={form.requirementId ? String(form.requirementId) : ""}
                   onValueChange={(v) => {
-                    const req = requirements.find((r) => r.id === Number(v));
-                    setForm({
-                      ...form,
-                      requirementId: Number(v),
-                      requirementTitle: req?.title ?? "",
-                      requirementDescription: req?.description ?? "",
-                      module: req?.module ?? "",
-                    });
+                    const reqId = Number(v);
+                    const req = requirements.find((r: any) => r.id === reqId);
+                    if (req) {
+                      const children = requirements.filter((r: any) => r.parentId === req.id);
+                      const combined = [req, ...children];
+                      setAvailableReqs(combined);
+                      setSelectedReqIds(new Set(combined.map(c => c.id)));
+
+                      setForm({
+                        ...form,
+                        requirementId: reqId,
+                        requirementTitle: req.title,
+                        module: req.module ?? "",
+                      });
+                    }
                   }}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a requirement..." />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select a requirement..." /></SelectTrigger>
                   <SelectContent className="max-h-[300px]">
-                    {requirements.map((r) => (
-                      <SelectItem key={r.id} value={String(r.id)}>
-                        {r.title}
-                      </SelectItem>
-                    ))}
+                    {requirements.map((r: any) => (<SelectItem key={r.id} value={String(r.id)}>{r.title}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Requirement Title *</Label>
-              <Input
-                placeholder="e.g. User Login with Email and Password"
-                value={form.requirementTitle ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, requirementTitle: e.target.value })
-                }
-              />
-            </div>
+            {availableReqs.length > 0 && (
+              <div className="space-y-2 bg-muted/20 p-3 rounded border">
+                <Label className="text-xs text-muted-foreground uppercase font-bold">Requirement Scope Selection</Label>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                  {availableReqs.map(r => (
+                    <div key={r.id} className="flex items-start gap-2 bg-background p-2 border rounded shadow-sm">
+                      <Checkbox checked={selectedReqIds.has(r.id)} onCheckedChange={() => toggleReqSelection(r.id)} id={`req-${r.id}`} className="mt-1" />
+                      <label htmlFor={`req-${r.id}`} className="flex-1 cursor-pointer">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${r.parentId ? 'bg-indigo-100 text-indigo-700' : 'bg-primary/10 text-primary'}`}>
+                            {r.parentId ? 'Child' : 'Parent'}
+                          </span>
+                          <span className="text-sm font-semibold">{r.redmineTicketId ? `#${r.redmineTicketId} ` : ''}{r.title}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{r.description || "No description provided."}</p>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea
-                placeholder="Describe what needs to be tested..."
-                value={form.requirementDescription ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, requirementDescription: e.target.value })
-                }
-                rows={3}
-              />
+              <Label>Test Case Scope / Title *</Label>
+              <Input placeholder="e.g. User Login Validation" value={form.requirementTitle ?? ""} onChange={(e) => setForm({ ...form, requirementTitle: e.target.value })} />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <Input
-                  placeholder="e.g. Auth"
-                  value={form.module ?? ""}
-                  onChange={(e) => setForm({ ...form, module: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Target Priority</Label>
-                <Select
-                  value={form.priority ?? ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, priority: v as any })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Any" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="critical">Critical</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Input placeholder="e.g. Auth" value={form.module ?? ""} onChange={(e) => setForm({ ...form, module: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>Assign Author</Label>
-                <Select
-                  value={form.authorId ? String(form.authorId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, authorId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Current User" />
-                  </SelectTrigger>
+                <Select value={form.authorId ? String(form.authorId) : ""} onValueChange={(v) => setForm({ ...form, authorId: Number(v) })}>
+                  <SelectTrigger><SelectValue placeholder="Current User" /></SelectTrigger>
                   <SelectContent className="max-h-[300px]">
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
+                    {users.map((u: any) => (<SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>
@@ -379,102 +269,31 @@ function AIGenerateDialog({
 
             <div className="space-y-1.5">
               <Label>Additional Notes</Label>
-              <Textarea
-                placeholder="Any specific scenarios or edge cases to focus on..."
-                value={form.additionalNotes ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, additionalNotes: e.target.value })
-                }
-                rows={2}
-              />
+              <Textarea placeholder="Any specific scenarios or edge cases to focus on..." value={form.additionalNotes ?? ""} onChange={(e) => setForm({ ...form, additionalNotes: e.target.value })} rows={2} />
             </div>
 
-            <div className="space-y-2">
-              <Label>Generate</Label>
+            <div className="space-y-2 pt-2">
+              <Label>Generation Targets</Label>
               <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={form.generatePositive ?? true}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, generatePositive: !!v })
-                    }
-                    id="pos"
-                  />
-                  <label htmlFor="pos" className="text-sm">
-                    Positive cases
-                  </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={form.generateNegative ?? false}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, generateNegative: !!v })
-                    }
-                    id="neg"
-                  />
-                  <label htmlFor="neg" className="text-sm">
-                    Negative cases
-                  </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={form.generateEdgeCases ?? false}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, generateEdgeCases: !!v })
-                    }
-                    id="edge"
-                  />
-                  <label htmlFor="edge" className="text-sm">
-                    Edge cases
-                  </label>
-                </div>
+                <div className="flex items-center gap-2"><Checkbox checked={form.generatePositive ?? true} onCheckedChange={(v) => setForm({ ...form, generatePositive: !!v })} id="pos" /><label htmlFor="pos" className="text-sm">Positive Path</label></div>
+                <div className="flex items-center gap-2"><Checkbox checked={form.generateNegative ?? false} onCheckedChange={(v) => setForm({ ...form, generateNegative: !!v })} id="neg" /><label htmlFor="neg" className="text-sm">Negative Scenarios</label></div>
+                <div className="flex items-center gap-2"><Checkbox checked={form.generateEdgeCases ?? false} onCheckedChange={(v) => setForm({ ...form, generateEdgeCases: !!v })} id="edge" /><label htmlFor="edge" className="text-sm">Edge Cases</label></div>
               </div>
             </div>
           </div>
         ) : (
           <div className="space-y-4 py-2">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                {preview.length} test case{preview.length !== 1 ? "s" : ""}{" "}
-                generated
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setStep("form")}
-              >
-                Back
-              </Button>
+              <p className="text-sm text-muted-foreground">{preview.length} test case{preview.length !== 1 ? "s" : ""} generated</p>
+              <Button variant="outline" size="sm" onClick={() => setStep("form")}>Back</Button>
             </div>
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
               {preview.map((tc, i) => (
                 <Card key={i} className="border">
                   <CardContent className="p-4 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-medium text-sm">{tc.title}</p>
-                      <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
-                        <span
-                          className={`text-xs px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[tc.priority] ?? "bg-slate-100 text-slate-700"}`}
-                        >
-                          {tc.priority}
-                        </span>
-                        <span
-                          className={`text-xs px-1.5 py-0.5 rounded font-medium ${TYPE_COLORS[tc.type] ?? "bg-slate-100 text-slate-700"}`}
-                        >
-                          {tc.type?.replace("_", " ")}
-                        </span>
-                      </div>
-                    </div>
-                    {tc.objective && (
-                      <p className="text-xs text-muted-foreground">
-                        {tc.objective}
-                      </p>
-                    )}
-                    {tc.testSteps && (
-                      <div className="text-xs bg-muted/50 rounded p-2 whitespace-pre-line">
-                        {tc.testSteps}
-                      </div>
-                    )}
+                    <p className="font-medium text-sm">{tc.title}</p>
+                    {tc.scenario && <p className="text-xs text-muted-foreground"><strong className="text-foreground">Scenario:</strong> {tc.scenario}</p>}
+                    {tc.testSteps && <div className="text-xs bg-muted/50 rounded p-2 whitespace-pre-line font-mono mt-2">{tc.testSteps}</div>}
                   </CardContent>
                 </Card>
               ))}
@@ -483,37 +302,14 @@ function AIGenerateDialog({
         )}
 
         <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-          <Button variant="outline" onClick={handleClose} className="w-full sm:w-auto">
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={handleClose} className="w-full sm:w-auto">Cancel</Button>
           {step === "form" ? (
-            <Button
-              onClick={handleGenerate}
-              disabled={!form.requirementTitle || generateMutation.isPending}
-              className="gap-2 w-full sm:w-auto"
-            >
-              {generateMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Generate
-                </>
-              )}
+            <Button onClick={handleGenerate} disabled={!form.requirementTitle || generateMutation.isPending} className="gap-2 w-full sm:w-auto">
+              {generateMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" />Generating...</> : <><Sparkles className="w-4 h-4" />Generate</>}
             </Button>
           ) : (
-            <Button
-              onClick={() => {
-                onSuccess(preview, form);
-                handleClose();
-              }}
-              className="gap-2 w-full sm:w-auto"
-            >
-              <Plus className="w-4 h-4" />
-              Save All ({preview.length})
+            <Button onClick={() => { onSuccess(preview, form); handleClose(); }} className="gap-2 w-full sm:w-auto">
+              <Plus className="w-4 h-4" />Save All ({preview.length})
             </Button>
           )}
         </DialogFooter>
@@ -527,257 +323,137 @@ export default function TestCases() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Filtering & Search States
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all");
   const [filterProject, setFilterProject] = useState("all");
   const [filterAI, setFilterAI] = useState("all");
-  const [sortBy, setSortBy] = useState("newest"); // New sorting state
+  const [sortBy, setSortBy] = useState("newest");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
-
-  // Bulk Delete States
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
-  const [editingTC, setEditingTC] = useState<TestCase | null>(null);
-  const [form, setForm] = useState<Partial<TestCaseInput>>({});
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [editingTC, setEditingTC] = useState<any | null>(null);
+  const [form, setForm] = useState<Partial<any>>({});
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // Pagination Parameters
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  const { data: testCases = [], isLoading } = useQuery({
-    queryKey: getListTestCasesQueryKey(),
-    queryFn: () => listTestCases(),
-  });
+  const { data: testCases = [], isLoading } = useQuery({ queryKey: getListTestCasesQueryKey(), queryFn: () => listTestCases() });
+  const { data: projects = [] } = useQuery({ queryKey: getListProjectsQueryKey(), queryFn: () => listProjects() });
+  const { data: users = [] } = useQuery({ queryKey: getListUsersQueryKey(), queryFn: () => listUsers() });
+  const { data: requirements = [] } = useQuery({ queryKey: getListRequirementsQueryKey(), queryFn: () => listRequirements() });
 
-  const { data: projects = [] } = useQuery({
-    queryKey: getListProjectsQueryKey(),
-    queryFn: () => listProjects(),
-  });
+  const projectsMap = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p.name])), [projects]);
+  const requirementsMap = useMemo(() => Object.fromEntries(requirements.map((r) => [r.id, r.title])), [requirements]);
 
-  const { data: users = [] } = useQuery({
-    queryKey: getListUsersQueryKey(),
-    queryFn: () => listUsers(),
-  });
-
-  const { data: requirements = [] } = useQuery({
-    queryKey: getListRequirementsQueryKey(),
-    queryFn: () => listRequirements(),
-  });
-
-  const projectsMap = useMemo(
-    () => Object.fromEntries(projects.map((p) => [p.id, p.name])),
-    [projects],
-  );
-  const requirementsMap = useMemo(
-    () => Object.fromEntries(requirements.map((r) => [r.id, r.title])),
-    [requirements],
-  );
-
-  // Automatically reset layout pages back to index 1 upon modifying table filters/sort
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [search, filterType, filterPriority, filterProject, filterAI, sortBy]);
+  useEffect(() => { setCurrentPage(1); }, [search, filterProject, filterAI, sortBy]);
 
   const createMutation = useCreateTestCase({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-        setDialogOpen(false);
-        setForm({});
-        toast({ title: "Test case created" });
-      },
-      onError: () =>
-        toast({ variant: "destructive", title: "Failed to create test case" }),
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() }); setDialogOpen(false); setForm({}); toast({ title: "Test case created" }); },
     },
   });
 
   const updateMutation = useUpdateTestCase({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-        setDialogOpen(false);
-        setEditingTC(null);
-        toast({ title: "Test case updated" });
-      },
-      onError: () =>
-        toast({ variant: "destructive", title: "Failed to update test case" }),
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() }); setDialogOpen(false); setEditingTC(null); toast({ title: "Test case updated" }); },
     },
   });
 
   const deleteMutation = useDeleteTestCase({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-      },
-      onError: () =>
-        toast({ variant: "destructive", title: "Failed to delete" }),
-    },
+    mutation: { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() }); } },
   });
 
   const cloneMutation = useCloneTestCase({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-        toast({ title: "Test case cloned" });
-      },
-      onError: () =>
-        toast({ variant: "destructive", title: "Failed to clone" }),
-    },
+    mutation: { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() }); toast({ title: "Test case cloned" }); } },
   });
 
   const filtered = useMemo(() => {
-    // 1. Filter the dataset
     let result = testCases.filter((t) => {
-      if (filterType !== "all" && t.type !== filterType) return false;
-      if (filterPriority !== "all" && t.priority !== filterPriority) return false;
       if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
-
       if (search) {
         const query = search.toLowerCase();
         const matchTitle = t.title?.toLowerCase().includes(query);
-        const matchTags = t.tags?.toLowerCase().includes(query);
-        const matchAuthor = t.authorName?.toLowerCase().includes(query);
-
-        if (!matchTitle && !matchTags && !matchAuthor) {
-          return false;
-        }
+        const matchStory = t.redmineUserStory?.toLowerCase().includes(query);
+        const matchTracker = t.tracker?.toLowerCase().includes(query);
+        if (!matchTitle && !matchStory && !matchTracker) return false;
       }
       return true;
     });
 
-    // 2. Sort the dataset
     result.sort((a, b) => {
-      if (sortBy === "newest") {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }
-      if (sortBy === "oldest") {
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      }
-      if (sortBy === "updated") {
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      }
-      if (sortBy === "priority") {
-        const pMap: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
-        const pA = pMap[a.priority] || 0;
-        const pB = pMap[b.priority] || 0;
-        return pB - pA; // High to Low
-      }
+      if (sortBy === "newest") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      if (sortBy === "oldest") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (sortBy === "updated") return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       return 0;
     });
 
     return result;
-  }, [testCases, search, filterType, filterPriority, filterProject, filterAI, sortBy]);
+  }, [testCases, search, filterProject, filterAI, sortBy]);
 
-  // Calculate Paginated Sub-datasets
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
-  const paginatedTestCases = filtered.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE,
-  );
-
-  const filteredIds = useMemo(
-    () => new Set(filtered.map((t) => t.id)),
-    [filtered],
-  );
+  const paginatedTestCases = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  const filteredIds = useMemo(() => new Set(filtered.map((t) => t.id)), [filtered]);
   const selectedInView = filtered.filter((t) => selectedIds.has(t.id));
-  const allFilteredSelected =
-    filtered.length > 0 && selectedInView.length === filtered.length;
-  const someFilteredSelected =
-    selectedInView.length > 0 && !allFilteredSelected;
+  const allFilteredSelected = filtered.length > 0 && selectedInView.length === filtered.length;
+  const someFilteredSelected = selectedInView.length > 0 && !allFilteredSelected;
 
   const toggleSelectAll = () => {
     if (allFilteredSelected) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        filteredIds.forEach((id) => next.delete(id));
-        return next;
-      });
+      setSelectedIds((prev) => { const next = new Set(prev); filteredIds.forEach((id) => next.delete(id)); return next; });
     } else {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        filteredIds.forEach((id) => next.add(id));
-        return next;
-      });
+      setSelectedIds((prev) => { const next = new Set(prev); filteredIds.forEach((id) => next.add(id)); return next; });
     }
   };
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
   const handleExport = () => {
-    const toExport =
-      selectedIds.size > 0
-        ? testCases.filter((t) => selectedIds.has(t.id))
-        : filtered;
-    if (toExport.length === 0) {
-      toast({ variant: "destructive", title: "No test cases to export" });
-      return;
-    }
-    exportToExcel(toExport, projectsMap, requirementsMap)
-      .then(() => {
-        toast({
-          title: `Exported ${toExport.length} test case${toExport.length !== 1 ? "s" : ""} to Excel`,
-        });
-      })
-      .catch(() => {
-        toast({
-          variant: "destructive",
-          title: "Export failed",
-          description: "Could not generate the Excel file.",
-        });
-      });
+    const toExport = selectedIds.size > 0 ? testCases.filter((t) => selectedIds.has(t.id)) : filtered;
+    if (toExport.length === 0) return toast({ variant: "destructive", title: "No test cases to export" });
+    exportToExcel(toExport, projectsMap, requirementsMap).then(() => toast({ title: "Export complete" }));
   };
 
   const handleBulkDelete = async () => {
     setIsDeletingBulk(true);
     try {
-      const promises = Array.from(selectedIds).map((id) =>
-        deleteMutation.mutateAsync({ id })
-      );
-      await Promise.all(promises);
-      toast({ title: `Successfully deleted ${selectedIds.size} test cases` });
+      await Promise.all(Array.from(selectedIds).map((id) => deleteMutation.mutateAsync({ id })));
+      toast({ title: `Deleted ${selectedIds.size} cases` });
       setSelectedIds(new Set());
       setIsBulkDeleteDialogOpen(false);
-    } catch (error) {
-      console.error("Bulk delete failed", error);
-      toast({ variant: "destructive", title: "Failed to delete some test cases" });
-    } finally {
-      setIsDeletingBulk(false);
-    }
+    } finally { setIsDeletingBulk(false); }
   };
 
   const openCreate = () => {
     setEditingTC(null);
-    setForm({ type: "manual", priority: "medium", status: "active" });
+    setForm({ status: "active" });
     setDialogOpen(true);
   };
 
-  const openEdit = (tc: TestCase) => {
+  const openEdit = (tc: any) => {
     setEditingTC(tc);
     setForm({
       title: tc.title,
-      objective: tc.objective ?? undefined,
-      preconditions: tc.preconditions ?? undefined,
-      testSteps: tc.testSteps ?? undefined,
-      expectedResult: tc.expectedResult ?? undefined,
-      type: tc.type,
-      priority: tc.priority,
-      tags: tc.tags ?? undefined,
+      redmineUserStory: tc.redmineUserStory,
+      tracker: tc.tracker,
+      scenario: tc.scenario,
+      preconditions: tc.preconditions,
+      testSteps: tc.testSteps,
+      testData: tc.testData,
+      expectedResult: tc.expectedResult,
+      redmineDefectId: tc.redmineDefectId,
+      comments: tc.comments,
+      qaPic: tc.qaPic,
       requirementId: tc.requirementId ?? undefined,
       projectId: tc.projectId ?? undefined,
       authorId: tc.authorId ?? undefined,
@@ -787,29 +463,12 @@ export default function TestCases() {
   };
 
   const handleSubmit = () => {
-    if (!form.title?.trim()) {
-      toast({ variant: "destructive", title: "Title is required" });
+    if (!form.title?.trim() || !form.testSteps?.trim() || !form.expectedResult?.trim()) {
+      toast({ variant: "destructive", title: "Title, Steps, and Expected Result are required" });
       return;
     }
-    if (!form.objective?.trim()) {
-      toast({ variant: "destructive", title: "Objective is required" });
-      return;
-    }
-    if (!form.testSteps?.trim()) {
-      toast({ variant: "destructive", title: "Test Steps are required" });
-      return;
-    }
-    if (!form.expectedResult?.trim()) {
-      toast({ variant: "destructive", title: "Expected Result is required" });
-      return;
-    }
-    if (editingTC) {
-      updateMutation.mutate({ id: editingTC.id, data: form as any });
-    } else {
-      createMutation.mutate({
-        data: { ...form, aiAssisted: false } as TestCaseInput,
-      });
-    }
+    if (editingTC) updateMutation.mutate({ id: editingTC.id, data: form as any });
+    else createMutation.mutate({ data: { ...form, aiAssisted: false } as any });
   };
 
   const handleAISuccess = (aiTestCases: any[], formData: any) => {
@@ -817,66 +476,45 @@ export default function TestCases() {
       createMutation.mutateAsync({
         data: {
           title: tc.title,
-          objective: tc.objective,
+          redmineUserStory: tc.redmineUserStory,
+          tracker: tc.tracker,
+          scenario: tc.scenario,
           preconditions: tc.preconditions,
           testSteps: tc.testSteps,
+          testData: tc.testData,
           expectedResult: tc.expectedResult,
-          type: tc.type ?? "manual",
-          priority: tc.priority ?? "medium",
-          tags: tc.tags,
           status: "active",
           aiAssisted: true,
           requirementId: formData?.requirementId,
           projectId: formData?.projectId,
-          // Use explicitly selected author, or fallback to the current logged-in user
           authorId: formData?.authorId || user?.id,
-        } as TestCaseInput,
+        } as any,
       }),
     );
-    Promise.all(promises)
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-        toast({ title: `${aiTestCases.length} AI test cases saved` });
-      })
-      .catch(() =>
-        toast({
-          variant: "destructive",
-          title: "Some test cases failed to save",
-        }),
-      );
+    Promise.all(promises).then(() => {
+      queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
+      toast({ title: `${aiTestCases.length} AI cases saved` });
+    });
   };
 
-  const aiCount = testCases.filter((t) => t.aiAssisted).length;
-
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <TestTube className="w-7 h-7 text-primary" /> Test Cases
           </h1>
           <p className="text-muted-foreground mt-1">
-            {testCases.length} test cases · {aiCount} AI-assisted
+            {testCases.length} test cases · {testCases.filter(t => t.aiAssisted).length} AI-assisted
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={handleExport}
-            className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 w-full sm:w-auto"
-          >
+          <Button variant="outline" onClick={handleExport} className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 w-full sm:w-auto">
             <FileSpreadsheet className="w-4 h-4" />
-            {selectedIds.size > 0
-              ? `Export ${selectedIds.size} selected`
-              : "Export to Excel"}
+            {selectedIds.size > 0 ? `Export ${selectedIds.size}` : "Export"}
           </Button>
           <div className="flex gap-2 w-full sm:w-auto">
-            <Button
-              variant="outline"
-              onClick={() => setAiDialogOpen(true)}
-              className="gap-2 flex-1 sm:flex-none"
-            >
+            <Button variant="outline" onClick={() => setAiDialogOpen(true)} className="gap-2 flex-1 sm:flex-none">
               <Sparkles className="w-4 h-4 text-primary" /> AI Generate
             </Button>
             <Button onClick={openCreate} className="gap-2 flex-1 sm:flex-none">
@@ -886,32 +524,18 @@ export default function TestCases() {
         </div>
       </div>
 
-      {/* Selection banner */}
       {selectedIds.size > 0 && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
-            <span>
-              <strong>{selectedIds.size}</strong> test case
-              {selectedIds.size !== 1 ? "s" : ""} selected
-            </span>
+            <span><strong>{selectedIds.size}</strong> test case{selectedIds.size !== 1 ? "s" : ""} selected</span>
           </div>
           <div className="sm:ml-auto flex w-full sm:w-auto items-center gap-2">
-            <Button
-              variant="destructive"
-              size="sm"
-              className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1"
-              onClick={() => setIsBulkDeleteDialogOpen(true)}
-            >
-              <Trash2 className="w-3 h-3" /> Delete Selected
+            <Button variant="destructive" size="sm" className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1" onClick={() => setIsBulkDeleteDialogOpen(true)}>
+              <Trash2 className="w-3 h-3" /> Delete
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 flex-1 sm:flex-none px-2 text-xs gap-1"
-              onClick={() => setSelectedIds(new Set())}
-            >
-              <X className="w-3 h-3" /> Clear selection
+            <Button variant="ghost" size="sm" className="h-8 flex-1 sm:flex-none px-2 text-xs gap-1" onClick={() => setSelectedIds(new Set())}>
+              <X className="w-3 h-3" /> Clear
             </Button>
           </div>
         </div>
@@ -922,70 +546,33 @@ export default function TestCases() {
           <div className="flex flex-col lg:flex-row gap-3">
             <div className="relative w-full lg:flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                className="pl-9 w-full"
-                placeholder="Search test cases..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              <Input placeholder="Search case name, story, tracker..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 w-full" />
             </div>
-            {/* Extended Grid Layout for the Filters + Sort Dropdowns */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 w-full lg:w-auto shrink-0">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 w-full lg:w-auto shrink-0">
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="bg-muted/30">
-                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
                   <SelectValue placeholder="Sort By" />
                 </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="newest">Newest First</SelectItem>
-                  <SelectItem value="oldest">Oldest First</SelectItem>
-                  <SelectItem value="updated">Recently Updated</SelectItem>
-                  <SelectItem value="priority">Highest Priority</SelectItem>
+                <SelectContent>
+                  <SelectItem value="newest">Newest</SelectItem>
+                  <SelectItem value="oldest">Oldest</SelectItem>
+                  <SelectItem value="updated">Updated</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={filterProject} onValueChange={setFilterProject}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
+                <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
+                <SelectContent>
                   <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterType} onValueChange={setFilterType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Type" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="manual">Manual</SelectItem>
-                  <SelectItem value="automation_candidate">Automation</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={filterPriority} onValueChange={setFilterPriority}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Priority</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="critical">Critical</SelectItem>
+                  {projects.map((p) => (<SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>))}
                 </SelectContent>
               </Select>
               <Select value={filterAI} onValueChange={setFilterAI}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Source" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
+                <SelectTrigger><SelectValue placeholder="Source" /></SelectTrigger>
+                <SelectContent>
                   <SelectItem value="all">All Sources</SelectItem>
                   <SelectItem value="ai">AI Assisted</SelectItem>
-                  <SelectItem value="manual">Manual Only</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -993,266 +580,117 @@ export default function TestCases() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">
-              Loading...
-            </div>
+            <div className="p-8 text-center text-muted-foreground">Loading...</div>
           ) : filtered.length === 0 ? (
-            <div className="p-12 text-center">
+            <div className="p-12 text-center border-t border-dashed">
               <TestTube className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
               <p className="text-muted-foreground">No test cases found</p>
-              <div className="flex flex-col sm:flex-row justify-center gap-2 mt-4">
-                <Button variant="outline" onClick={() => setAiDialogOpen(true)}>
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  AI Generate
-                </Button>
-                <Button onClick={openCreate}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Manually
-                </Button>
-              </div>
             </div>
           ) : (
             <div className="flex flex-col">
-              <div className="overflow-x-auto w-full">
-                <Table className="min-w-[800px]">
+
+              {/* DESKTOP VIEW - Horizontal Scrolling Table */}
+              <div className="hidden lg:block overflow-x-auto w-full border-t">
+                <Table className="w-full text-xs min-w-[2000px]">
                   <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <th className="w-10 pl-4">
-                        <Checkbox
-                          checked={allFilteredSelected}
-                          data-state={
-                            someFilteredSelected
-                              ? "indeterminate"
-                              : allFilteredSelected
-                                ? "checked"
-                                : "unchecked"
-                          }
-                          onCheckedChange={toggleSelectAll}
-                          aria-label="Select all"
-                        />
-                      </th>
-                      <th className="w-8"></th>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Priority</TableHead>
-                      <TableHead>Author</TableHead>
-                      <TableHead>Tags</TableHead>
-                      <th className="w-10"></th>
+                    <TableRow className="bg-muted/30">
+                      <th className="w-12 pl-4 py-3"><Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAll} /></th>
+                      <th className="w-40 font-semibold text-left">Case (Title)</th>
+                      <th className="w-32 font-semibold text-left">User Story</th>
+                      <th className="w-24 font-semibold text-left">Tracker</th>
+                      <th className="w-48 font-semibold text-left">Scenario</th>
+                      <th className="w-64 font-semibold text-left">Test Steps</th>
+                      <th className="w-32 font-semibold text-left">Test Data</th>
+                      <th className="w-48 font-semibold text-left">Expected Result</th>
+                      <th className="w-24 font-semibold text-left">Defect #</th>
+                      <th className="w-24 font-semibold text-left">QA PIC</th>
+                      <th className="w-32 font-semibold text-left">Comments</th>
+                      <th className="w-16"></th>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedTestCases.map((tc) => (
-                      <React.Fragment key={tc.id}>
-                        <TableRow
-                          className={`hover:bg-muted/40 cursor-pointer ${selectedIds.has(tc.id) ? "bg-primary/5" : ""}`}
-                          onClick={() =>
-                            setExpandedId(expandedId === tc.id ? null : tc.id)
-                          }
-                        >
-                          <TableCell
-                            className="pl-4"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <Checkbox
-                              checked={selectedIds.has(tc.id)}
-                              onCheckedChange={() => toggleSelect(tc.id)}
-                              aria-label={`Select ${tc.title}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <ChevronDown
-                              className={`w-4 h-4 text-muted-foreground transition-transform ${expandedId === tc.id ? "rotate-180" : ""}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium">{tc.title}</span>
-                              {tc.aiAssisted && (
-                                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5">
-                                  <Sparkles className="w-3 h-3" />
-                                  AI
-                                </span>
-                              )}
-                            </div>
-                            {tc.requirementTitle && (
-                              <p className="text-xs text-muted-foreground line-clamp-1">
-                                {tc.requirementTitle}
-                              </p>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${TYPE_COLORS[tc.type]}`}
-                            >
-                              {tc.type === "automation_candidate"
-                                ? "Automation"
-                                : "Manual"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[tc.priority]}`}
-                            >
-                              {tc.priority}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {tc.authorName ?? "—"}
-                          </TableCell>
-                          <TableCell>
-                            {tc.tags && (
-                              <div className="flex flex-wrap gap-1">
-                                {tc.tags
-                                  .split(",")
-                                  .slice(0, 2)
-                                  .map((tag) => (
-                                    <span
-                                      key={tag}
-                                      className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap"
-                                    >
-                                      {tag.trim()}
-                                    </span>
-                                  ))}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                >
-                                  <MoreHorizontal className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => openEdit(tc)}>
-                                  <Pencil className="w-4 h-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    cloneMutation.mutate({ id: tc.id })
-                                  }
-                                >
-                                  <Copy className="w-4 h-4 mr-2" />
-                                  Clone
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setSelectedIds(new Set([tc.id]));
-                                    handleExport();
-                                  }}
-                                >
-                                  <FileSpreadsheet className="w-4 h-4 mr-2" />
-                                  Export this
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() =>
-                                    deleteMutation.mutate(
-                                      { id: tc.id },
-                                      {
-                                        onSuccess: () => toast({ title: "Test case deleted" }),
-                                      }
-                                    )
-                                  }
-                                >
-                                  <Trash2 className="w-4 h-4 mr-2" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                        {expandedId === tc.id && (
-                          <TableRow className="bg-muted/20">
-                            <TableCell colSpan={8} className="px-4 sm:px-8 py-4">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                {tc.objective && (
-                                  <div>
-                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                      Objective
-                                    </p>
-                                    <p>{tc.objective}</p>
-                                  </div>
-                                )}
-                                {tc.preconditions && (
-                                  <div>
-                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                      Preconditions
-                                    </p>
-                                    <p>{tc.preconditions}</p>
-                                  </div>
-                                )}
-                                {tc.testSteps && (
-                                  <div className="md:col-span-2">
-                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                      Test Steps
-                                    </p>
-                                    <div className="bg-card border rounded p-3 whitespace-pre-line font-mono text-xs overflow-x-auto">
-                                      {tc.testSteps}
-                                    </div>
-                                  </div>
-                                )}
-                                {tc.expectedResult && (
-                                  <div className="md:col-span-2">
-                                    <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                                      Expected Result
-                                    </p>
-                                    <p className="text-green-700 dark:text-green-400">
-                                      {tc.expectedResult}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </React.Fragment>
+                      <TableRow key={tc.id} className="hover:bg-muted/40 align-top">
+                        <TableCell className="pl-4 pt-3"><Checkbox checked={selectedIds.has(tc.id)} onCheckedChange={() => toggleSelect(tc.id)} /></TableCell>
+                        <TableCell className="pt-3">
+                          <p className="font-bold mb-1 line-clamp-2">{tc.title}</p>
+                          {tc.aiAssisted && <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary">AI</Badge>}
+                        </TableCell>
+                        <TableCell className="pt-3 break-words text-muted-foreground">{tc.redmineUserStory}</TableCell>
+                        <TableCell className="pt-3">{tc.tracker}</TableCell>
+                        <TableCell className="pt-3 whitespace-pre-wrap">{tc.scenario}</TableCell>
+                        <TableCell className="pt-3 whitespace-pre-wrap font-mono text-[10px]">{tc.testSteps}</TableCell>
+                        <TableCell className="pt-3 whitespace-pre-wrap">{tc.testData}</TableCell>
+                        <TableCell className="pt-3 whitespace-pre-wrap text-green-700 dark:text-green-400">{tc.expectedResult}</TableCell>
+                        <TableCell className="pt-3">{tc.redmineDefectId}</TableCell>
+                        <TableCell className="pt-3">{tc.qaPic}</TableCell>
+                        <TableCell className="pt-3 break-words">{tc.comments}</TableCell>
+                        <TableCell className="pt-2 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(tc)}><Pencil className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => cloneMutation.mutate({ id: tc.id })}><Copy className="w-4 h-4 mr-2" />Clone</DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate({ id: tc.id })}><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
 
-              {/* Dynamic Table Pagination Footer */}
+              {/* MOBILE VIEW - Responsive Cards */}
+              <div className="lg:hidden p-4 space-y-4 bg-muted/5">
+                {paginatedTestCases.map((tc) => (
+                  <Card key={tc.id} className="relative overflow-hidden shadow-sm">
+                    <div className="absolute top-3 right-2 flex gap-1">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEdit(tc)}><Pencil className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => cloneMutation.mutate({ id: tc.id })}><Copy className="w-4 h-4 mr-2" />Clone</DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate({ id: tc.id })}><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <CardHeader className="p-3 pb-0 border-b bg-muted/10">
+                      <div className="flex items-start gap-3 pr-8">
+                        <Checkbox className="mt-1" checked={selectedIds.has(tc.id)} onCheckedChange={() => toggleSelect(tc.id)} />
+                        <div>
+                          <p className="font-bold text-sm leading-tight">{tc.title}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            {tc.tracker && <Badge variant="outline" className="text-[10px]">{tc.tracker}</Badge>}
+                            {tc.aiAssisted && <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary">AI Gen</Badge>}
+                          </div>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-3 space-y-3 text-sm">
+                      {tc.redmineUserStory && <div><span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">User Story</span><p>{tc.redmineUserStory}</p></div>}
+                      {tc.scenario && <div><span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">Scenario</span><p className="whitespace-pre-wrap">{tc.scenario}</p></div>}
+                      {tc.testSteps && <div><span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">Test Steps</span><div className="bg-muted p-2 rounded text-xs font-mono whitespace-pre-wrap">{tc.testSteps}</div></div>}
+                      {tc.expectedResult && <div><span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">Expected Result</span><p className="text-green-700 dark:text-green-400 whitespace-pre-wrap">{tc.expectedResult}</p></div>}
+
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t mt-2">
+                        <div><span className="text-[10px] uppercase font-bold text-muted-foreground block">Defect #</span><p className="truncate">{tc.redmineDefectId || "—"}</p></div>
+                        <div><span className="text-[10px] uppercase font-bold text-muted-foreground block">QA PIC</span><p className="truncate">{tc.qaPic || tc.authorName || "—"}</p></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Pagination Footer */}
               <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-muted/10 border-t gap-3">
-                <div className="text-xs text-muted-foreground text-center sm:text-left w-full sm:w-auto">
-                  Showing{" "}
-                  <span className="font-medium">
-                    {(currentPage - 1) * ITEMS_PER_PAGE + 1}
-                  </span>{" "}
-                  to{" "}
-                  <span className="font-medium">
-                    {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}
-                  </span>{" "}
-                  of <span className="font-medium">{filtered.length}</span> test
-                  cases
+                <div className="text-xs text-muted-foreground text-center sm:text-left">
+                  Showing <span className="font-medium">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}</span> of <span className="font-medium">{filtered.length}</span> cases
                 </div>
-                <div className="flex gap-2 w-full sm:w-auto justify-center">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs flex-1 sm:flex-none"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs flex-1 sm:flex-none"
-                    onClick={() =>
-                      setCurrentPage((p) => Math.min(totalPages, p + 1))
-                    }
-                    disabled={currentPage >= totalPages}
-                  >
-                    Next
-                  </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Next</Button>
                 </div>
               </div>
             </div>
@@ -1260,213 +698,98 @@ export default function TestCases() {
         </CardContent>
       </Card>
 
-      <AIGenerateDialog
-        open={aiDialogOpen}
-        onClose={() => setAiDialogOpen(false)}
-        requirements={requirements}
-        projects={projects}
-        users={users}
-        onSuccess={handleAISuccess}
-      />
+      <AIGenerateDialog open={aiDialogOpen} onClose={() => setAiDialogOpen(false)} requirements={requirements} projects={projects} users={users} onSuccess={handleAISuccess} />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
-          <DialogHeader>
-            <DialogTitle>
-              {editingTC ? "Edit Test Case" : "New Test Case"}
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
+          <DialogHeader><DialogTitle>{editingTC ? "Edit Test Case" : "New Test Case"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Title *</Label>
-              <Input
-                placeholder="Test case title"
-                value={form.title ?? ""}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-              />
-            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Type</Label>
-                <Select
-                  value={form.type ?? "manual"}
-                  onValueChange={(v) => setForm({ ...form, type: v as any })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="manual">Manual</SelectItem>
-                    <SelectItem value="automation_candidate">
-                      Automation Candidate
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Priority</Label>
-                <Select
-                  value={form.priority ?? "medium"}
-                  onValueChange={(v) =>
-                    setForm({ ...form, priority: v as any })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="critical">Critical</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Case (Title) *</Label>
+                <Input placeholder="Test case name" value={form.title ?? ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>Project</Label>
-                <Select
-                  value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, projectId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                <Select value={form.projectId ? String(form.projectId) : ""} onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}>
+                  <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent className="max-h-[300px]">{projects.map((p) => (<SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>))}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Requirement</Label>
-                <Select
-                  value={form.requirementId ? String(form.requirementId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, requirementId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Link to..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {requirements.map((r) => (
-                      <SelectItem key={r.id} value={String(r.id)}>
-                        {r.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                <Select value={form.requirementId ? String(form.requirementId) : ""} onValueChange={(v) => setForm({ ...form, requirementId: Number(v) })}>
+                  <SelectTrigger><SelectValue placeholder="Link to..." /></SelectTrigger>
+                  <SelectContent className="max-h-[300px]">{requirements.map((r) => (<SelectItem key={r.id} value={String(r.id)}>{r.title}</SelectItem>))}</SelectContent>
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Objective</Label>
-              <Textarea
-                placeholder="What does this test verify?"
-                value={form.objective ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, objective: e.target.value })
-                }
-                rows={2}
-              />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border p-3 rounded-lg bg-muted/10">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Redmine User Story</Label>
+                <Input placeholder="e.g. As a user, I want to..." value={form.redmineUserStory ?? ""} onChange={(e) => setForm({ ...form, redmineUserStory: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <Input placeholder="e.g. Bug, Feature" value={form.tracker ?? ""} onChange={(e) => setForm({ ...form, tracker: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Scenario</Label>
+                <Input placeholder="e.g. Login with invalid password" value={form.scenario ?? ""} onChange={(e) => setForm({ ...form, scenario: e.target.value })} />
+              </div>
             </div>
+
             <div className="space-y-1.5">
               <Label>Preconditions</Label>
-              <Textarea
-                placeholder="Setup required before running this test"
-                value={form.preconditions ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, preconditions: e.target.value })
-                }
-                rows={2}
-              />
+              <Textarea placeholder="Setup required before running this test" value={form.preconditions ?? ""} onChange={(e) => setForm({ ...form, preconditions: e.target.value })} rows={2} />
             </div>
             <div className="space-y-1.5">
-              <Label>Test Steps</Label>
-              <Textarea
-                placeholder="1. Step one&#10;2. Step two&#10;3. Step three"
-                value={form.testSteps ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, testSteps: e.target.value })
-                }
-                rows={4}
-              />
+              <Label>Test Steps *</Label>
+              <Textarea placeholder="1. Step one&#10;2. Step two&#10;3. Step three" value={form.testSteps ?? ""} onChange={(e) => setForm({ ...form, testSteps: e.target.value })} rows={4} />
             </div>
             <div className="space-y-1.5">
-              <Label>Expected Result</Label>
-              <Textarea
-                placeholder="What should happen after running the steps?"
-                value={form.expectedResult ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, expectedResult: e.target.value })
-                }
-                rows={2}
-              />
+              <Label>Test Data</Label>
+              <Textarea placeholder="Variables, credentials, or payloads needed..." value={form.testData ?? ""} onChange={(e) => setForm({ ...form, testData: e.target.value })} rows={2} />
             </div>
             <div className="space-y-1.5">
-              <Label>Tags</Label>
-              <Input
-                placeholder="e.g. smoke, regression, ui"
-                value={form.tags ?? ""}
-                onChange={(e) => setForm({ ...form, tags: e.target.value })}
-              />
+              <Label>Expected Result *</Label>
+              <Textarea placeholder="What should happen after running the steps?" value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} rows={2} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-4">
+              <div className="space-y-1.5">
+                <Label>Defect #</Label>
+                <Input placeholder="e.g. 12345" value={form.redmineDefectId ?? ""} onChange={(e) => setForm({ ...form, redmineDefectId: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>QA PIC</Label>
+                <Input placeholder="e.g. John Doe" value={form.qaPic ?? ""} onChange={(e) => setForm({ ...form, qaPic: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Comments / Issues</Label>
+                <Input placeholder="..." value={form.comments ?? ""} onChange={(e) => setForm({ ...form, comments: e.target.value })} />
+              </div>
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={
-                !form.title ||
-                createMutation.isPending ||
-                updateMutation.isPending
-              }
-              className="w-full sm:w-auto"
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? "Saving..."
-                : editingTC
-                  ? "Save Changes"
-                  : "Create"}
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={handleSubmit} disabled={!form.title || !form.testSteps || createMutation.isPending || updateMutation.isPending} className="w-full sm:w-auto">
+              {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingTC ? "Save Changes" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Delete Confirmation Dialog */}
       <Dialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
         <DialogContent className="w-[95vw] sm:w-full">
-          <DialogHeader>
-            <DialogTitle>Delete {selectedIds.size} Test Cases?</DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <p className="text-sm text-muted-foreground">
-              Are you sure you want to permanently delete the {selectedIds.size} selected test case{selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.
-            </p>
-          </div>
+          <DialogHeader><DialogTitle>Delete {selectedIds.size} Test Cases?</DialogTitle></DialogHeader>
+          <div className="py-2"><p className="text-sm text-muted-foreground">Are you sure you want to permanently delete the {selectedIds.size} selected test case{selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.</p></div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button 
-              variant="outline" 
-              onClick={() => setIsBulkDeleteDialogOpen(false)} 
-              disabled={isDeletingBulk}
-              className="w-full sm:w-auto"
-            >
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleBulkDelete} 
-              disabled={isDeletingBulk}
-              className="w-full sm:w-auto"
-            >
-              {isDeletingBulk ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
-              {isDeletingBulk ? "Deleting..." : "Delete Item(s)"}
+            <Button variant="outline" onClick={() => setIsBulkDeleteDialogOpen(false)} disabled={isDeletingBulk} className="w-full sm:w-auto">Cancel</Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={isDeletingBulk} className="w-full sm:w-auto">
+              {isDeletingBulk ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />} Delete Item(s)
             </Button>
           </DialogFooter>
         </DialogContent>
