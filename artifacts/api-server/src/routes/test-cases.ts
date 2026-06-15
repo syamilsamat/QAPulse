@@ -174,7 +174,7 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
   let existingContext = "";
   let similarCount = 0;
   try {
-    let query: any = db.select({ title: testCasesTable.title, scenario: (testCasesTable as any).scenario }).from(testCasesTable);
+    let query: any = db.select().from(testCasesTable);
     if (requirementId) query = query.where(eq(testCasesTable.requirementId, requirementId));
 
     const existingCases = await query.limit(30);
@@ -193,21 +193,33 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
   if (generateNegative) caseTypes.push("negative validation");
   if (generateEdgeCases) caseTypes.push("extreme boundary condition");
 
-  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 8 to 12 highly detailed test cases based on the requirements.
+  // --- NEW: DYNAMIC GENERATION COUNT LOGIC ---
+  // Count how many distinct requirements were passed based on the delimiter from the frontend
+  const reqCount = requirementDescription ? requirementDescription.split("\n\n---\n\n").length : 1;
+  let countInstruction = "Generate a focused batch of 8 to 12 highly detailed test cases based on the requirements.";
+
+  if (reqCount > 1) {
+    const minTarget = reqCount * 5;
+    countInstruction = `Generate a comprehensive batch of test cases. Since there are ${reqCount} distinct requirements provided in the scope, you MUST generate at least ${minTarget} test cases in total (aiming for roughly 5 test cases per requirement). Do not artificially limit your output.`;
+  }
+
+  const systemInstruction = `You are an expert QA engine. ${countInstruction}
     CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
     Return ONLY a valid JSON object matching this structure:
-    { 
-      "testCases": [{ 
-        "title": "string (The Case Name)", 
+    {
+      "testCases": [{
+        "title": "string (The Case Name)",
         "redmineUserStory": "string (Extract from context if available)",
         "tracker": "string",
         "scenario": "string (Detailed scenario description)",
-        "preconditions": "string", 
-        "testSteps": ["1. First step", "2. Second step"], 
+        "preconditions": "string",
+        "testSteps": ["1. First step", "2. Second step"],
         "testData": "string",
-        "expectedResult": "string", 
-        "tags": "string"
-      }] 
+        "expectedResult": "string",
+        "tags": "string",
+        "type": "string (manual or automation_candidate)",
+        "priority": "string (low, medium, high, or critical)"
+      }]
     }`;
 
   const userPrompt = `Requirement Hierarchy & Descriptions:\n${requirementDescription || "N/A"}\n\nModule: ${featureModule || "N/A"}\nFocus Scenarios: ${caseTypes.join(", ")}\nNotes: ${additionalNotes || "None"} ${existingContext}`;
@@ -232,6 +244,8 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
             testData: { type: Type.STRING },
             expectedResult: { type: Type.STRING },
             tags: { type: Type.STRING },
+            type: { type: Type.STRING },
+            priority: { type: Type.STRING },
           },
           required: ["title", "scenario", "testSteps", "expectedResult"],
         },

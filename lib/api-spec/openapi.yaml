@@ -1296,7 +1296,7 @@ components:
     # Test Case
     TestCase:
       type: object
-      required: [id, title, type, priority, status, aiAssisted, createdAt, updatedAt]
+      required: [id, title, status, aiAssisted, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -1342,7 +1342,7 @@ components:
 
     TestCaseInput:
       type: object
-      required: [title, type, priority]
+      required: [title]
       properties:
         title:
           type: string
