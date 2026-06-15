@@ -16,8 +16,6 @@ export const testCasesTable = pgTable("test_cases", {
   preconditions: text("preconditions"),
   testSteps: text("test_steps"),
   expectedResult: text("expected_result"),
-  //type: text("type").notNull().default("manual"),
-  //priority: text("priority").notNull().default("medium"),
   tags: text("tags"),
   requirementId: integer("requirement_id"),
   projectId: integer("project_id"),
@@ -25,6 +23,17 @@ export const testCasesTable = pgTable("test_cases", {
   authorId: integer("author_id"),
   aiAssisted: boolean("ai_assisted").notNull().default(false),
   status: text("status").notNull().default("active"),
+
+  // --- NEW FIELDS ADDED TO FIX SAVING ---
+  redmineUserStory: text("redmine_user_story"),
+  tracker: text("tracker"),
+  scenario: text("scenario"),
+  testData: text("test_data"),
+  redmineDefectId: text("redmine_defect_id"),
+  comments: text("comments"),
+  qaPic: text("qa_pic"),
+  // --------------------------------------
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

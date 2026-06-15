@@ -126,7 +126,7 @@ export default function Requirements() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
-  const [form, setForm] = useState<Partial<RequirementInput>>({});
+  const [form, setForm] = useState<Partial<RequirementInput> & { parentRedmineTicketId?: string }>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -305,7 +305,7 @@ export default function Requirements() {
 
   const openCreate = () => {
     setEditingReq(null);
-    setForm({ priority: "normal", status: "draft" }); // Still defaults backend to draft invisibly
+    setForm({ priority: "normal", status: "draft" });
     setErrors({});
     setDialogOpen(true);
   };
@@ -313,12 +313,16 @@ export default function Requirements() {
   const openEdit = (r: any) => {
     setEditingReq(r);
     setErrors({});
+
+    const parentReq = r.parentId ? requirements.find((req: any) => req.id === r.parentId) : null;
+
     setForm({
       title: r.title,
       description: r.description ?? undefined,
       module: r.module ?? undefined,
       tracker: r.tracker ?? undefined,
       parentId: r.parentId ?? undefined,
+      parentRedmineTicketId: parentReq?.redmineTicketId ?? undefined,
       projectId: r.projectId ?? undefined,
       priority: r.priority,
       release: r.release ?? undefined,
@@ -326,6 +330,21 @@ export default function Requirements() {
       redmineTicketId: r.redmineTicketId ?? undefined,
       status: r.status,
     });
+    setDialogOpen(true);
+  };
+
+  const openCreateChild = (parentReq: any) => {
+    setEditingReq(null);
+    setForm({
+      parentId: parentReq.id,
+      parentRedmineTicketId: parentReq.redmineTicketId ?? undefined,
+      projectId: parentReq.projectId ?? undefined,
+      module: parentReq.module ?? undefined,
+      release: parentReq.release ?? undefined,
+      priority: "normal", 
+      status: "draft"
+    });
+    setErrors({});
     setDialogOpen(true);
   };
 
@@ -342,8 +361,30 @@ export default function Requirements() {
       toast({ variant: "destructive", title: "Please fill in all required fields" });
       return;
     }
-    if (editingReq) updateMutation.mutate({ id: editingReq.id, data: form as any });
-    else createMutation.mutate({ data: form as RequirementInput });
+
+    let finalParentId = form.parentId;
+
+    if (form.parentRedmineTicketId?.trim()) {
+      const parentReq = requirements.find((r: any) => String(r.redmineTicketId) === form.parentRedmineTicketId?.trim());
+
+      if (!parentReq) {
+        toast({ 
+          variant: "destructive", 
+          title: "Parent not exist", 
+          description: "Please create redmine as parent." 
+        });
+        return;
+      }
+      finalParentId = parentReq.id;
+    } else if (form.parentRedmineTicketId === "") {
+      finalParentId = undefined;
+    }
+
+    const { parentRedmineTicketId, ...restForm } = form;
+    const payload = { ...restForm, parentId: finalParentId };
+
+    if (editingReq) updateMutation.mutate({ id: editingReq.id, data: payload as any });
+    else createMutation.mutate({ data: payload as RequirementInput });
   };
 
   const handleCreateProject = () => {
@@ -639,9 +680,12 @@ export default function Requirements() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openCreateChild(r)}>
+                                <Plus className="w-4 h-4 mr-2" /> Add Child
+                              </DropdownMenuItem>
                               {r.redmineTicketId && (
                                 <DropdownMenuItem onClick={() => handleSingleSync(r)}>
-                                  <Download className="w-4 h-4 mr-2" /> Sync to Redmine
+                                  <Download className="w-4 h-4 mr-2" /> Sync from Redmine
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuItem onClick={() => openEdit(r)}>
@@ -719,11 +763,16 @@ export default function Requirements() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
           <DialogHeader>
-            <DialogTitle>{editingReq ? "Edit Requirement" : "New Requirement"}</DialogTitle>
+            <DialogTitle>
+              {editingReq 
+                ? "Edit Requirement" 
+                : form.parentId 
+                  ? "New Child Requirement" 
+                  : "New Requirement"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
 
-            {/* Title & Redmine Ticket ID paired at the top */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Title <span className="text-destructive">*</span></Label>
@@ -785,9 +834,13 @@ export default function Requirements() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5 sm:col-span-2">
+              <div className="space-y-1.5">
                 <Label>Release</Label>
                 <Input placeholder="e.g. v3.0" value={form.release ?? ""} onChange={(e) => setForm({ ...form, release: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Parent Redmine ID (Optional)</Label>
+                <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} />
               </div>
             </div>
           </div>

@@ -246,6 +246,7 @@ router.get(
           moduleName: t.moduleName,
           caseId: t.caseId,
           userStory: t.userStory,
+          tracker: (t as any).tracker, // <-- Added Tracker payload
           scenario: t.scenario,
           preCondition: t.preCondition,
           caseName: t.caseName,
@@ -312,6 +313,7 @@ router.post(
             moduleName: t.moduleName || null,
             caseId: t.caseId || null,
             userStory: t.userStory || null,
+            tracker: t.tracker || null, // <-- Saved to database
             scenario: t.scenario || null,
             preCondition: t.preCondition || null,
             caseName: t.caseName || null,

@@ -82,7 +82,7 @@ export default function TestCasesExecution() {
     name: string;
   } | null>(null);
 
-  // --- NEW: Selection and Delete Confirmation State ---
+  // Selection and Delete Confirmation State
   const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [filesToDelete, setFilesToDelete] = useState<number[]>([]);
@@ -137,7 +137,7 @@ export default function TestCasesExecution() {
     }
   };
 
-  // --- NEW: Selection Logic ---
+  // Selection Logic
   const filteredFiles = files.filter(
     (f) =>
       f.redmineTicketId.includes(search) ||
@@ -160,7 +160,7 @@ export default function TestCasesExecution() {
     }
   };
 
-  // --- NEW: Confirmation & Delete Logic ---
+  // Confirmation & Delete Logic
   const confirmDelete = (ids: number[]) => {
     setFilesToDelete(ids);
     setDeleteConfirmOpen(true);
@@ -308,7 +308,6 @@ export default function TestCasesExecution() {
           <Table className="border-collapse border border-border min-w-[800px]">
             <TableHeader className="bg-muted/50">
               <TableRow>
-                {/* --- NEW: Checkbox Header --- */}
                 <TableHead className="w-[50px] border-r border-border text-center">
                   <input
                     type="checkbox"
@@ -334,7 +333,6 @@ export default function TestCasesExecution() {
             <TableBody>
               {filteredFiles.map((f) => (
                 <TableRow key={f.id} className="border-b border-border">
-                  {/* --- NEW: Checkbox Cell --- */}
                   <TableCell className="border-r border-border text-center">
                     <input
                       type="checkbox"
@@ -373,7 +371,7 @@ export default function TestCasesExecution() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => confirmDelete([f.id])} // Updated
+                        onClick={() => confirmDelete([f.id])}
                         className="text-red-600 hover:text-red-800 hover:bg-red-50"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -397,7 +395,6 @@ export default function TestCasesExecution() {
         </CardContent>
       </Card>
 
-      {/* --- NEW: DELETE CONFIRMATION DIALOG --- */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -443,7 +440,6 @@ export default function TestCasesExecution() {
         </DialogContent>
       </Dialog>
 
-      {/* NEW FILE DIALOG (Unchanged) */}
       <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
         <DialogContent className="w-[95vw] sm:max-w-[425px]">
           <DialogHeader>
@@ -458,7 +454,7 @@ export default function TestCasesExecution() {
                 placeholder="e.g. 38032"
                 value={fileForm.redmineTicketId}
                 onChange={(e) =>
-                  setFileForm({ ...fileForm, redmineTicketId: e.target.value })
+                  setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })
                 }
               />
             </div>
@@ -551,7 +547,6 @@ export default function TestCasesExecution() {
         </DialogContent>
       </Dialog>
 
-      {/* MANAGE MODULES DIALOG (Unchanged) */}
       <Dialog
         open={modulesOpen}
         onOpenChange={(open) => {

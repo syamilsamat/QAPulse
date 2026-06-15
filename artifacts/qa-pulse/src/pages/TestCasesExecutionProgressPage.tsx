@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx-js-style";
+import { format } from "date-fns";
 import {
   fetchTestCases,
   saveTestCases,
@@ -60,15 +61,20 @@ const RESULT_OPTIONS = [
   "",
 ];
 
+// Expanded type to include tracker without modifying the core API file immediately
+export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
+
 const COLUMN_MAPPINGS: Record<string, string[]> = {
   caseId: ["case id", "test case id", "tc id", "id"],
   userStory: [
+    "redmine ticket id",
+    "redmine user story",
     "user story",
     "story",
     "requirement",
     "requirement id",
-    "redmine user story",
   ],
+  tracker: ["tracker"],
   scenario: ["scenario", "tracker scenario"],
   preCondition: [
     "pre condition",
@@ -77,12 +83,14 @@ const COLUMN_MAPPINGS: Record<string, string[]> = {
     "precondition",
   ],
   caseName: ["case", "case name", "title"],
-  testSteps: ["test steps", "steps", "testing steps"],
+  testSteps: ["steps", "test steps", "testing steps"],
   testData: ["test data", "data"],
   expectedResult: ["expected result", "expected outcome", "expected results"],
   result: ["result", "status", "test result"],
   defectNumber: [
+    "redmine defect ticket id",
     "redmine defect",
+    "defect #",
     "defect id",
     "bug id",
     "redmine id",
@@ -90,14 +98,31 @@ const COLUMN_MAPPINGS: Record<string, string[]> = {
   ],
   qaPic: ["qa pic", "qa owner", "tester", "assigned qa"],
   comments: [
-    "additional / comments / issues",
     "additional/comments/issues",
+    "additional / comments / issues",
     "comments",
     "additional",
     "issues",
     "remarks",
   ],
   moduleName: ["module name", "module", "feature"],
+};
+
+// --- Add this helper function ---
+const getResultColorClass = (result?: string) => {
+  switch (result?.toLowerCase()) {
+    case "passed":
+      return "bg-green-100 text-green-800 border-green-200";
+    case "failed":
+      return "bg-red-100 text-red-800 border-red-200";
+    case "blocked":
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    case "in progress":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "not executed":
+    default:
+      return "bg-muted/30 text-muted-foreground border-transparent";
+  }
 };
 
 const tableInputClass =
@@ -233,13 +258,13 @@ const CopilotTextarea = ({
 
 // --- MEMOIZED ROW COMPONENTS FOR PERFORMANCE ---
 interface RowProps {
-  row: ExecutionTestCase;
+  row: AppExecutionTestCase;
   index: number;
   isSelected: boolean;
   onToggleSelect: (id: string | number, checked: boolean) => void;
   onUpdate: (
     id: string | number,
-    field: keyof ExecutionTestCase,
+    field: keyof AppExecutionTestCase,
     value: string,
   ) => void;
   onDelete: (id: string | number) => void;
@@ -308,6 +333,15 @@ const DesktopTableRow = React.memo(
           />
         </td>
         <td className="border border-border p-0 relative align-top">
+          <Textarea
+            className={tableInputClass}
+            value={row.tracker || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "tracker", e.target.value)
+            }
+          />
+        </td>
+        <td className="border border-border p-0 relative align-top">
           <CopilotTextarea
             className={tableInputClass}
             value={row.scenario || ""}
@@ -369,14 +403,14 @@ const DesktopTableRow = React.memo(
             }
           />
         </td>
-        <td className="border border-border p-0 bg-primary/5 relative align-top">
-          <select
-            className={`${tableSelectClass} font-semibold`}
-            value={row.result || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "result", e.target.value)
-            }
-          >
+            <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
+              <select
+                className={`${tableSelectClass} font-bold`}
+                value={row.result || ""}
+                onChange={(e) =>
+                  onUpdate(row.id as string, "result", e.target.value)
+                }
+              >
             {RESULT_OPTIONS.map((r) => (
               <option key={r} value={r}>
                 {r || "Select..."}
@@ -494,17 +528,17 @@ const MobileCardRow = React.memo(
               ))}
             </select>
           </div>
-          <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
-              Result
-            </Label>
-            <select
-              className="flex min-h-[40px] w-full rounded-md border border-primary bg-primary/5 px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1"
-              value={row.result}
-              onChange={(e) =>
-                onUpdate(row.id as string, "result", e.target.value)
-              }
-            >
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+                  Result
+                </Label>
+                <select
+                  className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
+                  value={row.result}
+                  onChange={(e) =>
+                    onUpdate(row.id as string, "result", e.target.value)
+                  }
+                >
               {RESULT_OPTIONS.map((r) => (
                 <option key={r} value={r}>
                   {r || "Pending"}
@@ -529,13 +563,40 @@ const MobileCardRow = React.memo(
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
-              User Story
+              Redmine Ticket ID
             </Label>
             <Textarea
               className="min-h-[60px] text-xs p-2"
               value={row.userStory}
               onChange={(e) =>
                 onUpdate(row.id as string, "userStory", e.target.value)
+              }
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Tracker
+            </Label>
+            <Textarea
+              className="min-h-[40px] text-xs p-2"
+              value={row.tracker || ""}
+              onChange={(e) =>
+                onUpdate(row.id as string, "tracker", e.target.value)
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Test Data
+            </Label>
+            <Textarea
+              className="min-h-[40px] text-xs p-2"
+              value={row.testData}
+              onChange={(e) =>
+                onUpdate(row.id as string, "testData", e.target.value)
               }
             />
           </div>
@@ -560,7 +621,7 @@ const MobileCardRow = React.memo(
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Case Name / Title <Sparkles className="w-3 h-3 text-primary" />
+            Case <Sparkles className="w-3 h-3 text-primary" />
           </Label>
           <div className="border border-input rounded-md focus-within:ring-1">
             <CopilotTextarea
@@ -577,7 +638,7 @@ const MobileCardRow = React.memo(
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Test Steps <Sparkles className="w-3 h-3 text-primary" />
+            Steps <Sparkles className="w-3 h-3 text-primary" />
           </Label>
           <div className="border border-input rounded-md focus-within:ring-1">
             <CopilotTextarea
@@ -609,10 +670,10 @@ const MobileCardRow = React.memo(
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t mt-2">
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
-              Defect #
+              Redmine Defect Ticket ID
             </Label>
             <Textarea
               className="min-h-[40px] text-xs p-2"
@@ -642,6 +703,19 @@ const MobileCardRow = React.memo(
             </select>
           </div>
         </div>
+
+        <div className="space-y-1 pt-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Additional/Comments/Issues
+          </Label>
+          <Textarea
+            className="min-h-[40px] text-xs p-2"
+            value={row.comments}
+            onChange={(e) =>
+              onUpdate(row.id as string, "comments", e.target.value)
+            }
+          />
+        </div>
       </Card>
     );
   },
@@ -658,7 +732,13 @@ export default function TestCasesExecutionProgressPage() {
     [],
   );
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
-  const [data, setData] = useState<ExecutionTestCase[]>([]);
+  const [data, setData] = useState<AppExecutionTestCase[]>([]);
+
+  // Auto-Save States
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
@@ -667,7 +747,7 @@ export default function TestCasesExecutionProgressPage() {
   );
 
   const [pendingImportData, setPendingImportData] = useState<
-    ExecutionTestCase[] | null
+    AppExecutionTestCase[] | null
   >(null);
   const [pendingImportSummary, setPendingImportSummary] =
     useState<ImportSummary | null>(null);
@@ -729,11 +809,12 @@ export default function TestCasesExecutionProgressPage() {
       .finally(() => setIsLoading(false));
   }, [ticketId, toast]);
 
-  const createEmptyRow = (): ExecutionTestCase => ({
+  const createEmptyRow = (): AppExecutionTestCase => ({
     id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
     moduleName: "",
     caseId: "",
     userStory: "",
+    tracker: "",
     scenario: "",
     preCondition: "",
     caseName: "",
@@ -746,14 +827,18 @@ export default function TestCasesExecutionProgressPage() {
     qaPic: "",
   });
 
-  const handleAddRow = () => setData((prev) => [...prev, createEmptyRow()]);
+  const handleAddRow = () => {
+    setData((prev) => [...prev, createEmptyRow()]);
+    setHasUnsavedChanges(true);
+  };
 
   // STABLE CALLBACKS FOR MEMOIZED ROWS
   const updateCell = useCallback(
-    (id: string | number, field: keyof ExecutionTestCase, value: string) => {
+    (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
       setData((prev) =>
         prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
       );
+      setHasUnsavedChanges(true);
     },
     [],
   );
@@ -773,6 +858,48 @@ export default function TestCasesExecutionProgressPage() {
     setRowsToDelete([id]);
     setDeleteConfirmOpen(true);
   }, []);
+
+  // --- AUTO-SAVE LOGIC ---
+  const dataRef = useRef(data);
+  const unsavedRef = useRef(hasUnsavedChanges);
+
+  useEffect(() => { dataRef.current = data; }, [data]);
+  useEffect(() => { unsavedRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (unsavedRef.current) {
+        setSaveStatus("saving");
+        try {
+          await saveTestCases(ticketId, dataRef.current as any, null);
+          setSaveStatus("saved");
+          setLastSavedAt(new Date());
+          setHasUnsavedChanges(false);
+        } catch (err) {
+          setSaveStatus("error");
+        }
+      }
+    }, 10000); // 10 seconds
+
+    return () => clearInterval(interval);
+  }, [ticketId]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveStatus("saving");
+    try {
+      await saveTestCases(ticketId, data as any, null);
+      toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
+      setHasUnsavedChanges(false);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+    } catch (err) {
+      toast({ variant: "destructive", title: "Failed to save to database" });
+      setSaveStatus("error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Search & Filter Logic
   const toggleFilter = (type: "module" | "result" | "qa", value: string) => {
@@ -868,33 +995,23 @@ export default function TestCasesExecutionProgressPage() {
     setSelectedRows((prev) => prev.filter((id) => !rowsToDelete.includes(id)));
     setDeleteConfirmOpen(false);
     setRowsToDelete([]);
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await saveTestCases(ticketId, data, null);
-      toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to save to database" });
-    } finally {
-      setIsSaving(false);
-    }
+    setHasUnsavedChanges(true);
   };
 
   const handleDownloadExcel = () => {
     const exportData = filteredData.map((row) => ({
-      Module: row.moduleName || "",
+      "Module": row.moduleName || "",
       "Case ID": row.caseId || "",
-      "User Story": row.userStory || "",
-      Scenario: row.scenario || "",
+      "Redmine Ticket ID": row.userStory || "",
+      "Tracker": row.tracker || "",
+      "Scenario": row.scenario || "",
       "Pre Condition": row.preCondition || "",
-      Case: row.caseName || "",
-      "Test Steps": row.testSteps || "",
+      "Case": row.caseName || "",
+      "Steps": row.testSteps || "",
       "Test Data": row.testData || "",
       "Expected Result": row.expectedResult || "",
-      Result: row.result || "",
-      "Redmine Defect": row.defectNumber || "",
+      "Result": row.result || "",
+      "Redmine Defect Ticket ID": row.defectNumber || "",
       "Additional/Comments/Issues": row.comments || "",
       "QA PIC": row.qaPic || "",
     }));
@@ -902,15 +1019,16 @@ export default function TestCasesExecutionProgressPage() {
     const headerOrder = [
       "Module",
       "Case ID",
-      "User Story",
+      "Redmine Ticket ID",
+      "Tracker",
       "Scenario",
       "Pre Condition",
       "Case",
-      "Test Steps",
+      "Steps",
       "Test Data",
       "Expected Result",
       "Result",
-      "Redmine Defect",
+      "Redmine Defect Ticket ID",
       "Additional/Comments/Issues",
       "QA PIC",
     ];
@@ -954,6 +1072,7 @@ export default function TestCasesExecutionProgressPage() {
       { wch: 15 },
       { wch: 12 },
       { wch: 15 },
+      { wch: 15 }, // tracker
       { wch: 20 },
       { wch: 25 },
       { wch: 25 },
@@ -979,6 +1098,31 @@ export default function TestCasesExecutionProgressPage() {
       .trim();
   };
 
+  // Values Standardization Mappers
+  const normalizeResultValue = (val: string) => {
+    if (!val) return "";
+    const clean = val.toLowerCase().trim();
+    const map: Record<string, string> = {
+      "fail": "Failed", "failure": "Failed", "failed": "Failed",
+      "pass": "Passed", "passes": "Passed", "passed": "Passed",
+      "block": "Blocked", "blocks": "Blocked", "blocked": "Blocked",
+      "in progress": "In Progress",
+      "no result": "Not Executed", "not executed": "Not Executed"
+    };
+    return map[clean] || val.trim();
+  };
+
+  const normalizeQAValue = (val: string) => {
+    if (!val) return "";
+    const clean = val.toLowerCase().trim();
+    const map: Record<string, string> = {
+      "qinah": "Qinah", "qina": "Qinah",
+      "raimi": "Raimi Rosman",
+      "rai": "Raihan"
+    };
+    return map[clean] || val.trim();
+  };
+
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -995,7 +1139,7 @@ export default function TestCasesExecutionProgressPage() {
       const missingColumnsSet = new Set<string>();
       const duplicateCaseIdsSet = new Set<string>();
       const seenCaseIds = new Set<string>();
-      const consolidatedData: ExecutionTestCase[] = [];
+      const consolidatedData: AppExecutionTestCase[] = [];
 
       const allRequiredKeys = Object.keys(COLUMN_MAPPINGS).filter(
         (k) => k !== "moduleName",
@@ -1004,6 +1148,28 @@ export default function TestCasesExecutionProgressPage() {
 
       for (const sheetName of wb.SheetNames) {
         const sheet = wb.Sheets[sheetName];
+
+        // --- MERGED CELLS RESOLUTION LOGIC ---
+        if (sheet['!merges']) {
+          sheet['!merges'].forEach((merge: any) => {
+            const startCell = XLSX.utils.encode_cell({ c: merge.s.c, r: merge.s.r });
+            const val = sheet[startCell] ? sheet[startCell].v : undefined;
+            if (val !== undefined) {
+              for (let R = merge.s.r; R <= merge.e.r; ++R) {
+                for (let C = merge.s.c; C <= merge.e.c; ++C) {
+                  const cellRef = XLSX.utils.encode_cell({ c: C, r: R });
+                  if (!sheet[cellRef]) {
+                    sheet[cellRef] = { t: 's', v: val };
+                  } else {
+                    sheet[cellRef].v = val;
+                  }
+                }
+              }
+            }
+          });
+        }
+        // -------------------------------------
+
         const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
           header: 1,
           blankrows: false,
@@ -1104,16 +1270,17 @@ export default function TestCasesExecutionProgressPage() {
             moduleName: extracted.moduleName || "",
             caseId: extracted.caseId || "",
             userStory: extracted.userStory || "",
+            tracker: extracted.tracker || "",
             scenario: extracted.scenario || "",
             preCondition: extracted.preCondition || "",
             caseName: extracted.caseName || "",
             testSteps: extracted.testSteps || "",
             testData: extracted.testData || "",
             expectedResult: extracted.expectedResult || "",
-            result: extracted.result || "",
+            result: normalizeResultValue(extracted.result || ""),
             defectNumber: extracted.defectNumber || "",
             comments: extracted.comments || "",
-            qaPic: extracted.qaPic || "",
+            qaPic: normalizeQAValue(extracted.qaPic || ""),
           });
 
           totalRowsImported++;
@@ -1141,6 +1308,7 @@ export default function TestCasesExecutionProgressPage() {
             if (!r.moduleName) r.moduleName = availableModules[0].name;
           });
           setData(consolidatedData);
+          setHasUnsavedChanges(true);
           setImportSummary(summaryObj);
         } else if (availableModules.length > 1) {
           const hasMissingModules = consolidatedData.some((r) => !r.moduleName);
@@ -1150,10 +1318,12 @@ export default function TestCasesExecutionProgressPage() {
             setShowModuleSelectDialog(true);
           } else {
             setData(consolidatedData);
+            setHasUnsavedChanges(true);
             setImportSummary(summaryObj);
           }
         } else {
           setData(consolidatedData);
+          setHasUnsavedChanges(true);
           setImportSummary(summaryObj);
         }
       } else {
@@ -1178,6 +1348,7 @@ export default function TestCasesExecutionProgressPage() {
         moduleName: r.moduleName || selectedImportModule,
       }));
       setData(finalizedData);
+      setHasUnsavedChanges(true);
     }
     if (pendingImportSummary) setImportSummary(pendingImportSummary);
 
@@ -1383,9 +1554,14 @@ export default function TestCasesExecutionProgressPage() {
               <Sparkles className="w-3 h-3 ml-1 text-primary" /> AI Copilot
               Active (Press Tab)
             </p>
-            <p className="text-xs text-red-500 flex items-center gap-1">
-              Always Save your works (If needed) before leaving this page.
-            </p>
+            {/* --- AUTO-SAVE INDICATOR --- */}
+            <div className="text-xs flex items-center gap-1 mt-0.5 font-medium">
+              {saveStatus === 'saving' && <><Loader2 className="w-3 h-3 animate-spin text-blue-500" /> <span className="text-blue-500">Saving...</span></>}
+              {saveStatus === 'error' && <><AlertTriangle className="w-3 h-3 text-red-500" /> <span className="text-red-500">Save Failed!</span></>}
+              {saveStatus === 'saved' && <><CheckCircle className="w-3 h-3 text-green-600" /> <span className="text-green-600">Saved</span></>}
+              {lastSavedAt && <span className="text-muted-foreground ml-1">Last saved at {format(lastSavedAt, "HH:mm:ss")}</span>}
+              {hasUnsavedChanges && saveStatus !== 'saving' && <span className="text-amber-500 ml-1 font-bold">(Unsaved changes)</span>}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1634,11 +1810,13 @@ export default function TestCasesExecutionProgressPage() {
                     Case ID
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    User Story
+                    Redmine Ticket ID
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Scenario{" "}
-                    <Sparkles className="w-3 h-3 inline text-primary" />
+                    Tracker
+                  </th>
+                  <th className="border border-border w-64 p-2 text-left">
+                    Scenario <Sparkles className="w-3 h-3 inline text-primary" />
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
                     Pre Condition
@@ -1647,24 +1825,22 @@ export default function TestCasesExecutionProgressPage() {
                     Case <Sparkles className="w-3 h-3 inline text-primary" />
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Test Steps{" "}
-                    <Sparkles className="w-3 h-3 inline text-primary" />
+                    Steps <Sparkles className="w-3 h-3 inline text-primary" />
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
                     Test Data
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Expected Result{" "}
-                    <Sparkles className="w-3 h-3 inline text-primary" />
+                    Expected Result <Sparkles className="w-3 h-3 inline text-primary" />
                   </th>
                   <th className="border border-border w-64 p-2 text-left text-primary">
                     Result
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Defect #
+                    Redmine Defect Ticket ID
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Comments
+                    Additional/Comments/Issues
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
                     QA PIC

@@ -5,1095 +5,1118 @@
  * QA Pulse - QA Management Platform API
  * OpenAPI spec version: 0.1.0
  */
-import * as zod from 'zod';
-
+import * as zod from "zod";
 
 /**
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
-})
-
+  status: zod.string(),
+});
 
 /**
  * @summary Login
  */
 export const LoginBody = zod.object({
-  "email": zod.string(),
-  "password": zod.string()
-})
+  email: zod.string(),
+  password: zod.string(),
+});
 
 export const LoginResponse = zod.object({
-  "user": zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.string().describe('qa_member | qa_lead | admin'),
-  "team": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish(),
-  "mustChangePassword": zod.boolean().optional(),
-  "createdAt": zod.string()
-}),
-  "token": zod.string()
-})
-
+  user: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    email: zod.string(),
+    role: zod.string().describe("qa_member | qa_lead | admin"),
+    team: zod.string().nullish(),
+    avatarUrl: zod.string().nullish(),
+    mustChangePassword: zod.boolean().optional(),
+    createdAt: zod.string(),
+  }),
+  token: zod.string(),
+});
 
 /**
  * @summary Logout
  */
-export const LogoutResponse = zod.unknown()
-
+export const LogoutResponse = zod.unknown();
 
 /**
  * @summary Change password (including forced first-login change)
  */
 export const ChangePasswordBody = zod.object({
-  "currentPassword": zod.string().optional(),
-  "newPassword": zod.string(),
-  "userId": zod.number().optional()
-})
+  currentPassword: zod.string().optional(),
+  newPassword: zod.string(),
+  userId: zod.number().optional(),
+});
 
 export const ChangePasswordResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.string().describe('qa_member | qa_lead | admin'),
-  "team": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish(),
-  "mustChangePassword": zod.boolean().optional(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string().describe("qa_member | qa_lead | admin"),
+  team: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  mustChangePassword: zod.boolean().optional(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Get current user
  */
 export const GetMeResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.string().describe('qa_member | qa_lead | admin'),
-  "team": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish(),
-  "mustChangePassword": zod.boolean().optional(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string().describe("qa_member | qa_lead | admin"),
+  team: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  mustChangePassword: zod.boolean().optional(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary List users
  */
 export const ListUsersQueryParams = zod.object({
-  "role": zod.coerce.string().optional(),
-  "search": zod.coerce.string().optional()
-})
+  role: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
+});
 
 export const ListUsersResponseItem = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.string().describe('qa_member | qa_lead | admin'),
-  "team": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish(),
-  "mustChangePassword": zod.boolean().optional(),
-  "createdAt": zod.string()
-})
-export const ListUsersResponse = zod.array(ListUsersResponseItem)
-
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string().describe("qa_member | qa_lead | admin"),
+  team: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  mustChangePassword: zod.boolean().optional(),
+  createdAt: zod.string(),
+});
+export const ListUsersResponse = zod.array(ListUsersResponseItem);
 
 /**
  * @summary Create user
  */
 export const CreateUserBody = zod.object({
-  "name": zod.string(),
-  "email": zod.string(),
-  "password": zod.string(),
-  "role": zod.string(),
-  "team": zod.string().optional()
-})
+  name: zod.string(),
+  email: zod.string(),
+  password: zod.string(),
+  role: zod.string(),
+  team: zod.string().optional(),
+});
 
-export const CreateUserResponse = zod.void()
-
+export const CreateUserResponse = zod.void();
 
 /**
  * @summary Get user
  */
 export const GetUserParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetUserResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.string().describe('qa_member | qa_lead | admin'),
-  "team": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish(),
-  "mustChangePassword": zod.boolean().optional(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string().describe("qa_member | qa_lead | admin"),
+  team: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  mustChangePassword: zod.boolean().optional(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Update user
  */
 export const UpdateUserParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateUserBody = zod.object({
-  "name": zod.string().optional(),
-  "role": zod.string().optional(),
-  "team": zod.string().optional(),
-  "avatarUrl": zod.string().optional(),
-  "mustChangePassword": zod.boolean().optional(),
-  "password": zod.string().optional()
-})
+  name: zod.string().optional(),
+  role: zod.string().optional(),
+  team: zod.string().optional(),
+  avatarUrl: zod.string().optional(),
+  mustChangePassword: zod.boolean().optional(),
+  password: zod.string().optional(),
+});
 
 export const UpdateUserResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.string().describe('qa_member | qa_lead | admin'),
-  "team": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish(),
-  "mustChangePassword": zod.boolean().optional(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string().describe("qa_member | qa_lead | admin"),
+  team: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  mustChangePassword: zod.boolean().optional(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Get user stats (admin only)
  */
 export const GetUserStatsParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetUserStatsResponse = zod.object({
-  "userId": zod.number(),
-  "tasksCompleted": zod.number(),
-  "tasksPending": zod.number(),
-  "tasksBlocked": zod.number(),
-  "tasksOverdue": zod.number(),
-  "testCasesCreated": zod.number(),
-  "bugsReported": zod.number(),
-  "bugsVerified": zod.number(),
-  "onTimeRate": zod.number(),
-  "overdueRate": zod.number(),
-  "automationContribution": zod.number(),
-  "recentActivity": zod.array(zod.object({
-  "id": zod.number(),
-  "type": zod.string(),
-  "description": zod.string(),
-  "userId": zod.number().nullish(),
-  "userName": zod.string().nullish(),
-  "entityId": zod.number().nullish(),
-  "entityType": zod.string().nullish(),
-  "createdAt": zod.string()
-})).optional()
-})
-
+  userId: zod.number(),
+  tasksCompleted: zod.number(),
+  tasksPending: zod.number(),
+  tasksBlocked: zod.number(),
+  tasksOverdue: zod.number(),
+  testCasesCreated: zod.number(),
+  bugsReported: zod.number(),
+  bugsVerified: zod.number(),
+  onTimeRate: zod.number(),
+  overdueRate: zod.number(),
+  automationContribution: zod.number(),
+  recentActivity: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        type: zod.string(),
+        description: zod.string(),
+        userId: zod.number().nullish(),
+        userName: zod.string().nullish(),
+        entityId: zod.number().nullish(),
+        entityType: zod.string().nullish(),
+        createdAt: zod.string(),
+      }),
+    )
+    .optional(),
+});
 
 /**
  * @summary List projects
  */
 export const ListProjectsResponseItem = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "status": zod.string(),
-  "createdAt": zod.string()
-})
-export const ListProjectsResponse = zod.array(ListProjectsResponseItem)
-
+  id: zod.number(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  status: zod.string(),
+  createdAt: zod.string(),
+});
+export const ListProjectsResponse = zod.array(ListProjectsResponseItem);
 
 /**
  * @summary Create project
  */
 export const CreateProjectBody = zod.object({
-  "name": zod.string(),
-  "description": zod.string().optional(),
-  "status": zod.string().optional()
-})
+  name: zod.string(),
+  description: zod.string().optional(),
+  status: zod.string().optional(),
+});
 
-export const CreateProjectResponse = zod.void()
-
+export const CreateProjectResponse = zod.void();
 
 /**
  * @summary Get project
  */
 export const GetProjectParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetProjectResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "status": zod.string(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  status: zod.string(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Update project
  */
 export const UpdateProjectParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateProjectBody = zod.object({
-  "name": zod.string().optional(),
-  "description": zod.string().optional(),
-  "status": zod.string().optional()
-})
+  name: zod.string().optional(),
+  description: zod.string().optional(),
+  status: zod.string().optional(),
+});
 
 export const UpdateProjectResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "status": zod.string(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  status: zod.string(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary List requirements
  */
 export const ListRequirementsQueryParams = zod.object({
-  "projectId": zod.coerce.number().optional(),
-  "assigneeId": zod.coerce.number().optional(),
-  "status": zod.coerce.string().optional(),
-  "priority": zod.coerce.string().optional(),
-  "module": zod.coerce.string().optional(),
-  "release": zod.coerce.string().optional(),
-  "search": zod.coerce.string().optional()
-})
+  projectId: zod.coerce.number().optional(),
+  assigneeId: zod.coerce.number().optional(),
+  status: zod.coerce.string().optional(),
+  priority: zod.coerce.string().optional(),
+  module: zod.coerce.string().optional(),
+  release: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
+});
 
 export const ListRequirementsResponseItem = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "module": zod.string().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "priority": zod.string(),
-  "release": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "redmineTicketId": zod.string().nullish(),
-  "status": zod.string(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-export const ListRequirementsResponse = zod.array(ListRequirementsResponseItem)
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  module: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  priority: zod.string(),
+  release: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  redmineTicketId: zod.string().nullish(),
+  status: zod.string(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListRequirementsResponse = zod.array(ListRequirementsResponseItem);
 
 /**
  * @summary Create requirement
  */
 export const CreateRequirementBody = zod.object({
-  "title": zod.string(),
-  "description": zod.string().optional(),
-  "module": zod.string().optional(),
-  "projectId": zod.number().optional(),
-  "priority": zod.string(),
-  "release": zod.string().optional(),
-  "assigneeId": zod.number().optional(),
-  "redmineTicketId": zod.string().optional(),
-  "tracker": zod.string().optional(),
-  "parentId": zod.number().optional(),
-  "status": zod.string()
-  
-})
+  title: zod.string(),
+  description: zod.string().optional(),
+  module: zod.string().optional(),
+  projectId: zod.number().optional(),
+  priority: zod.string(),
+  release: zod.string().optional(),
+  assigneeId: zod.number().optional(),
+  redmineTicketId: zod.string().optional(),
+  tracker: zod.string().optional(),
+  parentId: zod.number().optional(),
+  status: zod.string(),
+});
 
-export const CreateRequirementResponse = zod.void()
-
+export const CreateRequirementResponse = zod.void();
 
 /**
  * @summary Get requirement
  */
 export const GetRequirementParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetRequirementResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "module": zod.string().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "priority": zod.string(),
-  "release": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "redmineTicketId": zod.string().nullish(),
-  "status": zod.string(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  module: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  priority: zod.string(),
+  release: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  redmineTicketId: zod.string().nullish(),
+  status: zod.string(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Update requirement
  */
 export const UpdateRequirementParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateRequirementBody = zod.object({
-  "title": zod.string().optional(),
-  "description": zod.string().optional(),
-  "module": zod.string().optional(),
-  "projectId": zod.number().optional(),
-  "priority": zod.string().optional(),
-  "release": zod.string().optional(),
-  "assigneeId": zod.number().optional(),
-  "redmineTicketId": zod.string().optional(),
-  "status": zod.string().optional()
-})
+  title: zod.string().optional(),
+  description: zod.string().optional(),
+  module: zod.string().optional(),
+  projectId: zod.number().optional(),
+  priority: zod.string().optional(),
+  release: zod.string().optional(),
+  assigneeId: zod.number().optional(),
+  redmineTicketId: zod.string().optional(),
+  status: zod.string().optional(),
+});
 
 export const UpdateRequirementResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "module": zod.string().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "priority": zod.string(),
-  "release": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "redmineTicketId": zod.string().nullish(),
-  "status": zod.string(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  module: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  priority: zod.string(),
+  release: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  redmineTicketId: zod.string().nullish(),
+  status: zod.string(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Delete requirement
  */
 export const DeleteRequirementParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DeleteRequirementResponse = zod.void()
-
+export const DeleteRequirementResponse = zod.void();
 
 /**
  * @summary List test cases
  */
 export const ListTestCasesQueryParams = zod.object({
-  "projectId": zod.coerce.number().optional(),
-  "requirementId": zod.coerce.number().optional(),
-  "authorId": zod.coerce.number().optional(),
-  "type": zod.coerce.string().optional(),
-  "priority": zod.coerce.string().optional(),
-  "tags": zod.coerce.string().optional(),
-  "aiAssisted": zod.coerce.boolean().optional(),
-  "search": zod.coerce.string().optional()
-})
+  projectId: zod.coerce.number().optional(),
+  requirementId: zod.coerce.number().optional(),
+  authorId: zod.coerce.number().optional(),
+  type: zod.coerce.string().optional(),
+  priority: zod.coerce.string().optional(),
+  tags: zod.coerce.string().optional(),
+  aiAssisted: zod.coerce.boolean().optional(),
+  search: zod.coerce.string().optional(),
+});
 
 export const ListTestCasesResponseItem = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "objective": zod.string().nullish(),
-  "preconditions": zod.string().nullish(),
-  "testSteps": zod.string().nullish(),
-  "expectedResult": zod.string().nullish(),
-  "type": zod.string().describe('manual | automation_candidate'),
-  "priority": zod.string(),
-  "tags": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "linkedBug": zod.string().nullish(),
-  "authorId": zod.number().nullish(),
-  "authorName": zod.string().nullish(),
-  "aiAssisted": zod.boolean(),
-  "status": zod.string(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-export const ListTestCasesResponse = zod.array(ListTestCasesResponseItem)
-
+  id: zod.number(),
+  title: zod.string(),
+  objective: zod.string().nullish(),
+  preconditions: zod.string().nullish(),
+  testSteps: zod.string().nullish(),
+  expectedResult: zod.string().nullish(),
+  type: zod.string().describe("manual | automation_candidate"),
+  priority: zod.string(),
+  tags: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  linkedBug: zod.string().nullish(),
+  authorId: zod.number().nullish(),
+  authorName: zod.string().nullish(),
+  aiAssisted: zod.boolean(),
+  status: zod.string(),
+  redmineUserStory: zod.string().nullish(),
+  tracker: zod.string().nullish(),
+  scenario: zod.string().nullish(),
+  testData: zod.string().nullish(),
+  redmineDefectId: zod.string().nullish(),
+  comments: zod.string().nullish(),
+  qaPic: zod.string().nullish(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListTestCasesResponse = zod.array(ListTestCasesResponseItem);
 
 /**
  * @summary Create test case
  */
 export const CreateTestCaseBody = zod.object({
-  "title": zod.string(),
-  "objective": zod.string().optional(),
-  "preconditions": zod.string().optional(),
-  "testSteps": zod.string().optional(),
-  "expectedResult": zod.string().optional(),
-  "type": zod.string().optional(),
-  "priority": zod.string().optional(),
-  "tags": zod.string().optional(),
-  "requirementId": zod.number().optional(),
-  "projectId": zod.number().optional(),
-  "linkedBug": zod.string().optional(),
-  "authorId": zod.number().optional(),
-  "aiAssisted": zod.boolean().optional(),
-  "status": zod.string().optional()
-})
+  title: zod.string(),
+  objective: zod.string().optional(),
+  preconditions: zod.string().optional(),
+  testSteps: zod.string().optional(),
+  expectedResult: zod.string().optional(),
+  type: zod.string().optional(),
+  priority: zod.string().optional(),
+  tags: zod.string().optional(),
+  requirementId: zod.number().optional(),
+  projectId: zod.number().optional(),
+  linkedBug: zod.string().optional(),
+  authorId: zod.number().optional(),
+  aiAssisted: zod.boolean().optional(),
+  status: zod.string().optional(),
+  redmineUserStory: zod.string().optional(),
+  tracker: zod.string().optional(),
+  scenario: zod.string().optional(),
+  testData: zod.string().optional(),
+  redmineDefectId: zod.string().optional(),
+  comments: zod.string().optional(),
+  qaPic: zod.string().optional(),
+});
 
-export const CreateTestCaseResponse = zod.void()
-
+export const CreateTestCaseResponse = zod.void();
 
 /**
  * @summary Get test case
  */
 export const GetTestCaseParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetTestCaseResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "objective": zod.string().nullish(),
-  "preconditions": zod.string().nullish(),
-  "testSteps": zod.string().nullish(),
-  "expectedResult": zod.string().nullish(),
-  "type": zod.string().describe('manual | automation_candidate'),
-  "priority": zod.string(),
-  "tags": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "linkedBug": zod.string().nullish(),
-  "authorId": zod.number().nullish(),
-  "authorName": zod.string().nullish(),
-  "aiAssisted": zod.boolean(),
-  "status": zod.string(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  title: zod.string(),
+  objective: zod.string().nullish(),
+  preconditions: zod.string().nullish(),
+  testSteps: zod.string().nullish(),
+  expectedResult: zod.string().nullish(),
+  type: zod.string().describe("manual | automation_candidate"),
+  priority: zod.string(),
+  tags: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  linkedBug: zod.string().nullish(),
+  authorId: zod.number().nullish(),
+  authorName: zod.string().nullish(),
+  aiAssisted: zod.boolean(),
+  status: zod.string(),
+  redmineUserStory: zod.string().nullish(),
+  tracker: zod.string().nullish(),
+  scenario: zod.string().nullish(),
+  testData: zod.string().nullish(),
+  redmineDefectId: zod.string().nullish(),
+  comments: zod.string().nullish(),
+  qaPic: zod.string().nullish(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Update test case
  */
 export const UpdateTestCaseParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateTestCaseBody = zod.object({
-  "title": zod.string().optional(),
-  "objective": zod.string().optional(),
-  "preconditions": zod.string().optional(),
-  "testSteps": zod.string().optional(),
-  "expectedResult": zod.string().optional(),
-  "type": zod.string().optional(),
-  "priority": zod.string().optional(),
-  "tags": zod.string().optional(),
-  "requirementId": zod.number().optional(),
-  "linkedBug": zod.string().optional(),
-  "aiAssisted": zod.boolean().optional(),
-  "status": zod.string().optional()
-})
+  title: zod.string().optional(),
+  objective: zod.string().optional(),
+  preconditions: zod.string().optional(),
+  testSteps: zod.string().optional(),
+  expectedResult: zod.string().optional(),
+  type: zod.string().optional(),
+  priority: zod.string().optional(),
+  tags: zod.string().optional(),
+  requirementId: zod.number().optional(),
+  linkedBug: zod.string().optional(),
+  aiAssisted: zod.boolean().optional(),
+  status: zod.string().optional(),
+  redmineUserStory: zod.string().optional(),
+  tracker: zod.string().optional(),
+  scenario: zod.string().optional(),
+  testData: zod.string().optional(),
+  redmineDefectId: zod.string().optional(),
+  comments: zod.string().optional(),
+  qaPic: zod.string().optional(),
+});
 
 export const UpdateTestCaseResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "objective": zod.string().nullish(),
-  "preconditions": zod.string().nullish(),
-  "testSteps": zod.string().nullish(),
-  "expectedResult": zod.string().nullish(),
-  "type": zod.string().describe('manual | automation_candidate'),
-  "priority": zod.string(),
-  "tags": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "linkedBug": zod.string().nullish(),
-  "authorId": zod.number().nullish(),
-  "authorName": zod.string().nullish(),
-  "aiAssisted": zod.boolean(),
-  "status": zod.string(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  title: zod.string(),
+  objective: zod.string().nullish(),
+  preconditions: zod.string().nullish(),
+  testSteps: zod.string().nullish(),
+  expectedResult: zod.string().nullish(),
+  type: zod.string().describe("manual | automation_candidate"),
+  priority: zod.string(),
+  tags: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  linkedBug: zod.string().nullish(),
+  authorId: zod.number().nullish(),
+  authorName: zod.string().nullish(),
+  aiAssisted: zod.boolean(),
+  status: zod.string(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Delete test case
  */
 export const DeleteTestCaseParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DeleteTestCaseResponse = zod.void()
-
+export const DeleteTestCaseResponse = zod.void();
 
 /**
  * @summary Clone test case
  */
 export const CloneTestCaseParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const CloneTestCaseResponse = zod.void()
-
+export const CloneTestCaseResponse = zod.void();
 
 /**
  * @summary Generate test cases using AI
  */
 export const GenerateTestCasesWithAIBody = zod.object({
-  "requirementTitle": zod.string(),
-  "requirementDescription": zod.string().optional(),
-  "module": zod.string().optional(),
-  "projectId": zod.number().optional(),
-  "release": zod.string().optional(),
-  "testCaseType": zod.string().optional(),
-  "priority": zod.string().optional(),
-  "tags": zod.string().optional(),
-  "additionalNotes": zod.string().optional(),
-  "requirementId": zod.number().optional(),
-  "generatePositive": zod.boolean().optional(),
-  "generateNegative": zod.boolean().optional(),
-  "generateEdgeCases": zod.boolean().optional(),
-  "useSimilarHistorical": zod.boolean().optional(),
-  "useTemplateOnly": zod.boolean().optional()
-})
+  requirementTitle: zod.string(),
+  requirementDescription: zod.string().optional(),
+  module: zod.string().optional(),
+  projectId: zod.number().optional(),
+  release: zod.string().optional(),
+  testCaseType: zod.string().optional(),
+  priority: zod.string().optional(),
+  tags: zod.string().optional(),
+  additionalNotes: zod.string().optional(),
+  requirementId: zod.number().optional(),
+  generatePositive: zod.boolean().optional(),
+  generateNegative: zod.boolean().optional(),
+  generateEdgeCases: zod.boolean().optional(),
+  useSimilarHistorical: zod.boolean().optional(),
+  useTemplateOnly: zod.boolean().optional(),
+});
 
 export const GenerateTestCasesWithAIResponse = zod.object({
-  "testCases": zod.array(zod.object({
-  "title": zod.string(),
-  "objective": zod.string(),
-  "preconditions": zod.string(),
-  "testSteps": zod.string(),
-  "expectedResult": zod.string(),
-  "type": zod.string(),
-  "priority": zod.string(),
-  "tags": zod.string().optional(),
-  "automationCandidate": zod.boolean().optional()
-})),
-  "similarTestCasesUsed": zod.number().optional(),
-  "templateUsed": zod.string().optional()
-})
-
+  testCases: zod.array(
+    zod.object({
+      title: zod.string(),
+      objective: zod.string(),
+      preconditions: zod.string(),
+      testSteps: zod.string(),
+      expectedResult: zod.string(),
+      type: zod.string(),
+      priority: zod.string(),
+      tags: zod.string().optional(),
+      automationCandidate: zod.boolean().optional(),
+    }),
+  ),
+  similarTestCasesUsed: zod.number().optional(),
+  templateUsed: zod.string().optional(),
+});
 
 /**
  * @summary List tasks
  */
 export const ListTasksQueryParams = zod.object({
-  "projectId": zod.coerce.number().optional(),
-  "assigneeId": zod.coerce.number().optional(),
-  "status": zod.coerce.string().optional(),
-  "type": zod.coerce.string().optional(),
-  "requirementId": zod.coerce.number().optional(),
-  "overdue": zod.coerce.boolean().optional(),
-  "weekOf": zod.coerce.string().optional()
-})
+  projectId: zod.coerce.number().optional(),
+  assigneeId: zod.coerce.number().optional(),
+  status: zod.coerce.string().optional(),
+  type: zod.coerce.string().optional(),
+  requirementId: zod.coerce.number().optional(),
+  overdue: zod.coerce.boolean().optional(),
+  weekOf: zod.coerce.string().optional(),
+});
 
 export const ListTasksResponseItem = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "type": zod.string().describe('requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting'),
-  "redmineId": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "testCaseId": zod.number().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "startDate": zod.string().nullish(),
-  "dueDate": zod.string().nullish(),
-  "status": zod.string().describe('uat | sit | released_to_production'),
-  "estimatedHours": zod.number().nullish(),
-  "actualHours": zod.number().nullish(),
-  "completionPercentage": zod.number().nullish(),
-  "notes": zod.string().nullish(),
-  "isOverdue": zod.boolean().optional(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-export const ListTasksResponse = zod.array(ListTasksResponseItem)
-
+  id: zod.number(),
+  name: zod.string(),
+  type: zod
+    .string()
+    .describe(
+      "requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting",
+    ),
+  redmineId: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  testCaseId: zod.number().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  startDate: zod.string().nullish(),
+  dueDate: zod.string().nullish(),
+  status: zod.string().describe("uat | sit | released_to_production"),
+  estimatedHours: zod.number().nullish(),
+  actualHours: zod.number().nullish(),
+  completionPercentage: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  isOverdue: zod.boolean().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListTasksResponse = zod.array(ListTasksResponseItem);
 
 /**
  * @summary Create task
  */
 export const CreateTaskBody = zod.object({
-  "name": zod.string(),
-  "type": zod.string(),
-  "redmineId": zod.string().optional(),
-  "requirementId": zod.number().optional(),
-  "testCaseId": zod.number().optional(),
-  "projectId": zod.number().optional(),
-  "assigneeId": zod.number().optional(),
-  "startDate": zod.string().optional(),
-  "dueDate": zod.string().optional(),
-  "status": zod.string(),
-  "estimatedHours": zod.number().optional(),
-  "actualHours": zod.number().optional(),
-  "completionPercentage": zod.number().optional(),
-  "notes": zod.string().optional()
-})
+  name: zod.string(),
+  type: zod.string(),
+  redmineId: zod.string().optional(),
+  requirementId: zod.number().optional(),
+  testCaseId: zod.number().optional(),
+  projectId: zod.number().optional(),
+  assigneeId: zod.number().optional(),
+  startDate: zod.string().optional(),
+  dueDate: zod.string().optional(),
+  status: zod.string(),
+  estimatedHours: zod.number().optional(),
+  actualHours: zod.number().optional(),
+  completionPercentage: zod.number().optional(),
+  notes: zod.string().optional(),
+});
 
-export const CreateTaskResponse = zod.void()
-
+export const CreateTaskResponse = zod.void();
 
 /**
  * @summary Release (unassign) a task so anyone can pick it up
  */
 export const ReleaseTaskParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const ReleaseTaskResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "type": zod.string().describe('requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting'),
-  "redmineId": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "testCaseId": zod.number().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "startDate": zod.string().nullish(),
-  "dueDate": zod.string().nullish(),
-  "status": zod.string().describe('uat | sit | released_to_production'),
-  "estimatedHours": zod.number().nullish(),
-  "actualHours": zod.number().nullish(),
-  "completionPercentage": zod.number().nullish(),
-  "notes": zod.string().nullish(),
-  "isOverdue": zod.boolean().optional(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  type: zod
+    .string()
+    .describe(
+      "requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting",
+    ),
+  redmineId: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  testCaseId: zod.number().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  startDate: zod.string().nullish(),
+  dueDate: zod.string().nullish(),
+  status: zod.string().describe("uat | sit | released_to_production"),
+  estimatedHours: zod.number().nullish(),
+  actualHours: zod.number().nullish(),
+  completionPercentage: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  isOverdue: zod.boolean().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Assign a task to a team member
  */
 export const AssignTaskParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const AssignTaskBody = zod.object({
-  "assigneeId": zod.number()
-})
+  assigneeId: zod.number(),
+});
 
 export const AssignTaskResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "type": zod.string().describe('requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting'),
-  "redmineId": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "testCaseId": zod.number().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "startDate": zod.string().nullish(),
-  "dueDate": zod.string().nullish(),
-  "status": zod.string().describe('uat | sit | released_to_production'),
-  "estimatedHours": zod.number().nullish(),
-  "actualHours": zod.number().nullish(),
-  "completionPercentage": zod.number().nullish(),
-  "notes": zod.string().nullish(),
-  "isOverdue": zod.boolean().optional(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  type: zod
+    .string()
+    .describe(
+      "requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting",
+    ),
+  redmineId: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  testCaseId: zod.number().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  startDate: zod.string().nullish(),
+  dueDate: zod.string().nullish(),
+  status: zod.string().describe("uat | sit | released_to_production"),
+  estimatedHours: zod.number().nullish(),
+  actualHours: zod.number().nullish(),
+  completionPercentage: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  isOverdue: zod.boolean().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Get task
  */
 export const GetTaskParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetTaskResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "type": zod.string().describe('requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting'),
-  "redmineId": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "testCaseId": zod.number().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "startDate": zod.string().nullish(),
-  "dueDate": zod.string().nullish(),
-  "status": zod.string().describe('uat | sit | released_to_production'),
-  "estimatedHours": zod.number().nullish(),
-  "actualHours": zod.number().nullish(),
-  "completionPercentage": zod.number().nullish(),
-  "notes": zod.string().nullish(),
-  "isOverdue": zod.boolean().optional(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  type: zod
+    .string()
+    .describe(
+      "requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting",
+    ),
+  redmineId: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  testCaseId: zod.number().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  startDate: zod.string().nullish(),
+  dueDate: zod.string().nullish(),
+  status: zod.string().describe("uat | sit | released_to_production"),
+  estimatedHours: zod.number().nullish(),
+  actualHours: zod.number().nullish(),
+  completionPercentage: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  isOverdue: zod.boolean().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Update task
  */
 export const UpdateTaskParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateTaskBody = zod.object({
-  "name": zod.string().optional(),
-  "type": zod.string().optional(),
-  "redmineId": zod.string().optional(),
-  "requirementId": zod.number().optional(),
-  "testCaseId": zod.number().optional(),
-  "projectId": zod.number().optional(),
-  "assigneeId": zod.number().optional(),
-  "startDate": zod.string().optional(),
-  "dueDate": zod.string().optional(),
-  "status": zod.string().optional(),
-  "estimatedHours": zod.number().optional(),
-  "actualHours": zod.number().optional(),
-  "completionPercentage": zod.number().optional(),
-  "notes": zod.string().optional()
-})
+  name: zod.string().optional(),
+  type: zod.string().optional(),
+  redmineId: zod.string().optional(),
+  requirementId: zod.number().optional(),
+  testCaseId: zod.number().optional(),
+  projectId: zod.number().optional(),
+  assigneeId: zod.number().optional(),
+  startDate: zod.string().optional(),
+  dueDate: zod.string().optional(),
+  status: zod.string().optional(),
+  estimatedHours: zod.number().optional(),
+  actualHours: zod.number().optional(),
+  completionPercentage: zod.number().optional(),
+  notes: zod.string().optional(),
+});
 
 export const UpdateTaskResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "type": zod.string().describe('requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting'),
-  "redmineId": zod.string().nullish(),
-  "requirementId": zod.number().nullish(),
-  "requirementTitle": zod.string().nullish(),
-  "testCaseId": zod.number().nullish(),
-  "projectId": zod.number().nullish(),
-  "projectName": zod.string().nullish(),
-  "assigneeId": zod.number().nullish(),
-  "assigneeName": zod.string().nullish(),
-  "startDate": zod.string().nullish(),
-  "dueDate": zod.string().nullish(),
-  "status": zod.string().describe('uat | sit | released_to_production'),
-  "estimatedHours": zod.number().nullish(),
-  "actualHours": zod.number().nullish(),
-  "completionPercentage": zod.number().nullish(),
-  "notes": zod.string().nullish(),
-  "isOverdue": zod.boolean().optional(),
-  "createdAt": zod.string(),
-  "updatedAt": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  type: zod
+    .string()
+    .describe(
+      "requirement_analysis | test_case_creation | test_execution | bug_verification | regression_testing | automation_scripting",
+    ),
+  redmineId: zod.string().nullish(),
+  requirementId: zod.number().nullish(),
+  requirementTitle: zod.string().nullish(),
+  testCaseId: zod.number().nullish(),
+  projectId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
+  assigneeId: zod.number().nullish(),
+  assigneeName: zod.string().nullish(),
+  startDate: zod.string().nullish(),
+  dueDate: zod.string().nullish(),
+  status: zod.string().describe("uat | sit | released_to_production"),
+  estimatedHours: zod.number().nullish(),
+  actualHours: zod.number().nullish(),
+  completionPercentage: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  isOverdue: zod.boolean().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
 
 /**
  * @summary Delete task
  */
 export const DeleteTaskParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DeleteTaskResponse = zod.void()
-
+export const DeleteTaskResponse = zod.void();
 
 /**
  * @summary List calendar events
  */
 export const ListCalendarEventsQueryParams = zod.object({
-  "month": zod.coerce.number().optional(),
-  "year": zod.coerce.number().optional()
-})
+  month: zod.coerce.number().optional(),
+  year: zod.coerce.number().optional(),
+});
 
 export const ListCalendarEventsResponseItem = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "date": zod.string().describe('YYYY-MM-DD'),
-  "eventType": zod.string().describe('uat | meeting | deadline | release | other'),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "taggedUserNames": zod.array(zod.string()).optional(),
-  "color": zod.string().nullish(),
-  "createdBy": zod.number().nullish(),
-  "createdByName": zod.string().nullish(),
-  "createdAt": zod.string()
-})
-export const ListCalendarEventsResponse = zod.array(ListCalendarEventsResponseItem)
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  date: zod.string().describe("YYYY-MM-DD"),
+  eventType: zod
+    .string()
+    .describe("uat | meeting | deadline | release | other"),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  taggedUserNames: zod.array(zod.string()).optional(),
+  color: zod.string().nullish(),
+  createdBy: zod.number().nullish(),
+  createdByName: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListCalendarEventsResponse = zod.array(
+  ListCalendarEventsResponseItem,
+);
 
 /**
  * @summary Create a calendar event
  */
 export const CreateCalendarEventBody = zod.object({
-  "title": zod.string(),
-  "description": zod.string().optional(),
-  "date": zod.string(),
-  "eventType": zod.string(),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "color": zod.string().optional(),
-  "createdBy": zod.number().optional()
-})
+  title: zod.string(),
+  description: zod.string().optional(),
+  date: zod.string(),
+  eventType: zod.string(),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  color: zod.string().optional(),
+  createdBy: zod.number().optional(),
+});
 
-export const CreateCalendarEventResponse = zod.void()
-
+export const CreateCalendarEventResponse = zod.void();
 
 /**
  * @summary Update a calendar event
  */
 export const UpdateCalendarEventParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateCalendarEventBody = zod.object({
-  "title": zod.string().optional(),
-  "description": zod.string().optional(),
-  "date": zod.string().optional(),
-  "eventType": zod.string().optional(),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "color": zod.string().optional()
-})
+  title: zod.string().optional(),
+  description: zod.string().optional(),
+  date: zod.string().optional(),
+  eventType: zod.string().optional(),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  color: zod.string().optional(),
+});
 
 export const UpdateCalendarEventResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "date": zod.string().describe('YYYY-MM-DD'),
-  "eventType": zod.string().describe('uat | meeting | deadline | release | other'),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "taggedUserNames": zod.array(zod.string()).optional(),
-  "color": zod.string().nullish(),
-  "createdBy": zod.number().nullish(),
-  "createdByName": zod.string().nullish(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  date: zod.string().describe("YYYY-MM-DD"),
+  eventType: zod
+    .string()
+    .describe("uat | meeting | deadline | release | other"),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  taggedUserNames: zod.array(zod.string()).optional(),
+  color: zod.string().nullish(),
+  createdBy: zod.number().nullish(),
+  createdByName: zod.string().nullish(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Delete a calendar event
  */
 export const DeleteCalendarEventParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DeleteCalendarEventResponse = zod.void()
-
+export const DeleteCalendarEventResponse = zod.void();
 
 /**
  * @summary List notifications for current user
  */
 export const ListNotificationsQueryParams = zod.object({
-  "userId": zod.coerce.number(),
-  "unreadOnly": zod.coerce.boolean().optional()
-})
+  userId: zod.coerce.number(),
+  unreadOnly: zod.coerce.boolean().optional(),
+});
 
 export const ListNotificationsResponseItem = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "title": zod.string(),
-  "message": zod.string(),
-  "type": zod.string().describe('info | warning | task | overdue | social'),
-  "entityType": zod.string().nullish(),
-  "entityId": zod.number().nullish(),
-  "read": zod.boolean(),
-  "createdAt": zod.string()
-})
-export const ListNotificationsResponse = zod.array(ListNotificationsResponseItem)
-
+  id: zod.number(),
+  userId: zod.number(),
+  title: zod.string(),
+  message: zod.string(),
+  type: zod.string().describe("info | warning | task | overdue | social"),
+  entityType: zod.string().nullish(),
+  entityId: zod.number().nullish(),
+  read: zod.boolean(),
+  createdAt: zod.string(),
+});
+export const ListNotificationsResponse = zod.array(
+  ListNotificationsResponseItem,
+);
 
 /**
  * @summary Mark notification as read
  */
 export const MarkNotificationReadParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const MarkNotificationReadResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "title": zod.string(),
-  "message": zod.string(),
-  "type": zod.string().describe('info | warning | task | overdue | social'),
-  "entityType": zod.string().nullish(),
-  "entityId": zod.number().nullish(),
-  "read": zod.boolean(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  userId: zod.number(),
+  title: zod.string(),
+  message: zod.string(),
+  type: zod.string().describe("info | warning | task | overdue | social"),
+  entityType: zod.string().nullish(),
+  entityId: zod.number().nullish(),
+  read: zod.boolean(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Mark all notifications as read for a user
  */
 export const MarkAllNotificationsReadBody = zod.object({
-  "userId": zod.number()
-})
+  userId: zod.number(),
+});
 
-export const MarkAllNotificationsReadResponse = zod.unknown()
-
+export const MarkAllNotificationsReadResponse = zod.unknown();
 
 /**
  * @summary List social/team hangout events
  */
 export const ListSocialEventsResponseItem = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "eventDate": zod.string().describe('YYYY-MM-DD'),
-  "eventType": zod.string().describe('lunch | dinner | birthday | outing | other'),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "taggedUserNames": zod.array(zod.string()).optional(),
-  "createdBy": zod.number().nullish(),
-  "createdByName": zod.string().nullish(),
-  "createdAt": zod.string()
-})
-export const ListSocialEventsResponse = zod.array(ListSocialEventsResponseItem)
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  eventDate: zod.string().describe("YYYY-MM-DD"),
+  eventType: zod
+    .string()
+    .describe("lunch | dinner | birthday | outing | other"),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  taggedUserNames: zod.array(zod.string()).optional(),
+  createdBy: zod.number().nullish(),
+  createdByName: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListSocialEventsResponse = zod.array(ListSocialEventsResponseItem);
 
 /**
  * @summary Create a social/team hangout event
  */
 export const CreateSocialEventBody = zod.object({
-  "title": zod.string(),
-  "description": zod.string().optional(),
-  "eventDate": zod.string(),
-  "eventType": zod.string(),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "createdBy": zod.number().optional()
-})
+  title: zod.string(),
+  description: zod.string().optional(),
+  eventDate: zod.string(),
+  eventType: zod.string(),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  createdBy: zod.number().optional(),
+});
 
-export const CreateSocialEventResponse = zod.void()
-
+export const CreateSocialEventResponse = zod.void();
 
 /**
  * @summary Update a social event
  */
 export const UpdateSocialEventParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateSocialEventBody = zod.object({
-  "title": zod.string().optional(),
-  "description": zod.string().optional(),
-  "eventDate": zod.string().optional(),
-  "eventType": zod.string().optional(),
-  "taggedUserIds": zod.array(zod.number()).optional()
-})
+  title: zod.string().optional(),
+  description: zod.string().optional(),
+  eventDate: zod.string().optional(),
+  eventType: zod.string().optional(),
+  taggedUserIds: zod.array(zod.number()).optional(),
+});
 
 export const UpdateSocialEventResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "eventDate": zod.string().describe('YYYY-MM-DD'),
-  "eventType": zod.string().describe('lunch | dinner | birthday | outing | other'),
-  "taggedUserIds": zod.array(zod.number()).optional(),
-  "taggedUserNames": zod.array(zod.string()).optional(),
-  "createdBy": zod.number().nullish(),
-  "createdByName": zod.string().nullish(),
-  "createdAt": zod.string()
-})
-
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  eventDate: zod.string().describe("YYYY-MM-DD"),
+  eventType: zod
+    .string()
+    .describe("lunch | dinner | birthday | outing | other"),
+  taggedUserIds: zod.array(zod.number()).optional(),
+  taggedUserNames: zod.array(zod.string()).optional(),
+  createdBy: zod.number().nullish(),
+  createdByName: zod.string().nullish(),
+  createdAt: zod.string(),
+});
 
 /**
  * @summary Delete a social event
  */
 export const DeleteSocialEventParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DeleteSocialEventResponse = zod.void()
-
+export const DeleteSocialEventResponse = zod.void();
 
 /**
  * @summary Get dashboard summary
  */
 export const GetDashboardSummaryQueryParams = zod.object({
-  "projectId": zod.coerce.number().optional(),
-  "userId": zod.coerce.number().optional(),
-  "dateFrom": zod.coerce.string().optional(),
-  "dateTo": zod.coerce.string().optional()
-})
+  projectId: zod.coerce.number().optional(),
+  userId: zod.coerce.number().optional(),
+  dateFrom: zod.coerce.string().optional(),
+  dateTo: zod.coerce.string().optional(),
+});
 
 export const GetDashboardSummaryResponse = zod.object({
-  "totalTasks": zod.number(),
-  "completedTasks": zod.number(),
-  "pendingTasks": zod.number(),
-  "blockedTasks": zod.number(),
-  "overdueTasks": zod.number(),
-  "totalRequirements": zod.number(),
-  "openRequirements": zod.number().optional(),
-  "totalTestCases": zod.number(),
-  "aiAssistedTestCases": zod.number(),
-  "manualTestCases": zod.number(),
-  "automationCandidates": zod.number()
-})
-
+  totalTasks: zod.number(),
+  completedTasks: zod.number(),
+  pendingTasks: zod.number(),
+  blockedTasks: zod.number(),
+  overdueTasks: zod.number(),
+  totalRequirements: zod.number(),
+  openRequirements: zod.number().optional(),
+  totalTestCases: zod.number(),
+  aiAssistedTestCases: zod.number(),
+  manualTestCases: zod.number(),
+  automationCandidates: zod.number(),
+});
 
 /**
  * @summary Get team dashboard data
  */
 export const GetTeamDashboardQueryParams = zod.object({
-  "projectId": zod.coerce.number().optional(),
-  "dateFrom": zod.coerce.string().optional(),
-  "dateTo": zod.coerce.string().optional()
-})
+  projectId: zod.coerce.number().optional(),
+  dateFrom: zod.coerce.string().optional(),
+  dateTo: zod.coerce.string().optional(),
+});
 
 export const GetTeamDashboardResponse = zod.object({
-  "memberStats": zod.array(zod.object({
-  "userId": zod.number(),
-  "userName": zod.string(),
-  "completed": zod.number(),
-  "pending": zod.number(),
-  "blocked": zod.number(),
-  "overdue": zod.number(),
-  "testCasesCreated": zod.number()
-})),
-  "tasksByProject": zod.array(zod.object({
-  "projectId": zod.number(),
-  "projectName": zod.string(),
-  "count": zod.number()
-})).optional()
-})
-
+  memberStats: zod.array(
+    zod.object({
+      userId: zod.number(),
+      userName: zod.string(),
+      completed: zod.number(),
+      pending: zod.number(),
+      blocked: zod.number(),
+      overdue: zod.number(),
+      testCasesCreated: zod.number(),
+    }),
+  ),
+  tasksByProject: zod
+    .array(
+      zod.object({
+        projectId: zod.number(),
+        projectName: zod.string(),
+        count: zod.number(),
+      }),
+    )
+    .optional(),
+});
 
 /**
  * @summary Get weekly trend data
  */
 export const GetWeeklyTrendQueryParams = zod.object({
-  "projectId": zod.coerce.number().optional(),
-  "weeks": zod.coerce.number().optional(),
-  "userId": zod.coerce.number().optional()
-})
+  projectId: zod.coerce.number().optional(),
+  weeks: zod.coerce.number().optional(),
+  userId: zod.coerce.number().optional(),
+});
 
 export const GetWeeklyTrendResponseItem = zod.object({
-  "week": zod.string(),
-  "completed": zod.number(),
-  "created": zod.number(),
-  "testCases": zod.number()
-})
-export const GetWeeklyTrendResponse = zod.array(GetWeeklyTrendResponseItem)
-
+  week: zod.string(),
+  completed: zod.number(),
+  created: zod.number(),
+  testCases: zod.number(),
+});
+export const GetWeeklyTrendResponse = zod.array(GetWeeklyTrendResponseItem);
 
 /**
  * @summary Get recent activity feed
  */
 export const GetRecentActivityQueryParams = zod.object({
-  "userId": zod.coerce.number().optional(),
-  "limit": zod.coerce.number().optional()
-})
+  userId: zod.coerce.number().optional(),
+  limit: zod.coerce.number().optional(),
+});
 
 export const GetRecentActivityResponseItem = zod.object({
-  "id": zod.number(),
-  "type": zod.string(),
-  "description": zod.string(),
-  "userId": zod.number().nullish(),
-  "userName": zod.string().nullish(),
-  "entityId": zod.number().nullish(),
-  "entityType": zod.string().nullish(),
-  "createdAt": zod.string()
-})
-export const GetRecentActivityResponse = zod.array(GetRecentActivityResponseItem)
-
-
+  id: zod.number(),
+  type: zod.string(),
+  description: zod.string(),
+  userId: zod.number().nullish(),
+  userName: zod.string().nullish(),
+  entityId: zod.number().nullish(),
+  entityType: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const GetRecentActivityResponse = zod.array(
+  GetRecentActivityResponseItem,
+);
