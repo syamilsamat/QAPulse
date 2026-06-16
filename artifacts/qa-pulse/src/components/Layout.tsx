@@ -5,6 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { Columns3Cog } from 'lucide-react';
 
 import {
   HoverPulse,
@@ -380,8 +381,8 @@ const NAV_ITEMS: NavItem[] = [
   // Added Configurations Menu Item
   {
     href: "/configurations",
-    label: "Configurations",
-    icon: HoverList,
+    label: "Project & Module Config",
+    icon: Columns3Cog,
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {

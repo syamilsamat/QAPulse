@@ -75,11 +75,17 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
 
   for (const model of fallbackModels) {
     console.log(`🔄 Attempting Fallback Node: ${model}...`);
+
+    // FIX: Setup a 12-second abort controller so a hanging API doesn't cause a frontend timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); 
+
     try {
       const body: any = {
         model: model,
         messages: messages,
         max_tokens: 8192,
+        // Using response_format for models that support it
         response_format: { type: "json_object" },
       };
 
@@ -90,7 +96,10 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: controller.signal, // Attach the abort signal
       });
+
+      clearTimeout(timeoutId); // Clear timeout if response is received
 
       if (response.ok) {
         const data = await response.json();
@@ -98,9 +107,19 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
           console.log(`✅ Success with Fallback Node: ${model}`);
           return data.choices[0].message.content;
         }
+      } else {
+        // FIX: Log exactly why OpenRouter rejected the request (e.g. 429 Rate Limit)
+        const errText = await response.text();
+        console.warn(`⚠️ Node [${model}] returned HTTP ${response.status}: ${errText}`);
       }
-    } catch (error) {
-      console.warn(`⚠️ Network error with Node [${model}]:`, (error as Error).message);
+    } catch (error: any) {
+      clearTimeout(timeoutId); // Ensure timeout is cleared on error
+
+      if (error.name === 'AbortError') {
+        console.warn(`⚠️ Timeout error with Node [${model}]: Took longer than 12 seconds. Skipping.`);
+      } else {
+        console.warn(`⚠️ Network error with Node [${model}]:`, error.message);
+      }
     }
   }
   throw new Error("❌ Crucial system failure: All primary and fallback AI nodes are completely exhausted.");
@@ -193,7 +212,6 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
   if (generateNegative) caseTypes.push("negative validation");
   if (generateEdgeCases) caseTypes.push("extreme boundary condition");
 
-  // --- NEW: DYNAMIC GENERATION COUNT LOGIC ---
   // Count how many distinct requirements were passed based on the delimiter from the frontend
   const reqCount = requirementDescription ? requirementDescription.split("\n\n---\n\n").length : 1;
   let countInstruction = "Generate a focused batch of 8 to 12 highly detailed test cases based on the requirements.";
@@ -267,7 +285,9 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
     });
     finalRawText = response.text ?? '{"testCases": []}';
   } catch (error: any) {
-    console.warn("Primary API failed. Attempting fallback...");
+    // FIX: Properly log the exact error so you know why Gemini failed
+    console.error("❌ Primary Gemini API failed:", error.message || error);
+    console.warn("🔄 Attempting fallback routing...");
     try {
       finalRawText = await callFallbackAI(systemInstruction, userPrompt);
     } catch (fallbackError) {

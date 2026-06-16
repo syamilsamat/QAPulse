@@ -20,7 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge"; // <-- RESTORED IMPORT
+import { Badge } from "@/components/ui/badge"; 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
@@ -42,7 +42,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -221,7 +220,7 @@ function AIGenerateDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
+      <DialogContent className="max-w-8xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" /> AI Test Case
@@ -261,7 +260,7 @@ function AIGenerateDialog({
                     const reqId = Number(v);
                     const req = requirements.find((r: any) => r.id === reqId);
                     if (req) {
-                      // NEW: Recursive function to grab all descendants at any depth
+                      // Recursive function to grab all descendants at any depth
                       const getAllDescendants = (
                         parentId: number,
                         allReqs: any[],
@@ -313,55 +312,126 @@ function AIGenerateDialog({
             </div>
 
             {availableReqs.length > 0 && (
-              <div className="space-y-2 bg-muted/20 p-2 sm:p-3 rounded border">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs text-muted-foreground uppercase font-bold">
-                    Requirement Scope
+              <div className="space-y-2 bg-muted/10 p-3 rounded-lg border w-full">
+
+                {/* --- UPDATED HEADER WITH SELECT ALL / DESELECT ALL --- */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 mb-1 border-b border-border/40">
+                  <Label className="text-[11px] text-muted-foreground uppercase font-bold tracking-wider">
+                    Requirement Scope Hierarchy
                   </Label>
-                  <span className="text-[10px] text-muted-foreground">
-                    {selectedReqIds.size} of {availableReqs.length} selected
-                  </span>
-                </div>
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 -mx-1 px-1">
-                  {availableReqs.map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-start gap-2 sm:gap-3 bg-background p-2 sm:p-2.5 border rounded-lg shadow-sm transition-all hover:shadow-md active:scale-[0.99]"
-                      style={{
-                        marginLeft: `${Math.min((r.depth || 0) * 0.75, 2)}rem`,
-                      }}
+                  <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 text-primary hover:text-primary hover:bg-primary/10"
+                      onClick={() => setSelectedReqIds(new Set(availableReqs.map(r => r.id)))}
                     >
-                      <Checkbox
-                        checked={selectedReqIds.has(r.id)}
-                        onCheckedChange={() => toggleReqSelection(r.id)}
-                        id={`req-${r.id}`}
-                        className="mt-0.5 min-w-[18px] min-h-[18px]"
-                      />
-                      <label
-                        htmlFor={`req-${r.id}`}
-                        className="flex-1 cursor-pointer min-w-0"
+                      Select All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setSelectedReqIds(new Set())}
+                    >
+                      Deselect All
+                    </Button>
+                    <div className="w-px h-3 bg-border mx-1 hidden sm:block"></div>
+                    <Badge variant="secondary" className="text-[10px] bg-background shrink-0">
+                      {selectedReqIds.size} / {availableReqs.length} Selected
+                    </Badge>
+                  </div>
+                </div>
+                {/* --------------------------------------------------- */}
+
+                <div className="space-y-2 max-h-64 overflow-y-auto overflow-x-hidden pr-2 w-full">
+                  {availableReqs.map((r) => {
+                    const depth = r.depth || 0;
+                    // Indent base size per depth level
+                    const indentRem = depth * 1.5; 
+
+                    return (
+                      <div
+                        key={r.id}
+                        className="relative w-full"
+                        style={{ paddingLeft: `${indentRem}rem` }}
                       >
-                        <div className="flex items-center gap-1.5 sm:gap-2 mb-1 flex-wrap">
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${r.depth > 0 ? "bg-indigo-100 text-indigo-700" : "bg-primary/10 text-primary"}`}
+                        {/* Visual Tree Connector Line */}
+                        {depth > 0 && (
+                          <div
+                            className="absolute border-l-2 border-b-2 border-muted-foreground/20 rounded-bl-md"
+                            style={{
+                              left: `${indentRem - 0.75}rem`,
+                              top: '-0.5rem',
+                              bottom: '50%',
+                              width: '0.5rem',
+                            }}
+                          />
+                        )}
+
+                        <div
+                          className={`flex items-start gap-3 p-3 border rounded-lg shadow-sm transition-all w-full min-w-0 hover:shadow-md ${
+                            selectedReqIds.has(r.id)
+                              ? "bg-primary/5 border-primary/30"
+                              : "bg-background border-border/50"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={selectedReqIds.has(r.id)}
+                            onCheckedChange={() => toggleReqSelection(r.id)}
+                            id={`req-${r.id}`}
+                            className="mt-1 min-w-[18px] min-h-[18px] shrink-0 transition-transform active:scale-95"
+                          />
+
+                          <label
+                            htmlFor={`req-${r.id}`}
+                            className="flex-1 cursor-pointer min-w-0 flex flex-col gap-1.5"
                           >
-                            {r.depth > 0
-                              ? r.depth === 1
-                                ? "Child"
-                                : `Subchild-${r.depth}`
-                              : "Parent"}
-                          </span>
-                          <span className="text-xs sm:text-sm font-semibold truncate">
-                            {r.redmineTicketId ? `#${r.redmineTicketId} ` : ""}
-                            {r.title}
-                          </span>
+                            {/* Tags & Redmine ID Header */}
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <Badge
+                                variant="outline"
+                                className={`text-[9px] px-1.5 py-0 uppercase font-bold tracking-wider shrink-0 border-0 ${
+                                  depth === 0
+                                    ? "bg-primary/10 text-primary"
+                                    : depth === 1
+                                      ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400"
+                                      : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                }`}
+                              >
+                                {depth === 0
+                                  ? "Parent"
+                                  : depth === 1
+                                    ? "Child"
+                                    : `Sub-child ${depth}`}
+                              </Badge>
+                              {r.redmineTicketId && (
+                                <span className="text-xs font-semibold text-muted-foreground shrink-0 break-words">
+                                  #{r.redmineTicketId}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Title Block */}
+                            <div className="text-sm font-semibold break-words whitespace-normal leading-snug min-w-0 text-foreground">
+                              {r.title}
+                            </div>
+
+                            {/* Description Block */}
+                            <div className="text-[11px] sm:text-xs text-muted-foreground break-words whitespace-normal line-clamp-3 leading-relaxed min-w-0 mt-0.5">
+                              {r.description ? (
+                                <span className="opacity-90">{r.description}</span>
+                              ) : (
+                                <span className="italic opacity-50">No description provided.</span>
+                              )}
+                            </div>
+                          </label>
                         </div>
-                        <p className="text-[11px] sm:text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                          {r.description || "No description."}
-                        </p>
-                      </label>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -493,6 +563,16 @@ function AIGenerateDialog({
                         {tc.testSteps}
                       </div>
                     )}
+
+                    {/* NEW: Expected Result with Green Text */}
+                    {tc.expectedResult && (
+                      <div className="text-xs mt-2">
+                        <strong className="text-foreground">Expected Result:</strong>{" "}
+                        <span className="text-green-700 dark:text-green-400 font-medium whitespace-pre-line">
+                          {tc.expectedResult}
+                        </span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -560,7 +640,6 @@ function DetailItem({
   return (
     // Force Inter font family for the entire component
     <div style={{ fontFamily: '"Inter", sans-serif' }}>
-
       {/* TITLE: Bold */}
       <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block mb-1">
         {label}
@@ -583,8 +662,6 @@ function DetailItem({
     </div>
   );
 }
-
-//export default DetailItem;
 
 export default function TestCases() {
   const { user } = useAuth();

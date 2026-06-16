@@ -1,8 +1,14 @@
-// src/lib/execution-api.ts
-
 export interface ExecutionModule {
   id: number;
   name: string;
+}
+
+export interface ExecutionProject {
+  id: number;
+  name: string;
+  description?: string | null;
+  status: string;
+  createdAt: string;
 }
 
 export interface ExecutionFile {
@@ -124,7 +130,6 @@ export const saveTestCases = async (
   });
 
   if (!res.ok) {
-    // Pass the 409 status up to the component so it can show the concurrent edit warning
     if (res.status === 409) {
       const err = new Error("Concurrent edit detected");
       (err as any).response = res;
@@ -135,6 +140,46 @@ export const saveTestCases = async (
   return res.json();
 };
 
+// --- Projects ---
+export const fetchProjects = async (): Promise<ExecutionProject[]> => {
+  const res = await fetch("/api/projects", { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch projects");
+  return res.json();
+};
+
+export const createProject = async (
+  data: Partial<ExecutionProject>,
+): Promise<void> => {
+  const res = await fetch("/api/projects", {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create project");
+};
+
+export const updateProject = async (
+  id: number,
+  data: Partial<ExecutionProject>,
+): Promise<ExecutionProject> => {
+  const res = await fetch(`/api/projects/${id}`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update project");
+  return res.json();
+};
+
+export const deleteProject = async (id: number): Promise<void> => {
+  const res = await fetch(`/api/projects/${id}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete project");
+};
+
+// --- Modules ---
 export const fetchModules = async (): Promise<ExecutionModule[]> => {
   const res = await fetch("/api/modules", { headers: getHeaders() });
   if (!res.ok) throw new Error("Failed to fetch modules");
@@ -164,11 +209,10 @@ export const updateModule = async (
   return res.json();
 };
 
-export const deleteModule = async (id: number) => {
+export const deleteModule = async (id: number): Promise<void> => {
   const res = await fetch(`/api/modules/${id}`, {
     method: "DELETE",
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error("Failed to delete module");
-  return res.json();
 };
