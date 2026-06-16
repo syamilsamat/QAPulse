@@ -15,11 +15,26 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+function startServer(retryCount = 0) {
+  const server = app.listen(port, () => {
+    logger.info(
+      { port, retryCount: retryCount > 0 ? retryCount : undefined },
+      "Server listening",
+    );
+  });
 
-  logger.info({ port }, "Server listening");
-});
+  server.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE" && retryCount < 10) {
+      logger.warn(
+        { port, retryCount },
+        "Port already in use, retrying in 2 seconds...",
+      );
+      setTimeout(() => startServer(retryCount + 1), 2000);
+    } else {
+      logger.error({ err, retryCount }, "Server error");
+      process.exit(1);
+    }
+  });
+}
+
+startServer();

@@ -201,7 +201,7 @@ export const updateModule = async (
   name: string,
 ): Promise<ExecutionModule> => {
   const res = await fetch(`/api/modules/${id}`, {
-    method: "PUT",
+    method: "PATCH",
     headers: getHeaders(),
     body: JSON.stringify({ name }),
   });
