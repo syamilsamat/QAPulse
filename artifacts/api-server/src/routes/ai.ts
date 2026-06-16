@@ -114,4 +114,52 @@ router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
   }
 });
 
+// ==========================================
+// 12. QA COPILOT CHAT
+// ==========================================
+router.post("/ai/chat", async (req, res): Promise<void> => {
+  try {
+    const { message, conversationHistory } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "message is required" }) as any;
+    }
+
+    // 1. Format the conversation history into text to feed into executeAiTask
+    let historyText = "";
+    if (conversationHistory && Array.isArray(conversationHistory) && conversationHistory.length > 0) {
+      historyText = "--- Conversation History ---\n";
+      conversationHistory.forEach((msg: any) => {
+        const role = msg.role === "user" ? "User" : "Assistant";
+        historyText += `${role}: ${msg.content}\n\n`;
+      });
+      historyText += "----------------------------\n\n";
+    }
+
+    // 2. Define the exact JSON structure we need returned so it works seamlessly with the UI
+    const systemPrompt = `You are an expert QA Copilot assistant. You help QA engineers analyze requirements, write test cases, generate test data, and strategize testing efforts. Be concise, professional, and highly technical.
+
+    You MUST return your response as a JSON object matching this exact schema:
+    { "reply": "Your detailed markdown formatted response here" }`;
+
+    const userPrompt = `${historyText}New User Message: ${message}\n\nPlease respond to the new user message considering the context above. Format your output strictly as JSON.`;
+
+    // 3. Execute utilizing your fallback mechanisms
+    const content = await executeAiTask(systemPrompt, userPrompt);
+
+    // 4. Safely parse the result
+    const fallback = { reply: "I'm sorry, I encountered an formatting error while generating my response. Please try again." };
+    const parsedData = safeParseJSON(content, fallback);
+
+    // 5. Send the reply property back to the frontend
+    res.json({ reply: parsedData.reply || fallback.reply });
+
+  } catch (error: any) {
+    console.error("QA Copilot Chat Error:", error);
+    res.status(500).json({ 
+      error: error.message || "An error occurred while communicating with the AI." 
+    });
+  }
+});
+
 export default router;

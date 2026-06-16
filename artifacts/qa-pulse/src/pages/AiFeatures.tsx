@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -31,21 +31,16 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Brain,
   Zap,
-  Search,
   BarChart3,
   FileSearch,
-  MessageSquare,
   TestTube,
   Layers,
-  Send,
   Loader2,
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  Sparkles,
   RefreshCw,
   Upload,
-  Plus,
 } from "lucide-react";
 
 const API_BASE = () => getApiUrl();
@@ -91,8 +86,7 @@ function RiskBadge({ level }: { level: string }) {
 }
 
 export default function AiFeatures() {
-  // Added 'user' here so the dynamic chat history works
-  const { user, token } = useAuth();
+  const { token } = useAuth();
   const { toast } = useToast();
   const coverageFileRef = useRef<HTMLInputElement>(null);
 
@@ -112,7 +106,7 @@ export default function AiFeatures() {
   const [dupResult, setDupResult] = useState<any>(null);
   const [dupLoading, setDupLoading] = useState(false);
 
-  const [coverageReqId, setCoverageReqId] = useState<string>("");
+  const [coverageReqId, setCoverageReqId] = useState<string>("all");
   const [coverageFileName, setCoverageFileName] = useState<string>("");
 
   const [weeklySummaryResult, setWeeklySummaryResult] = useState<any>(null);
@@ -128,60 +122,6 @@ export default function AiFeatures() {
   });
   const [testDataResult, setTestDataResult] = useState<any>(null);
   const [testDataLoading, setTestDataLoading] = useState(false);
-
-  const [searchForm, setSearchForm] = useState({ query: "" });
-  const [searchResult, setSearchResult] = useState<any>(null);
-  const [searchLoading, setSearchLoading] = useState(false);
-
-  // --- ENHANCED PERSISTENT CHAT STATE ---
-  const [chatMessages, setChatMessages] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
-  >([]);
-
-  // Track if we've loaded the initial history so we don't accidentally overwrite it
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-
-  // 1. Load chat history specific to the logged-in user
-  useEffect(() => {
-    if (user?.id && typeof window !== "undefined") {
-      const saved = localStorage.getItem(`qa-copilot-history-${user.id}`);
-      if (saved) {
-        try {
-          setChatMessages(JSON.parse(saved));
-        } catch (e) {
-          console.error("Failed to parse chat history");
-        }
-      } else {
-        setChatMessages([]); // Start fresh if they have no history
-      }
-      setHistoryLoaded(true);
-    }
-  }, [user?.id]);
-
-  // 2. Save chat to local storage using the user's specific ID
-  useEffect(() => {
-    if (historyLoaded && user?.id && typeof window !== "undefined") {
-      if (chatMessages.length > 0) {
-        localStorage.setItem(
-          `qa-copilot-history-${user.id}`,
-          JSON.stringify(chatMessages),
-        );
-      } else {
-        localStorage.removeItem(`qa-copilot-history-${user.id}`);
-      }
-    }
-  }, [chatMessages, historyLoaded, user?.id]);
-
-  const startNewChat = () => {
-    setChatMessages([]);
-    if (user?.id) {
-      localStorage.removeItem(`qa-copilot-history-${user.id}`);
-    }
-  };
-  // --------------------------------------
 
   const run = async <T,>(
     setLoading: (v: boolean) => void,
@@ -203,36 +143,9 @@ export default function AiFeatures() {
     }
   };
 
-  const sendChat = async () => {
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput.trim();
-    setChatInput("");
-    setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-    setChatLoading(true);
-    try {
-      const res = await callAiEndpoint(token, "/ai/chat", {
-        message: userMsg,
-        conversationHistory: chatMessages.slice(-10),
-      });
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res.reply },
-      ]);
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Chat Error",
-        description: err.message,
-      });
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        {/* 2. Removed the background div container and replaced Sparkles with HoverSparkles */}
         <HoverSparkles className="w-8 h-8 text-primary shrink-0 group" />
 
         <div>
@@ -243,16 +156,9 @@ export default function AiFeatures() {
         </div>
       </div>
 
-      <Tabs defaultValue="chat" className="space-y-4">
+      <Tabs defaultValue="analyze" className="space-y-4">
         <ScrollArea className="w-full">
           <TabsList className="grid grid-cols-2 sm:flex sm:w-max gap-1 h-auto p-1 bg-muted">
-            <TabsTrigger
-              value="chat"
-              className="gap-1.5 justify-start sm:justify-center py-2"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              AI Copilot
-            </TabsTrigger>
             <TabsTrigger
               value="analyze"
               className="gap-1.5 justify-start sm:justify-center py-2"
@@ -295,117 +201,8 @@ export default function AiFeatures() {
               <TestTube className="w-3.5 h-3.5" />
               Test Data
             </TabsTrigger>
-            <TabsTrigger
-              value="search"
-              className="gap-1.5 justify-start sm:justify-center py-2"
-            >
-              <Search className="w-3.5 h-3.5" />
-              NL Search
-            </TabsTrigger>
           </TabsList>
         </ScrollArea>
-
-        <TabsContent value="chat">
-          <Card className="flex flex-col h-[600px]">
-            <CardHeader className="pb-3 shrink-0 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-primary" />
-                  QA Copilot
-                </CardTitle>
-                <CardDescription>
-                  Ask anything about your QA data — test cases, tasks,
-                  requirements, coverage, or best practices.
-                </CardDescription>
-              </div>
-              {chatMessages.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={startNewChat}
-                  className="h-8 gap-1.5 text-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" /> New Chat
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent className="flex-1 flex flex-col gap-3 min-h-0">
-              <ScrollArea className="flex-1 pr-2">
-                {chatMessages.length === 0 && (
-                  <div className="text-center py-12 text-muted-foreground space-y-3">
-                    <Brain className="w-10 h-10 mx-auto opacity-30" />
-                    <p className="text-sm">
-                      Start a conversation with your QA Copilot
-                    </p>
-                    <div className="flex flex-wrap gap-2 justify-center text-xs">
-                      {[
-                        "Generate regression checklist for payment module",
-                        "Find missing test coverage",
-                        "Summarize blocked tasks",
-                        "Suggest automation priorities",
-                      ].map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setChatInput(s)}
-                          className="px-3 py-1.5 rounded-full border hover:bg-muted transition-colors"
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-4">
-                  {chatMessages.map((m, i) => (
-                    <div
-                      key={i}
-                      className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      {m.role === "assistant" && (
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <Brain className="w-4 h-4 text-primary" />
-                        </div>
-                      )}
-                      <div
-                        className={`max-w-[80%] rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                      >
-                        {m.content}
-                      </div>
-                    </div>
-                  ))}
-                  {chatLoading && (
-                    <div className="flex gap-3">
-                      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                        <Brain className="w-4 h-4 text-primary" />
-                      </div>
-                      <div className="bg-muted rounded-xl px-4 py-3">
-                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-              <div className="flex gap-2 shrink-0">
-                <Input
-                  placeholder="Ask about your QA data..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && !e.shiftKey && sendChat()
-                  }
-                  disabled={chatLoading}
-                />
-                <Button
-                  onClick={sendChat}
-                  disabled={chatLoading || !chatInput.trim()}
-                  size="icon"
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         <TabsContent value="analyze">
           <Card>
@@ -1130,100 +927,6 @@ export default function AiFeatures() {
                   </div>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="search">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Search className="w-4 h-4 text-primary" />
-                Natural Language Search
-              </CardTitle>
-              <CardDescription>
-                Search tasks, test cases, and requirements using plain English —
-                no filters needed.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-3">
-                <Input
-                  placeholder='e.g. "show blocked payment tasks" or "find login regression test cases"'
-                  value={searchForm.query}
-                  onChange={(e) => setSearchForm({ query: e.target.value })}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" &&
-                    run(setSearchLoading, setSearchResult, () =>
-                      callAiEndpoint(
-                        token,
-                        "/ai/natural-language-search",
-                        searchForm,
-                      ),
-                    )
-                  }
-                />
-                <Button
-                  disabled={searchLoading || !searchForm.query}
-                  onClick={() =>
-                    run(setSearchLoading, setSearchResult, () =>
-                      callAiEndpoint(
-                        token,
-                        "/ai/natural-language-search",
-                        searchForm,
-                      ),
-                    )
-                  }
-                >
-                  {searchLoading ? (
-                    <>
-                      <LoadingSpinner />
-                    </>
-                  ) : (
-                    <Search className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
-              {searchResult && (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground italic">
-                    {searchResult.interpretation}
-                  </p>
-                  {searchResult.results?.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No matching items found.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {searchResult.results?.map((r: any, i: number) => (
-                        <div
-                          key={i}
-                          className="p-3 rounded-lg border flex items-start justify-between gap-3"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <Badge
-                                variant="outline"
-                                className="text-xs capitalize"
-                              >
-                                {r.type.replace(/_/g, " ")}
-                              </Badge>
-                              <RiskBadge level={r.relevance} />
-                            </div>
-                            <p className="text-sm font-medium">{r.title}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {r.reason}
-                            </p>
-                          </div>
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            #{r.id}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>

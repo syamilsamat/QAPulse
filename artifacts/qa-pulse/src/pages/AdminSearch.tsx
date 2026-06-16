@@ -307,7 +307,7 @@ export default function AdminSearch() {
           id: r.id,
           title: r.title,
           subtitle: r.projectName ?? undefined,
-          badge: r.status.replace("_", " "),
+          badge: r.status?.replace("_", " "),
           badgeColor: "bg-slate-100 text-slate-700",
           meta: r.priority,
           originalData: r,
@@ -326,7 +326,7 @@ export default function AdminSearch() {
           id: t.id,
           title: t.title,
           subtitle: t.projectName ?? undefined,
-          badge: t.type.replace("_", " "),
+          badge: t.type?.replace("_", " "),
           badgeColor: "bg-blue-100 text-blue-700",
           meta: t.priority,
           originalData: t,
@@ -345,7 +345,7 @@ export default function AdminSearch() {
           id: t.id,
           title: t.name,
           subtitle: t.assigneeName ?? undefined,
-          badge: t.status.replace("_", " "),
+          badge: t.status?.replace("_", " "),
           badgeColor: "bg-green-100 text-green-700",
           meta: t.dueDate
             ? `Due ${format(new Date(t.dueDate), "MMM d")}`
@@ -367,7 +367,7 @@ export default function AdminSearch() {
           id: u.id,
           title: u.name,
           subtitle: u.email,
-          badge: u.role.replace("_", " "),
+          badge: u.role?.replace("_", " "),
           badgeColor: "bg-purple-100 text-purple-700",
           meta: u.team ?? undefined,
           originalData: u,
@@ -565,7 +565,7 @@ export default function AdminSearch() {
             <DialogTitle>Confirm Deletion</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete this{" "}
-              {selectedItem?.type.replace("_", " ")}? This action cannot be
+              {selectedItem?.type?.replace("_", " ")}? This action cannot be
               undone.
             </DialogDescription>
           </DialogHeader>
@@ -627,7 +627,7 @@ export default function AdminSearch() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="capitalize">
-              Edit {selectedItem?.type.replace("_", " ")}
+              Edit {selectedItem?.type?.replace("_", " ")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
