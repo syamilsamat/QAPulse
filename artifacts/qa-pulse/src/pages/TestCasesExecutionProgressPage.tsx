@@ -403,14 +403,16 @@ const DesktopTableRow = React.memo(
             }
           />
         </td>
-            <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
-              <select
-                className={`${tableSelectClass} font-bold`}
-                value={row.result || ""}
-                onChange={(e) =>
-                  onUpdate(row.id as string, "result", e.target.value)
-                }
-              >
+        <td
+          className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}
+        >
+          <select
+            className={`${tableSelectClass} font-bold`}
+            value={row.result || ""}
+            onChange={(e) =>
+              onUpdate(row.id as string, "result", e.target.value)
+            }
+          >
             {RESULT_OPTIONS.map((r) => (
               <option key={r} value={r}>
                 {r || "Select..."}
@@ -528,17 +530,17 @@ const MobileCardRow = React.memo(
               ))}
             </select>
           </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground uppercase font-bold">
-                  Result
-                </Label>
-                <select
-                  className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
-                  value={row.result}
-                  onChange={(e) =>
-                    onUpdate(row.id as string, "result", e.target.value)
-                  }
-                >
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Result
+            </Label>
+            <select
+              className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
+              value={row.result}
+              onChange={(e) =>
+                onUpdate(row.id as string, "result", e.target.value)
+              }
+            >
               {RESULT_OPTIONS.map((r) => (
                 <option key={r} value={r}>
                   {r || "Pending"}
@@ -736,7 +738,9 @@ export default function TestCasesExecutionProgressPage() {
 
   // Auto-Save States
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -863,8 +867,12 @@ export default function TestCasesExecutionProgressPage() {
   const dataRef = useRef(data);
   const unsavedRef = useRef(hasUnsavedChanges);
 
-  useEffect(() => { dataRef.current = data; }, [data]);
-  useEffect(() => { unsavedRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+  useEffect(() => {
+    unsavedRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -1000,17 +1008,17 @@ export default function TestCasesExecutionProgressPage() {
 
   const handleDownloadExcel = () => {
     const exportData = filteredData.map((row) => ({
-      "Module": row.moduleName || "",
+      Module: row.moduleName || "",
       "Case ID": row.caseId || "",
       "Redmine Ticket ID": row.userStory || "",
-      "Tracker": row.tracker || "",
-      "Scenario": row.scenario || "",
+      Tracker: row.tracker || "",
+      Scenario: row.scenario || "",
       "Pre Condition": row.preCondition || "",
-      "Case": row.caseName || "",
-      "Steps": row.testSteps || "",
+      Case: row.caseName || "",
+      Steps: row.testSteps || "",
       "Test Data": row.testData || "",
       "Expected Result": row.expectedResult || "",
-      "Result": row.result || "",
+      Result: row.result || "",
       "Redmine Defect Ticket ID": row.defectNumber || "",
       "Additional/Comments/Issues": row.comments || "",
       "QA PIC": row.qaPic || "",
@@ -1103,11 +1111,18 @@ export default function TestCasesExecutionProgressPage() {
     if (!val) return "";
     const clean = val.toLowerCase().trim();
     const map: Record<string, string> = {
-      "fail": "Failed", "failure": "Failed", "failed": "Failed",
-      "pass": "Passed", "passes": "Passed", "passed": "Passed",
-      "block": "Blocked", "blocks": "Blocked", "blocked": "Blocked",
+      fail: "Failed",
+      failure: "Failed",
+      failed: "Failed",
+      pass: "Passed",
+      passes: "Passed",
+      passed: "Passed",
+      block: "Blocked",
+      blocks: "Blocked",
+      blocked: "Blocked",
       "in progress": "In Progress",
-      "no result": "Not Executed", "not executed": "Not Executed"
+      "no result": "Not Executed",
+      "not executed": "Not Executed",
     };
     return map[clean] || val.trim();
   };
@@ -1116,9 +1131,14 @@ export default function TestCasesExecutionProgressPage() {
     if (!val) return "";
     const clean = val.toLowerCase().trim();
     const map: Record<string, string> = {
-      "qinah": "Qinah", "qina": "Qinah",
-      "raimi": "Raimi Rosman",
-      "rai": "Raihan"
+      qinah: "Qinah",
+      qina: "Qinah",
+      QINAH: "Qinah",
+      SYASYA: "Syasya",
+      sya2: "Syasya",
+      raimi: "Raimi Rosman",
+      RAIMI: "Raimi Rosman",
+      rai: "Raihan",
     };
     return map[clean] || val.trim();
   };
@@ -1150,16 +1170,19 @@ export default function TestCasesExecutionProgressPage() {
         const sheet = wb.Sheets[sheetName];
 
         // --- MERGED CELLS RESOLUTION LOGIC ---
-        if (sheet['!merges']) {
-          sheet['!merges'].forEach((merge: any) => {
-            const startCell = XLSX.utils.encode_cell({ c: merge.s.c, r: merge.s.r });
+        if (sheet["!merges"]) {
+          sheet["!merges"].forEach((merge: any) => {
+            const startCell = XLSX.utils.encode_cell({
+              c: merge.s.c,
+              r: merge.s.r,
+            });
             const val = sheet[startCell] ? sheet[startCell].v : undefined;
             if (val !== undefined) {
               for (let R = merge.s.r; R <= merge.e.r; ++R) {
                 for (let C = merge.s.c; C <= merge.e.c; ++C) {
                   const cellRef = XLSX.utils.encode_cell({ c: C, r: R });
                   if (!sheet[cellRef]) {
-                    sheet[cellRef] = { t: 's', v: val };
+                    sheet[cellRef] = { t: "s", v: val };
                   } else {
                     sheet[cellRef].v = val;
                   }
@@ -1556,11 +1579,34 @@ export default function TestCasesExecutionProgressPage() {
             </p>
             {/* --- AUTO-SAVE INDICATOR --- */}
             <div className="text-xs flex items-center gap-1 mt-0.5 font-medium">
-              {saveStatus === 'saving' && <><Loader2 className="w-3 h-3 animate-spin text-blue-500" /> <span className="text-blue-500">Saving...</span></>}
-              {saveStatus === 'error' && <><AlertTriangle className="w-3 h-3 text-red-500" /> <span className="text-red-500">Save Failed!</span></>}
-              {saveStatus === 'saved' && <><CheckCircle className="w-3 h-3 text-green-600" /> <span className="text-green-600">Saved</span></>}
-              {lastSavedAt && <span className="text-muted-foreground ml-1">Last saved at {format(lastSavedAt, "HH:mm:ss")}</span>}
-              {hasUnsavedChanges && saveStatus !== 'saving' && <span className="text-amber-500 ml-1 font-bold">(Unsaved changes)</span>}
+              {saveStatus === "saving" && (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-blue-500" />{" "}
+                  <span className="text-blue-500">Saving...</span>
+                </>
+              )}
+              {saveStatus === "error" && (
+                <>
+                  <AlertTriangle className="w-3 h-3 text-red-500" />{" "}
+                  <span className="text-red-500">Save Failed!</span>
+                </>
+              )}
+              {saveStatus === "saved" && (
+                <>
+                  <CheckCircle className="w-3 h-3 text-green-600" />{" "}
+                  <span className="text-green-600">Saved</span>
+                </>
+              )}
+              {lastSavedAt && (
+                <span className="text-muted-foreground ml-1">
+                  Last saved at {format(lastSavedAt, "HH:mm:ss")}
+                </span>
+              )}
+              {hasUnsavedChanges && saveStatus !== "saving" && (
+                <span className="text-amber-500 ml-1 font-bold">
+                  (Unsaved changes)
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -1816,7 +1862,8 @@ export default function TestCasesExecutionProgressPage() {
                     Tracker
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Scenario <Sparkles className="w-3 h-3 inline text-primary" />
+                    Scenario{" "}
+                    <Sparkles className="w-3 h-3 inline text-primary" />
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
                     Pre Condition
@@ -1831,7 +1878,8 @@ export default function TestCasesExecutionProgressPage() {
                     Test Data
                   </th>
                   <th className="border border-border w-64 p-2 text-left">
-                    Expected Result <Sparkles className="w-3 h-3 inline text-primary" />
+                    Expected Result{" "}
+                    <Sparkles className="w-3 h-3 inline text-primary" />
                   </th>
                   <th className="border border-border w-64 p-2 text-left text-primary">
                     Result

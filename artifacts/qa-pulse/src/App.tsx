@@ -1,9 +1,4 @@
-import {
-  Switch,
-  Route,
-  Router as WouterRouter,
-  Redirect,
-} from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -30,6 +25,7 @@ import ReportDashboard from "@/pages/ReportDashboard";
 import TestExecutionDetails from "@/pages/TestExecutionDetail";
 import TestCasesExecution from "@/pages/TestCasesExecution";
 import TestCasesExecutionProgressPage from "@/pages/TestCasesExecutionProgressPage";
+import ModuleAndProject from "@/pages/ModuleAndProject"; // <-- Added Import
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -130,6 +126,14 @@ function Router() {
         <ProtectedRoute
           component={Requirements}
           roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      {/* Added Configurations Route */}
+      <Route path="/configurations">
+        <ProtectedRoute
+          component={ModuleAndProject}
+          roles={["qa_lead", "admin"]}
         />
       </Route>
 

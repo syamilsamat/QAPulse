@@ -49,7 +49,11 @@ import {
 import { Brain, Bot, Send, Loader2, Plus, X } from "lucide-react";
 
 const API_BASE = () => getApiUrl();
-async function callAiEndpoint(token: string | null, endpoint: string, body: object) {
+async function callAiEndpoint(
+  token: string | null,
+  endpoint: string,
+  body: object,
+) {
   const res = await fetch(`${API_BASE()}${endpoint}`, {
     method: "POST",
     headers: {
@@ -71,7 +75,9 @@ function GlobalQACopilot() {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
 
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ role: "user" | "assistant"; content: string }>
+  >([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -87,7 +93,7 @@ function GlobalQACopilot() {
           console.error("Failed to parse chat history");
         }
       } else {
-        setChatMessages([]); 
+        setChatMessages([]);
       }
       setHistoryLoaded(true);
     }
@@ -96,7 +102,10 @@ function GlobalQACopilot() {
   useEffect(() => {
     if (historyLoaded && user?.id && typeof window !== "undefined") {
       if (chatMessages.length > 0) {
-        localStorage.setItem(`qa-copilot-history-${user.id}`, JSON.stringify(chatMessages));
+        localStorage.setItem(
+          `qa-copilot-history-${user.id}`,
+          JSON.stringify(chatMessages),
+        );
       } else {
         localStorage.removeItem(`qa-copilot-history-${user.id}`);
       }
@@ -124,7 +133,10 @@ function GlobalQACopilot() {
         message: userMsg,
         conversationHistory: chatMessages.slice(-10),
       });
-      setChatMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply },
+      ]);
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -143,21 +155,39 @@ function GlobalQACopilot() {
           <CardHeader className="p-3 border-b flex flex-row items-center justify-between bg-muted/40 shrink-0">
             <div className="flex items-center gap-2">
               {/* 2. Updated header avatar icon and background color */}
-              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "#274AB3" }}>
-                 <Bot className="w-4 h-4 text-white" />
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ backgroundColor: "#274AB3" }}
+              >
+                <Bot className="w-4 h-4 text-white" />
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">QA Copilot</CardTitle>
-                <p className="text-[10px] text-muted-foreground">Always here to help</p>
+                <CardTitle className="text-sm font-semibold">
+                  QA Copilot
+                </CardTitle>
+                <p className="text-[10px] text-muted-foreground">
+                  Always here to help
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-1">
               {chatMessages.length > 0 && (
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={startNewChat} title="New Chat">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={startNewChat}
+                  title="New Chat"
+                >
                   <Plus className="w-4 h-4" />
                 </Button>
               )}
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setIsOpen(false)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setIsOpen(false)}
+              >
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -167,10 +197,20 @@ function GlobalQACopilot() {
               {chatMessages.length === 0 && (
                 <div className="text-center py-10 text-muted-foreground space-y-3">
                   <Bot className="w-10 h-10 mx-auto opacity-30" />
-                  <p className="text-sm">Start a conversation with your QA Copilot</p>
+                  <p className="text-sm">
+                    Start a conversation with your QA Copilot
+                  </p>
                   <div className="flex flex-col gap-2 justify-center text-xs mt-4">
-                    {["Generate regression checklist", "Find missing test coverage", "Summarize blocked tasks"].map((s) => (
-                      <button key={s} onClick={() => setChatInput(s)} className="px-3 py-2 rounded-lg border hover:bg-muted transition-colors text-left">
+                    {[
+                      "Generate regression checklist",
+                      "Find missing test coverage",
+                      "Summarize blocked tasks",
+                    ].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setChatInput(s)}
+                        className="px-3 py-2 rounded-lg border hover:bg-muted transition-colors text-left"
+                      >
                         {s}
                       </button>
                     ))}
@@ -179,20 +219,31 @@ function GlobalQACopilot() {
               )}
               <div className="space-y-4">
                 {chatMessages.map((m, i) => (
-                  <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    key={i}
+                    className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
                     {m.role === "assistant" && (
-                      <div className="w-6 h-6 mt-1 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "#274AB3" }}>
+                      <div
+                        className="w-6 h-6 mt-1 rounded-full flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: "#274AB3" }}
+                      >
                         <Bot className="w-3.5 h-3.5 text-white" />
                       </div>
                     )}
-                    <div className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                    <div
+                      className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                    >
                       {m.content}
                     </div>
                   </div>
                 ))}
                 {chatLoading && (
                   <div className="flex gap-3">
-                    <div className="w-6 h-6 mt-1 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "#274AB3" }}>
+                    <div
+                      className="w-6 h-6 mt-1 rounded-full flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: "#274AB3" }}
+                    >
                       <Bot className="w-3.5 h-3.5 text-white" />
                     </div>
                     <div className="bg-muted rounded-xl px-4 py-3">
@@ -208,11 +259,18 @@ function GlobalQACopilot() {
                 placeholder="Ask about your QA data..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendChat()}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && !e.shiftKey && sendChat()
+                }
                 disabled={chatLoading}
                 className="text-sm"
               />
-              <Button onClick={sendChat} disabled={chatLoading || !chatInput.trim()} size="icon" className="shrink-0">
+              <Button
+                onClick={sendChat}
+                disabled={chatLoading || !chatInput.trim()}
+                size="icon"
+                className="shrink-0"
+              >
                 <Send className="w-4 h-4" />
               </Button>
             </div>
@@ -220,8 +278,8 @@ function GlobalQACopilot() {
         </Card>
       ) : (
         /* 3. Updated main trigger button with specific hex code and text-white */
-        <Button 
-          onClick={() => setIsOpen(true)} 
+        <Button
+          onClick={() => setIsOpen(true)}
           className="rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all hover:-translate-y-1 text-white border-none hover:opacity-90"
           style={{ backgroundColor: "#274AB3" }}
         >
@@ -242,24 +300,96 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: HoverDashboard, roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/requirements", label: "Requirements", icon: HoverDocument, roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/test-cases", label: "Test Cases", icon: HoverFlask, roles: ["qa_member", "qa_lead", "admin"],
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: HoverDashboard,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/requirements",
+    label: "Requirements",
+    icon: HoverDocument,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/test-cases",
+    label: "Test Cases",
+    icon: HoverFlask,
+    roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      { href: "/test-cases/execution-details", label: "Execution Details", icon: HoverList },
-      { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay },
+      {
+        href: "/test-cases/execution-details",
+        label: "Execution Details",
+        icon: HoverList,
+      },
+      {
+        href: "/test-cases/execution",
+        label: "Execution Dashboard",
+        icon: HoverPlay,
+      },
     ],
   },
-  { href: "/tasks", label: "Tasks", icon: HoverCheckSquare, roles: ["qa_member", "qa_lead", "admin"],
-    subItems: [{ href: "/history-trail", label: "History Trail", icon: HoverHistory }],
+  {
+    href: "/tasks",
+    label: "Tasks",
+    icon: HoverCheckSquare,
+    roles: ["qa_member", "qa_lead", "admin"],
+    subItems: [
+      { href: "/history-trail", label: "History Trail", icon: HoverHistory },
+    ],
   },
-  { href: "/ai-features", label: "AI Hub", icon: HoverSparkles, roles: ["qa_member", "qa_lead", "admin"] },
-  { href: "/pmo-report", label: "PMO Report", icon: HoverChart, roles: ["pmo", "qa_lead", "admin"] },
-  { href: "/inbox", label: "Inbox", icon: HoverBell, roles: ["qa_member", "qa_lead", "admin"], showBadge: true },
-  { href: "/team", label: "Team", icon: HoverUsers, roles: ["qa_lead", "admin"] },
-  { href: "/admin/search", label: "Admin Search", icon: HoverSearch, roles: ["admin"] },
-  { href: "/team-hangouts", label: "Team Hangouts", icon: HoverCoffee, roles: ["qa_member", "qa_lead", "admin"], showBadge: false },
-  { href: "/settings", label: "Settings", icon: HoverSettings, roles: ["qa_member", "qa_lead", "admin"] },
+  {
+    href: "/ai-features",
+    label: "AI Hub",
+    icon: HoverSparkles,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/pmo-report",
+    label: "PMO Report",
+    icon: HoverChart,
+    roles: ["qa_member", "pmo", "qa_lead", "admin"],
+  },
+  {
+    href: "/inbox",
+    label: "Inbox",
+    icon: HoverBell,
+    roles: ["qa_member", "qa_lead", "admin"],
+    showBadge: true,
+  },
+  {
+    href: "/team",
+    label: "Team",
+    icon: HoverUsers,
+    roles: ["qa_lead", "admin"],
+  },
+  {
+    href: "/admin/search",
+    label: "Admin Search",
+    icon: HoverSearch,
+    roles: ["admin"],
+  },
+  {
+    href: "/team-hangouts",
+    label: "Team Hangouts",
+    icon: HoverCoffee,
+    roles: ["qa_member", "qa_lead", "admin"],
+    showBadge: false,
+  },
+  // Added Configurations Menu Item
+  {
+    href: "/configurations",
+    label: "Configurations",
+    icon: HoverList,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: HoverSettings,
+    roles: ["qa_member", "qa_lead", "admin"],
+  },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -271,7 +401,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const { data: unreadNotifs = [] } = useQuery({
     queryKey: ["notifications-unread", user?.id],
-    queryFn: () => listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
+    queryFn: () =>
+      listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
     enabled: !!user?.id && user.role !== "pmo",
     refetchInterval: 30000,
   });
@@ -310,7 +441,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
-          const isParentActive = location === item.href || item.subItems?.some((sub) => location === sub.href);
+          const isParentActive =
+            location === item.href ||
+            item.subItems?.some((sub) => location === sub.href);
           const badge = item.showBadge ? unreadCount : 0;
 
           return (
@@ -324,9 +457,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${location === item.href ? "text-primary" : ""}`} />
+                  <Icon
+                    className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${location === item.href ? "text-primary" : ""}`}
+                  />
                   <span className="flex-1">{item.label}</span>
-                  {badge > 0 && <Badge variant="destructive" className="h-5 min-w-5 px-1 text-[10px] font-bold">{badge}</Badge>}
+                  {badge > 0 && (
+                    <Badge
+                      variant="destructive"
+                      className="h-5 min-w-5 px-1 text-[10px] font-bold"
+                    >
+                      {badge}
+                    </Badge>
+                  )}
                 </div>
               </Link>
               {item.subItems && (
@@ -343,7 +485,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           }`}
                           onClick={() => setIsMobileMenuOpen(false)}
                         >
-                          <SubIcon className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? "text-primary" : "text-muted-foreground"}`} />
+                          <SubIcon
+                            className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? "text-primary" : "text-muted-foreground"}`}
+                          />
                           {sub.label}
                         </div>
                       </Link>
@@ -365,12 +509,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
-            <p className="text-xs text-muted-foreground capitalize truncate">{user?.role?.replace(/_/g, " ")}</p>
+            <p className="text-sm font-medium text-foreground truncate">
+              {user?.name}
+            </p>
+            <p className="text-xs text-muted-foreground capitalize truncate">
+              {user?.role?.replace(/_/g, " ")}
+            </p>
           </div>
         </div>
         <Button
-          variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm group"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm group"
           onClick={() => setLogoutOpen(true)}
         >
           <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
@@ -398,7 +548,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <h1 className="ml-4 text-lg font-bold">QA Pulse</h1>
               {unreadCount > 0 && (
                 <Link href="/inbox" className="ml-auto">
-                  <Badge variant="destructive" className="cursor-pointer">{unreadCount}</Badge>
+                  <Badge variant="destructive" className="cursor-pointer">
+                    {unreadCount}
+                  </Badge>
                 </Link>
               )}
             </header>
@@ -422,12 +574,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Sign out of QA Pulse?</AlertDialogTitle>
             <AlertDialogDescription>
-              You'll be redirected to the login page. Any unsaved changes will be lost.
+              You'll be redirected to the login page. Any unsaved changes will
+              be lost.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Stay signed in</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout}>Sign out</AlertDialogAction>
+            <AlertDialogAction onClick={handleLogout}>
+              Sign out
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
