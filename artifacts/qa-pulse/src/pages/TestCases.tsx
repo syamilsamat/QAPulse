@@ -558,17 +558,24 @@ function DetailItem({
 }) {
   if (!value) return null;
   return (
-    <div>
+    // Force Inter font family for the entire component
+    <div style={{ fontFamily: '"Inter", sans-serif' }}>
+
+      {/* TITLE: Bold */}
       <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block mb-1">
         {label}
       </span>
+
+      {/* DETAILS: Regular weight, no monospaced fonts */}
       {isCode ? (
-        <div className="bg-background border rounded p-2 text-xs font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+        <div className="bg-background border rounded p-2 text-xs font-normal whitespace-pre-wrap max-h-48 overflow-y-auto">
           {value}
         </div>
       ) : (
         <p
-          className={`text-sm whitespace-pre-wrap ${highlight ? "text-green-700 dark:text-green-400 font-medium" : ""}`}
+          className={`text-sm font-normal whitespace-pre-wrap ${
+            highlight ? "text-green-700 dark:text-green-400" : ""
+          }`}
         >
           {value}
         </p>
@@ -576,6 +583,8 @@ function DetailItem({
     </div>
   );
 }
+
+//export default DetailItem;
 
 export default function TestCases() {
   const { user } = useAuth();
