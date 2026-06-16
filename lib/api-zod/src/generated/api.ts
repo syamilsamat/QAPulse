@@ -633,15 +633,20 @@ export const ListTasksResponse = zod.array(ListTasksResponseItem);
  */
 export const CreateTaskBody = zod.object({
   name: zod.string(),
-  type: zod.string(),
+  // type is REMOVED
+  priority: zod.string().optional(),
+  moduleId: zod.number().optional(),
+  environmentIds: zod.array(zod.number()).optional(),
+  assigneeIds: zod.array(zod.number()).optional(),
+  actualStartDate: zod.string().optional(),
+  actualEndDate: zod.string().optional(),
   redmineId: zod.string().optional(),
   requirementId: zod.number().optional(),
   testCaseId: zod.number().optional(),
   projectId: zod.number().optional(),
-  assigneeId: zod.number().optional(),
   startDate: zod.string().optional(),
   dueDate: zod.string().optional(),
-  status: zod.string(),
+  status: zod.string().optional(), // Make optional so the DB default works
   estimatedHours: zod.number().optional(),
   actualHours: zod.number().optional(),
   completionPercentage: zod.number().optional(),
@@ -768,12 +773,16 @@ export const UpdateTaskParams = zod.object({
 
 export const UpdateTaskBody = zod.object({
   name: zod.string().optional(),
-  type: zod.string().optional(),
+  priority: zod.string().optional(),
+  moduleId: zod.number().optional(),
+  environmentIds: zod.array(zod.number()).optional(),
+  assigneeIds: zod.array(zod.number()).optional(),
+  actualStartDate: zod.string().optional(),
+  actualEndDate: zod.string().optional(),
   redmineId: zod.string().optional(),
   requirementId: zod.number().optional(),
   testCaseId: zod.number().optional(),
   projectId: zod.number().optional(),
-  assigneeId: zod.number().optional(),
   startDate: zod.string().optional(),
   dueDate: zod.string().optional(),
   status: zod.string().optional(),

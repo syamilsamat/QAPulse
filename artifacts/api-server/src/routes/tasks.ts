@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, notificationsTable, taskEventsTable } from "@workspace/db";
 import {
   CreateTaskBody,
@@ -9,7 +9,6 @@ import {
   DeleteTaskParams,
   ListTasksQueryParams,
   ReleaseTaskParams,
-  AssignTaskBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -34,42 +33,31 @@ async function notifyUser(userId: number | null | undefined, title: string, mess
 }
 
 async function formatTask(task: typeof tasksTable.$inferSelect) {
-  let assigneeName = null;
+  let assigneeNames: string[] = [];
   let projectName = null;
   let requirementTitle = null;
 
-  if (task.assigneeId) {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, task.assigneeId));
-    assigneeName = user?.name ?? null;
+  // Handle array of Assignees
+  if (task.assigneeIds && task.assigneeIds.length > 0) {
+    const users = await db.select().from(usersTable).where(inArray(usersTable.id, task.assigneeIds));
+    assigneeNames = users.map(u => u.name);
   }
+
   if (task.projectId) {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, task.projectId));
     projectName = project?.name ?? null;
   }
+
   if (task.requirementId) {
     const [req] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, task.requirementId));
     requirementTitle = req?.title ?? null;
   }
 
   return {
-    id: task.id,
-    name: task.name,
-    type: task.type,
-    redmineId: task.redmineId,
-    requirementId: task.requirementId,
-    requirementTitle,
-    testCaseId: task.testCaseId,
-    projectId: task.projectId,
+    ...task,
+    assigneeNames, // Pass array of names to the frontend
     projectName,
-    assigneeId: task.assigneeId,
-    assigneeName,
-    startDate: task.startDate,
-    dueDate: task.dueDate,
-    status: task.status,
-    estimatedHours: task.estimatedHours,
-    actualHours: task.actualHours,
-    completionPercentage: task.completionPercentage,
-    notes: task.notes,
+    requirementTitle,
     isOverdue: isOverdue(task),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
@@ -81,13 +69,21 @@ router.get("/tasks", async (req, res): Promise<void> => {
   let tasks = await db.select().from(tasksTable).orderBy(tasksTable.createdAt);
 
   if (parsed.success) {
-    const { projectId, assigneeId, status, type, requirementId, overdue } = parsed.data;
-    if (projectId) tasks = tasks.filter(t => t.projectId === projectId);
-    if (assigneeId) tasks = tasks.filter(t => t.assigneeId === assigneeId);
+    // Typecast to any to accommodate the newly added query params not yet in Zod
+    const { projectId, status, priority, moduleId, requirementId, overdue } = parsed.data as any;
+    const assigneeId = (parsed.data as any).assigneeId; 
+
+    if (projectId) tasks = tasks.filter(t => t.projectId === Number(projectId));
     if (status) tasks = tasks.filter(t => t.status === status);
-    if (type) tasks = tasks.filter(t => t.type === type);
-    if (requirementId) tasks = tasks.filter(t => t.requirementId === requirementId);
+    if (priority) tasks = tasks.filter(t => t.priority === priority);
+    if (moduleId) tasks = tasks.filter(t => t.moduleId === Number(moduleId));
+    if (requirementId) tasks = tasks.filter(t => t.requirementId === Number(requirementId));
     if (overdue) tasks = tasks.filter(t => isOverdue(t));
+
+    // Filter logic for the assigneeIds array
+    if (assigneeId) {
+      tasks = tasks.filter(t => t.assigneeIds?.includes(Number(assigneeId)));
+    }
   }
 
   const formatted = await Promise.all(tasks.map(formatTask));
@@ -103,15 +99,19 @@ router.post("/tasks", async (req, res): Promise<void> => {
 
   const [task] = await db.insert(tasksTable).values(parsed.data).returning();
 
-  await db.insert(activityTable).values({
-    type: "task_created",
-    description: `Task "${task.name}" was created`,
-    userId: task.assigneeId,
-    entityId: task.id,
-    entityType: "task",
-  });
-
-  await notifyUser(task.assigneeId, "New task assigned", `You have been assigned task "${task.name}".`, "task", "task", task.id);
+  // Loop through multiple assignees to generate logs and notifications
+  if (task.assigneeIds && task.assigneeIds.length > 0) {
+    for (const id of task.assigneeIds) {
+      await db.insert(activityTable).values({
+        type: "task_created",
+        description: `Task "${task.name}" was created`,
+        userId: id,
+        entityId: task.id,
+        entityType: "task",
+      });
+      await notifyUser(id, "New task assigned", `You have been assigned task "${task.name}".`, "task", "task", task.id);
+    }
+  }
 
   res.status(201).json(await formatTask(task));
 });
@@ -154,14 +154,19 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
   }
 
   if (prevTask && parsed.data.status && prevTask.status !== parsed.data.status) {
-    await db.insert(activityTable).values({
-      type: "task_status_changed",
-      description: `Task "${task.name}" status changed from ${prevTask.status} to ${parsed.data.status}`,
-      userId: task.assigneeId,
-      entityId: task.id,
-      entityType: "task",
-    });
-    await notifyUser(task.assigneeId, "Task updated", `Task "${task.name}" status changed to ${parsed.data.status}.`, "task", "task", task.id);
+    // Loop through assignees to notify them of the status change
+    if (task.assigneeIds && task.assigneeIds.length > 0) {
+      for (const id of task.assigneeIds) {
+        await db.insert(activityTable).values({
+          type: "task_status_changed",
+          description: `Task "${task.name}" status changed from ${prevTask.status} to ${parsed.data.status}`,
+          userId: id,
+          entityId: task.id,
+          entityType: "task",
+        });
+        await notifyUser(id, "Task updated", `Task "${task.name}" status changed to ${parsed.data.status}.`, "task", "task", task.id);
+      }
+    }
   }
 
   res.json(await formatTask(task));
@@ -197,19 +202,24 @@ router.post("/tasks/:id/release", async (req, res): Promise<void> => {
   }
 
   const [task] = await db.update(tasksTable)
-    .set({ assigneeId: null, status: "new" })
+    .set({ assigneeIds: [], status: "new" })
     .where(eq(tasksTable.id, params.data.id))
     .returning();
 
-  await db.insert(activityTable).values({
-    type: "task_released",
-    description: `Task "${task.name}" was released and is now available for pick-up`,
-    userId: prevTask.assigneeId,
-    entityId: task.id,
-    entityType: "task",
-  });
+  // Notify the previously assigned users that the task was released
+  if (prevTask.assigneeIds && prevTask.assigneeIds.length > 0) {
+    for (const id of prevTask.assigneeIds) {
+      await db.insert(activityTable).values({
+        type: "task_released",
+        description: `Task "${task.name}" was released and is now available for pick-up`,
+        userId: id,
+        entityId: task.id,
+        entityType: "task",
+      });
 
-  await notifyUser(prevTask.assigneeId, "Task released", `Task "${task.name}" was released and is now available for pick-up.`, "task", "task", task.id);
+      await notifyUser(id, "Task released", `Task "${task.name}" was released and is now available for pick-up.`, "task", "task", task.id);
+    }
+  }
 
   res.json(await formatTask(task));
 });
@@ -221,14 +231,14 @@ router.post("/tasks/:id/assign", async (req, res): Promise<void> => {
     return;
   }
 
-  const parsed = AssignTaskBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+  const assigneeIds = req.body.assigneeIds;
+  if (!Array.isArray(assigneeIds)) {
+    res.status(400).json({ error: "assigneeIds must be an array" });
     return;
   }
 
   const [task] = await db.update(tasksTable)
-    .set({ assigneeId: parsed.data.assigneeId, status: "in_progress" })
+    .set({ assigneeIds: assigneeIds, status: "in_progress" })
     .where(eq(tasksTable.id, params.data.id))
     .returning();
 
@@ -237,15 +247,19 @@ router.post("/tasks/:id/assign", async (req, res): Promise<void> => {
     return;
   }
 
-  await db.insert(activityTable).values({
-    type: "task_assigned",
-    description: `Task "${task.name}" was assigned`,
-    userId: parsed.data.assigneeId,
-    entityId: task.id,
-    entityType: "task",
-  });
+  if (task.assigneeIds && task.assigneeIds.length > 0) {
+    for (const id of task.assigneeIds) {
+      await db.insert(activityTable).values({
+        type: "task_assigned",
+        description: `Task "${task.name}" was assigned`,
+        userId: id,
+        entityId: task.id,
+        entityType: "task",
+      });
 
-  await notifyUser(parsed.data.assigneeId, "Task assigned", `Task "${task.name}" was assigned to you.`, "task", "task", task.id);
+      await notifyUser(id, "Task assigned", `Task "${task.name}" was assigned to you.`, "task", "task", task.id);
+    }
+  }
 
   res.json(await formatTask(task));
 });

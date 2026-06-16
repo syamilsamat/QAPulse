@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import ExcelJS from "exceljs";
 import {
   listTasks,
   getListTasksQueryKey,
@@ -14,9 +15,9 @@ import {
   useDeleteTask,
   useReleaseTask,
   useAssignTask,
-  type Task,
   type TaskInput,
 } from "@workspace/api-client-react";
+import { fetchModules } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -83,12 +84,14 @@ import {
   Briefcase,
   X,
   ChevronDown,
+  ChevronRight,
   Check,
   CalendarRange,
   Clock,
   ExternalLink,
   Loader2,
   ArrowUpDown,
+  Download,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -103,16 +106,120 @@ const STATUS_COLORS: Record<string, string> = {
   done: "bg-green-100 text-green-700",
 };
 
+const PRIORITY_COLORS: Record<string, string> = {
+  Critical: "bg-red-100 text-red-700 border-red-200",
+  High: "bg-orange-100 text-orange-700 border-orange-200",
+  Medium: "bg-blue-100 text-blue-700 border-blue-200",
+  Low: "bg-slate-100 text-slate-700 border-slate-200",
+};
+
 function capitalize(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
 }
 
+// --- Detail Item Component for Expanded Rows ---
+function DetailItem({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | number | null;
+}) {
+  if (!value && value !== 0) return null;
+  return (
+    <div style={{ fontFamily: '"Inter", sans-serif' }}>
+      <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block mb-1">
+        {label}
+      </span>
+      <p className="text-sm font-normal whitespace-pre-wrap">{value}</p>
+    </div>
+  );
+}
+
+// --- Excel Export Function ---
+async function exportTasksToExcel(tasks: any[], allEvents: any[] = []) {
+  const rows = tasks.map((t) => {
+    // Match events for this specific task
+    const taskEvents = allEvents.filter((e: any) => e.taskId === t.id);
+    let eventDetails = "No events";
+
+    if (taskEvents.length > 0) {
+      eventDetails = taskEvents
+        .map(
+          (e: any) =>
+            `• [${capitalize(e.severity)}] ${e.title}${e.description ? " - " + e.description : ""} (${e.startDate ? format(new Date(e.startDate), "dd MMM") : "N/A"} to ${e.endDate ? format(new Date(e.endDate), "dd MMM") : "N/A"})`,
+        )
+        .join("\n");
+    }
+
+    return {
+      "Task Name": t.name ?? "",
+      "Redmine ID": t.redmineId ?? "",
+      Status: t.status ? capitalize(t.status) : "",
+      Project: t.projectName ?? "",
+      Priority: t.priority ?? "",
+      Module: t.moduleName ?? "",
+      Environments: t.environmentNames?.join(", ") ?? "",
+      Assignees: t.assigneeNames?.join(", ") ?? "",
+      "Planned Start Date": t.startDate ?? "",
+      "Planned End Date": t.dueDate ?? "",
+      "Actual Start Date": t.actualStartDate ?? "",
+      "Actual End Date": t.actualEndDate ?? "",
+      "Estimated Hours": t.estimatedHours ?? "",
+      "Actual Hours": t.actualHours ?? "",
+      "Completion %": t.completionPercentage ?? "",
+      "Event Details": eventDetails, // NEW FIELD
+      Notes: t.notes ?? "",
+    };
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Tasks");
+
+  const headers = Object.keys(rows[0] || {});
+  worksheet.columns = headers.map((header) => ({
+    header,
+    key: header,
+    width: header === "Event Details" || header === "Task Name" ? 35 : 20,
+  }));
+
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF1F4E78" },
+  };
+
+  if (rows.length > 0) {
+    rows.forEach((row) => {
+      const addedRow = worksheet.addRow(row);
+      // Enable text wrapping for multiline event details
+      addedRow.alignment = { vertical: "top", wrapText: true };
+    });
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `tasks-export-${format(new Date(), "yyyy-MM-dd")}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// --- Workload Panel Component ---
 function WorkloadPanel({
   tasks,
   users,
   onAssign,
 }: {
-  tasks: Task[];
+  tasks: any[];
   users: Array<{ id: number; name: string; role: string }>;
   onAssign: (userId: number) => void;
 }) {
@@ -162,8 +269,8 @@ function WorkloadPanel({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {paginatedMembers.map((member) => {
-              const memberTasks = tasks.filter(
-                (t) => t.assigneeId === member.id,
+              const memberTasks = tasks.filter((t) =>
+                t.assigneeIds?.includes(member.id),
               );
               const activeTasks = memberTasks.filter(
                 (t) => t.status !== "released_to_production",
@@ -281,18 +388,21 @@ export default function Tasks() {
   // Search & Filter States
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterPriority, setFilterPriority] = useState("all");
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [filterProject, setFilterProject] = useState("all");
-  const [sortBy, setSortBy] = useState("newest"); // New sorting state
+  const [filterModule, setFilterModule] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [form, setForm] = useState<Partial<TaskInput>>({});
+  const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [form, setForm] = useState<Partial<any>>({});
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  // Task Assignment Dialog State (Bulk assignment from workload panel)
+  // Task Assignment Dialog State
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assigneeComboOpen, setAssigneeComboOpen] = useState(false);
   const [assignForm, setAssignForm] = useState<{
@@ -301,14 +411,14 @@ export default function Tasks() {
   }>({ taskIds: [] });
   const [taskSearch, setTaskSearch] = useState("");
 
-  // Single Assignment Dialog State (From individual task dropdown)
+  // Single Assignment Dialog State
   const [singleAssignOpen, setSingleAssignOpen] = useState(false);
-  const [taskToAssign, setTaskToAssign] = useState<Task | null>(null);
+  const [taskToAssign, setTaskToAssign] = useState<any | null>(null);
   const [singleAssignSearch, setSingleAssignSearch] = useState("");
 
   // Event dialog state
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
-  const [eventTask, setEventTask] = useState<Task | null>(null);
+  const [eventTask, setEventTask] = useState<any | null>(null);
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
@@ -347,11 +457,38 @@ export default function Tasks() {
     queryFn: () => listRequirements(),
   });
 
+  const { data: modules = [] } = useQuery({
+    queryKey: ["modules"],
+    queryFn: () => fetchModules(),
+  });
+
+  const { data: environments = [] } = useQuery({
+    queryKey: ["environments"],
+    queryFn: async () => [
+      { id: 1, name: "Env 1" },
+      { id: 2, name: "Env 2" },
+      { id: 3, name: "Env 3" },
+      { id: 4, name: "Env 4" },
+      { id: 5, name: "Env 5" },
+      { id: 6, name: "Env 6" },
+      { id: 7, name: "Env 7" },
+    ],
+  });
+
   // Automatically reset layout pages back to index 1 upon modifying table filters/sort
   useEffect(() => {
     setCurrentPage(1);
     setSelectedTasks([]);
-  }, [search, filterStatus, filterAssignee, filterProject, sortBy]);
+    setExpandedId(null);
+  }, [
+    search,
+    filterStatus,
+    filterPriority,
+    filterAssignee,
+    filterModule,
+    filterProject,
+    sortBy,
+  ]);
 
   const createMutation = useCreateTask({
     mutation: {
@@ -413,8 +550,8 @@ export default function Tasks() {
 
   const filtered = useMemo(() => {
     // 1. Filter the dataset
-    let result = tasks.filter((t) => {
-      if (!isAdminOrLead && t.assigneeId !== user?.id) return false;
+    let result = tasks.filter((t: any) => {
+      if (!isAdminOrLead && !t.assigneeIds?.includes(user?.id)) return false;
 
       // Status filters
       if (filterStatus === "overdue") {
@@ -423,17 +560,39 @@ export default function Tasks() {
         return false;
       }
 
-      // Assignee / Project filters
-      if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee) return false;
-      if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
+      // Dropdown filters
+      if (filterPriority !== "all" && t.priority !== filterPriority)
+        return false;
+      if (
+        filterAssignee !== "all" &&
+        !t.assigneeIds?.includes(Number(filterAssignee))
+      )
+        return false;
+      if (filterProject !== "all" && String(t.projectId) !== filterProject)
+        return false;
+      if (filterModule !== "all" && String(t.moduleId) !== filterModule)
+        return false;
 
-      // Search filter (Task Name OR Redmine ID)
+      // Global Search
       if (search) {
-        const searchLower = search.toLowerCase();
-        const matchName = t.name.toLowerCase().includes(searchLower);
-        const matchRedmineId = t.redmineId ? String(t.redmineId).toLowerCase().includes(searchLower) : false;
+        const query = search.toLowerCase();
+        const matchName = t.name?.toLowerCase().includes(query);
+        const matchRedmineId = t.redmineId
+          ? String(t.redmineId).toLowerCase().includes(query)
+          : false;
+        const matchNotes = t.notes?.toLowerCase().includes(query);
+        const matchModule = t.moduleName?.toLowerCase().includes(query);
+        const matchAssignee = t.assigneeNames?.some((n: string) =>
+          n.toLowerCase().includes(query),
+        );
 
-        if (!matchName && !matchRedmineId) {
+        if (
+          !matchName &&
+          !matchRedmineId &&
+          !matchNotes &&
+          !matchModule &&
+          !matchAssignee
+        ) {
           return false;
         }
       }
@@ -443,13 +602,22 @@ export default function Tasks() {
     // 2. Sort the dataset
     result.sort((a: any, b: any) => {
       if (sortBy === "newest") {
-        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        return (
+          new Date(b.createdAt || 0).getTime() -
+          new Date(a.createdAt || 0).getTime()
+        );
       }
       if (sortBy === "oldest") {
-        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        return (
+          new Date(a.createdAt || 0).getTime() -
+          new Date(b.createdAt || 0).getTime()
+        );
       }
       if (sortBy === "updated") {
-        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+        return (
+          new Date(b.updatedAt || 0).getTime() -
+          new Date(a.updatedAt || 0).getTime()
+        );
       }
       if (sortBy === "due_date") {
         const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
@@ -460,7 +628,18 @@ export default function Tasks() {
     });
 
     return result;
-  }, [tasks, search, filterStatus, filterAssignee, filterProject, sortBy, user, isAdminOrLead]);
+  }, [
+    tasks,
+    search,
+    filterStatus,
+    filterPriority,
+    filterAssignee,
+    filterProject,
+    filterModule,
+    sortBy,
+    user,
+    isAdminOrLead,
+  ]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTasks = filtered.slice(
@@ -493,12 +672,17 @@ export default function Tasks() {
     setIsDeleting(true);
     try {
       await Promise.all(
-        tasksToDelete.map((id) => deleteMutation.mutateAsync({ id }))
+        tasksToDelete.map((id) => deleteMutation.mutateAsync({ id })),
       );
-      setSelectedTasks((prev) => prev.filter((id) => !tasksToDelete.includes(id)));
+      setSelectedTasks((prev) =>
+        prev.filter((id) => !tasksToDelete.includes(id)),
+      );
       toast({ title: `Successfully deleted ${tasksToDelete.length} task(s)` });
     } catch (err) {
-      toast({ variant: "destructive", title: "Failed to delete one or more tasks" });
+      toast({
+        variant: "destructive",
+        title: "Failed to delete one or more tasks",
+      });
     } finally {
       setIsDeleting(false);
       setDeleteConfirmOpen(false);
@@ -506,24 +690,61 @@ export default function Tasks() {
     }
   };
 
+  const handleExport = async () => {
+    const toExport =
+      selectedTasks.length > 0
+        ? tasks.filter((t: any) => selectedTasks.includes(t.id))
+        : filtered;
+
+    if (toExport.length === 0) {
+      return toast({ variant: "destructive", title: "No tasks to export" });
+    }
+
+    toast({ title: "Preparing export..." });
+
+    // Fetch all events prior to compiling the export array
+    let allEvents: any[] = [];
+    try {
+      const res = await fetch("/api/tasks/events/all");
+      if (res.ok) {
+        allEvents = await res.json();
+      }
+    } catch (error) {
+      console.error("Failed to fetch events for export", error);
+    }
+
+    exportTasksToExcel(toExport, allEvents).then(() => {
+      toast({ title: "Export complete" });
+    });
+  };
+
   const openCreate = () => {
     setEditingTask(null);
-    setForm({ status: "uat", type: "testing" });
+    setForm({
+      status: "new",
+      priority: "Medium",
+      assigneeIds: [],
+      environmentIds: [],
+    });
     setDialogOpen(true);
   };
 
-  const openEdit = (t: Task) => {
+  const openEdit = (t: any) => {
     setEditingTask(t);
     setForm({
       name: t.name,
-      type: t.type,
+      priority: t.priority,
       status: t.status,
       redmineId: t.redmineId ?? undefined,
       requirementId: t.requirementId ?? undefined,
       projectId: t.projectId ?? undefined,
-      assigneeId: t.assigneeId ?? undefined,
+      moduleId: t.moduleId ?? undefined,
+      assigneeIds: t.assigneeIds ?? [],
+      environmentIds: t.environmentIds ?? [],
       startDate: t.startDate ?? undefined,
       dueDate: t.dueDate ?? undefined,
+      actualStartDate: t.actualStartDate ?? undefined,
+      actualEndDate: t.actualEndDate ?? undefined,
       estimatedHours: t.estimatedHours ?? undefined,
       actualHours: t.actualHours ?? undefined,
       completionPercentage: t.completionPercentage ?? undefined,
@@ -532,7 +753,7 @@ export default function Tasks() {
     setDialogOpen(true);
   };
 
-  const openEventDialog = async (t: Task) => {
+  const openEventDialog = async (t: any) => {
     setEventTask(t);
     setEventForm({
       title: "",
@@ -591,7 +812,7 @@ export default function Tasks() {
     setAssignDialogOpen(true);
   };
 
-  const openSingleAssignDialog = (task: Task) => {
+  const openSingleAssignDialog = (task: any) => {
     setTaskToAssign(task);
     setSingleAssignSearch("");
     setSingleAssignOpen(true);
@@ -613,12 +834,16 @@ export default function Tasks() {
 
     setIsAssigning(true);
     try {
-      const promises = assignForm.taskIds.map((taskId) =>
-        assignMutation.mutateAsync({
+      const promises = assignForm.taskIds.map((taskId) => {
+        const task = tasks.find((t: any) => t.id === taskId);
+        const updatedAssignees = [
+          ...new Set([...(task?.assigneeIds || []), assignForm.assigneeId]),
+        ];
+        return assignMutation.mutateAsync({
           id: taskId,
-          data: { assigneeId: assignForm.assigneeId! },
-        })
-      );
+          data: { assigneeIds: updatedAssignees },
+        });
+      });
       await Promise.all(promises);
       invalidate();
       toast({
@@ -644,19 +869,36 @@ export default function Tasks() {
 
   const assignableTasks = useMemo(() => {
     return tasks.filter(
-      (t) =>
+      (t: any) =>
         t.status !== "released_to_production" &&
-        (!taskSearch || t.name.toLowerCase().includes(taskSearch.toLowerCase()))
+        (!taskSearch ||
+          (t.name || "").toLowerCase().includes(taskSearch.toLowerCase())),
     );
   }, [tasks, taskSearch]);
 
-  const quickStatusChange = (task: Task, newStatus: string) => {
+  const quickStatusChange = (task: any, newStatus: string) => {
     updateMutation.mutate({ id: task.id, data: { status: newStatus as any } });
   };
 
-  const canRelease = (t: Task) => {
+  const canRelease = (t: any) => {
     if (isAdminOrLead) return true;
-    return t.assigneeId === user?.id;
+    return t.assigneeIds?.includes(user?.id);
+  };
+
+  // Helper arrays toggling
+  const toggleArrayItem = (
+    key: "assigneeIds" | "environmentIds",
+    id: number,
+  ) => {
+    setForm((prev) => {
+      const arr = prev[key] || [];
+      return {
+        ...prev,
+        [key]: arr.includes(id)
+          ? arr.filter((itemId) => itemId !== id)
+          : [...arr, id],
+      };
+    });
   };
 
   return (
@@ -670,8 +912,18 @@ export default function Tasks() {
             Track and manage QA tasks
           </p>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex-1 sm:flex-none"
+          >
+            <Download className="w-4 h-4" />
+            {selectedTasks.length > 0
+              ? `Export ${selectedTasks.length}`
+              : "Export"}
+          </Button>
+          <Button onClick={openCreate} className="gap-2 flex-1 sm:flex-none">
             <Plus className="w-4 h-4" /> New Task
           </Button>
         </div>
@@ -689,8 +941,8 @@ export default function Tasks() {
         <CardHeader className="pb-4">
           <div className="flex flex-col lg:flex-row gap-3">
             {selectedTasks.length > 0 && (
-              <Button 
-                variant="destructive" 
+              <Button
+                variant="destructive"
                 className="shrink-0 w-full lg:w-auto"
                 onClick={() => confirmDelete(selectedTasks)}
               >
@@ -703,16 +955,18 @@ export default function Tasks() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9 w-full"
-                placeholder="Search tasks or Redmine ID..."
+                placeholder="Search tasks, Redmine ID, modules..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
 
             {/* Extended Grid Layout for the Filters + Sort Dropdowns */}
-            <div className={`grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-row gap-3 w-full lg:w-auto shrink-0`}>
+            <div
+              className={`grid grid-cols-2 md:grid-cols-3 lg:flex lg:flex-row gap-3 w-full lg:w-auto shrink-0`}
+            >
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-full lg:w-40 bg-muted/30">
+                <SelectTrigger className="w-full lg:w-36 bg-muted/30">
                   <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
                   <SelectValue placeholder="Sort By" />
                 </SelectTrigger>
@@ -724,8 +978,35 @@ export default function Tasks() {
                 </SelectContent>
               </Select>
 
+              <Select value={filterPriority} onValueChange={setFilterPriority}>
+                <SelectTrigger className="w-full lg:w-32">
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Priorities</SelectItem>
+                  <SelectItem value="Critical">Critical</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={filterModule} onValueChange={setFilterModule}>
+                <SelectTrigger className="w-full lg:w-32">
+                  <SelectValue placeholder="Module" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Modules</SelectItem>
+                  {modules.map((m: any) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <Select value={filterProject} onValueChange={setFilterProject}>
-                <SelectTrigger className="w-full lg:w-40">
+                <SelectTrigger className="w-full lg:w-36">
                   <SelectValue placeholder="Project" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
@@ -752,7 +1033,7 @@ export default function Tasks() {
                   <SelectItem value="sit">SIT</SelectItem>
                   <SelectItem value="done">Done</SelectItem>
                   <SelectItem value="released_to_production">
-                    Released to Production
+                    Released
                   </SelectItem>
                   <SelectItem value="overdue">
                     <span className="flex items-center gap-1.5">
@@ -764,7 +1045,10 @@ export default function Tasks() {
               </Select>
 
               {isAdminOrLead && (
-                <Select value={filterAssignee} onValueChange={setFilterAssignee}>
+                <Select
+                  value={filterAssignee}
+                  onValueChange={setFilterAssignee}
+                >
                   <SelectTrigger className="w-full lg:w-40">
                     <SelectValue placeholder="Assignee" />
                   </SelectTrigger>
@@ -815,21 +1099,29 @@ export default function Tasks() {
               <div className="overflow-x-auto w-full pb-2">
                 <Table className="min-w-[800px]">
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent">
                       <TableHead className="w-12 text-center">
                         <Checkbox
-                          checked={filtered.length > 0 && selectedTasks.length === filtered.length}
-                          onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                          checked={
+                            filtered.length > 0 &&
+                            selectedTasks.length === filtered.length
+                          }
+                          onCheckedChange={(checked) =>
+                            handleSelectAll(!!checked)
+                          }
                           aria-label="Select all tasks"
                         />
                       </TableHead>
+                      <TableHead className="w-8"></TableHead>
                       <TableHead className="min-w-[200px]">Task</TableHead>
-                      <TableHead className="whitespace-nowrap">Type</TableHead>
+                      <TableHead className="whitespace-nowrap">
+                        Priority
+                      </TableHead>
                       <TableHead className="whitespace-nowrap min-w-[120px]">
                         Status
                       </TableHead>
                       <TableHead className="whitespace-nowrap min-w-[140px]">
-                        Assignee
+                        Assignee(s)
                       </TableHead>
                       <TableHead className="whitespace-nowrap min-w-[100px]">
                         Due Date
@@ -841,184 +1133,292 @@ export default function Tasks() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedTasks.map((t) => (
-                      <TableRow
-                        key={t.id}
-                        className={`hover:bg-muted/40 ${selectedTasks.includes(t.id) ? "bg-primary/5" : ""} ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
-                      >
-                        <TableCell className="text-center">
-                          <Checkbox
-                            checked={selectedTasks.includes(t.id)}
-                            onCheckedChange={(checked) => handleSelectTask(t.id, !!checked)}
-                            aria-label={`Select task ${t.name}`}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium flex items-center gap-1.5">
-                              {t.isOverdue &&
-                                t.status !== "released_to_production" && (
-                                  <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
-                                )}
-                              {t.name}
-                            </p>
-                            {t.projectName && (
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {t.projectName}
+                    {paginatedTasks.map((t: any) => (
+                      <React.Fragment key={t.id}>
+                        <TableRow
+                          className={`hover:bg-muted/40 cursor-pointer ${selectedTasks.includes(t.id) ? "bg-primary/5" : ""} ${expandedId === t.id ? "bg-muted/20" : ""} ${t.isOverdue && t.status !== "released_to_production" ? "bg-red-50/40" : ""}`}
+                          onClick={() =>
+                            setExpandedId(expandedId === t.id ? null : t.id)
+                          }
+                        >
+                          <TableCell
+                            className="text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Checkbox
+                              checked={selectedTasks.includes(t.id)}
+                              onCheckedChange={(checked) =>
+                                handleSelectTask(t.id, !!checked)
+                              }
+                              aria-label={`Select task ${t.name}`}
+                            />
+                          </TableCell>
+                          <TableCell className="py-3 pl-0 text-center">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="w-6 h-6 p-0 hover:bg-transparent"
+                            >
+                              {expandedId === t.id ? (
+                                <ChevronDown className="w-4 h-4 text-primary" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                              )}
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium flex items-center gap-1.5">
+                                {t.isOverdue &&
+                                  t.status !== "released_to_production" && (
+                                    <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                  )}
+                                {t.name}
                               </p>
-                            )}
-                            {t.redmineId && (
-                              <a
-                                href={`https://redmine.bestinet.my/issues/${t.redmineId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-0.5 w-fit"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <ExternalLink className="w-3 h-3" />#{t.redmineId}
-                              </a>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap capitalize text-sm text-muted-foreground">
-                          {t.type.replace(/_/g, " ")}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          <Select
-                            value={t.status}
-                            onValueChange={(v) => quickStatusChange(t, v)}
-                          >
-                            <SelectTrigger className="h-7 text-xs border-0 p-0 focus:ring-0">
-                              <span
-                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status]}`}
-                              >
-                                {capitalize(t.status)}
-                              </span>
-                            </SelectTrigger>
-                            <SelectContent className="max-h-[300px]">
-                              <SelectItem value="new">New</SelectItem>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="in_progress">
-                                In Progress
-                              </SelectItem>
-                              <SelectItem value="blocked">Blocked</SelectItem>
-                              <SelectItem value="uat">UAT</SelectItem>
-                              <SelectItem value="sit">SIT</SelectItem>
-                              <SelectItem value="done">Done</SelectItem>
-                              <SelectItem value="released_to_production">
-                                Released to Production
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {t.assigneeName ? (
-                            <div className="flex items-center gap-2">
-                              <Avatar className="w-6 h-6">
-                                <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                                  {t.assigneeName.substring(0, 2).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span className="text-sm">{t.assigneeName}</span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground italic">
-                              Unassigned
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          <span
-                            className={`text-sm font-medium px-2 py-0.5 rounded ${
-                              t.isOverdue &&
-                              t.status !== "released_to_production"
-                                ? "bg-red-100 text-red-700"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {t.dueDate
-                              ? format(new Date(t.dueDate), "MMM d")
-                              : "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {t.completionPercentage !== null &&
-                          t.completionPercentage !== undefined ? (
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-16">
-                                <div
-                                  className="h-full bg-primary rounded-full transition-all"
-                                  style={{
-                                    width: `${t.completionPercentage}%`,
-                                  }}
-                                />
-                              </div>
-                              <span className="text-xs text-muted-foreground w-8">
-                                {t.completionPercentage}%
-                              </span>
-                            </div>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                              >
-                                <MoreHorizontal className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openEdit(t)}>
-                                <Pencil className="w-4 h-4 mr-2" />
-                                Update
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => openEventDialog(t)}
-                              >
-                                <CalendarRange className="w-4 h-4 mr-2" />
-                                Event
-                              </DropdownMenuItem>
-
-                              {isAdminOrLead && (
-                                <DropdownMenuItem
-                                  onClick={() => openSingleAssignDialog(t)}
+                              {t.projectName && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {t.projectName}
+                                </p>
+                              )}
+                              {t.redmineId && (
+                                <a
+                                  href={`https://redmine.bestinet.my/issues/${t.redmineId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-0.5 w-fit"
+                                  onClick={(e) => e.stopPropagation()}
                                 >
-                                  <UserCheck className="w-4 h-4 mr-2" />
-                                  {t.assigneeId ? "Re-assign member" : "Assign to member"}
+                                  <ExternalLink className="w-3 h-3" />#
+                                  {t.redmineId}
+                                </a>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded border font-medium uppercase tracking-wide ${PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.Medium}`}
+                            >
+                              {t.priority || "Medium"}
+                            </span>
+                          </TableCell>
+                          <TableCell
+                            className="whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Select
+                              value={t.status}
+                              onValueChange={(v) => quickStatusChange(t, v)}
+                            >
+                              <SelectTrigger className="h-7 text-xs border-0 p-0 focus:ring-0">
+                                <span
+                                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status]}`}
+                                >
+                                  {capitalize(t.status)}
+                                </span>
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[300px]">
+                                <SelectItem value="new">New</SelectItem>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="in_progress">
+                                  In Progress
+                                </SelectItem>
+                                <SelectItem value="blocked">Blocked</SelectItem>
+                                <SelectItem value="uat">UAT</SelectItem>
+                                <SelectItem value="sit">SIT</SelectItem>
+                                <SelectItem value="done">Done</SelectItem>
+                                <SelectItem value="released_to_production">
+                                  Released
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {t.assigneeNames && t.assigneeNames.length > 0 ? (
+                              <div className="flex -space-x-2">
+                                {t.assigneeNames.map(
+                                  (name: string, i: number) => (
+                                    <Avatar
+                                      key={i}
+                                      className="w-7 h-7 border-2 border-background"
+                                      title={name}
+                                    >
+                                      <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
+                                        {name.substring(0, 2).toUpperCase()}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  ),
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground italic">
+                                Unassigned
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span
+                              className={`text-sm font-medium px-2 py-0.5 rounded ${
+                                t.isOverdue &&
+                                t.status !== "released_to_production"
+                                  ? "bg-red-100 text-red-700"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {t.dueDate
+                                ? format(new Date(t.dueDate), "MMM d")
+                                : "—"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {t.completionPercentage !== null &&
+                            t.completionPercentage !== undefined ? (
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-16">
+                                  <div
+                                    className="h-full bg-primary rounded-full transition-all"
+                                    style={{
+                                      width: `${t.completionPercentage}%`,
+                                    }}
+                                  />
+                                </div>
+                                <span className="text-xs text-muted-foreground w-8">
+                                  {t.completionPercentage}%
+                                </span>
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openEdit(t)}>
+                                  <Pencil className="w-4 h-4 mr-2" />
+                                  Update
                                 </DropdownMenuItem>
-                              )}
+                                <DropdownMenuItem
+                                  onClick={() => openEventDialog(t)}
+                                >
+                                  <CalendarRange className="w-4 h-4 mr-2" />
+                                  Event
+                                </DropdownMenuItem>
 
-                              {canRelease(t) && t.assigneeId !== null && (
-                                <>
-                                  <DropdownMenuSeparator />
+                                {isAdminOrLead && (
                                   <DropdownMenuItem
-                                    className="text-orange-600 focus:text-orange-600"
-                                    onClick={() =>
-                                      releaseMutation.mutate({ id: t.id })
-                                    }
+                                    onClick={() => openSingleAssignDialog(t)}
                                   >
-                                    <LogOut className="w-4 h-4 mr-2" />
-                                    Release task
+                                    <UserCheck className="w-4 h-4 mr-2" />
+                                    Assign member(s)
                                   </DropdownMenuItem>
-                                </>
-                              )}
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onClick={() => confirmDelete([t.id])} 
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
+                                )}
+
+                                {canRelease(t) && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-orange-600 focus:text-orange-600"
+                                      onClick={() =>
+                                        releaseMutation.mutate({ id: t.id })
+                                      }
+                                    >
+                                      <LogOut className="w-4 h-4 mr-2" />
+                                      Release task
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => confirmDelete([t.id])}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+
+                        {/* EXPANDED DETAILS GRID */}
+                        {expandedId === t.id && (
+                          <TableRow className="bg-muted/5 hover:bg-muted/5 border-b shadow-inner">
+                            <TableCell colSpan={9} className="p-0">
+                              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-x-8 gap-y-6 border-l-4 border-primary/40 ml-2">
+                                <div className="space-y-4">
+                                  <DetailItem
+                                    label="Redmine ID"
+                                    value={t.redmineId}
+                                  />
+                                  <DetailItem
+                                    label="Priority"
+                                    value={t.priority}
+                                  />
+                                  <DetailItem
+                                    label="Module"
+                                    value={t.moduleName}
+                                  />
+                                  <DetailItem
+                                    label="Environments"
+                                    value={t.environmentNames?.join(", ")}
+                                  />
+                                </div>
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <DetailItem
+                                      label="Planned Start"
+                                      value={t.startDate}
+                                    />
+                                    <DetailItem
+                                      label="Planned End"
+                                      value={t.dueDate}
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <DetailItem
+                                      label="Actual Start"
+                                      value={t.actualStartDate}
+                                    />
+                                    <DetailItem
+                                      label="Actual End"
+                                      value={t.actualEndDate}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <DetailItem
+                                      label="Est. Hours"
+                                      value={t.estimatedHours}
+                                    />
+                                    <DetailItem
+                                      label="Act. Hours"
+                                      value={t.actualHours}
+                                    />
+                                  </div>
+                                  <DetailItem
+                                    label="Completion"
+                                    value={
+                                      t.completionPercentage != null
+                                        ? `${t.completionPercentage}%`
+                                        : null
+                                    }
+                                  />
+                                  <DetailItem label="Notes" value={t.notes} />
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     ))}
                   </TableBody>
                 </Table>
@@ -1028,7 +1428,9 @@ export default function Tasks() {
                 <div className="text-xs text-muted-foreground text-center sm:text-left w-full sm:w-auto">
                   Showing{" "}
                   <span className="font-medium">
-                    {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+                    {filtered.length === 0
+                      ? 0
+                      : (currentPage - 1) * ITEMS_PER_PAGE + 1}
                   </span>{" "}
                   to{" "}
                   <span className="font-medium">
@@ -1054,7 +1456,7 @@ export default function Tasks() {
                     onClick={() =>
                       setCurrentPage((p) => Math.min(totalPages, p + 1))
                     }
-                    disabled={currentPage >= totalPages}
+                    disabled={currentPage >= totalPages || totalPages === 0}
                   >
                     Next
                   </Button>
@@ -1065,93 +1467,43 @@ export default function Tasks() {
         </CardContent>
       </Card>
 
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="sm:max-w-[400px] w-[96vw]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="w-5 h-5" />
-              Confirm Deletion
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete {tasksToDelete.length > 1 ? `these ${tasksToDelete.length} tasks` : "this task"}? This action cannot be undone.
-            </p>
-          </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteConfirmOpen(false)}
-              disabled={isDeleting}
-              className="w-full sm:w-auto"
-            >
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={executeDelete} 
-              disabled={isDeleting}
-              className="w-full sm:w-auto"
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Confirm Delete"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* --- CREATE / EDIT DIALOG --- */}
+      {/* --- CREATE / EDIT DIALOG (REORGANIZED) --- */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingTask ? "Edit Task" : "New Task"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Task Name *</Label>
-              <Input
-                placeholder="Task name"
-                value={form.name ?? ""}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Type</Label>
-                <Select
-                  value={form.type ?? "testing"}
-                  onValueChange={(v) => setForm({ ...form, type: v as any })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="testing">Testing</SelectItem>
-                    <SelectItem value="bug_verification">Bug Verification</SelectItem>
-                    <SelectItem value="test_case_creation">Test Case Creation</SelectItem>
-                    <SelectItem value="regression">Regression</SelectItem>
-                    <SelectItem value="automation">Automation</SelectItem>
-                  </SelectContent>
-                </Select>
+          <div className="space-y-6 py-2">
+            {/* GROUP 1: Core Identifiers */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Task Name *</Label>
+                <Input
+                  placeholder="Task name"
+                  value={form.name ?? ""}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
               </div>
-
+              <div className="space-y-1.5">
+                <Label>Redmine ID</Label>
+                <Input
+                  placeholder="e.g. 29303"
+                  value={form.redmineId ?? ""}
+                  onChange={(e) =>
+                    setForm({ ...form, redmineId: e.target.value })
+                  }
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label>Status</Label>
                 <Select
-                  value={form.status ?? "uat"}
-                  onValueChange={(v) => setForm({ ...form, status: v as any })}
+                  value={form.status ?? "new"}
+                  onValueChange={(v) => setForm({ ...form, status: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
+                  <SelectContent>
                     <SelectItem value="new">New</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
@@ -1159,11 +1511,16 @@ export default function Tasks() {
                     <SelectItem value="uat">UAT</SelectItem>
                     <SelectItem value="sit">SIT</SelectItem>
                     <SelectItem value="done">Done</SelectItem>
-                    <SelectItem value="released_to_production">Released to Production</SelectItem>
+                    <SelectItem value="released_to_production">
+                      Released
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
+            {/* GROUP 2: Classification */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border p-4 rounded-lg bg-muted/5">
               <div className="space-y-1.5">
                 <Label>Project</Label>
                 <Select
@@ -1173,9 +1530,9 @@ export default function Tasks() {
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select..." />
+                    <SelectValue placeholder="Select Project..." />
                   </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
+                  <SelectContent className="max-h-[250px]">
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.name}
@@ -1184,22 +1541,38 @@ export default function Tasks() {
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-1.5">
-                <Label>Assignee</Label>
+                <Label>Priority</Label>
                 <Select
-                  value={form.assigneeId ? String(form.assigneeId) : ""}
+                  value={form.priority ?? "Medium"}
+                  onValueChange={(v) => setForm({ ...form, priority: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Critical">Critical</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Medium">Medium</SelectItem>
+                    <SelectItem value="Low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Module</Label>
+                <Select
+                  value={form.moduleId ? String(form.moduleId) : ""}
                   onValueChange={(v) =>
-                    setForm({ ...form, assigneeId: Number(v) })
+                    setForm({ ...form, moduleId: Number(v) })
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Assign to..." />
+                    <SelectValue placeholder="Select Module" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        {u.name}
+                  <SelectContent className="max-h-[250px]">
+                    {modules.map((m: any) => (
+                      <SelectItem key={m.id} value={String(m.id)}>
+                        {m.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1207,7 +1580,138 @@ export default function Tasks() {
               </div>
 
               <div className="space-y-1.5">
-                <Label>Start Date</Label>
+                <Label>Environment(s)</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal overflow-hidden min-h-9 h-auto py-1.5 px-3"
+                    >
+                      {form.environmentIds?.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {form.environmentIds.map((id: number) => {
+                            const env = environments.find(
+                              (e: any) => e.id === id,
+                            );
+                            return (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className="font-normal text-xs py-0 h-5"
+                              >
+                                {env?.name || `ID: ${id}`}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Select Environments...
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search environments..." />
+                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                        <CommandEmpty>No environment found.</CommandEmpty>
+                        <CommandGroup>
+                          {environments.map((env: any) => (
+                            <CommandItem
+                              key={env.id}
+                              onSelect={() =>
+                                toggleArrayItem("environmentIds", env.id)
+                              }
+                              className="flex items-center gap-2 cursor-pointer"
+                            >
+                              <Checkbox
+                                checked={form.environmentIds?.includes(env.id)}
+                                className="pointer-events-none"
+                              />
+                              {env.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Assignee(s) (QA PIC)</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal overflow-hidden min-h-9 h-auto py-1.5 px-3"
+                    >
+                      {form.assigneeIds?.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {form.assigneeIds.map((id: number) => {
+                            const u = users.find((user) => user.id === id);
+                            return (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className="font-normal text-xs py-0 h-5"
+                              >
+                                {u?.name || `ID: ${id}`}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Select QA PICs...
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search QA..." />
+                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                        <CommandEmpty>No QA found.</CommandEmpty>
+                        <CommandGroup>
+                          {users
+                            .filter(
+                              (u) =>
+                                u.role === "qa_member" || u.role === "qa_lead",
+                            )
+                            .map((u) => (
+                              <CommandItem
+                                key={u.id}
+                                onSelect={() =>
+                                  toggleArrayItem("assigneeIds", u.id)
+                                }
+                                className="flex items-center gap-2 cursor-pointer"
+                              >
+                                <Checkbox
+                                  checked={form.assigneeIds?.includes(u.id)}
+                                  className="pointer-events-none"
+                                />
+                                <Avatar className="w-5 h-5">
+                                  <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
+                                    {u.name.substring(0, 2)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                {u.name}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* GROUP 3: Scheduling */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Planned Start Date</Label>
                 <Input
                   type="date"
                   value={form.startDate ?? ""}
@@ -1216,9 +1720,8 @@ export default function Tasks() {
                   }
                 />
               </div>
-
               <div className="space-y-1.5">
-                <Label>Due Date</Label>
+                <Label>Planned End Date</Label>
                 <Input
                   type="date"
                   value={form.dueDate ?? ""}
@@ -1227,33 +1730,54 @@ export default function Tasks() {
                   }
                 />
               </div>
-
               <div className="space-y-1.5">
-                <Label>Estimated Hours</Label>
+                <Label>Actual Start Date</Label>
+                <Input
+                  type="date"
+                  value={form.actualStartDate ?? ""}
+                  onChange={(e) =>
+                    setForm({ ...form, actualStartDate: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Actual End Date</Label>
+                <Input
+                  type="date"
+                  value={form.actualEndDate ?? ""}
+                  onChange={(e) =>
+                    setForm({ ...form, actualEndDate: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            {/* GROUP 4: Metrics & Notes */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-4">
+              <div className="space-y-1.5">
+                <Label>Est. Hours</Label>
                 <Input
                   type="number"
-                  min="0"
                   step="0.5"
+                  min="0"
                   value={form.estimatedHours ?? ""}
                   onChange={(e) =>
                     setForm({ ...form, estimatedHours: Number(e.target.value) })
                   }
                 />
               </div>
-
               <div className="space-y-1.5">
                 <Label>Actual Hours</Label>
                 <Input
                   type="number"
-                  min="0"
                   step="0.5"
+                  min="0"
                   value={form.actualHours ?? ""}
                   onChange={(e) =>
                     setForm({ ...form, actualHours: Number(e.target.value) })
                   }
                 />
               </div>
-
               <div className="space-y-1.5">
                 <Label>Completion %</Label>
                 <Input
@@ -1272,40 +1796,83 @@ export default function Tasks() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Redmine ID</Label>
-              <Input
-                placeholder="Link to Execution Dashboard (e.g. 29303)"
-                value={form.redmineId ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, redmineId: e.target.value })
-                }
-              />
-            </div>
-
-            <div className="space-y-1.5">
               <Label>Notes</Label>
               <Textarea
-                placeholder="Additional notes..."
+                placeholder="Additional context..."
+                rows={3}
                 value={form.notes ?? ""}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                rows={2}
               />
             </div>
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDialogOpen(false)}>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setDialogOpen(false)}
+            >
               Cancel
             </Button>
             <Button
               className="w-full sm:w-auto"
               onClick={handleSubmit}
-              disabled={!form.name || createMutation.isPending || updateMutation.isPending}
+              disabled={
+                !form.name ||
+                createMutation.isPending ||
+                updateMutation.isPending
+              }
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Saving..."
                 : editingTask
                   ? "Save Changes"
-                  : "Create"}
+                  : "Create Task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- BULK DELETE CONFIRM DIALOG --- */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[400px] w-[96vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete{" "}
+              {tasksToDelete.length > 1
+                ? `these ${tasksToDelete.length} tasks`
+                : "this task"}
+              ? This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={executeDelete}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Confirm Delete"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1445,7 +2012,11 @@ export default function Tasks() {
             </div>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEventDialogOpen(false)}>
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setEventDialogOpen(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -1480,21 +2051,26 @@ export default function Tasks() {
               .filter(
                 (u) =>
                   !singleAssignSearch ||
-                  u.name.toLowerCase().includes(singleAssignSearch.toLowerCase())
+                  u.name
+                    .toLowerCase()
+                    .includes(singleAssignSearch.toLowerCase()),
               )
               .map((u) => (
                 <div
                   key={u.id}
                   className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
-                    taskToAssign?.assigneeId === u.id
+                    taskToAssign?.assigneeIds?.includes(u.id)
                       ? "bg-primary/10 hover:bg-primary/20"
                       : "hover:bg-muted"
                   }`}
                   onClick={() => {
                     if (taskToAssign) {
+                      const updatedAssignees = [
+                        ...new Set([...(taskToAssign.assigneeIds || []), u.id]),
+                      ];
                       assignMutation.mutate({
                         id: taskToAssign.id,
-                        data: { assigneeId: u.id },
+                        data: { assigneeIds: updatedAssignees },
                       });
                       setSingleAssignOpen(false);
                     }
@@ -1511,7 +2087,7 @@ export default function Tasks() {
                       {u.role.replace(/_/g, " ")}
                     </p>
                   </div>
-                  {taskToAssign?.assigneeId === u.id && (
+                  {taskToAssign?.assigneeIds?.includes(u.id) && (
                     <Check className="w-4 h-4 text-primary shrink-0" />
                   )}
                 </div>
@@ -1588,7 +2164,7 @@ export default function Tasks() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent
-                  className="w-[var(--radix-popover-trigger-width)] p-0 max-h-[300px] overflow-y-auto"
+                  className="w-[var(--radix-popover-trigger-width)] p-0"
                   align="start"
                 >
                   <Command>
@@ -1596,7 +2172,7 @@ export default function Tasks() {
                       placeholder="Search member..."
                       className="h-9"
                     />
-                    <CommandList>
+                    <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
                       <CommandEmpty>No member found.</CommandEmpty>
                       <CommandGroup>
                         {users
@@ -1690,9 +2266,7 @@ export default function Tasks() {
                     } else {
                       setAssignForm((prev) => ({
                         ...prev,
-                        taskIds: [
-                          ...new Set([...prev.taskIds, ...allIds]),
-                        ],
+                        taskIds: [...new Set([...prev.taskIds, ...allIds])],
                       }));
                     }
                   }}
@@ -1712,7 +2286,7 @@ export default function Tasks() {
                   </span>
                 </div>
 
-                <div className="max-h-56 overflow-y-auto divide-y">
+                <div className="min-h-[100px] max-h-60 overflow-y-auto divide-y">
                   {assignableTasks.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
                       No active tasks found
@@ -1728,9 +2302,7 @@ export default function Tasks() {
                         >
                           <Checkbox
                             checked={selected}
-                            onCheckedChange={() =>
-                              toggleTaskSelection(task.id)
-                            }
+                            onCheckedChange={() => toggleTaskSelection(task.id)}
                             className="pointer-events-none shrink-0"
                           />
                           <div className="min-w-0 flex-1">
@@ -1738,7 +2310,9 @@ export default function Tasks() {
                               {task.name}
                             </p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {task.assigneeName ? `Currently: ${task.assigneeName} • ` : "Unassigned • "}
+                              {task.assigneeNames?.length
+                                ? `Currently: ${task.assigneeNames.join(", ")} • `
+                                : "Unassigned • "}
                               {task.projectName ?? "No Project"}
                             </p>
                           </div>

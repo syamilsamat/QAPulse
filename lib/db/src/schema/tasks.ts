@@ -6,14 +6,19 @@ import { usersTable } from "./users";
 export const tasksTable = pgTable("tasks", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type").notNull().default("test_case_creation"),
+  // REMOVED: type
+  priority: text("priority").notNull().default("Medium"),
   redmineId: text("redmine_id"),
   requirementId: integer("requirement_id"),
   testCaseId: integer("test_case_id"),
   projectId: integer("project_id"),
-  assigneeId: integer("assignee_id"),
-  startDate: text("start_date"),
-  dueDate: text("due_date"),
+  moduleId: integer("module_id"),
+  environmentIds: integer("environment_ids").array(), // Multi-select Environments
+  assigneeIds: integer("assignee_ids").array(),       // Multi-select QA PICs
+  startDate: text("start_date"),                      // Planned Start Date
+  dueDate: text("due_date"),                          // Planned End Date
+  actualStartDate: text("actual_start_date"),         // NEW
+  actualEndDate: text("actual_end_date"),             // NEW
   status: text("status").notNull().default("uat"),
   estimatedHours: real("estimated_hours"),
   actualHours: real("actual_hours"),
