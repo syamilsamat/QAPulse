@@ -64,8 +64,12 @@ export const fetchExecutionFiles = async (): Promise<ExecutionFile[]> => {
   return res.json();
 };
 
-export const fetchExecutionFile = async (id: number): Promise<ExecutionFile> => {
-  const res = await fetch(`/api/execution-files/${id}`, { headers: getHeaders() });
+export const fetchExecutionFile = async (
+  id: number,
+): Promise<ExecutionFile> => {
+  const res = await fetch(`/api/execution-files/${id}`, {
+    headers: getHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to fetch file");
   return res.json();
 };
@@ -201,7 +205,7 @@ export const updateModule = async (
   name: string,
 ): Promise<ExecutionModule> => {
   const res = await fetch(`/api/modules/${id}`, {
-    method: "PATCH",
+    method: "PATCH", // Changed from "PUT" to "PATCH"
     headers: getHeaders(),
     body: JSON.stringify({ name }),
   });

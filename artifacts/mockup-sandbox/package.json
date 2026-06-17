@@ -4,7 +4,6 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "predev": "fuser -k ${PORT:-8081}/tcp 2>/dev/null || true",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
