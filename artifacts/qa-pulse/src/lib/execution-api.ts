@@ -1,6 +1,8 @@
 export interface ExecutionModule {
   id: number;
   name: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ExecutionProject {
@@ -26,6 +28,7 @@ export interface ExecutionTestCase {
   moduleName: string;
   caseId: string;
   userStory: string;
+  tracker?: string; // <-- ADDED: Matches the tracker payload in your backend
   scenario: string;
   preCondition: string;
   caseName: string;
@@ -36,6 +39,7 @@ export interface ExecutionTestCase {
   defectNumber: string;
   comments: string;
   qaPic: string;
+  rowOrder?: number; // <-- ADDED: Matches the rowOrder payload in your backend
 }
 
 const getHeaders = () => {
@@ -205,7 +209,7 @@ export const updateModule = async (
   name: string,
 ): Promise<ExecutionModule> => {
   const res = await fetch(`/api/modules/${id}`, {
-    method: "PATCH", // Changed from "PUT" to "PATCH"
+    method: "PATCH", // Updated to match the new Express router
     headers: getHeaders(),
     body: JSON.stringify({ name }),
   });

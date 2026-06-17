@@ -28,6 +28,7 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   moduleName: text("module_name"),
   caseId: text("case_id"),
   userStory: text("user_story"),
+  tracker: text("tracker"), // <--- ADDED HERE
   scenario: text("scenario"),
   preCondition: text("pre_condition"),
   caseName: text("case_name"),

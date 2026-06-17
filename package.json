@@ -20,6 +20,7 @@
     "@gsap/react": "^2.1.2",
     "@heyputer/puter.js": "^2.5.1",
     "@studio-freight/react-lenis": "^0.0.47",
+    "drizzle-orm": "catalog:",
     "framer-motion": "catalog:",
     "gsap": "^3.15.0",
     "html-to-image": "^1.11.13",
