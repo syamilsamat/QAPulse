@@ -16,8 +16,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
   Settings as SettingsIcon, User, Shield, Bell, Upload, Lock, UserPlus, Eye, EyeOff,
-  RefreshCw, Bug, Save,
+  RefreshCw, Bug, Save, ChevronsUpDown, Check,
 } from "lucide-react";
 
 interface RedmineProject {
@@ -79,6 +83,7 @@ export default function Settings() {
   const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [projectComboOpen, setProjectComboOpen] = useState(false);
 
   const updateMutation = useUpdateUser({
     mutation: {
@@ -587,24 +592,51 @@ export default function Settings() {
                 <Separator />
                 <div className="space-y-3">
                   <Label>Configure Custom Fields per Project</Label>
-                  <Select
-                    value={selectedConfigProjectId?.toString() ?? ""}
-                    onValueChange={(v) => handleSelectConfigProject(Number(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a Redmine project..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {redmineProjects.map((p) => (
-                        <SelectItem key={p.redmineId} value={p.redmineId.toString()}>
-                          {p.name}
-                          {projectConfigs[p.redmineId] && (
-                            <span className="ml-2 text-xs text-primary">✓ configured</span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={projectComboOpen} onOpenChange={setProjectComboOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={projectComboOpen}
+                        className="w-full justify-between font-normal"
+                      >
+                        <span className="truncate">
+                          {selectedConfigProjectId
+                            ? redmineProjects.find((p) => p.redmineId === selectedConfigProjectId)?.name
+                            : "Select a Redmine project..."}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search project..." />
+                        <CommandList>
+                          <CommandEmpty>No project found.</CommandEmpty>
+                          <CommandGroup>
+                            {redmineProjects.map((p) => (
+                              <CommandItem
+                                key={p.redmineId}
+                                value={p.name}
+                                onSelect={() => {
+                                  handleSelectConfigProject(p.redmineId);
+                                  setProjectComboOpen(false);
+                                }}
+                              >
+                                <Check
+                                  className={`mr-2 h-4 w-4 ${selectedConfigProjectId === p.redmineId ? "opacity-100" : "opacity-0"}`}
+                                />
+                                <span className="flex-1">{p.name}</span>
+                                {projectConfigs[p.redmineId] && (
+                                  <span className="ml-2 text-xs text-primary">✓</span>
+                                )}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
 
                   {selectedConfigProjectId && (
                     <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
