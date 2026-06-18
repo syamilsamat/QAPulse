@@ -5,6 +5,7 @@ import {
   executionFilesTable,
   executionModulesTable,
   executionTestCasesTable,
+  executionSummariesTable,
 } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -137,6 +138,27 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
     );
   } catch {
     res.status(500).json({ error: "Failed to fetch execution files" });
+  }
+});
+
+// Returns aggregated execution progress per redmine ticket ID
+router.get("/execution-progress", async (_req, res): Promise<void> => {
+  try {
+    const rows = await db.select().from(executionSummariesTable);
+    const agg: Record<string, { total: number; notExecuted: number }> = {};
+    for (const row of rows) {
+      if (!agg[row.redmineTicketId]) agg[row.redmineTicketId] = { total: 0, notExecuted: 0 };
+      agg[row.redmineTicketId].total += row.total;
+      agg[row.redmineTicketId].notExecuted += row.notExecuted;
+    }
+    const result: Record<string, { total: number; executed: number; overallPct: number }> = {};
+    for (const [ticketId, { total, notExecuted }] of Object.entries(agg)) {
+      const executed = total - notExecuted;
+      result[ticketId] = { total, executed, overallPct: total > 0 ? Math.round((executed / total) * 100) : 0 };
+    }
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: "Failed to fetch execution progress" });
   }
 });
 

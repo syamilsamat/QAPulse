@@ -209,6 +209,7 @@ export default function Settings() {
       if (!res.ok) throw new Error("Failed to save");
       const updated = await res.json();
       if (token) login(updated, token);
+      setShowRedmineKey(true);
       toast({ title: "Redmine API key saved" });
     } catch {
       toast({ variant: "destructive", title: "Failed to save Redmine API key" });
@@ -560,8 +561,8 @@ export default function Settings() {
         </Card>
       )}
 
-      {/* Redmine Integration — QA Lead / admin only */}
-      {isLeadOrAdmin && (
+      {/* Redmine Integration moved to Project & Module Config page */}
+      {false && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
