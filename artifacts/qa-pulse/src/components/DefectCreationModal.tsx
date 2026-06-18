@@ -390,7 +390,7 @@ export default function DefectCreationModal({
                 options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
                 placeholder={selectedProjectId ? "Select assignee..." : "Select a project first"}
                 searchPlaceholder="Search member..."
-                disabled={!selectedProjectId || members.length === 0}
+                disabled={!selectedProjectId}
                 emptyText={selectedProjectId ? "No members found." : "Select a project first."}
               />
             </div>
