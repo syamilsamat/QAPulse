@@ -113,6 +113,25 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
   res.json(formatUser(user));
 });
 
+router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid user ID" });
+    return;
+  }
+  const { redmineApiKey } = req.body;
+  const [user] = await db
+    .update(usersTable)
+    .set({ redmineApiKey: redmineApiKey?.trim() || null })
+    .where(eq(usersTable.id, id))
+    .returning();
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  res.json(formatUser(user));
+});
+
 router.get("/users/:id/stats", async (req, res): Promise<void> => {
   const params = GetUserStatsParams.safeParse(req.params);
   if (!params.success) {

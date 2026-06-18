@@ -192,12 +192,26 @@ export default function Settings() {
       .catch(() => {});
   }, [isLeadOrAdmin]);
 
-  const handleSaveRedmineKey = () => {
+  const [isSavingRedmineKey, setIsSavingRedmineKey] = useState(false);
+
+  const handleSaveRedmineKey = async () => {
     if (!user) return;
-    updateMutation.mutate({
-      id: user.id,
-      data: { redmineApiKey: redmineApiKey.trim() || null } as any,
-    });
+    setIsSavingRedmineKey(true);
+    try {
+      const res = await fetch(`/api/users/${user.id}/redmine-key`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ redmineApiKey: redmineApiKey.trim() || null }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      const updated = await res.json();
+      if (token) login(updated, token);
+      toast({ title: "Redmine API key saved" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to save Redmine API key" });
+    } finally {
+      setIsSavingRedmineKey(false);
+    }
   };
 
   const handleSyncProjects = async () => {
@@ -361,9 +375,9 @@ export default function Settings() {
             <Button
               variant="outline"
               onClick={handleSaveRedmineKey}
-              disabled={updateMutation.isPending}
+              disabled={isSavingRedmineKey}
             >
-              Save Redmine Key
+              {isSavingRedmineKey ? "Saving..." : "Save Redmine Key"}
             </Button>
           </div>
         </CardContent>
