@@ -1,0 +1,23 @@
+name: Auto-merge Syamil's PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    runs-on: ubuntu-latest
+    # This condition ensures the action ONLY runs for this specific user
+    if: github.event.pull_request.user.login == 'syamilsamat'
+    
+    steps:
+      - name: Enable GitHub Automerge
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Note: Change --merge to --squash or --rebase if you prefer a different merge method
+        run: gh pr merge --auto --merge "$PR_URL"
