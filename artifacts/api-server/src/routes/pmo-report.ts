@@ -6,6 +6,11 @@ let nodemailer: any = null;
 try {
   nodemailer = require("nodemailer");
 } catch {}
+
+let xlsx: any = null;
+try {
+  xlsx = require("xlsx");
+} catch {}
 import {
   db,
   requirementsTable,
@@ -700,13 +705,83 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
 
 // ─── PMO Send Email ───────────────────────────────────────────────────────────
 
-function buildEmailHtml(reportName: string, redmineId: string, senderName: string, reportData: any): string {
+function generateDonutSvg(
+  segments: { value: number; color: string; label: string }[],
+  centerLabel: string,
+  centerSub: string,
+  size = 160,
+): string {
+  const total = segments.reduce((s, g) => s + g.value, 0);
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = size / 2 - 8;
+  const innerR = outerR * 0.62;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+  if (total === 0) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${cx}" cy="${cy}" r="${outerR}" fill="#e5e7eb"/>
+      <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="white"/>
+      <text x="${cx}" y="${cy + 5}" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#9ca3af">No data</text>
+    </svg>`;
+  }
+
+  let startAngle = -90;
+  const paths: string[] = [];
+
+  for (const seg of segments) {
+    if (seg.value <= 0) continue;
+    const angle = (seg.value / total) * 360;
+    const endAngle = startAngle + angle;
+    const largeArc = angle > 180 ? 1 : 0;
+
+    const x1 = cx + outerR * Math.cos(toRad(startAngle));
+    const y1 = cy + outerR * Math.sin(toRad(startAngle));
+    const x2 = cx + outerR * Math.cos(toRad(endAngle));
+    const y2 = cy + outerR * Math.sin(toRad(endAngle));
+    const x3 = cx + innerR * Math.cos(toRad(endAngle));
+    const y3 = cy + innerR * Math.sin(toRad(endAngle));
+    const x4 = cx + innerR * Math.cos(toRad(startAngle));
+    const y4 = cy + innerR * Math.sin(toRad(startAngle));
+
+    paths.push(
+      `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${outerR} ${outerR} 0 ${largeArc} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L${x3.toFixed(1)} ${y3.toFixed(1)} A${innerR} ${innerR} 0 ${largeArc} 0 ${x4.toFixed(1)} ${y4.toFixed(1)}Z" fill="${seg.color}"/>`,
+    );
+    startAngle = endAngle;
+  }
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+    ${paths.join("\n    ")}
+    <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="white"/>
+    <text x="${cx}" y="${cy - 5}" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="#111827">${centerLabel}</text>
+    <text x="${cx}" y="${cy + 13}" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#6b7280">${centerSub}</text>
+  </svg>`;
+}
+
+function fmtDate(dateStr?: string): string {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
+function buildEmailHtml(
+  reportName: string,
+  redmineId: string,
+  senderName: string,
+  reportData: any,
+  riskResult?: any,
+  readinessResult?: any,
+): string {
   const d = reportData;
   const te = d.testExecution ?? {};
   const defects = d.defects ?? {};
   const activeDefects: any[] = d.activeDefects ?? [];
   const modules: any[] = d.moduleDetails ?? [];
-  const generatedAt = d.generatedAt ? new Date(d.generatedAt).toLocaleString() : new Date().toLocaleString();
+  const generatedAt = fmtDate(d.generatedAt);
 
   const STATUS_COLOR: Record<string, string> = {
     New: "#f59e0b", "In Progress": "#3b82f6", Resolved: "#22c55e",
@@ -764,6 +839,41 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
     .filter(([k]) => !["verified", "closed"].includes(k))
     .reduce((s, [, v]) => s + (v as number), 0);
 
+  // --- Donut charts ---
+  const execSegments = [
+    { value: te.passed ?? 0,      color: "#4ade80", label: "Passed" },
+    { value: te.failed ?? 0,      color: "#f87171", label: "Failed" },
+    { value: te.blocked ?? 0,     color: "#fb923c", label: "Blocked" },
+    { value: te.inProgress ?? 0,  color: "#60a5fa", label: "In Progress" },
+    { value: te.notExecuted ?? 0, color: "#94a3b8", label: "Not Executed" },
+  ];
+
+  const defectStatusColors: Record<string, string> = {
+    new: "#facc15", in_progress: "#60a5fa", for_qa_test: "#3b82f6",
+    reopen: "#fb923c", done: "#4ade80", roadblock: "#f87171",
+    verified: "#a855f7", closed: "#9ca3af",
+  };
+  const defectSegments = Object.entries(defects.counts ?? {})
+    .filter(([, v]) => (v as number) > 0)
+    .map(([k, v]) => ({ value: v as number, color: defectStatusColors[k] ?? "#9ca3af", label: k }));
+
+  const execSvg = generateDonutSvg(execSegments, `${te.passRate ?? 0}%`, "Pass Rate");
+  const defectSvg = generateDonutSvg(defectSegments, String(defects.total ?? 0), "Total Defects");
+
+  const execLegend = execSegments.map(s =>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+       <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+       <span style="font-size:12px;color:#374151;">${s.label}</span>
+       <span style="font-size:12px;font-weight:600;color:#111827;margin-left:auto;padding-left:8px;">${s.value}</span>
+     </div>`).join("");
+
+  const defectLegend = defectSegments.map(s =>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+       <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+       <span style="font-size:12px;color:#374151;text-transform:capitalize;">${s.label.replace("_", " ")}</span>
+       <span style="font-size:12px;font-weight:600;color:#111827;margin-left:auto;padding-left:8px;">${s.value}</span>
+     </div>`).join("");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -773,12 +883,59 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
     <!-- Header -->
     <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:28px 32px;color:#ffffff;">
       <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.7;margin-bottom:6px;">QA Pulse · PMO Report</div>
-      <div style="font-size:22px;font-weight:700;margin-bottom:4px;">${reportName}</div>
-      <div style="font-size:13px;opacity:0.8;">Redmine #${redmineId} &nbsp;·&nbsp; Generated ${generatedAt}</div>
+      <div style="font-size:22px;font-weight:700;margin-bottom:4px;">QA Pulse — Report Dashboard</div>
+      <div style="font-size:13px;opacity:0.8;">Generated: ${generatedAt}</div>
       <div style="font-size:13px;opacity:0.7;margin-top:4px;">Sent by ${senderName}</div>
     </div>
 
-    <!-- Test Execution Summary -->
+    <!-- Summary Card (mirrors UI) -->
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
+        <div style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">as of ${generatedAt}</div>
+        <div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${d.issueSubject ? ` — ${d.issueSubject}` : ""}</div>
+        ${d.projectName ? `<div style="font-size:12px;color:#6b7280;margin-bottom:2px;">Project: ${d.projectName}</div>` : ""}
+        <div style="font-size:12px;color:#9ca3af;">Redmine #${redmineId}</div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div style="padding:24px 32px;border-bottom:1px solid #f3f4f6;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        <tr>
+          <!-- Test Execution Donut -->
+          <td width="50%" style="padding-right:16px;vertical-align:top;">
+            <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #2563eb;padding-left:10px;">Test Execution</div>
+            <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr>
+                <td style="vertical-align:middle;padding-right:16px;">${execSvg}</td>
+                <td style="vertical-align:middle;">${execLegend}</td>
+              </tr>
+            </table>
+            <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+              Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
+              &nbsp;·&nbsp; Total: <strong>${te.total ?? 0}</strong>
+            </div>
+          </td>
+          <!-- Defect Status Donut -->
+          <td width="50%" style="padding-left:16px;vertical-align:top;border-left:1px solid #f3f4f6;">
+            <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #ef4444;padding-left:10px;">Defect Status</div>
+            <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr>
+                <td style="vertical-align:middle;padding-right:16px;">${defectSvg}</td>
+                <td style="vertical-align:middle;">${defectLegend || '<span style="font-size:12px;color:#9ca3af;">No defects</span>'}</td>
+              </tr>
+            </table>
+            <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+              Open: <strong style="color:#c2410c;">${openCount}</strong>
+              &nbsp;·&nbsp; Open Rate: <strong>${defects.openRate ?? 0}%</strong>
+            </div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Test Execution Summary Stats -->
     <div style="padding:24px 32px;">
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution Summary</div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px;">
@@ -863,10 +1020,37 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
       </table>
     </div>` : ""}
 
+    <!-- AI Sections (only if calculated) -->
+    ${riskResult ? `
+    <div style="padding:0 32px 24px;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
+      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:12px;">
+        <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
+        <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
+      </div>
+      ${(riskResult.modules ?? []).map((m: any) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;">
+          <span style="font-size:12px;color:#374151;flex:1;">${m.module}</span>
+          <span style="font-size:11px;font-weight:600;padding:2px 10px;border-radius:9999px;background:${m.risk === "critical" ? "#fee2e2" : m.risk === "high" ? "#ffedd5" : m.risk === "medium" ? "#fef9c3" : "#dcfce7"};color:${m.risk === "critical" ? "#b91c1c" : m.risk === "high" ? "#c2410c" : m.risk === "medium" ? "#92400e" : "#15803d"};">${m.risk}</span>
+          <span style="font-size:11px;color:#6b7280;width:180px;">${m.reason ?? ""}</span>
+        </div>`).join("")}
+    </div>` : ""}
+
+    ${readinessResult ? `
+    <div style="padding:0 32px 24px;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
+      <div style="background:#f0f9ff;border-radius:8px;padding:16px 20px;">
+        <div style="font-size:28px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%
+          <span style="font-size:13px;font-weight:500;margin-left:8px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status ?? ""}</span>
+        </div>
+        <div style="font-size:13px;color:#374151;margin-top:8px;">${readinessResult.summary ?? ""}</div>
+      </div>
+    </div>` : ""}
+
     <!-- Footer -->
     <div style="background:#f9fafb;padding:16px 32px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;">
       This report was automatically generated by QA Pulse &nbsp;·&nbsp; ${generatedAt}<br>
-      A detailed PDF report is attached to this email.
+      List of the Open Defect is attached to this email.
     </div>
   </div>
 </body>
@@ -874,7 +1058,7 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
 }
 
 router.post("/pmo/send-email", async (req, res) => {
-  const { reportName, fileName, redmineId, reportData, senderName } = req.body;
+  const { reportName, redmineId, reportData, senderName, riskResult, readinessResult } = req.body;
 
   if (!reportData) {
     res.status(400).json({ error: "Missing reportData" });
@@ -916,7 +1100,34 @@ router.post("/pmo/send-email", async (req, res) => {
       redmineId ?? "",
       senderName ?? "QA Team",
       reportData,
+      riskResult,
+      readinessResult,
     );
+
+    // Build Excel attachment from open defects
+    const attachments: any[] = [];
+    const activeDefects: any[] = reportData.activeDefects ?? [];
+    if (xlsx && activeDefects.length > 0) {
+      const rows = activeDefects.map((def: any) => ({
+        "ID": `#${def.id}`,
+        "Subject": def.name ?? "",
+        "Status": def.status ?? "",
+        "Priority": def.priority ?? "",
+        "Category": def.category ?? "",
+        "Assignee": def.assignee ?? "Unassigned",
+        "Created At": def.createdAt ? fmtDate(def.createdAt) : "",
+        "Reopened Count": def.reopenedCount ?? 0,
+      }));
+      const ws = xlsx.utils.json_to_sheet(rows);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "Open Defects");
+      const xlsxBuffer: Buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+      attachments.push({
+        filename: `Open_Defects_${redmineId ?? "report"}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        content: xlsxBuffer,
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+    }
 
     await transporter.sendMail({
       from: `"QA Pulse" <${emailFrom}>`,
@@ -924,6 +1135,7 @@ router.post("/pmo/send-email", async (req, res) => {
       cc: emailCc,
       subject,
       html: htmlBody,
+      attachments,
     });
 
     res.json({ success: true, message: `Report sent to ${emailTo}` });
