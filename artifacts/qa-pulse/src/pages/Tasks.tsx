@@ -463,6 +463,16 @@ export default function Tasks() {
     queryFn: () => fetchModules(),
   });
 
+  const { data: executionProgress = {} } = useQuery<Record<string, { total: number; executed: number; overallPct: number }>>({
+    queryKey: ["execution-progress"],
+    queryFn: async () => {
+      const res = await fetch("/api/execution-progress");
+      if (!res.ok) return {};
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
   const { data: environments = [] } = useQuery({
     queryKey: ["environments"],
     queryFn: async () => [
@@ -1250,24 +1260,29 @@ export default function Tasks() {
                             </span>
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
-                            {t.completionPercentage !== null &&
-                            t.completionPercentage !== undefined ? (
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-16">
-                                  <div
-                                    className="h-full bg-primary rounded-full transition-all"
-                                    style={{
-                                      width: `${t.completionPercentage}%`,
-                                    }}
-                                  />
+                            {(() => {
+                              const execProg = t.redmineId ? executionProgress[t.redmineId] : null;
+                              const pct = execProg ? execProg.overallPct : (t.completionPercentage ?? null);
+                              if (pct === null || pct === undefined) return "—";
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-16">
+                                    <div
+                                      className="h-full bg-primary rounded-full transition-all"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-muted-foreground w-8">
+                                    {pct}%
+                                  </span>
+                                  {execProg && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {execProg.executed}/{execProg.total}
+                                    </span>
+                                  )}
                                 </div>
-                                <span className="text-xs text-muted-foreground w-8">
-                                  {t.completionPercentage}%
-                                </span>
-                              </div>
-                            ) : (
-                              "—"
-                            )}
+                              );
+                            })()}
                           </TableCell>
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <DropdownMenu>
@@ -1386,11 +1401,11 @@ export default function Tasks() {
                                   </div>
                                   <DetailItem
                                     label="Completion"
-                                    value={
-                                      t.completionPercentage != null
-                                        ? `${t.completionPercentage}%`
-                                        : null
-                                    }
+                                    value={(() => {
+                                      const execProg = t.redmineId ? executionProgress[t.redmineId] : null;
+                                      if (execProg) return `${execProg.overallPct}% (${execProg.executed}/${execProg.total} executed)`;
+                                      return t.completionPercentage != null ? `${t.completionPercentage}%` : null;
+                                    })()}
                                   />
                                   <DetailItem label="Notes" value={t.notes} />
                                 </div>

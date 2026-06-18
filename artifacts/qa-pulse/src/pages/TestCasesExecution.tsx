@@ -355,19 +355,14 @@ export default function TestCasesExecution() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <a
-                        href={`/test-cases/execution/${f.redmineTicketId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-blue-600 hover:text-blue-800"
+                        onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}
                       >
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Edit className="w-4 h-4 mr-2" />
-                        </Button>
-                      </a>
+                        <Edit className="w-4 h-4 mr-2" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"

@@ -12,14 +12,17 @@ import {
   updateModule,
   type ExecutionModule,
 } from "@/lib/execution-api";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -32,6 +35,19 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Search,
   Edit2,
   Trash2,
@@ -43,7 +59,26 @@ import {
   Box,
   Layers,
   AlertTriangle,
+  Bug,
+  RefreshCw,
+  Save,
+  ChevronsUpDown,
 } from "lucide-react";
+
+interface RedmineProject {
+  id: number;
+  redmineId: number;
+  name: string;
+  identifier: string;
+}
+
+interface RedmineProjectConfig {
+  id: number;
+  redmineProjectId: number;
+  complexityFieldId: number | null;
+  targetedStartDateFieldId: number | null;
+  targetedCompletionDateFieldId: number | null;
+}
 
 type ProjectFormState = {
   name: string;
@@ -53,7 +88,87 @@ type ProjectFormState = {
 
 export default function ModuleAndProject() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isLeadOrAdmin = user?.role === "admin" || user?.role === "qa_lead";
   const itemsPerPage = 10;
+
+  // =========================
+  // REDMINE INTEGRATION STATE
+  // =========================
+  const [redmineProjects, setRedmineProjects] = useState<RedmineProject[]>([]);
+  const [projectConfigs, setProjectConfigs] = useState<Record<number, RedmineProjectConfig>>({});
+  const [selectedConfigProjectId, setSelectedConfigProjectId] = useState<number | null>(null);
+  const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [projectComboOpen, setProjectComboOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isLeadOrAdmin) return;
+    fetch("/api/redmine/projects")
+      .then((r) => r.json())
+      .then((data: RedmineProject[]) => setRedmineProjects(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetch("/api/redmine/project-configs")
+      .then((r) => r.json())
+      .then((data: RedmineProjectConfig[]) => {
+        if (!Array.isArray(data)) return;
+        const map: Record<number, RedmineProjectConfig> = {};
+        data.forEach((c) => { map[c.redmineProjectId] = c; });
+        setProjectConfigs(map);
+      })
+      .catch(() => {});
+  }, [isLeadOrAdmin]);
+
+  const handleSyncProjects = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch("/api/redmine/sync-projects", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      toast({ title: `Synced ${data.synced} Redmine projects` });
+      const updated = await fetch("/api/redmine/projects").then((r) => r.json());
+      setRedmineProjects(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSelectConfigProject = (redmineId: number) => {
+    setSelectedConfigProjectId(redmineId);
+    const existing = projectConfigs[redmineId];
+    setConfigForm({
+      complexityFieldId: existing?.complexityFieldId?.toString() ?? "",
+      targetedStartDateFieldId: existing?.targetedStartDateFieldId?.toString() ?? "",
+      targetedCompletionDateFieldId: existing?.targetedCompletionDateFieldId?.toString() ?? "",
+    });
+  };
+
+  const handleSaveProjectConfig = async () => {
+    if (!selectedConfigProjectId) return;
+    setIsSavingConfig(true);
+    try {
+      const res = await fetch(`/api/redmine/project-configs/${selectedConfigProjectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          complexityFieldId: configForm.complexityFieldId ? Number(configForm.complexityFieldId) : null,
+          targetedStartDateFieldId: configForm.targetedStartDateFieldId ? Number(configForm.targetedStartDateFieldId) : null,
+          targetedCompletionDateFieldId: configForm.targetedCompletionDateFieldId ? Number(configForm.targetedCompletionDateFieldId) : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      setProjectConfigs((prev) => ({ ...prev, [selectedConfigProjectId]: data }));
+      toast({ title: "Project config saved" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
 
   // =========================
   // PROJECT STATE
@@ -654,6 +769,99 @@ export default function ModuleAndProject() {
           </div>
         </Card>
       </div>
+
+      {/* === REDMINE INTEGRATION === */}
+      {isLeadOrAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Bug className="w-4 h-4" /> Redmine Integration
+            </CardTitle>
+            <CardDescription>
+              Sync Redmine projects and configure custom field IDs per project for defect creation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center gap-3">
+              <Button variant="outline" className="gap-2" onClick={handleSyncProjects} disabled={isSyncing}>
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+                {isSyncing ? "Syncing..." : "Sync Redmine Projects"}
+              </Button>
+              {redmineProjects.length > 0 && (
+                <span className="text-xs text-muted-foreground">{redmineProjects.length} projects cached</span>
+              )}
+            </div>
+
+            {redmineProjects.length > 0 && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <Label>Configure Custom Fields per Project</Label>
+                  <Popover open={projectComboOpen} onOpenChange={setProjectComboOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" aria-expanded={projectComboOpen} className="w-full justify-between font-normal">
+                        <span className="truncate">
+                          {selectedConfigProjectId
+                            ? redmineProjects.find((p) => p.redmineId === selectedConfigProjectId)?.name
+                            : "Select a Redmine project..."}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search project..." />
+                        <CommandList>
+                          <CommandEmpty>No project found.</CommandEmpty>
+                          <CommandGroup>
+                            {redmineProjects.map((p) => (
+                              <CommandItem
+                                key={p.redmineId}
+                                value={p.name}
+                                onSelect={() => { handleSelectConfigProject(p.redmineId); setProjectComboOpen(false); }}
+                              >
+                                <Check className={`mr-2 h-4 w-4 ${selectedConfigProjectId === p.redmineId ? "opacity-100" : "opacity-0"}`} />
+                                <span className="flex-1">{p.name}</span>
+                                {projectConfigs[p.redmineId] && <span className="ml-2 text-xs text-primary">✓</span>}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+
+                  {selectedConfigProjectId && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                      <p className="text-xs text-muted-foreground">
+                        Enter the numeric custom field IDs from your Redmine admin panel (Admin → Custom fields).
+                      </p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Complexity Field ID</Label>
+                          <Input type="number" placeholder="e.g. 12" value={configForm.complexityFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, complexityFieldId: e.target.value }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Targeted Start Date Field ID</Label>
+                          <Input type="number" placeholder="e.g. 14" value={configForm.targetedStartDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedStartDateFieldId: e.target.value }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Targeted Completion Date Field ID</Label>
+                          <Input type="number" placeholder="e.g. 15" value={configForm.targetedCompletionDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedCompletionDateFieldId: e.target.value }))} />
+                        </div>
+                      </div>
+                      <Button size="sm" className="gap-2" onClick={handleSaveProjectConfig} disabled={isSavingConfig}>
+                        <Save className="w-3.5 h-3.5" />
+                        {isSavingConfig ? "Saving..." : "Save Config"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* === PROJECT CREATION DIALOG === */}
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
