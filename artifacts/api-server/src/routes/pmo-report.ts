@@ -835,6 +835,30 @@ function buildEmailHtml(
       </tr>`;
   }).join("");
 
+  // Grand total row for module breakdown
+  const gt = modules.reduce(
+    (a, m) => ({ total: a.total + m.total, passed: a.passed + m.passed, failed: a.failed + m.failed, blocked: a.blocked + m.blocked, notExecuted: a.notExecuted + m.notExecuted }),
+    { total: 0, passed: 0, failed: 0, blocked: 0, notExecuted: 0 },
+  );
+  const gtPassRate = gt.total > 0 ? Math.round((gt.passed / gt.total) * 100) : 0;
+  const gtExecRate = gt.total > 0 ? Math.round(((gt.total - gt.notExecuted) / gt.total) * 100) : 0;
+  const gtBarColor = gtPassRate >= 80 ? "#22c55e" : gtPassRate >= 50 ? "#f59e0b" : "#ef4444";
+  const grandTotalRow = modules.length > 0 ? `
+    <tr style="background:#eff6ff;border-top:2px solid #2563eb;">
+      <td style="padding:10px;font-size:13px;font-weight:700;color:#1e40af;">Grand Total</td>
+      <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#111827;">${gt.total}</td>
+      <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#15803d;">${gt.passed}</td>
+      <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#b91c1c;">${gt.failed}</td>
+      <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#c2410c;">${gt.blocked}</td>
+      <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#374151;">${gt.notExecuted}</td>
+      <td style="padding:10px;">
+        <div style="background:#e5e7eb;border-radius:4px;height:10px;width:100%;min-width:80px;">
+          <div style="background:${gtBarColor};height:10px;border-radius:4px;width:${gtPassRate}%;"></div>
+        </div>
+        <span style="font-size:11px;color:#6b7280;font-weight:600;">${gtPassRate}% pass / ${gtExecRate}% exec</span>
+      </td>
+    </tr>` : "";
+
   const openCount = Object.entries(defects.counts ?? {})
     .filter(([k]) => !["verified", "closed"].includes(k))
     .reduce((s, [, v]) => s + (v as number), 0);
@@ -940,7 +964,7 @@ function buildEmailHtml(
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
       <div style="background:#f0f9ff;border-radius:8px;padding:16px 20px;">
         <span style="font-size:28px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%</span>
-        <span style="font-size:13px;font-weight:500;margin-left:10px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status ?? ""}</span>
+        <span style="font-size:13px;font-weight:500;margin-left:10px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${(readinessResult.status ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
         <div style="font-size:13px;color:#374151;margin-top:10px;">${readinessResult.summary ?? ""}</div>
       </div>
     </div>` : ""}
@@ -994,7 +1018,7 @@ function buildEmailHtml(
             <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Progress</th>
           </tr>
         </thead>
-        <tbody>${moduleRows}</tbody>
+        <tbody>${moduleRows}${grandTotalRow}</tbody>
       </table>
     </div>` : ""}
 
