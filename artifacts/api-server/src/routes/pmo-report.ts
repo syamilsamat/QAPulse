@@ -781,7 +781,7 @@ function buildEmailHtml(
   const defects = d.defects ?? {};
   const activeDefects: any[] = d.activeDefects ?? [];
   const modules: any[] = d.moduleDetails ?? [];
-  const generatedAt = fmtDate(d.generatedAt);
+  const generatedAt = fmtDate(); // server time at email send — always current
 
   const STATUS_COLOR: Record<string, string> = {
     New: "#f59e0b", "In Progress": "#3b82f6", Resolved: "#22c55e",
@@ -797,13 +797,11 @@ function buildEmailHtml(
   const defectRows = activeDefects.map((def) => {
     const sc = STATUS_COLOR[def.status] ?? "#6b7280";
     const pc = PRIORITY_COLOR[def.priority] ?? "#3b82f6";
-    const reopenBadge = def.reopenedCount > 0
-      ? `<span style="background:#fee2e2;color:#b91c1c;border-radius:9999px;padding:2px 8px;font-size:11px;font-weight:600;margin-left:6px;">Reopened ×${def.reopenedCount}</span>`
-      : "";
+    const reopenCount = def.reopenedCount ?? 0;
     return `
       <tr style="border-bottom:1px solid #e5e7eb;">
-        <td style="padding:8px 10px;font-size:13px;color:#111827;">#${def.id}${reopenBadge}</td>
-        <td style="padding:8px 10px;font-size:13px;color:#374151;max-width:320px;">${def.name}</td>
+        <td style="padding:8px 10px;font-size:13px;color:#111827;">#${def.id}</td>
+        <td style="padding:8px 10px;font-size:13px;color:#374151;max-width:300px;">${def.name}</td>
         <td style="padding:8px 10px;">
           <span style="background:${sc}22;color:${sc};border:1px solid ${sc}55;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:600;">${def.status}</span>
         </td>
@@ -811,6 +809,11 @@ function buildEmailHtml(
           <span style="background:${pc}22;color:${pc};border:1px solid ${pc}55;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:600;">${def.priority}</span>
         </td>
         <td style="padding:8px 10px;font-size:12px;color:#6b7280;">${def.assignee ?? "Unassigned"}</td>
+        <td style="padding:8px 10px;text-align:center;">
+          ${reopenCount > 0
+            ? `<span style="background:#fee2e2;color:#b91c1c;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:700;">${reopenCount}</span>`
+            : `<span style="font-size:12px;color:#9ca3af;">—</span>`}
+        </td>
       </tr>`;
   }).join("");
 
@@ -844,8 +847,8 @@ function buildEmailHtml(
   const gtExecRate = gt.total > 0 ? Math.round(((gt.total - gt.notExecuted) / gt.total) * 100) : 0;
   const gtBarColor = gtPassRate >= 80 ? "#22c55e" : gtPassRate >= 50 ? "#f59e0b" : "#ef4444";
   const grandTotalRow = modules.length > 0 ? `
-    <tr style="background:#eff6ff;border-top:2px solid #2563eb;">
-      <td style="padding:10px;font-size:13px;font-weight:700;color:#1e40af;">Grand Total</td>
+    <tr class="gt-row" style="background:#eff6ff;border-top:2px solid #2563eb;">
+      <td class="gt-label" style="padding:10px;font-size:13px;font-weight:700;color:#1e40af;">Grand Total</td>
       <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#111827;">${gt.total}</td>
       <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#15803d;">${gt.passed}</td>
       <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#b91c1c;">${gt.failed}</td>
@@ -911,26 +914,68 @@ function buildEmailHtml(
 
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      body { background-color: #0f172a !important; }
+      .email-wrap { background-color: #1e293b !important; }
+      .section-border { border-color: #334155 !important; }
+      .summary-card { border-color: #334155 !important; background-color: #0f172a !important; }
+      .summary-title { color: #f1f5f9 !important; }
+      .summary-sub { color: #94a3b8 !important; }
+      .summary-id { color: #93c5fd !important; }
+      .section-heading { color: #f1f5f9 !important; }
+      .content-text { color: #cbd5e1 !important; }
+      .muted-text { color: #64748b !important; }
+      .table-head-row { background-color: #0f172a !important; }
+      .table-head-cell { color: #94a3b8 !important; }
+      .table-row { border-color: #334155 !important; }
+      .cell-text { color: #e2e8f0 !important; }
+      .cell-muted { color: #94a3b8 !important; }
+      .stat-card-blue { background-color: #1e3a5f !important; }
+      .stat-card-green { background-color: #14532d !important; }
+      .stat-card-red { background-color: #7f1d1d !important; }
+      .stat-card-orange { background-color: #7c2d12 !important; }
+      .stat-card-gray { background-color: #1e293b !important; border: 1px solid #334155 !important; }
+      .stat-val-blue { color: #60a5fa !important; }
+      .stat-val-green { color: #4ade80 !important; }
+      .stat-val-red { color: #f87171 !important; }
+      .stat-val-orange { color: #fb923c !important; }
+      .stat-val-gray { color: #94a3b8 !important; }
+      .footer-bar { background-color: #0f172a !important; border-color: #334155 !important; }
+      .footer-text { color: #64748b !important; }
+      .gt-row { background-color: #1e3a5f !important; }
+      .gt-label { color: #93c5fd !important; }
+    }
+  </style>
+</head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f3f4f6;">
-  <div style="max-width:900px;margin:24px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+  <div class="email-wrap" style="max-width:900px;margin:24px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 
-    <!-- Header -->
-    <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:28px 32px;color:#ffffff;">
-      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.7;margin-bottom:6px;">QA Pulse · PMO Report</div>
-      <div style="font-size:22px;font-weight:700;margin-bottom:4px;">QA Pulse — Report Dashboard</div>
-      <div style="font-size:13px;opacity:0.8;">Generated: ${generatedAt}</div>
-      <div style="font-size:13px;opacity:0.7;margin-top:4px;">Sent by ${senderName}</div>
-    </div>
+    <!-- Header — uses bgcolor table attribute so gradient failure still shows dark bg -->
+    <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td bgcolor="#1a3a6e" style="padding:28px 32px;background:linear-gradient(135deg,#1a3a6e 0%,#2563eb 100%);">
+          <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#93c5fd;margin-bottom:6px;">QA Pulse &nbsp;·&nbsp; PMO Report</div>
+          <div style="font-size:22px;font-weight:700;color:#ffffff;margin-bottom:4px;">QA Pulse — Report Dashboard</div>
+          <div style="font-size:13px;color:#bfdbfe;margin-top:4px;">Generated: ${generatedAt}</div>
+          <div style="font-size:13px;color:#93c5fd;margin-top:4px;">Sent by ${senderName}</div>
+        </td>
+      </tr>
+    </table>
 
     <!-- Summary Card -->
-    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
-      <div style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
-        <div style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">as of ${generatedAt}</div>
-        <div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${d.issueSubject ? ` — ${d.issueSubject}` : ""}</div>
-        ${d.projectName ? `<div style="font-size:12px;color:#6b7280;margin-bottom:2px;">Project: ${d.projectName}</div>` : ""}
-        <div style="font-size:12px;color:#9ca3af;">Redmine #${redmineId}</div>
+    <div class="section-border" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div class="summary-card" style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
+        <div class="summary-title" style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
+        <div class="summary-sub" style="font-size:12px;color:#6b7280;margin-bottom:10px;">as of ${generatedAt}</div>
+        <div class="summary-id" style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${d.issueSubject ? ` — ${d.issueSubject}` : ""}</div>
+        ${d.projectName ? `<div class="summary-sub" style="font-size:12px;color:#6b7280;margin-bottom:2px;">Project: ${d.projectName}</div>` : ""}
+        <div class="muted-text" style="font-size:12px;color:#9ca3af;">Redmine #${redmineId}</div>
       </div>
     </div>
 
@@ -1093,12 +1138,13 @@ function buildEmailHtml(
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #f59e0b;padding-left:12px;">Active Defects (${activeDefects.length})</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
-          <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
-            <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">ID</th>
-            <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Subject</th>
-            <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Status</th>
-            <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Priority</th>
-            <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Assignee</th>
+          <tr class="table-head-row" style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
+            <th class="table-head-cell" style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">ID</th>
+            <th class="table-head-cell" style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Subject</th>
+            <th class="table-head-cell" style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Status</th>
+            <th class="table-head-cell" style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Priority</th>
+            <th class="table-head-cell" style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Assignee</th>
+            <th class="table-head-cell" style="padding:10px;text-align:center;color:#6b7280;font-weight:600;">Reopen</th>
           </tr>
         </thead>
         <tbody>${defectRows}</tbody>
@@ -1106,9 +1152,9 @@ function buildEmailHtml(
     </div>` : ""}
 
     <!-- Footer -->
-    <div style="background:#f9fafb;padding:16px 32px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;">
-      This report was automatically generated by QA Pulse &nbsp;·&nbsp; ${generatedAt}<br>
-      List of the Open Defect is attached to this email.
+    <div class="footer-bar" style="background:#f9fafb;padding:16px 32px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;">
+      <span class="footer-text">This report was automatically generated by QA Pulse &nbsp;·&nbsp; ${generatedAt}</span><br>
+      <span class="footer-text">List of the Open Defect is attached to this email.</span>
     </div>
   </div>
 </body>
