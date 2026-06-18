@@ -700,6 +700,59 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
 
 // ─── PMO Send Email ───────────────────────────────────────────────────────────
 
+function generateDonutSvg(
+  segments: { value: number; color: string; label: string }[],
+  centerLabel: string,
+  centerSub: string,
+  size = 160,
+): string {
+  const total = segments.reduce((s, g) => s + g.value, 0);
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = size / 2 - 8;
+  const innerR = outerR * 0.62;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+  if (total === 0) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${cx}" cy="${cy}" r="${outerR}" fill="#e5e7eb"/>
+      <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="white"/>
+      <text x="${cx}" y="${cy + 5}" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#9ca3af">No data</text>
+    </svg>`;
+  }
+
+  let startAngle = -90;
+  const paths: string[] = [];
+
+  for (const seg of segments) {
+    if (seg.value <= 0) continue;
+    const angle = (seg.value / total) * 360;
+    const endAngle = startAngle + angle;
+    const largeArc = angle > 180 ? 1 : 0;
+
+    const x1 = cx + outerR * Math.cos(toRad(startAngle));
+    const y1 = cy + outerR * Math.sin(toRad(startAngle));
+    const x2 = cx + outerR * Math.cos(toRad(endAngle));
+    const y2 = cy + outerR * Math.sin(toRad(endAngle));
+    const x3 = cx + innerR * Math.cos(toRad(endAngle));
+    const y3 = cy + innerR * Math.sin(toRad(endAngle));
+    const x4 = cx + innerR * Math.cos(toRad(startAngle));
+    const y4 = cy + innerR * Math.sin(toRad(startAngle));
+
+    paths.push(
+      `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${outerR} ${outerR} 0 ${largeArc} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L${x3.toFixed(1)} ${y3.toFixed(1)} A${innerR} ${innerR} 0 ${largeArc} 0 ${x4.toFixed(1)} ${y4.toFixed(1)}Z" fill="${seg.color}"/>`,
+    );
+    startAngle = endAngle;
+  }
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+    ${paths.join("\n    ")}
+    <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="white"/>
+    <text x="${cx}" y="${cy - 5}" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="#111827">${centerLabel}</text>
+    <text x="${cx}" y="${cy + 13}" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#6b7280">${centerSub}</text>
+  </svg>`;
+}
+
 function buildEmailHtml(reportName: string, redmineId: string, senderName: string, reportData: any): string {
   const d = reportData;
   const te = d.testExecution ?? {};
@@ -764,6 +817,41 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
     .filter(([k]) => !["verified", "closed"].includes(k))
     .reduce((s, [, v]) => s + (v as number), 0);
 
+  // --- Donut charts ---
+  const execSegments = [
+    { value: te.passed ?? 0,      color: "#4ade80", label: "Passed" },
+    { value: te.failed ?? 0,      color: "#f87171", label: "Failed" },
+    { value: te.blocked ?? 0,     color: "#fb923c", label: "Blocked" },
+    { value: te.inProgress ?? 0,  color: "#60a5fa", label: "In Progress" },
+    { value: te.notExecuted ?? 0, color: "#94a3b8", label: "Not Executed" },
+  ];
+
+  const defectStatusColors: Record<string, string> = {
+    new: "#facc15", in_progress: "#60a5fa", for_qa_test: "#3b82f6",
+    reopen: "#fb923c", done: "#4ade80", roadblock: "#f87171",
+    verified: "#a855f7", closed: "#9ca3af",
+  };
+  const defectSegments = Object.entries(defects.counts ?? {})
+    .filter(([, v]) => (v as number) > 0)
+    .map(([k, v]) => ({ value: v as number, color: defectStatusColors[k] ?? "#9ca3af", label: k }));
+
+  const execSvg = generateDonutSvg(execSegments, `${te.passRate ?? 0}%`, "Pass Rate");
+  const defectSvg = generateDonutSvg(defectSegments, String(defects.total ?? 0), "Total Defects");
+
+  const execLegend = execSegments.map(s =>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+       <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+       <span style="font-size:12px;color:#374151;">${s.label}</span>
+       <span style="font-size:12px;font-weight:600;color:#111827;margin-left:auto;padding-left:8px;">${s.value}</span>
+     </div>`).join("");
+
+  const defectLegend = defectSegments.map(s =>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+       <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+       <span style="font-size:12px;color:#374151;text-transform:capitalize;">${s.label.replace("_", " ")}</span>
+       <span style="font-size:12px;font-weight:600;color:#111827;margin-left:auto;padding-left:8px;">${s.value}</span>
+     </div>`).join("");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -778,7 +866,43 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
       <div style="font-size:13px;opacity:0.7;margin-top:4px;">Sent by ${senderName}</div>
     </div>
 
-    <!-- Test Execution Summary -->
+    <!-- Charts Row -->
+    <div style="padding:24px 32px;border-bottom:1px solid #f3f4f6;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        <tr>
+          <!-- Test Execution Donut -->
+          <td width="50%" style="padding-right:16px;vertical-align:top;">
+            <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #2563eb;padding-left:10px;">Test Execution</div>
+            <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr>
+                <td style="vertical-align:middle;padding-right:16px;">${execSvg}</td>
+                <td style="vertical-align:middle;">${execLegend}</td>
+              </tr>
+            </table>
+            <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+              Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
+              &nbsp;·&nbsp; Total: <strong>${te.total ?? 0}</strong>
+            </div>
+          </td>
+          <!-- Defect Status Donut -->
+          <td width="50%" style="padding-left:16px;vertical-align:top;border-left:1px solid #f3f4f6;">
+            <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #ef4444;padding-left:10px;">Defect Status</div>
+            <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr>
+                <td style="vertical-align:middle;padding-right:16px;">${defectSvg}</td>
+                <td style="vertical-align:middle;">${defectLegend || '<span style="font-size:12px;color:#9ca3af;">No defects</span>'}</td>
+              </tr>
+            </table>
+            <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+              Open: <strong style="color:#c2410c;">${openCount}</strong>
+              &nbsp;·&nbsp; Open Rate: <strong>${defects.openRate ?? 0}%</strong>
+            </div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Test Execution Summary Stats -->
     <div style="padding:24px 32px;">
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution Summary</div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px;">
