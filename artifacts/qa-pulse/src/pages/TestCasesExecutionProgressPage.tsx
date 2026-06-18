@@ -140,12 +140,13 @@ interface ImportSummary {
 }
 
 const CopilotTextarea = ({
-  value,
+  value: rawValue,
   onChange,
   fieldName,
   className,
   minHeight = "80px",
 }: any) => {
+  const value = rawValue ?? "";
   const [suggestion, setSuggestion] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const divRef = useRef<HTMLDivElement>(null);
