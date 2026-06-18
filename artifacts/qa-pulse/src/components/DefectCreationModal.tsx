@@ -17,12 +17,14 @@ import {
   fetchRedmineProjects,
   fetchRedmineProjectConfig,
   fetchRedmineTrackers,
+  fetchRedmineProjectMembers,
   searchRedmineIssues,
   createRedmineDefect,
   type RedmineProjectItem,
   type RedmineProjectConfigItem,
   type RedmineTracker,
   type RedmineIssueMatch,
+  type RedmineMember,
 } from "@/lib/execution-api";
 
 const COMPLEXITY_OPTIONS = ["S", "M", "L", "XL"];
@@ -69,6 +71,8 @@ export default function DefectCreationModal({
   const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
+  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
   const [subject, setSubject] = useState("");
   const [complexity, setComplexity] = useState("M");
   const [targetedStartDate, setTargetedStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -98,17 +102,19 @@ export default function DefectCreationModal({
 
   // Auto-generate subject from scope
   useEffect(() => {
+    const prefix = parentIssueId ? `#${parentIssueId} - ` : "";
     if (scope === "step" && stepName) {
-      setSubject(`[${testCaseId ?? ""}] ${testCaseName} - ${stepName}`);
+      setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName} - ${stepName}`);
     } else {
-      setSubject(`[${testCaseId ?? ""}] ${testCaseName}`);
+      setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName}`);
     }
-  }, [scope, testCaseName, stepName, testCaseId]);
+  }, [scope, testCaseName, stepName, testCaseId, parentIssueId]);
 
-  // Load project config when project changes
+  // Load project config + members when project changes
   useEffect(() => {
-    if (!selectedProjectId) { setProjectConfig(null); return; }
+    if (!selectedProjectId) { setProjectConfig(null); setMembers([]); setSelectedAssigneeId(null); return; }
     fetchRedmineProjectConfig(selectedProjectId).then(setProjectConfig).catch(() => {});
+    fetchRedmineProjectMembers(selectedProjectId).then(setMembers).catch(() => {});
   }, [selectedProjectId]);
 
   // Auto-search duplicates when project + subject are ready
@@ -195,6 +201,7 @@ export default function DefectCreationModal({
         subject: subject.trim(),
         description: buildDescription(),
         parentIssueId: parentId && !isNaN(parentId) ? parentId : null,
+        assigneeId: selectedAssigneeId,
         complexityFieldId: projectConfig?.complexityFieldId,
         complexityValue: complexity,
         targetedStartDateFieldId: projectConfig?.targetedStartDateFieldId,
@@ -225,6 +232,8 @@ export default function DefectCreationModal({
     setScreenshots([]);
     setSelectedProjectId(null);
     setProjectConfig(null);
+    setMembers([]);
+    setSelectedAssigneeId(null);
     setComplexity("M");
     setTargetedCompletionDate("");
     setDuplicates([]);
@@ -371,6 +380,19 @@ export default function DefectCreationModal({
                   className="bg-muted/50"
                 />
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              <SearchableSelect
+                value={selectedAssigneeId?.toString() ?? ""}
+                onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
+                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                placeholder={selectedProjectId ? "Select assignee..." : "Select a project first"}
+                searchPlaceholder="Search member..."
+                disabled={!selectedProjectId || members.length === 0}
+                emptyText={selectedProjectId ? "No members found." : "Select a project first."}
+              />
             </div>
 
             <div className="grid grid-cols-3 gap-3">

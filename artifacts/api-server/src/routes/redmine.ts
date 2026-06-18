@@ -234,6 +234,24 @@ router.get("/redmine/trackers", async (req, res): Promise<void> => {
   }
 });
 
+// ─── Project members ─────────────────────────────────────────────────────────
+
+router.get("/redmine/projects/:projectId/members", async (req, res): Promise<void> => {
+  const { projectId } = req.params;
+  try {
+    const apiKey = await resolveApiKey(req);
+    const response = await redmineFetch(`/projects/${projectId}/memberships.json?limit=100`, apiKey);
+    if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
+    const data = await response.json();
+    const members = (data.memberships ?? [])
+      .filter((m: any) => m.user)
+      .map((m: any) => ({ id: m.user.id, name: m.user.name }));
+    res.json(members);
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to fetch members: ${err.message}` });
+  }
+});
+
 // ─── Search: duplicate check ─────────────────────────────────────────────────
 
 router.get("/redmine/search", async (req, res): Promise<void> => {
@@ -264,6 +282,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     subject,
     description,
     parentIssueId,
+    assigneeId,
     complexityFieldId,
     complexityValue,
     targetedStartDateFieldId,
@@ -323,6 +342,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
         subject,
         description: description ?? "",
         ...(parentIssueId && { parent_issue_id: Number(parentIssueId) }),
+        ...(assigneeId && { assigned_to_id: Number(assigneeId) }),
         ...(customFields.length > 0 && { custom_fields: customFields }),
         ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
       },

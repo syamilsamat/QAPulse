@@ -290,12 +290,24 @@ export const searchRedmineIssues = async (
   return res.json();
 };
 
+export interface RedmineMember {
+  id: number;
+  name: string;
+}
+
+export const fetchRedmineProjectMembers = async (projectId: number): Promise<RedmineMember[]> => {
+  const res = await fetch(`/api/redmine/projects/${projectId}/members`, { headers: getHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+};
+
 export interface CreateDefectPayload {
   projectId: number;
   trackerId: number;
   subject: string;
   description: string;
   parentIssueId?: number | null;
+  assigneeId?: number | null;
   complexityFieldId?: number | null;
   complexityValue?: string;
   targetedStartDateFieldId?: number | null;
