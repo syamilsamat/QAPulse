@@ -947,9 +947,7 @@ export default function PmoReport() {
     setIsSending(true);
     try {
       const reportName = data.issueSubject || `Ticket #${redmineId}`;
-      const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.pdf`;
 
-      // Send email first (lightweight — reportData only, no PDF blob)
       const res = await fetch(`${getApiUrl()}/pmo/send-email`, {
         method: "POST",
         headers: {
@@ -958,28 +956,18 @@ export default function PmoReport() {
         },
         body: JSON.stringify({
           reportName,
-          fileName,
           redmineId,
           reportData: data,
           senderName: user?.name || "QA Team",
+          riskResult: riskResult ?? null,
+          readinessResult: readinessResult ?? null,
         }),
       });
 
       const result = await res.json();
       if (!res.ok) throw new Error(result.error ?? "Failed to send email");
 
-      // Auto-download PDF locally at the same time
-      const pdfBlob = await generateReportPDF();
-      if (pdfBlob) {
-        const url = URL.createObjectURL(pdfBlob);
-        const link = document.createElement("a");
-        link.download = fileName;
-        link.href = url;
-        link.click();
-        URL.revokeObjectURL(url);
-      }
-
-      toast({ title: "Report sent!", description: "Email delivered to PMO. PDF also downloaded locally." });
+      toast({ title: "Report sent!", description: "Email delivered to PMO recipients." });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Send Failed", description: err.message });
     } finally {

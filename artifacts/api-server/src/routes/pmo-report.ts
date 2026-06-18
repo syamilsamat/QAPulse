@@ -6,6 +6,11 @@ let nodemailer: any = null;
 try {
   nodemailer = require("nodemailer");
 } catch {}
+
+let xlsx: any = null;
+try {
+  xlsx = require("xlsx");
+} catch {}
 import {
   db,
   requirementsTable,
@@ -753,13 +758,30 @@ function generateDonutSvg(
   </svg>`;
 }
 
-function buildEmailHtml(reportName: string, redmineId: string, senderName: string, reportData: any): string {
+function fmtDate(dateStr?: string): string {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
+function buildEmailHtml(
+  reportName: string,
+  redmineId: string,
+  senderName: string,
+  reportData: any,
+  riskResult?: any,
+  readinessResult?: any,
+): string {
   const d = reportData;
   const te = d.testExecution ?? {};
   const defects = d.defects ?? {};
   const activeDefects: any[] = d.activeDefects ?? [];
   const modules: any[] = d.moduleDetails ?? [];
-  const generatedAt = d.generatedAt ? new Date(d.generatedAt).toLocaleString() : new Date().toLocaleString();
+  const generatedAt = fmtDate(d.generatedAt);
 
   const STATUS_COLOR: Record<string, string> = {
     New: "#f59e0b", "In Progress": "#3b82f6", Resolved: "#22c55e",
@@ -861,9 +883,20 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
     <!-- Header -->
     <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:28px 32px;color:#ffffff;">
       <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.7;margin-bottom:6px;">QA Pulse · PMO Report</div>
-      <div style="font-size:22px;font-weight:700;margin-bottom:4px;">${reportName}</div>
-      <div style="font-size:13px;opacity:0.8;">Redmine #${redmineId} &nbsp;·&nbsp; Generated ${generatedAt}</div>
+      <div style="font-size:22px;font-weight:700;margin-bottom:4px;">QA Pulse — Report Dashboard</div>
+      <div style="font-size:13px;opacity:0.8;">Generated: ${generatedAt}</div>
       <div style="font-size:13px;opacity:0.7;margin-top:4px;">Sent by ${senderName}</div>
+    </div>
+
+    <!-- Summary Card (mirrors UI) -->
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
+        <div style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">as of ${generatedAt}</div>
+        <div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${d.issueSubject ? ` — ${d.issueSubject}` : ""}</div>
+        ${d.projectName ? `<div style="font-size:12px;color:#6b7280;margin-bottom:2px;">Project: ${d.projectName}</div>` : ""}
+        <div style="font-size:12px;color:#9ca3af;">Redmine #${redmineId}</div>
+      </div>
     </div>
 
     <!-- Charts Row -->
@@ -987,10 +1020,37 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
       </table>
     </div>` : ""}
 
+    <!-- AI Sections (only if calculated) -->
+    ${riskResult ? `
+    <div style="padding:0 32px 24px;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
+      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:12px;">
+        <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
+        <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
+      </div>
+      ${(riskResult.modules ?? []).map((m: any) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;">
+          <span style="font-size:12px;color:#374151;flex:1;">${m.module}</span>
+          <span style="font-size:11px;font-weight:600;padding:2px 10px;border-radius:9999px;background:${m.risk === "critical" ? "#fee2e2" : m.risk === "high" ? "#ffedd5" : m.risk === "medium" ? "#fef9c3" : "#dcfce7"};color:${m.risk === "critical" ? "#b91c1c" : m.risk === "high" ? "#c2410c" : m.risk === "medium" ? "#92400e" : "#15803d"};">${m.risk}</span>
+          <span style="font-size:11px;color:#6b7280;width:180px;">${m.reason ?? ""}</span>
+        </div>`).join("")}
+    </div>` : ""}
+
+    ${readinessResult ? `
+    <div style="padding:0 32px 24px;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
+      <div style="background:#f0f9ff;border-radius:8px;padding:16px 20px;">
+        <div style="font-size:28px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%
+          <span style="font-size:13px;font-weight:500;margin-left:8px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status ?? ""}</span>
+        </div>
+        <div style="font-size:13px;color:#374151;margin-top:8px;">${readinessResult.summary ?? ""}</div>
+      </div>
+    </div>` : ""}
+
     <!-- Footer -->
     <div style="background:#f9fafb;padding:16px 32px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;">
       This report was automatically generated by QA Pulse &nbsp;·&nbsp; ${generatedAt}<br>
-      A detailed PDF report is attached to this email.
+      List of the Open Defect is attached to this email.
     </div>
   </div>
 </body>
@@ -998,7 +1058,7 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
 }
 
 router.post("/pmo/send-email", async (req, res) => {
-  const { reportName, fileName, redmineId, reportData, senderName } = req.body;
+  const { reportName, redmineId, reportData, senderName, riskResult, readinessResult } = req.body;
 
   if (!reportData) {
     res.status(400).json({ error: "Missing reportData" });
@@ -1040,7 +1100,34 @@ router.post("/pmo/send-email", async (req, res) => {
       redmineId ?? "",
       senderName ?? "QA Team",
       reportData,
+      riskResult,
+      readinessResult,
     );
+
+    // Build Excel attachment from open defects
+    const attachments: any[] = [];
+    const activeDefects: any[] = reportData.activeDefects ?? [];
+    if (xlsx && activeDefects.length > 0) {
+      const rows = activeDefects.map((def: any) => ({
+        "ID": `#${def.id}`,
+        "Subject": def.name ?? "",
+        "Status": def.status ?? "",
+        "Priority": def.priority ?? "",
+        "Category": def.category ?? "",
+        "Assignee": def.assignee ?? "Unassigned",
+        "Created At": def.createdAt ? fmtDate(def.createdAt) : "",
+        "Reopened Count": def.reopenedCount ?? 0,
+      }));
+      const ws = xlsx.utils.json_to_sheet(rows);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "Open Defects");
+      const xlsxBuffer: Buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+      attachments.push({
+        filename: `Open_Defects_${redmineId ?? "report"}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        content: xlsxBuffer,
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+    }
 
     await transporter.sendMail({
       from: `"QA Pulse" <${emailFrom}>`,
@@ -1048,6 +1135,7 @@ router.post("/pmo/send-email", async (req, res) => {
       cc: emailCc,
       subject,
       html: htmlBody,
+      attachments,
     });
 
     res.json({ success: true, message: `Report sent to ${emailTo}` });
