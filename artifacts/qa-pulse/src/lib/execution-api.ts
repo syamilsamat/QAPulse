@@ -1,8 +1,16 @@
-// src/lib/execution-api.ts
-
 export interface ExecutionModule {
   id: number;
   name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExecutionProject {
+  id: number;
+  name: string;
+  description?: string | null;
+  status: string;
+  createdAt: string;
 }
 
 export interface ExecutionFile {
@@ -20,6 +28,7 @@ export interface ExecutionTestCase {
   moduleName: string;
   caseId: string;
   userStory: string;
+  tracker?: string; // <-- ADDED: Matches the tracker payload in your backend
   scenario: string;
   preCondition: string;
   caseName: string;
@@ -30,6 +39,7 @@ export interface ExecutionTestCase {
   defectNumber: string;
   comments: string;
   qaPic: string;
+  rowOrder?: number; // <-- ADDED: Matches the rowOrder payload in your backend
 }
 
 const getHeaders = () => {
@@ -58,8 +68,12 @@ export const fetchExecutionFiles = async (): Promise<ExecutionFile[]> => {
   return res.json();
 };
 
-export const fetchExecutionFile = async (id: number): Promise<ExecutionFile> => {
-  const res = await fetch(`/api/execution-files/${id}`, { headers: getHeaders() });
+export const fetchExecutionFile = async (
+  id: number,
+): Promise<ExecutionFile> => {
+  const res = await fetch(`/api/execution-files/${id}`, {
+    headers: getHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to fetch file");
   return res.json();
 };
@@ -124,7 +138,6 @@ export const saveTestCases = async (
   });
 
   if (!res.ok) {
-    // Pass the 409 status up to the component so it can show the concurrent edit warning
     if (res.status === 409) {
       const err = new Error("Concurrent edit detected");
       (err as any).response = res;
@@ -135,6 +148,46 @@ export const saveTestCases = async (
   return res.json();
 };
 
+// --- Projects ---
+export const fetchProjects = async (): Promise<ExecutionProject[]> => {
+  const res = await fetch("/api/projects", { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch projects");
+  return res.json();
+};
+
+export const createProject = async (
+  data: Partial<ExecutionProject>,
+): Promise<void> => {
+  const res = await fetch("/api/projects", {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create project");
+};
+
+export const updateProject = async (
+  id: number,
+  data: Partial<ExecutionProject>,
+): Promise<ExecutionProject> => {
+  const res = await fetch(`/api/projects/${id}`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update project");
+  return res.json();
+};
+
+export const deleteProject = async (id: number): Promise<void> => {
+  const res = await fetch(`/api/projects/${id}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete project");
+};
+
+// --- Modules ---
 export const fetchModules = async (): Promise<ExecutionModule[]> => {
   const res = await fetch("/api/modules", { headers: getHeaders() });
   if (!res.ok) throw new Error("Failed to fetch modules");
@@ -156,7 +209,7 @@ export const updateModule = async (
   name: string,
 ): Promise<ExecutionModule> => {
   const res = await fetch(`/api/modules/${id}`, {
-    method: "PUT",
+    method: "PATCH", // Updated to match the new Express router
     headers: getHeaders(),
     body: JSON.stringify({ name }),
   });
@@ -164,11 +217,10 @@ export const updateModule = async (
   return res.json();
 };
 
-export const deleteModule = async (id: number) => {
+export const deleteModule = async (id: number): Promise<void> => {
   const res = await fetch(`/api/modules/${id}`, {
     method: "DELETE",
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error("Failed to delete module");
-  return res.json();
 };

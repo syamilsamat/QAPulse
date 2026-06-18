@@ -83,4 +83,23 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
   });
 });
 
+router.delete("/projects/:id", async (req, res): Promise<void> => {
+  const params = GetProjectParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  try {
+    await db
+      .delete(projectsTable)
+      .where(eq(projectsTable.id, params.data.id));
+
+    res.status(204).send();
+  } catch (error) {
+    console.error("Failed to delete project:", error);
+    res.status(500).json({ error: "Failed to delete project" });
+  }
+});
+
 export default router;

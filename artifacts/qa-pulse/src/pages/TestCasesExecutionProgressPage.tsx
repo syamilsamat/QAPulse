@@ -61,7 +61,6 @@ const RESULT_OPTIONS = [
   "",
 ];
 
-// Expanded type to include tracker without modifying the core API file immediately
 export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
 
 const COLUMN_MAPPINGS: Record<string, string[]> = {
@@ -108,7 +107,6 @@ const COLUMN_MAPPINGS: Record<string, string[]> = {
   moduleName: ["module name", "module", "feature"],
 };
 
-// --- Add this helper function ---
 const getResultColorClass = (result?: string) => {
   switch (result?.toLowerCase()) {
     case "passed":
@@ -140,9 +138,6 @@ interface ImportSummary {
   duplicateCaseIds: string[];
 }
 
-/**
- * 🤖 CopilotTextarea: AI-Assisted Typing Component
- */
 const CopilotTextarea = ({
   value,
   onChange,
@@ -736,7 +731,6 @@ export default function TestCasesExecutionProgressPage() {
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
 
-  // Auto-Save States
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -836,7 +830,6 @@ export default function TestCasesExecutionProgressPage() {
     setHasUnsavedChanges(true);
   };
 
-  // STABLE CALLBACKS FOR MEMOIZED ROWS
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
       setData((prev) =>
@@ -863,7 +856,6 @@ export default function TestCasesExecutionProgressPage() {
     setDeleteConfirmOpen(true);
   }, []);
 
-  // --- AUTO-SAVE LOGIC ---
   const dataRef = useRef(data);
   const unsavedRef = useRef(hasUnsavedChanges);
 
@@ -1035,7 +1027,7 @@ export default function TestCasesExecutionProgressPage() {
       "Steps",
       "Test Data",
       "Expected Result",
-      "Result",
+      "Result", // Index 10
       "Redmine Defect Ticket ID",
       "Additional/Comments/Issues",
       "QA PIC",
@@ -1049,6 +1041,8 @@ export default function TestCasesExecutionProgressPage() {
         for (let C = range.s.c; C <= range.e.c; ++C) {
           const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
           if (!ws[cell_ref]) ws[cell_ref] = { t: "s", v: "" };
+
+          const isResultCol = headerOrder[C] === "Result";
 
           ws[cell_ref].s = {
             border: {
@@ -1071,6 +1065,48 @@ export default function TestCasesExecutionProgressPage() {
               horizontal: "center",
               wrapText: true,
             };
+          } else if (isResultCol) {
+            // Apply status colors for the Result column
+            const cellVal = ws[cell_ref].v;
+            if (typeof cellVal === "string") {
+              const clean = cellVal.toLowerCase().trim();
+              if (clean === "passed") {
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "DCFCE7" },
+                };
+                ws[cell_ref].s.font = { color: { rgb: "166534" }, bold: true };
+              } else if (clean === "failed") {
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "FEE2E2" },
+                };
+                ws[cell_ref].s.font = { color: { rgb: "991B1B" }, bold: true };
+              } else if (clean === "blocked") {
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "FFEDD5" },
+                };
+                ws[cell_ref].s.font = { color: { rgb: "9A3412" }, bold: true };
+              } else if (clean === "in progress") {
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "DBEAFE" },
+                };
+                ws[cell_ref].s.font = { color: { rgb: "1E40AF" }, bold: true };
+              } else {
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "F1F5F9" },
+                };
+                ws[cell_ref].s.font = { color: { rgb: "64748B" } };
+              }
+              ws[cell_ref].s.alignment = {
+                vertical: "center",
+                horizontal: "center",
+                wrapText: true,
+              };
+            }
           }
         }
       }
@@ -1080,7 +1116,7 @@ export default function TestCasesExecutionProgressPage() {
       { wch: 15 },
       { wch: 12 },
       { wch: 15 },
-      { wch: 15 }, // tracker
+      { wch: 15 },
       { wch: 20 },
       { wch: 25 },
       { wch: 25 },
@@ -1106,41 +1142,45 @@ export default function TestCasesExecutionProgressPage() {
       .trim();
   };
 
-  // Values Standardization Mappers
   const normalizeResultValue = (val: string) => {
     if (!val) return "";
     const clean = val.toLowerCase().trim();
-    const map: Record<string, string> = {
-      fail: "Failed",
-      failure: "Failed",
-      failed: "Failed",
-      pass: "Passed",
-      passes: "Passed",
-      passed: "Passed",
-      block: "Blocked",
-      blocks: "Blocked",
-      blocked: "Blocked",
-      "in progress": "In Progress",
-      "no result": "Not Executed",
-      "not executed": "Not Executed",
-    };
-    return map[clean] || val.trim();
+    if (clean.includes("pass")) return "Passed";
+    if (clean.includes("fail")) return "Failed";
+    if (clean.includes("block")) return "Blocked";
+    if (clean.includes("prog")) return "In Progress";
+    if (
+      clean.includes("exec") ||
+      clean.includes("res") ||
+      clean.includes("not")
+    )
+      return "Not Executed";
+    return val.trim();
   };
 
+  // --- NEW: Robust Case-Insensitive QA Matching ---
   const normalizeQAValue = (val: string) => {
     if (!val) return "";
     const clean = val.toLowerCase().trim();
+
+    // 1. Hardcoded aliases (keys MUST be strictly lowercase to match `clean`)
     const map: Record<string, string> = {
       qinah: "Qinah",
       qina: "Qinah",
-      QINAH: "Qinah",
-      SYASYA: "Syasya",
+      syasya: "Syasya",
       sya2: "Syasya",
       raimi: "Raimi Rosman",
-      RAIMI: "Raimi Rosman",
       rai: "Raihan",
     };
-    return map[clean] || val.trim();
+
+    if (map[clean]) return map[clean];
+
+    // 2. Dynamic, case-insensitive match against the actual db list of users
+    const existingUser = qaUsers.find((u) => u.name.toLowerCase() === clean);
+    if (existingUser) return existingUser.name;
+
+    // 3. Fallback to original
+    return val.trim();
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1169,7 +1209,6 @@ export default function TestCasesExecutionProgressPage() {
       for (const sheetName of wb.SheetNames) {
         const sheet = wb.Sheets[sheetName];
 
-        // --- MERGED CELLS RESOLUTION LOGIC ---
         if (sheet["!merges"]) {
           sheet["!merges"].forEach((merge: any) => {
             const startCell = XLSX.utils.encode_cell({
@@ -1191,7 +1230,6 @@ export default function TestCasesExecutionProgressPage() {
             }
           });
         }
-        // -------------------------------------
 
         const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
           header: 1,
@@ -1247,6 +1285,9 @@ export default function TestCasesExecutionProgressPage() {
           if (columnMapIndex[k] === undefined) missingColumnsSet.add(k);
         });
 
+        // 1. NEW: Add a variable to track the active module for the current sheet
+        let currentActiveModule = "";
+
         for (let r = headerRowIndex + 1; r < rawData.length; r++) {
           const row = rawData[r];
 
@@ -1272,6 +1313,20 @@ export default function TestCasesExecutionProgressPage() {
             }
           }
 
+          const extractedValues = Object.values(extracted).filter(
+            (v) => v !== "",
+          );
+
+          // 2. MODIFIED: If identical across all columns, treat it as a module header
+          if (
+            extractedValues.length > 1 &&
+            extractedValues.every((val) => val === extractedValues[0])
+          ) {
+            currentActiveModule = extractedValues[0]; // Capture the module name
+            totalRowsSkipped++; // Skip adding this as an actual test case row
+            continue;
+          }
+
           if (!hasMeaningfulData) {
             totalRowsSkipped++;
             continue;
@@ -1290,7 +1345,8 @@ export default function TestCasesExecutionProgressPage() {
             id:
               Date.now().toString() +
               Math.random().toString(36).substring(2, 8),
-            moduleName: extracted.moduleName || "",
+            // 3. MODIFIED: Fallback to currentActiveModule if the row doesn't specify one
+            moduleName: extracted.moduleName || currentActiveModule || "",
             caseId: extracted.caseId || "",
             userStory: extracted.userStory || "",
             tracker: extracted.tracker || "",

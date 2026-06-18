@@ -81,6 +81,41 @@ router.delete("/modules/:id", async (req, res): Promise<void> => {
   }
 });
 
+router.patch("/modules/:id", async (req, res): Promise<void> => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+
+    const { name } = req.body;
+    if (!name || !name.trim()) {
+      res.status(400).json({ error: "Name is required" });
+      return;
+    }
+
+    const [updatedModule] = await db
+      .update(executionModulesTable)
+      .set({ name: name.trim() })
+      .where(eq(executionModulesTable.id, id))
+      .returning();
+
+    if (!updatedModule) {
+      res.status(404).json({ error: "Module not found" });
+      return;
+    }
+
+    res.json({
+      id: updatedModule.id,
+      name: updatedModule.name,
+      createdAt: updatedModule.createdAt,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to update module" });
+  }
+});
+
 /* ────────────────────────────────
    EXECUTION FILES
    ──────────────────────────────── */
