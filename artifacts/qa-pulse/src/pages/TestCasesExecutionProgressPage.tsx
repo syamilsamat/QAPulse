@@ -1502,6 +1502,7 @@ export default function TestCasesExecutionProgressPage() {
         stepName={defectRow?.testSteps ?? undefined}
         testCaseId={defectRow?.caseId ?? undefined}
         expectedResult={defectRow?.expectedResult ?? undefined}
+        parentIssueId={ticketId ?? null}
       />
 
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
