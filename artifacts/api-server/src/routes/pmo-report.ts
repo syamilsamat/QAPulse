@@ -874,10 +874,10 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
 }
 
 router.post("/pmo/send-email", async (req, res) => {
-  const { reportName, fileName, redmineId, pdfBase64, reportData, senderName } = req.body;
+  const { reportName, fileName, redmineId, reportData, senderName } = req.body;
 
-  if (!pdfBase64 || !reportData) {
-    res.status(400).json({ error: "Missing pdfBase64 or reportData" });
+  if (!reportData) {
+    res.status(400).json({ error: "Missing reportData" });
     return;
   }
 
@@ -918,21 +918,12 @@ router.post("/pmo/send-email", async (req, res) => {
       reportData,
     );
 
-    const pdfBuffer = Buffer.from(pdfBase64, "base64");
-
     await transporter.sendMail({
       from: `"QA Pulse" <${emailFrom}>`,
       to: emailTo,
       cc: emailCc,
       subject,
       html: htmlBody,
-      attachments: [
-        {
-          filename: fileName ?? `Report_${redmineId}.pdf`,
-          content: pdfBuffer,
-          contentType: "application/pdf",
-        },
-      ],
     });
 
     res.json({ success: true, message: `Report sent to ${emailTo}` });
