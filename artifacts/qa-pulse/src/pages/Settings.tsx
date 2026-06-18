@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useUpdateUser, useCreateUser, useChangePassword,
@@ -17,7 +17,23 @@ import {
 } from "@/components/ui/select";
 import {
   Settings as SettingsIcon, User, Shield, Bell, Upload, Lock, UserPlus, Eye, EyeOff,
+  RefreshCw, Bug, Save,
 } from "lucide-react";
+
+interface RedmineProject {
+  id: number;
+  redmineId: number;
+  name: string;
+  identifier: string;
+}
+
+interface RedmineProjectConfig {
+  id: number;
+  redmineProjectId: number;
+  complexityFieldId: number | null;
+  targetedStartDateFieldId: number | null;
+  targetedCompletionDateFieldId: number | null;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   qa_member: "QA Member",
@@ -37,6 +53,10 @@ export default function Settings() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatarUrl ?? null);
   const [avatarData, setAvatarData] = useState<string | null>(null);
 
+  // Redmine API Key (per user)
+  const [redmineApiKey, setRedmineApiKey] = useState((user as any)?.redmineApiKey ?? "");
+  const [showRedmineKey, setShowRedmineKey] = useState(false);
+
   // Password change
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -51,6 +71,14 @@ export default function Settings() {
   const [memberRole, setMemberRole] = useState("qa_member");
   const [memberTeam, setMemberTeam] = useState("");
   const [memberPw, setMemberPw] = useState("password123");
+
+  // Redmine Integration (QA Lead / admin)
+  const [redmineProjects, setRedmineProjects] = useState<RedmineProject[]>([]);
+  const [projectConfigs, setProjectConfigs] = useState<Record<number, RedmineProjectConfig>>({});
+  const [selectedConfigProjectId, setSelectedConfigProjectId] = useState<number | null>(null);
+  const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   const updateMutation = useUpdateUser({
     mutation: {
@@ -145,6 +173,82 @@ export default function Settings() {
   };
 
   const canManageTeam = user?.role === "admin" || user?.role === "qa_lead";
+  const isLeadOrAdmin = user?.role === "admin" || user?.role === "qa_lead";
+
+  useEffect(() => {
+    if (!isLeadOrAdmin) return;
+    fetch("/api/redmine/projects")
+      .then((r) => r.json())
+      .then((data: RedmineProject[]) => setRedmineProjects(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetch("/api/redmine/project-configs")
+      .then((r) => r.json())
+      .then((data: RedmineProjectConfig[]) => {
+        if (!Array.isArray(data)) return;
+        const map: Record<number, RedmineProjectConfig> = {};
+        data.forEach((c) => { map[c.redmineProjectId] = c; });
+        setProjectConfigs(map);
+      })
+      .catch(() => {});
+  }, [isLeadOrAdmin]);
+
+  const handleSaveRedmineKey = () => {
+    if (!user) return;
+    updateMutation.mutate({
+      id: user.id,
+      data: { redmineApiKey: redmineApiKey.trim() || null } as any,
+    });
+  };
+
+  const handleSyncProjects = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch("/api/redmine/sync-projects", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      toast({ title: `Synced ${data.synced} Redmine projects` });
+      const updated = await fetch("/api/redmine/projects").then((r) => r.json());
+      setRedmineProjects(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSelectConfigProject = (redmineId: number) => {
+    setSelectedConfigProjectId(redmineId);
+    const existing = projectConfigs[redmineId];
+    setConfigForm({
+      complexityFieldId: existing?.complexityFieldId?.toString() ?? "",
+      targetedStartDateFieldId: existing?.targetedStartDateFieldId?.toString() ?? "",
+      targetedCompletionDateFieldId: existing?.targetedCompletionDateFieldId?.toString() ?? "",
+    });
+  };
+
+  const handleSaveProjectConfig = async () => {
+    if (!selectedConfigProjectId) return;
+    setIsSavingConfig(true);
+    try {
+      const res = await fetch(`/api/redmine/project-configs/${selectedConfigProjectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          complexityFieldId: configForm.complexityFieldId ? Number(configForm.complexityFieldId) : null,
+          targetedStartDateFieldId: configForm.targetedStartDateFieldId ? Number(configForm.targetedStartDateFieldId) : null,
+          targetedCompletionDateFieldId: configForm.targetedCompletionDateFieldId ? Number(configForm.targetedCompletionDateFieldId) : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      setProjectConfigs((prev) => ({ ...prev, [selectedConfigProjectId]: data }));
+      toast({ title: "Project config saved" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl">
@@ -224,12 +328,44 @@ export default function Settings() {
             </div>
           </div>
 
-          <Button
-            onClick={handleSave}
-            disabled={!name.trim() || updateMutation.isPending}
-          >
-            {updateMutation.isPending ? "Saving..." : "Save Changes"}
-          </Button>
+          <Separator />
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5">
+              <Bug className="w-3.5 h-3.5" /> Redmine API Key
+            </Label>
+            <div className="relative">
+              <Input
+                type={showRedmineKey ? "text" : "password"}
+                value={redmineApiKey}
+                onChange={(e) => setRedmineApiKey(e.target.value)}
+                placeholder="Leave blank to use system default"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowRedmineKey((v) => !v)}
+              >
+                {showRedmineKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Used when creating or searching Redmine issues. Falls back to the system default key if empty.
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <Button onClick={handleSave} disabled={!name.trim() || updateMutation.isPending}>
+              {updateMutation.isPending ? "Saving..." : "Save Profile"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleSaveRedmineKey}
+              disabled={updateMutation.isPending}
+            >
+              Save Redmine Key
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -401,6 +537,110 @@ export default function Settings() {
               <UserPlus className="w-4 h-4" />
               {createMutation.isPending ? "Creating..." : "Create Member"}
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Redmine Integration — QA Lead / admin only */}
+      {isLeadOrAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Bug className="w-4 h-4" /> Redmine Integration
+            </CardTitle>
+            <CardDescription>
+              Sync Redmine projects and configure custom field IDs per project for defect creation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleSyncProjects}
+                disabled={isSyncing}
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+                {isSyncing ? "Syncing..." : "Sync Redmine Projects"}
+              </Button>
+              {redmineProjects.length > 0 && (
+                <span className="text-xs text-muted-foreground">{redmineProjects.length} projects cached</span>
+              )}
+            </div>
+
+            {redmineProjects.length > 0 && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <Label>Configure Custom Fields per Project</Label>
+                  <Select
+                    value={selectedConfigProjectId?.toString() ?? ""}
+                    onValueChange={(v) => handleSelectConfigProject(Number(v))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a Redmine project..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {redmineProjects.map((p) => (
+                        <SelectItem key={p.redmineId} value={p.redmineId.toString()}>
+                          {p.name}
+                          {projectConfigs[p.redmineId] && (
+                            <span className="ml-2 text-xs text-primary">✓ configured</span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {selectedConfigProjectId && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                      <p className="text-xs text-muted-foreground">
+                        Enter the numeric custom field IDs from your Redmine admin panel
+                        (Admin → Custom fields).
+                      </p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Complexity Field ID</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g. 12"
+                            value={configForm.complexityFieldId}
+                            onChange={(e) => setConfigForm((f) => ({ ...f, complexityFieldId: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Targeted Start Date Field ID</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g. 14"
+                            value={configForm.targetedStartDateFieldId}
+                            onChange={(e) => setConfigForm((f) => ({ ...f, targetedStartDateFieldId: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Targeted Completion Date Field ID</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g. 15"
+                            value={configForm.targetedCompletionDateFieldId}
+                            onChange={(e) => setConfigForm((f) => ({ ...f, targetedCompletionDateFieldId: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="gap-2"
+                        onClick={handleSaveProjectConfig}
+                        disabled={isSavingConfig}
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        {isSavingConfig ? "Saving..." : "Save Config"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

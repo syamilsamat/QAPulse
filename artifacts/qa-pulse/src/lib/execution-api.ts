@@ -28,7 +28,7 @@ export interface ExecutionTestCase {
   moduleName: string;
   caseId: string;
   userStory: string;
-  tracker?: string; // <-- ADDED: Matches the tracker payload in your backend
+  tracker?: string;
   scenario: string;
   preCondition: string;
   caseName: string;
@@ -36,10 +36,12 @@ export interface ExecutionTestCase {
   testData: string;
   expectedResult: string;
   result: string;
+  actualResult?: string;
   defectNumber: string;
+  defectScreenshots?: string; // JSON array of { name, contentType, base64 }
   comments: string;
   qaPic: string;
-  rowOrder?: number; // <-- ADDED: Matches the rowOrder payload in your backend
+  rowOrder?: number;
 }
 
 const getHeaders = () => {
@@ -223,4 +225,94 @@ export const deleteModule = async (id: number): Promise<void> => {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error("Failed to delete module");
+};
+
+// --- Redmine Defect helpers ---
+
+export interface RedmineProjectItem {
+  id: number;
+  redmineId: number;
+  name: string;
+  identifier: string;
+}
+
+export interface RedmineProjectConfigItem {
+  redmineProjectId: number;
+  complexityFieldId: number | null;
+  targetedStartDateFieldId: number | null;
+  targetedCompletionDateFieldId: number | null;
+}
+
+export interface RedmineTracker {
+  id: number;
+  name: string;
+}
+
+export interface RedmineIssueMatch {
+  id: number;
+  subject: string;
+  status: { name: string };
+  project: { name: string };
+}
+
+export const fetchRedmineProjects = async (): Promise<RedmineProjectItem[]> => {
+  const res = await fetch("/api/redmine/projects", { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch Redmine projects");
+  return res.json();
+};
+
+export const fetchRedmineProjectConfig = async (
+  projectId: number,
+): Promise<RedmineProjectConfigItem | null> => {
+  const res = await fetch("/api/redmine/project-configs", { headers: getHeaders() });
+  if (!res.ok) return null;
+  const all: RedmineProjectConfigItem[] = await res.json();
+  return all.find((c) => c.redmineProjectId === projectId) ?? null;
+};
+
+export const fetchRedmineTrackers = async (): Promise<RedmineTracker[]> => {
+  const res = await fetch("/api/redmine/trackers", { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch Redmine trackers");
+  return res.json();
+};
+
+export const searchRedmineIssues = async (
+  q: string,
+  projectId: number,
+): Promise<RedmineIssueMatch[]> => {
+  const res = await fetch(
+    `/api/redmine/search?q=${encodeURIComponent(q)}&project_id=${projectId}`,
+    { headers: getHeaders() },
+  );
+  if (!res.ok) return [];
+  return res.json();
+};
+
+export interface CreateDefectPayload {
+  projectId: number;
+  trackerId: number;
+  subject: string;
+  description: string;
+  complexityFieldId?: number | null;
+  complexityValue?: string;
+  targetedStartDateFieldId?: number | null;
+  targetedStartDate?: string;
+  targetedCompletionDateFieldId?: number | null;
+  targetedCompletionDate?: string;
+  uploads?: { filename: string; contentType: string; base64: string }[];
+}
+
+export const createRedmineDefect = async (
+  payload: CreateDefectPayload,
+): Promise<{ id: number; url: string }> => {
+  const res = await fetch("/api/redmine/issues", {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to create defect" }));
+    throw new Error(err.error ?? "Failed to create defect");
+  }
+  return res.json();
 };

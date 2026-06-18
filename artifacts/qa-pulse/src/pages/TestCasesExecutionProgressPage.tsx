@@ -51,6 +51,7 @@ import {
   type ExecutionModule,
   type ExecutionUser,
 } from "@/lib/execution-api";
+import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
 const RESULT_OPTIONS = [
   "Passed",
@@ -762,6 +763,10 @@ export default function TestCasesExecutionProgressPage() {
   const [resultFilters, setResultFilters] = useState<string[]>([]);
   const [qaFilters, setQaFilters] = useState<string[]>([]);
 
+  // Defect creation modal
+  const [defectModalOpen, setDefectModalOpen] = useState(false);
+  const [pendingFailRowId, setPendingFailRowId] = useState<string | number | null>(null);
+
   useEffect(() => {
     Promise.all([
       fetchTestCases(ticketId),
@@ -832,6 +837,16 @@ export default function TestCasesExecutionProgressPage() {
 
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
+      if (field === "result" && value === "Failed") {
+        // Mark the row as Failed immediately, then open defect modal
+        setData((prev) =>
+          prev.map((row) => (row.id === id ? { ...row, result: "Failed" } : row)),
+        );
+        setHasUnsavedChanges(true);
+        setPendingFailRowId(id);
+        setDefectModalOpen(true);
+        return;
+      }
       setData((prev) =>
         prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
       );
@@ -839,6 +854,24 @@ export default function TestCasesExecutionProgressPage() {
     },
     [],
   );
+
+  const handleDefectCreated = useCallback((result: DefectCreationResult) => {
+    if (!pendingFailRowId) return;
+    setData((prev) =>
+      prev.map((row) =>
+        row.id === pendingFailRowId
+          ? {
+              ...row,
+              defectNumber: result.redmineIssueId,
+              actualResult: result.actualResult,
+              defectScreenshots: result.screenshots,
+            }
+          : row,
+      ),
+    );
+    setHasUnsavedChanges(true);
+    setPendingFailRowId(null);
+  }, [pendingFailRowId]);
 
   const handleSelectRow = useCallback(
     (id: string | number, checked: boolean) => {
@@ -1452,8 +1485,25 @@ export default function TestCasesExecutionProgressPage() {
   const totalActiveFilters =
     moduleFilters.length + resultFilters.length + qaFilters.length;
 
+  const defectRow = pendingFailRowId
+    ? data.find((r) => r.id === pendingFailRowId)
+    : null;
+
   return (
     <div className="space-y-3 flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100vh-6rem)] relative">
+      <DefectCreationModal
+        open={defectModalOpen}
+        onClose={() => {
+          setDefectModalOpen(false);
+          setPendingFailRowId(null);
+        }}
+        onDefectCreated={handleDefectCreated}
+        testCaseName={defectRow?.caseName ?? defectRow?.scenario ?? ""}
+        stepName={defectRow?.testSteps ?? undefined}
+        testCaseId={defectRow?.caseId ?? undefined}
+        expectedResult={defectRow?.expectedResult ?? undefined}
+      />
+
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>

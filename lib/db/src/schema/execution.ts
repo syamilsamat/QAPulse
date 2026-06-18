@@ -36,7 +36,9 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   testData: text("test_data"),
   expectedResult: text("expected_result"),
   result: text("result"),
+  actualResult: text("actual_result"),
   defectNumber: text("defect_number"),
+  defectScreenshots: text("defect_screenshots"), // JSON array of base64 or file paths
   comments: text("comments"),
   qaPic: text("qa_pic"),
   rowOrder: integer("row_order").notNull().default(0),
