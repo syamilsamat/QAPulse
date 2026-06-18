@@ -18,9 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -231,14 +229,12 @@ export default function TeamHangouts() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Event Type <span className="text-destructive">*</span></Label>
-                <Select value={form.eventType} onValueChange={(v) => setForm((f) => ({ ...f, eventType: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(EVENT_TYPE_CONFIG).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.eventType}
+                  onValueChange={(v) => setForm((f) => ({ ...f, eventType: v }))}
+                  options={Object.entries(EVENT_TYPE_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))}
+                  searchPlaceholder="Search..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Date <span className="text-destructive">*</span></Label>

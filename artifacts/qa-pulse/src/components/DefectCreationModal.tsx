@@ -7,9 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -313,21 +311,13 @@ export default function DefectCreationModal({
                 <Label>
                   Redmine Project <span className="text-destructive">*</span>
                 </Label>
-                <Select
+                <SearchableSelect
                   value={selectedProjectId?.toString() ?? ""}
                   onValueChange={(v) => setSelectedProjectId(Number(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select project..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((p) => (
-                      <SelectItem key={p.redmineId} value={p.redmineId.toString()}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={projects.map((p) => ({ value: p.redmineId.toString(), label: p.name }))}
+                  placeholder="Select project..."
+                  searchPlaceholder="Search project..."
+                />
                 {projects.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     No projects cached — sync from Settings first.
@@ -348,14 +338,12 @@ export default function DefectCreationModal({
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Complexity</Label>
-                <Select value={complexity} onValueChange={setComplexity}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {COMPLEXITY_OPTIONS.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={complexity}
+                  onValueChange={setComplexity}
+                  options={COMPLEXITY_OPTIONS.map((c) => ({ value: c, label: c }))}
+                  searchPlaceholder="Search..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Targeted Start Date</Label>

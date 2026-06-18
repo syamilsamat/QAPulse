@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Popover,
   PopoverContent,
@@ -965,102 +966,91 @@ export default function Tasks() {
             <div
               className={`grid grid-cols-2 md:grid-cols-3 lg:flex lg:flex-row gap-3 w-full lg:w-auto shrink-0`}
             >
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-full lg:w-36 bg-muted/30">
-                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
-                  <SelectValue placeholder="Sort By" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="newest">Newest First</SelectItem>
-                  <SelectItem value="oldest">Oldest First</SelectItem>
-                  <SelectItem value="updated">Recently Updated</SelectItem>
-                  <SelectItem value="due_date">Due Date</SelectItem>
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={sortBy}
+                onValueChange={setSortBy}
+                options={[
+                  { value: "newest", label: "Newest First" },
+                  { value: "oldest", label: "Oldest First" },
+                  { value: "updated", label: "Recently Updated" },
+                  { value: "due_date", label: "Due Date" },
+                ]}
+                placeholder="Sort By"
+                searchPlaceholder="Search..."
+                className="w-full lg:w-36 bg-muted/30"
+              />
 
-              <Select value={filterPriority} onValueChange={setFilterPriority}>
-                <SelectTrigger className="w-full lg:w-32">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Priorities</SelectItem>
-                  <SelectItem value="Critical">Critical</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={filterPriority}
+                onValueChange={setFilterPriority}
+                options={[
+                  { value: "all", label: "All Priorities" },
+                  { value: "Critical", label: "Critical" },
+                  { value: "High", label: "High" },
+                  { value: "Medium", label: "Medium" },
+                  { value: "Low", label: "Low" },
+                ]}
+                placeholder="Priority"
+                searchPlaceholder="Search..."
+                className="w-full lg:w-32"
+              />
 
-              <Select value={filterModule} onValueChange={setFilterModule}>
-                <SelectTrigger className="w-full lg:w-32">
-                  <SelectValue placeholder="Module" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Modules</SelectItem>
-                  {modules.map((m: any) => (
-                    <SelectItem key={m.id} value={String(m.id)}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={filterModule}
+                onValueChange={setFilterModule}
+                options={[
+                  { value: "all", label: "All Modules" },
+                  ...modules.map((m: any) => ({ value: String(m.id), label: m.name })),
+                ]}
+                placeholder="Module"
+                searchPlaceholder="Search module..."
+                className="w-full lg:w-32"
+              />
 
-              <Select value={filterProject} onValueChange={setFilterProject}>
-                <SelectTrigger className="w-full lg:w-36">
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={filterProject}
+                onValueChange={setFilterProject}
+                options={[
+                  { value: "all", label: "All Projects" },
+                  ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Project"
+                searchPlaceholder="Search project..."
+                className="w-full lg:w-36"
+              />
 
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-full lg:w-36">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="blocked">Blocked</SelectItem>
-                  <SelectItem value="uat">UAT</SelectItem>
-                  <SelectItem value="sit">SIT</SelectItem>
-                  <SelectItem value="done">Done</SelectItem>
-                  <SelectItem value="released_to_production">
-                    Released
-                  </SelectItem>
-                  <SelectItem value="overdue">
-                    <span className="flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-destructive" />{" "}
-                      Overdue
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={filterStatus}
+                onValueChange={setFilterStatus}
+                options={[
+                  { value: "all", label: "All Status" },
+                  { value: "new", label: "New" },
+                  { value: "pending", label: "Pending" },
+                  { value: "in_progress", label: "In Progress" },
+                  { value: "blocked", label: "Blocked" },
+                  { value: "uat", label: "UAT" },
+                  { value: "sit", label: "SIT" },
+                  { value: "done", label: "Done" },
+                  { value: "released_to_production", label: "Released" },
+                  { value: "overdue", label: "Overdue" },
+                ]}
+                placeholder="Status"
+                searchPlaceholder="Search status..."
+                className="w-full lg:w-36"
+              />
 
               {isAdminOrLead && (
-                <Select
+                <SearchableSelect
                   value={filterAssignee}
                   onValueChange={setFilterAssignee}
-                >
-                  <SelectTrigger className="w-full lg:w-40">
-                    <SelectValue placeholder="Assignee" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="all">All Assignees</SelectItem>
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: "all", label: "All Assignees" },
+                    ...users.map((u) => ({ value: String(u.id), label: u.name })),
+                  ]}
+                  placeholder="Assignee"
+                  searchPlaceholder="Search assignee..."
+                  className="w-full lg:w-40"
+                />
               )}
             </div>
           </div>
@@ -1205,32 +1195,22 @@ export default function Tasks() {
                             className="whitespace-nowrap"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Select
+                            <SearchableSelect
                               value={t.status}
                               onValueChange={(v) => quickStatusChange(t, v)}
-                            >
-                              <SelectTrigger className="h-7 text-xs border-0 p-0 focus:ring-0">
-                                <span
-                                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status]}`}
-                                >
-                                  {capitalize(t.status)}
-                                </span>
-                              </SelectTrigger>
-                              <SelectContent className="max-h-[300px]">
-                                <SelectItem value="new">New</SelectItem>
-                                <SelectItem value="pending">Pending</SelectItem>
-                                <SelectItem value="in_progress">
-                                  In Progress
-                                </SelectItem>
-                                <SelectItem value="blocked">Blocked</SelectItem>
-                                <SelectItem value="uat">UAT</SelectItem>
-                                <SelectItem value="sit">SIT</SelectItem>
-                                <SelectItem value="done">Done</SelectItem>
-                                <SelectItem value="released_to_production">
-                                  Released
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
+                              options={[
+                                { value: "new", label: "New" },
+                                { value: "pending", label: "Pending" },
+                                { value: "in_progress", label: "In Progress" },
+                                { value: "blocked", label: "Blocked" },
+                                { value: "uat", label: "UAT" },
+                                { value: "sit", label: "SIT" },
+                                { value: "done", label: "Done" },
+                                { value: "released_to_production", label: "Released" },
+                              ]}
+                              searchPlaceholder="Search status..."
+                              className="h-7 text-xs"
+                            />
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             {t.assigneeNames && t.assigneeNames.length > 0 ? (
@@ -1496,26 +1476,21 @@ export default function Tasks() {
               </div>
               <div className="space-y-1.5">
                 <Label>Status</Label>
-                <Select
+                <SearchableSelect
                   value={form.status ?? "new"}
                   onValueChange={(v) => setForm({ ...form, status: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="blocked">Blocked</SelectItem>
-                    <SelectItem value="uat">UAT</SelectItem>
-                    <SelectItem value="sit">SIT</SelectItem>
-                    <SelectItem value="done">Done</SelectItem>
-                    <SelectItem value="released_to_production">
-                      Released
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: "new", label: "New" },
+                    { value: "pending", label: "Pending" },
+                    { value: "in_progress", label: "In Progress" },
+                    { value: "blocked", label: "Blocked" },
+                    { value: "uat", label: "UAT" },
+                    { value: "sit", label: "SIT" },
+                    { value: "done", label: "Done" },
+                    { value: "released_to_production", label: "Released" },
+                  ]}
+                  searchPlaceholder="Search status..."
+                />
               </div>
             </div>
 
@@ -1523,60 +1498,37 @@ export default function Tasks() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border p-4 rounded-lg bg-muted/5">
               <div className="space-y-1.5">
                 <Label>Project</Label>
-                <Select
+                <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, projectId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Project..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[250px]">
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                  placeholder="Select Project..."
+                  searchPlaceholder="Search project..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Priority</Label>
-                <Select
+                <SearchableSelect
                   value={form.priority ?? "Medium"}
                   onValueChange={(v) => setForm({ ...form, priority: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Critical">Critical</SelectItem>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="Low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: "Critical", label: "Critical" },
+                    { value: "High", label: "High" },
+                    { value: "Medium", label: "Medium" },
+                    { value: "Low", label: "Low" },
+                  ]}
+                  searchPlaceholder="Search..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <Select
+                <SearchableSelect
                   value={form.moduleId ? String(form.moduleId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, moduleId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Module" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[250px]">
-                    {modules.map((m: any) => (
-                      <SelectItem key={m.id} value={String(m.id)}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setForm({ ...form, moduleId: Number(v) })}
+                  options={modules.map((m: any) => ({ value: String(m.id), label: m.name }))}
+                  placeholder="Select Module"
+                  searchPlaceholder="Search module..."
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -1993,21 +1945,16 @@ export default function Tasks() {
               </div>
               <div className="space-y-1.5">
                 <Label>Severity</Label>
-                <Select
+                <SearchableSelect
                   value={eventForm.severity}
-                  onValueChange={(v) =>
-                    setEventForm({ ...eventForm, severity: v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setEventForm({ ...eventForm, severity: v })}
+                  options={[
+                    { value: "low", label: "Low" },
+                    { value: "medium", label: "Medium" },
+                    { value: "high", label: "High" },
+                  ]}
+                  searchPlaceholder="Search..."
+                />
               </div>
             </div>
           </div>

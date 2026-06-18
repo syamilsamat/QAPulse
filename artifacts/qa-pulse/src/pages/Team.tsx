@@ -24,13 +24,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -182,16 +176,19 @@ export default function Team() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <Select value={filterRole} onValueChange={setFilterRole}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Role" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Roles</SelectItem>
-            <SelectItem value="qa_member">QA Member</SelectItem>
-            <SelectItem value="qa_lead">QA Lead</SelectItem>
-            <SelectItem value="admin">Admin</SelectItem>
-          </SelectContent>
+        <SearchableSelect
+          value={filterRole}
+          onValueChange={setFilterRole}
+          options={[
+            { value: "all", label: "All Roles" },
+            { value: "qa_member", label: "QA Member" },
+            { value: "qa_lead", label: "QA Lead" },
+            { value: "admin", label: "Admin" },
+          ]}
+          placeholder="Role"
+          searchPlaceholder="Search role..."
+          className="w-40"
+        />
         </Select>
       </div>
 
@@ -407,19 +404,16 @@ export default function Team() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Role</Label>
-                <Select
+                <SearchableSelect
                   value={form.role ?? "qa_member"}
                   onValueChange={(v) => setForm({ ...form, role: v as any })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="qa_member">QA Member</SelectItem>
-                    <SelectItem value="qa_lead">QA Lead</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: "qa_member", label: "QA Member" },
+                    { value: "qa_lead", label: "QA Lead" },
+                    { value: "admin", label: "Admin" },
+                  ]}
+                  searchPlaceholder="Search role..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Team</Label>

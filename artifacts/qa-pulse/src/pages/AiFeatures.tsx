@@ -20,13 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Brain,
@@ -223,21 +217,13 @@ export default function AiFeatures() {
                     <label className="text-sm font-medium mb-1 block">
                       Select Requirement *
                     </label>
-                    <Select
+                    <SearchableSelect
                       value={selectedReqAnalyzeId}
                       onValueChange={setSelectedReqAnalyzeId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a requirement…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {requirements.map((r) => (
-                          <SelectItem key={r.id} value={String(r.id)}>
-                            {r.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      options={requirements.map((r) => ({ value: String(r.id), label: r.title }))}
+                      placeholder="Choose a requirement…"
+                      searchPlaceholder="Search requirement..."
+                    />
                   </div>
                   {selectedReqAnalyzeId &&
                     (() => {
@@ -371,21 +357,13 @@ export default function AiFeatures() {
                     <label className="text-sm font-medium mb-1 block">
                       Select Requirement *
                     </label>
-                    <Select
+                    <SearchableSelect
                       value={selectedEdgeCaseId}
                       onValueChange={setSelectedEdgeCaseId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a requirement…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {requirements.map((r) => (
-                          <SelectItem key={r.id} value={String(r.id)}>
-                            {r.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      options={requirements.map((r) => ({ value: String(r.id), label: r.title }))}
+                      placeholder="Choose a requirement…"
+                      searchPlaceholder="Search requirement..."
+                    />
                   </div>
                   {selectedEdgeCaseId &&
                     (() => {
@@ -579,22 +557,16 @@ export default function AiFeatures() {
                     <label className="text-sm font-medium mb-1 block">
                       Filter by Requirement (optional)
                     </label>
-                    <Select
+                    <SearchableSelect
                       value={coverageReqId}
                       onValueChange={setCoverageReqId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All requirements" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All requirements</SelectItem>
-                        {requirements.map((r) => (
-                          <SelectItem key={r.id} value={String(r.id)}>
-                            {r.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      options={[
+                        { value: "all", label: "All requirements" },
+                        ...requirements.map((r) => ({ value: String(r.id), label: r.title })),
+                      ]}
+                      placeholder="All requirements"
+                      searchPlaceholder="Search requirement..."
+                    />
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1 block">

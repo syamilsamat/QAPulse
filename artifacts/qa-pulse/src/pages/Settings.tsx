@@ -12,9 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
@@ -519,14 +517,16 @@ export default function Settings() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Role</Label>
-                <Select value={memberRole} onValueChange={setMemberRole}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="qa_member">QA Member</SelectItem>
-                    <SelectItem value="qa_lead">QA Lead</SelectItem>
-                    {user?.role === "admin" && <SelectItem value="admin">Admin</SelectItem>}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={memberRole}
+                  onValueChange={setMemberRole}
+                  options={[
+                    { value: "qa_member", label: "QA Member" },
+                    { value: "qa_lead", label: "QA Lead" },
+                    ...(user?.role === "admin" ? [{ value: "admin", label: "Admin" }] : []),
+                  ]}
+                  searchPlaceholder="Search role..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Team</Label>

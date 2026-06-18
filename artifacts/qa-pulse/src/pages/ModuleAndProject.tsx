@@ -23,13 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog,
   DialogContent,
@@ -362,21 +356,17 @@ export default function ModuleAndProject() {
                             rows={2}
                           />
                           <div className="flex items-center justify-between">
-                            <Select
+                            <SearchableSelect
                               value={editingProject.status}
-                              onValueChange={(v) =>
-                                setEditingProject({ ...editingProject, status: v })
-                              }
-                            >
-                              <SelectTrigger className="w-[140px] h-8 text-xs shadow-none">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="on_hold">On Hold</SelectItem>
-                                <SelectItem value="inactive">Inactive</SelectItem>
-                              </SelectContent>
-                            </Select>
+                              onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}
+                              options={[
+                                { value: "active", label: "Active" },
+                                { value: "on_hold", label: "On Hold" },
+                                { value: "inactive", label: "Inactive" },
+                              ]}
+                              searchPlaceholder="Search..."
+                              className="w-[140px] h-8 text-xs"
+                            />
                             <div className="flex gap-1">
                               <Button
                                 variant="ghost"
@@ -697,21 +687,16 @@ export default function ModuleAndProject() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-muted-foreground">Status</Label>
-              <Select
+              <SearchableSelect
                 value={projectForm.status}
-                onValueChange={(v) =>
-                  setProjectForm({ ...projectForm, status: v })
-                }
-              >
-                <SelectTrigger className="shadow-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="on_hold">On Hold</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
+                onValueChange={(v) => setProjectForm({ ...projectForm, status: v })}
+                options={[
+                  { value: "active", label: "Active" },
+                  { value: "on_hold", label: "On Hold" },
+                  { value: "inactive", label: "Inactive" },
+                ]}
+                searchPlaceholder="Search..."
+              />
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
