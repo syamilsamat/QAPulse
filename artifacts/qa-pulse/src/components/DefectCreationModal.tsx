@@ -60,7 +60,8 @@ export default function DefectCreationModal({
   const [scope, setScope] = useState<"step" | "testcase">("testcase");
   const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
   const [actualResult, setActualResult] = useState("");
-  const [screenshots, setScreenshots] = useState<{ name: string; contentType: string; base64: string }[]>([]);
+  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
+  const [defectDescription, setDefectDescription] = useState("");
 
   // Redmine form fields
   const [projects, setProjects] = useState<RedmineProjectItem[]>([]);
@@ -140,7 +141,7 @@ export default function DefectCreationModal({
         const base64 = dataUrl.split(",")[1];
         setScreenshots((prev) => [
           ...prev,
-          { name: file.name, contentType: file.type, base64 },
+          { filename: file.name, contentType: file.type, base64 },
         ]);
       };
       reader.readAsDataURL(file);
@@ -150,6 +151,7 @@ export default function DefectCreationModal({
 
   const buildDescription = () => {
     let desc = "";
+    if (defectDescription.trim()) desc += `**Description:**\n${defectDescription.trim()}\n\n`;
     if (expectedResultValue.trim()) desc += `**Expected Result:**\n${expectedResultValue.trim()}\n\n`;
     if (actualResult) desc += `**Actual Result:**\n${actualResult}\n\n`;
     if (testCaseId) desc += `**Test Case ID:** ${testCaseId}`;
@@ -161,12 +163,16 @@ export default function DefectCreationModal({
     onDefectCreated({
       redmineIssueId: issue.id.toString(),
       actualResult,
-      screenshots: JSON.stringify(screenshots.map((s) => s.name)),
+      screenshots: JSON.stringify(screenshots.map((s) => s.filename)),
     });
     onClose();
   };
 
   const handleSubmit = async () => {
+    if (!defectDescription.trim()) {
+      toast({ variant: "destructive", title: "Description is required" });
+      return;
+    }
     if (!actualResult.trim()) {
       toast({ variant: "destructive", title: "Actual Result is required" });
       return;
@@ -202,7 +208,7 @@ export default function DefectCreationModal({
       onDefectCreated({
         redmineIssueId: result.id.toString(),
         actualResult,
-        screenshots: JSON.stringify(screenshots.map((s) => s.name)),
+        screenshots: JSON.stringify(screenshots.map((s) => s.filename)),
       });
       onClose();
     } catch (err: any) {
@@ -215,6 +221,7 @@ export default function DefectCreationModal({
   const handleClose = () => {
     setExpectedResultValue(expectedResult ?? "");
     setActualResult("");
+    setDefectDescription("");
     setScreenshots([]);
     setSelectedProjectId(null);
     setProjectConfig(null);
@@ -258,6 +265,19 @@ export default function DefectCreationModal({
             </div>
           </div>
 
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label>
+              Description <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              placeholder="Describe the defect you encountered..."
+              value={defectDescription}
+              onChange={(e) => setDefectDescription(e.target.value)}
+              className="min-h-[70px]"
+            />
+          </div>
+
           {/* Expected Result */}
           <div className="space-y-1.5">
             <Label>Expected Result</Label>
@@ -288,7 +308,7 @@ export default function DefectCreationModal({
             <div className="flex flex-wrap gap-2">
               {screenshots.map((s, i) => (
                 <div key={i} className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
-                  <span className="max-w-[120px] truncate">{s.name}</span>
+                  <span className="max-w-[120px] truncate">{s.filename}</span>
                   <button onClick={() => setScreenshots((prev) => prev.filter((_, idx) => idx !== i))}>
                     <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
                   </button>
