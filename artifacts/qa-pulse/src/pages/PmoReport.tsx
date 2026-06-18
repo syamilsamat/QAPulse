@@ -868,8 +868,9 @@ export default function PmoReport() {
 
   const generateReportPDF = async (): Promise<Blob | null> => {
     if (!reportRef.current) return null;
-    // Remove the setIsExporting(true) line here
-
+    // Expand all defects so the PDF captures every row
+    setShowAllDefects(true);
+    await new Promise((r) => setTimeout(r, 120));
     try {
       const dataUrl = await toPng(reportRef.current, {
         cacheBust: true,
@@ -905,8 +906,9 @@ export default function PmoReport() {
     } catch (error) {
       console.error("Failed to generate PDF:", error);
       return null;
+    } finally {
+      setShowAllDefects(false);
     }
-    // Remove the finally block that had setIsExporting(false)
   };
 
   const handleDownloadReport = async () => {
@@ -940,42 +942,47 @@ export default function PmoReport() {
   };
 
   const handleSendReport = async () => {
+    if (!data) return;
     setIsSending(true);
     try {
       const pdfBlob = await generateReportPDF();
       if (!pdfBlob) {
-        toast({
-          variant: "destructive",
-          title: "Export Failed",
-          description: "Could not generate the report PDF.",
-        });
+        toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the report PDF." });
         return;
       }
 
-      const reportName = data?.issueSubject || `Ticket #${redmineId}`;
+      const reportName = data.issueSubject || `Ticket #${redmineId}`;
       const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.pdf`;
-      const genDate = new Date().toLocaleDateString();
-      const userName = user?.name || "System User";
 
-      const url = URL.createObjectURL(pdfBlob);
-      const link = document.createElement("a");
-      link.download = fileName;
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
+      // Convert PDF blob to base64
+      const pdfBase64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.readAsDataURL(pdfBlob);
+      });
 
-      const subjectText = `[Report]- ${reportName}`;
-      const bodyText = `Dear PMO,
+      const res = await fetch(`${getApiUrl()}/pmo/send-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          reportName,
+          fileName,
+          redmineId,
+          pdfBase64,
+          reportData: data,
+          senderName: user?.name || "QA Team",
+        }),
+      });
 
-      Please find the attached report for your review.
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error ?? "Failed to send email");
 
-      Report Details:
-      • Report Name: ${reportName}
-      • Generated Date: ${genDate}
-
-      [Note to sender: The report image has been downloaded to your computer as "${fileName}" in your Download folder. Please attach it to this email manually and kindly delete this Note to sender line before sending email.]`;
-
-      window.location.href = `mailto:?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(bodyText)}`;
+      toast({ title: "Report sent!", description: `Email delivered to PMO recipients.` });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Send Failed", description: err.message });
     } finally {
       setIsSending(false);
     }
