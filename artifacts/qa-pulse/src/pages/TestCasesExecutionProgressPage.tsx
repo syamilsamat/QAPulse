@@ -1071,22 +1071,41 @@ export default function TestCasesExecutionProgressPage() {
             if (typeof cellVal === "string") {
               const clean = cellVal.toLowerCase().trim();
               if (clean === "passed") {
-                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "DCFCE7" } };
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "DCFCE7" },
+                };
                 ws[cell_ref].s.font = { color: { rgb: "166534" }, bold: true };
               } else if (clean === "failed") {
-                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } };
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "FEE2E2" },
+                };
                 ws[cell_ref].s.font = { color: { rgb: "991B1B" }, bold: true };
               } else if (clean === "blocked") {
-                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFEDD5" } };
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "FFEDD5" },
+                };
                 ws[cell_ref].s.font = { color: { rgb: "9A3412" }, bold: true };
               } else if (clean === "in progress") {
-                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "DBEAFE" } };
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "DBEAFE" },
+                };
                 ws[cell_ref].s.font = { color: { rgb: "1E40AF" }, bold: true };
               } else {
-                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "F1F5F9" } };
+                ws[cell_ref].s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "F1F5F9" },
+                };
                 ws[cell_ref].s.font = { color: { rgb: "64748B" } };
               }
-              ws[cell_ref].s.alignment = { vertical: "center", horizontal: "center", wrapText: true };
+              ws[cell_ref].s.alignment = {
+                vertical: "center",
+                horizontal: "center",
+                wrapText: true,
+              };
             }
           }
         }
@@ -1130,7 +1149,12 @@ export default function TestCasesExecutionProgressPage() {
     if (clean.includes("fail")) return "Failed";
     if (clean.includes("block")) return "Blocked";
     if (clean.includes("prog")) return "In Progress";
-    if (clean.includes("exec") || clean.includes("res") || clean.includes("not")) return "Not Executed";
+    if (
+      clean.includes("exec") ||
+      clean.includes("res") ||
+      clean.includes("not")
+    )
+      return "Not Executed";
     return val.trim();
   };
 
@@ -1261,6 +1285,9 @@ export default function TestCasesExecutionProgressPage() {
           if (columnMapIndex[k] === undefined) missingColumnsSet.add(k);
         });
 
+        // 1. NEW: Add a variable to track the active module for the current sheet
+        let currentActiveModule = "";
+
         for (let r = headerRowIndex + 1; r < rawData.length; r++) {
           const row = rawData[r];
 
@@ -1286,12 +1313,17 @@ export default function TestCasesExecutionProgressPage() {
             }
           }
 
-          const extractedValues = Object.values(extracted).filter((v) => v !== "");
+          const extractedValues = Object.values(extracted).filter(
+            (v) => v !== "",
+          );
+
+          // 2. MODIFIED: If identical across all columns, treat it as a module header
           if (
             extractedValues.length > 1 &&
             extractedValues.every((val) => val === extractedValues[0])
           ) {
-            totalRowsSkipped++;
+            currentActiveModule = extractedValues[0]; // Capture the module name
+            totalRowsSkipped++; // Skip adding this as an actual test case row
             continue;
           }
 
@@ -1313,7 +1345,8 @@ export default function TestCasesExecutionProgressPage() {
             id:
               Date.now().toString() +
               Math.random().toString(36).substring(2, 8),
-            moduleName: extracted.moduleName || "",
+            // 3. MODIFIED: Fallback to currentActiveModule if the row doesn't specify one
+            moduleName: extracted.moduleName || currentActiveModule || "",
             caseId: extracted.caseId || "",
             userStory: extracted.userStory || "",
             tracker: extracted.tracker || "",
