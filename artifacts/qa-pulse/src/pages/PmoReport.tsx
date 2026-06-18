@@ -876,6 +876,7 @@ export default function PmoReport() {
         cacheBust: true,
         backgroundColor: "#ffffff",
         pixelRatio: 2,
+        skipFonts: true,
       });
 
       const pdf = new jsPDF({
