@@ -938,35 +938,66 @@ function buildEmailHtml(
     ${riskResult ? `
     <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
-      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:12px;">
+      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:16px;">
         <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
         <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
       </div>
-      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-        ${(riskResult.modules ?? []).map((m: any) => {
-          const level = m.riskLevel ?? m.risk ?? "";
-          const bg = level === "critical" ? "#fee2e2" : level === "high" ? "#ffedd5" : level === "medium" ? "#fef9c3" : "#dcfce7";
-          const fg = level === "critical" ? "#b91c1c" : level === "high" ? "#c2410c" : level === "medium" ? "#92400e" : "#15803d";
-          return `<tr style="border-bottom:1px solid #f3f4f6;">
-            <td style="padding:6px 8px;font-size:12px;color:#374151;">${m.name ?? m.module ?? ""}</td>
-            <td style="padding:6px 8px;width:90px;">
-              <span style="font-size:11px;font-weight:600;padding:2px 10px;border-radius:9999px;background:${bg};color:${fg};">${level}</span>
-            </td>
-            <td style="padding:6px 8px;font-size:11px;color:#6b7280;">${m.reason ?? m.summary ?? ""}</td>
-          </tr>`;
-        }).join("")}
-      </table>
+      ${(riskResult.modules ?? []).map((m: any) => {
+        const level = m.riskLevel ?? m.risk ?? "";
+        const score = m.riskScore ?? 0;
+        const bg = level === "critical" ? "#fee2e2" : level === "high" ? "#ffedd5" : level === "medium" ? "#fef9c3" : "#dcfce7";
+        const fg = level === "critical" ? "#b91c1c" : level === "high" ? "#c2410c" : level === "medium" ? "#92400e" : "#15803d";
+        const barColor = (level === "high" || level === "critical") ? "#ef4444" : level === "medium" ? "#f59e0b" : "#22c55e";
+        const reasons: string[] = m.reasons ?? [];
+        const recommendation: string = m.recommendation ?? "";
+        return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:10px;">
+          <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:${(reasons.length > 0 || recommendation) ? "10px" : "0"};">
+            <tr>
+              <td style="font-size:13px;font-weight:600;color:#111827;">${m.name ?? m.module ?? ""}</td>
+              <td style="text-align:right;white-space:nowrap;">
+                <span style="font-size:12px;font-weight:700;color:#374151;margin-right:8px;">${score}</span>
+                <table style="display:inline-table;border-collapse:collapse;width:80px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;vertical-align:middle;" cellspacing="0" cellpadding="0"><tr><td style="width:${score}%;background:${barColor};height:8px;"></td><td></td></tr></table>
+                <span style="font-size:11px;font-weight:600;padding:2px 10px;border-radius:9999px;background:${bg};color:${fg};margin-left:8px;">${level}</span>
+              </td>
+            </tr>
+          </table>
+          ${reasons.length > 0 ? `<ul style="margin:0 0 6px 0;padding-left:18px;">${reasons.map((r: string) => `<li style="font-size:11px;color:#6b7280;margin-bottom:3px;">${r}</li>`).join("")}</ul>` : ""}
+          ${recommendation ? `<div style="font-size:11px;color:#1d4ed8;background:#eff6ff;border-radius:4px;padding:6px 10px;margin-top:4px;">${recommendation}</div>` : ""}
+        </div>`;
+      }).join("")}
     </div>` : ""}
 
     <!-- AI: Release Readiness (if calculated) -->
     ${readinessResult ? `
     <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
-      <div style="background:#f0f9ff;border-radius:8px;padding:16px 20px;">
-        <span style="font-size:28px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%</span>
-        <span style="font-size:13px;font-weight:500;margin-left:10px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${(readinessResult.status ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
-        <div style="font-size:13px;color:#374151;margin-top:10px;">${readinessResult.summary ?? ""}</div>
+      <div style="background:#f0f9ff;border-radius:8px;padding:20px;text-align:center;margin-bottom:16px;">
+        <div style="font-size:40px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%</div>
+        <div style="margin-top:8px;">
+          <span style="font-size:13px;font-weight:500;padding:4px 14px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status === "ready" ? "Release Ready" : readinessResult.status === "caution" ? "Caution" : (readinessResult.status ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+        </div>
+        ${(readinessResult.verdict ?? readinessResult.summary) ? `<div style="font-size:13px;color:#374151;margin-top:12px;text-align:center;">${readinessResult.verdict ?? readinessResult.summary}</div>` : ""}
+        ${readinessResult.expectedReleaseDate ? `<div style="margin-top:14px;background:#fff;border:1px solid #e0f2fe;border-radius:8px;padding:10px 16px;text-align:left;font-size:13px;"><span style="font-weight:600;color:#111827;">Expected Release: </span><span style="color:#374151;">${readinessResult.expectedReleaseDate}</span></div>` : ""}
       </div>
+      ${((readinessResult.positives ?? []).length > 0 || (readinessResult.blockers ?? []).length > 0) ? `
+      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+        <tr>
+          ${(readinessResult.positives ?? []).length > 0 ? `
+          <td style="vertical-align:top;padding-right:12px;width:50%;">
+            <div style="font-size:13px;font-weight:600;color:#15803d;margin-bottom:8px;">Positive Signals</div>
+            <ul style="margin:0;padding-left:18px;">
+              ${(readinessResult.positives ?? []).map((p: string) => `<li style="font-size:12px;color:#374151;margin-bottom:4px;">${p}</li>`).join("")}
+            </ul>
+          </td>` : ""}
+          ${(readinessResult.blockers ?? []).length > 0 ? `
+          <td style="vertical-align:top;padding-left:12px;width:50%;">
+            <div style="font-size:13px;font-weight:600;color:#b91c1c;margin-bottom:8px;">Blockers</div>
+            <ul style="margin:0;padding-left:18px;">
+              ${(readinessResult.blockers ?? []).map((b: string) => `<li style="font-size:12px;color:#374151;margin-bottom:4px;">${b}</li>`).join("")}
+            </ul>
+          </td>` : ""}
+        </tr>
+      </table>` : ""}
     </div>` : ""}
 
     <!-- Test Execution -->
