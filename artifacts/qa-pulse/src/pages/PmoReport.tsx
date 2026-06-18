@@ -946,22 +946,10 @@ export default function PmoReport() {
     if (!data) return;
     setIsSending(true);
     try {
-      const pdfBlob = await generateReportPDF();
-      if (!pdfBlob) {
-        toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the report PDF." });
-        return;
-      }
-
       const reportName = data.issueSubject || `Ticket #${redmineId}`;
       const fileName = `Report_${reportName.replace(/[^a-z0-9]/gi, "_")}_${getFormattedDateString()}.pdf`;
 
-      // Convert PDF blob to base64
-      const pdfBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1]);
-        reader.readAsDataURL(pdfBlob);
-      });
-
+      // Send email first (lightweight — reportData only, no PDF blob)
       const res = await fetch(`${getApiUrl()}/pmo/send-email`, {
         method: "POST",
         headers: {
@@ -972,7 +960,6 @@ export default function PmoReport() {
           reportName,
           fileName,
           redmineId,
-          pdfBase64,
           reportData: data,
           senderName: user?.name || "QA Team",
         }),
@@ -981,7 +968,18 @@ export default function PmoReport() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error ?? "Failed to send email");
 
-      toast({ title: "Report sent!", description: `Email delivered to PMO recipients.` });
+      // Auto-download PDF locally at the same time
+      const pdfBlob = await generateReportPDF();
+      if (pdfBlob) {
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement("a");
+        link.download = fileName;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      toast({ title: "Report sent!", description: "Email delivered to PMO. PDF also downloaded locally." });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Send Failed", description: err.message });
     } finally {
