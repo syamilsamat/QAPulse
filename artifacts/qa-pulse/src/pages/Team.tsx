@@ -189,7 +189,6 @@ export default function Team() {
           searchPlaceholder="Search role..."
           className="w-40"
         />
-        </Select>
       </div>
 
       {isLoading ? (

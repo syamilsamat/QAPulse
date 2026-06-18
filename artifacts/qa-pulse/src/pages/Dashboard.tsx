@@ -455,7 +455,6 @@ function TeamCalendar({ users }: { users: User[] }) {
                   ]}
                   searchPlaceholder="Search..."
                 />
-                </Select>
               </div>
             </div>
             <div className="space-y-1.5">
@@ -575,7 +574,6 @@ function TeamCalendar({ users }: { users: User[] }) {
                       ]}
                       searchPlaceholder="Search..."
                     />
-                    </Select>
                   </div>
                 </div>
                 <div className="space-y-1.5">
