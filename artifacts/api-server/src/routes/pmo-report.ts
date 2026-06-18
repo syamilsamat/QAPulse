@@ -760,12 +760,15 @@ function generateDonutSvg(
 
 function fmtDate(dateStr?: string): string {
   const d = dateStr ? new Date(dateStr) : new Date();
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+  const tz = process.env.REPORT_TIMEZONE ?? "Asia/Kuala_Lumpur";
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const parts = fmt.formatToParts(d);
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? "00";
+  return `${get("day")}/${get("month")}/${get("year")} ${get("hour")}:${get("minute")}`;
 }
 
 function buildEmailHtml(
@@ -921,35 +924,28 @@ function buildEmailHtml(
   <meta name="supported-color-schemes" content="light dark">
   <style>
     @media (prefers-color-scheme: dark) {
-      body { background-color: #0f172a !important; }
-      .email-wrap { background-color: #1e293b !important; }
-      .section-border { border-color: #334155 !important; }
-      .summary-card { border-color: #334155 !important; background-color: #0f172a !important; }
-      .summary-title { color: #f1f5f9 !important; }
-      .summary-sub { color: #94a3b8 !important; }
-      .summary-id { color: #93c5fd !important; }
-      .section-heading { color: #f1f5f9 !important; }
-      .content-text { color: #cbd5e1 !important; }
-      .muted-text { color: #64748b !important; }
-      .table-head-row { background-color: #0f172a !important; }
-      .table-head-cell { color: #94a3b8 !important; }
-      .table-row { border-color: #334155 !important; }
-      .cell-text { color: #e2e8f0 !important; }
-      .cell-muted { color: #94a3b8 !important; }
-      .stat-card-blue { background-color: #1e3a5f !important; }
-      .stat-card-green { background-color: #14532d !important; }
-      .stat-card-red { background-color: #7f1d1d !important; }
-      .stat-card-orange { background-color: #7c2d12 !important; }
-      .stat-card-gray { background-color: #1e293b !important; border: 1px solid #334155 !important; }
-      .stat-val-blue { color: #60a5fa !important; }
-      .stat-val-green { color: #4ade80 !important; }
-      .stat-val-red { color: #f87171 !important; }
-      .stat-val-orange { color: #fb923c !important; }
-      .stat-val-gray { color: #94a3b8 !important; }
-      .footer-bar { background-color: #0f172a !important; border-color: #334155 !important; }
-      .footer-text { color: #64748b !important; }
-      .gt-row { background-color: #1e3a5f !important; }
-      .gt-label { color: #93c5fd !important; }
+      /* ── Layout ── */
+      body        { background-color: #050a15 !important; }
+      .email-wrap { background-color: #0d1117 !important; box-shadow: 0 4px 32px rgba(0,0,0,0.6) !important; }
+      /* ── Section wrappers ── */
+      .section-border { border-color: #21262d !important; background-color: #0d1117 !important; }
+      /* ── Summary card ── */
+      .summary-card  { border-color: #1f6feb !important; background-color: #0d1424 !important; }
+      .summary-title { color: #e6edf3 !important; }
+      .summary-sub   { color: #7d8590 !important; }
+      .summary-id    { color: #58a6ff !important; }
+      /* ── Generic text ── */
+      .content-text  { color: #c9d1d9 !important; }
+      .muted-text    { color: #6e7681 !important; }
+      /* ── Table chrome ── */
+      .table-head-row  { background-color: #161b22 !important; }
+      .table-head-cell { color: #8b949e !important; }
+      /* ── Grand total row ── */
+      .gt-row   { background-color: #0d2044 !important; border-top-color: #1f6feb !important; }
+      .gt-label { color: #58a6ff !important; }
+      /* ── Footer ── */
+      .footer-bar  { background-color: #040d21 !important; border-top-color: #21262d !important; }
+      .footer-text { color: #484f58 !important; }
     }
   </style>
 </head>
