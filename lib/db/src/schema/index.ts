@@ -8,3 +8,4 @@ export * from "./calendar-events";
 export * from "./notifications";
 export * from "./social-events";
 export * from "./execution";
+export * from "./redmine";

@@ -140,6 +140,7 @@ export const UpdateUserBody = zod.object({
   avatarUrl: zod.string().optional(),
   mustChangePassword: zod.boolean().optional(),
   password: zod.string().optional(),
+  redmineApiKey: zod.string().nullable().optional(),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -150,6 +151,7 @@ export const UpdateUserResponse = zod.object({
   team: zod.string().nullish(),
   avatarUrl: zod.string().nullish(),
   mustChangePassword: zod.boolean().optional(),
+  redmineApiKey: zod.string().nullable().optional(),
   createdAt: zod.string(),
 });
 
