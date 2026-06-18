@@ -84,6 +84,7 @@ export default function DefectCreationModal({
   // Load projects + trackers on open
   useEffect(() => {
     if (!open) return;
+    setExpectedResultValue(expectedResult ?? "");
     fetchRedmineProjects().then(setProjects).catch(() => {});
     fetchRedmineTrackers()
       .then((list) => {
@@ -92,7 +93,7 @@ export default function DefectCreationModal({
         setQaDefectTrackerId(qa?.id ?? list[0]?.id ?? null);
       })
       .catch(() => {});
-  }, [open]);
+  }, [open, expectedResult]);
 
   // Auto-generate subject from scope
   useEffect(() => {
