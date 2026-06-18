@@ -1,7 +1,11 @@
 import { Router, type IRouter } from "express";
 import express from "express";
 import { eq } from "drizzle-orm";
-import nodemailer from "nodemailer";
+
+let nodemailer: any = null;
+try {
+  nodemailer = require("nodemailer");
+} catch {}
 import {
   db,
   requirementsTable,
@@ -869,7 +873,7 @@ function buildEmailHtml(reportName: string, redmineId: string, senderName: strin
 </html>`;
 }
 
-router.post("/pmo/send-email", express.json({ limit: "20mb" }), async (req, res) => {
+router.post("/pmo/send-email", async (req, res) => {
   const { reportName, fileName, redmineId, pdfBase64, reportData, senderName } = req.body;
 
   if (!pdfBase64 || !reportData) {
@@ -885,6 +889,11 @@ router.post("/pmo/send-email", express.json({ limit: "20mb" }), async (req, res)
   const emailFrom = process.env.EMAIL_FROM ?? smtpUser;
   const emailTo = process.env.PMO_EMAIL_TO ?? "qa.services@bestinet.com.my";
   const emailCc = process.env.PMO_EMAIL_CC ?? "syamil.samat@bestinet.com,raimi.rosman@bestinet.com.my";
+
+  if (!nodemailer) {
+    res.status(500).json({ error: "nodemailer is not installed. Run: pnpm install in artifacts/api-server" });
+    return;
+  }
 
   if (!smtpUser || !smtpPass) {
     res.status(500).json({
