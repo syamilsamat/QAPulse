@@ -19,13 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   History,
   Search,
@@ -184,39 +178,36 @@ export default function HistoryTrail() {
                 }}
               />
             </div>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                {/* Updated to show ALL status options */}
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="blocked">Blocked</SelectItem>
-                <SelectItem value="uat">UAT</SelectItem>
-                <SelectItem value="sit">SIT</SelectItem>
-                <SelectItem value="done">Done</SelectItem>
-                <SelectItem value="released_to_production">
-                  Released to Production
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={filterStatus}
+              onValueChange={setFilterStatus}
+              options={[
+                { value: "all", label: "All Status" },
+                { value: "new", label: "New" },
+                { value: "pending", label: "Pending" },
+                { value: "in_progress", label: "In Progress" },
+                { value: "blocked", label: "Blocked" },
+                { value: "uat", label: "UAT" },
+                { value: "sit", label: "SIT" },
+                { value: "done", label: "Done" },
+                { value: "released_to_production", label: "Released to Production" },
+              ]}
+              placeholder="Status"
+              searchPlaceholder="Search status..."
+              className="w-full sm:w-36"
+            />
             {isAdminOrLead && (
-              <Select value={filterAssignee} onValueChange={setFilterAssignee}>
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Assignee" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Members</SelectItem>
-                  {uniqueAssignees.map(([id, name]) => (
-                    <SelectItem key={id as number} value={String(id)}>
-                      {name as string}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={filterAssignee}
+                onValueChange={setFilterAssignee}
+                options={[
+                  { value: "all", label: "All Members" },
+                  ...uniqueAssignees.map(([id, name]) => ({ value: String(id), label: name as string })),
+                ]}
+                placeholder="Assignee"
+                searchPlaceholder="Search assignee..."
+                className="w-full sm:w-40"
+              />
             )}
           </div>
         </CardHeader>

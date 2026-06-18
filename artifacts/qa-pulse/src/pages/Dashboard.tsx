@@ -17,9 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
@@ -445,15 +443,18 @@ function TeamCalendar({ users }: { users: User[] }) {
               </div>
               <div className="space-y-1.5">
                 <Label>Type</Label>
-                <Select value={eventForm.eventType} onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="uat">UAT</SelectItem>
-                    <SelectItem value="meeting">Meeting</SelectItem>
-                    <SelectItem value="deadline">Deadline</SelectItem>
-                    <SelectItem value="release">Release</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
+                <SearchableSelect
+                  value={eventForm.eventType}
+                  onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}
+                  options={[
+                    { value: "uat", label: "UAT" },
+                    { value: "meeting", label: "Meeting" },
+                    { value: "deadline", label: "Deadline" },
+                    { value: "release", label: "Release" },
+                    { value: "other", label: "Other" },
+                  ]}
+                  searchPlaceholder="Search..."
+                />
                 </Select>
               </div>
             </div>
@@ -562,15 +563,18 @@ function TeamCalendar({ users }: { users: User[] }) {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Type</Label>
-                    <Select value={eventForm.eventType} onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="uat">UAT</SelectItem>
-                        <SelectItem value="meeting">Meeting</SelectItem>
-                        <SelectItem value="deadline">Deadline</SelectItem>
-                        <SelectItem value="release">Release</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
+                    <SearchableSelect
+                      value={eventForm.eventType}
+                      onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}
+                      options={[
+                        { value: "uat", label: "UAT" },
+                        { value: "meeting", label: "Meeting" },
+                        { value: "deadline", label: "Deadline" },
+                        { value: "release", label: "Release" },
+                        { value: "other", label: "Other" },
+                      ]}
+                      searchPlaceholder="Search..."
+                    />
                     </Select>
                   </div>
                 </div>

@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -233,81 +234,43 @@ function AIGenerateDialog({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Project (optional)</Label>
-                <Select
+                <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, projectId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a project..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {projects.map((p: any) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  options={projects.map((p: any) => ({ value: String(p.id), label: p.name }))}
+                  placeholder="Select a project..."
+                  searchPlaceholder="Search project..."
+                />
               </div>
 
               <div className="space-y-1.5">
                 <Label>Base Requirement (optional)</Label>
-                <Select
+                <SearchableSelect
                   value={form.requirementId ? String(form.requirementId) : ""}
                   onValueChange={(v) => {
                     const reqId = Number(v);
                     const req = requirements.find((r: any) => r.id === reqId);
                     if (req) {
-                      // Recursive function to grab all descendants at any depth
-                      const getAllDescendants = (
-                        parentId: number,
-                        allReqs: any[],
-                        depth = 1,
-                      ): any[] => {
-                        const children = allReqs.filter(
-                          (r: any) => r.parentId === parentId,
-                        );
+                      const getAllDescendants = (parentId: number, allReqs: any[], depth = 1): any[] => {
+                        const children = allReqs.filter((r: any) => r.parentId === parentId);
                         let desc: any[] = [];
                         for (const child of children) {
                           desc.push({ ...child, depth });
-                          desc = desc.concat(
-                            getAllDescendants(child.id, allReqs, depth + 1),
-                          );
+                          desc = desc.concat(getAllDescendants(child.id, allReqs, depth + 1));
                         }
                         return desc;
                       };
-
-                      const descendants = getAllDescendants(
-                        req.id,
-                        requirements,
-                      );
+                      const descendants = getAllDescendants(req.id, requirements);
                       const combined = [{ ...req, depth: 0 }, ...descendants];
-
                       setAvailableReqs(combined);
                       setSelectedReqIds(new Set(combined.map((c) => c.id)));
-
-                      setForm({
-                        ...form,
-                        requirementId: reqId,
-                        requirementTitle: req.title,
-                        module: req.module ?? "",
-                      });
+                      setForm({ ...form, requirementId: reqId, requirementTitle: req.title, module: req.module ?? "" });
                     }
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a requirement..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {requirements.map((r: any) => (
-                      <SelectItem key={r.id} value={String(r.id)}>
-                        {r.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
+                  placeholder="Select a requirement..."
+                  searchPlaceholder="Search requirement..."
+                />
               </div>
             </div>
 
@@ -458,23 +421,13 @@ function AIGenerateDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Assign Author</Label>
-                <Select
+                <SearchableSelect
                   value={form.authorId ? String(form.authorId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, authorId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Current User" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {users.map((u: any) => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setForm({ ...form, authorId: Number(v) })}
+                  options={users.map((u: any) => ({ value: String(u.id), label: u.name }))}
+                  placeholder="Current User"
+                  searchPlaceholder="Search user..."
+                />
               </div>
             </div>
 
@@ -1019,40 +972,39 @@ export default function TestCases() {
               />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 w-full lg:w-auto shrink-0">
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="bg-muted/30">
-                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
-                  <SelectValue placeholder="Sort By" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="newest">Newest First</SelectItem>
-                  <SelectItem value="oldest">Oldest First</SelectItem>
-                  <SelectItem value="updated">Recently Updated</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={filterProject} onValueChange={setFilterProject}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterAI} onValueChange={setFilterAI}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Source" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sources</SelectItem>
-                  <SelectItem value="ai">AI Assisted</SelectItem>
-                  <SelectItem value="manual">Manual</SelectItem>
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={sortBy}
+                onValueChange={setSortBy}
+                options={[
+                  { value: "newest", label: "Newest First" },
+                  { value: "oldest", label: "Oldest First" },
+                  { value: "updated", label: "Recently Updated" },
+                ]}
+                placeholder="Sort By"
+                searchPlaceholder="Search..."
+                className="bg-muted/30"
+              />
+              <SearchableSelect
+                value={filterProject}
+                onValueChange={setFilterProject}
+                options={[
+                  { value: "all", label: "All Projects" },
+                  ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Project"
+                searchPlaceholder="Search project..."
+              />
+              <SearchableSelect
+                value={filterAI}
+                onValueChange={setFilterAI}
+                options={[
+                  { value: "all", label: "All Sources" },
+                  { value: "ai", label: "AI Assisted" },
+                  { value: "manual", label: "Manual" },
+                ]}
+                placeholder="Source"
+                searchPlaceholder="Search..."
+              />
             </div>
           </div>
         </CardHeader>
@@ -1447,43 +1399,23 @@ export default function TestCases() {
               </div>
               <div className="space-y-1.5">
                 <Label>Project</Label>
-                <Select
+                <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, projectId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                  placeholder="Select..."
+                  searchPlaceholder="Search project..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Requirement</Label>
-                <Select
+                <SearchableSelect
                   value={form.requirementId ? String(form.requirementId) : ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, requirementId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Link to..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {requirements.map((r) => (
-                      <SelectItem key={r.id} value={String(r.id)}>
-                        {r.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(v) => setForm({ ...form, requirementId: Number(v) })}
+                  options={requirements.map((r) => ({ value: String(r.id), label: r.title }))}
+                  placeholder="Link to..."
+                  searchPlaceholder="Search requirement..."
+                />
               </div>
             </div>
 
@@ -1576,21 +1508,13 @@ export default function TestCases() {
               </div>
               <div className="space-y-1.5">
                 <Label>QA PIC</Label>
-                <Select
+                <SearchableSelect
                   value={form.qaPic ?? ""}
                   onValueChange={(v) => setForm({ ...form, qaPic: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select QA PIC..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {users.map((u: any) => (
-                      <SelectItem key={u.id} value={u.name}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={users.map((u: any) => ({ value: u.name, label: u.name }))}
+                  placeholder="Select QA PIC..."
+                  searchPlaceholder="Search user..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Comments / Issues</Label>

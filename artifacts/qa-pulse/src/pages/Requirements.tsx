@@ -27,13 +27,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -538,41 +533,42 @@ export default function Requirements() {
               />
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full lg:w-auto shrink-0">
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="bg-muted/30">
-                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground hidden sm:block" />
-                  <SelectValue placeholder="Sort By" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="newest">Newest First</SelectItem>
-                  <SelectItem value="oldest">Oldest First</SelectItem>
-                  <SelectItem value="updated">Recently Updated</SelectItem>
-                  <SelectItem value="priority">Highest Priority</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={filterProject} onValueChange={setFilterProject}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterPriority} onValueChange={setFilterPriority}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="all">All Priority</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={sortBy}
+                onValueChange={setSortBy}
+                options={[
+                  { value: "newest", label: "Newest First" },
+                  { value: "oldest", label: "Oldest First" },
+                  { value: "updated", label: "Recently Updated" },
+                  { value: "priority", label: "Highest Priority" },
+                ]}
+                placeholder="Sort By"
+                searchPlaceholder="Search..."
+                className="bg-muted/30"
+              />
+              <SearchableSelect
+                value={filterProject}
+                onValueChange={setFilterProject}
+                options={[
+                  { value: "all", label: "All Projects" },
+                  ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Project"
+                searchPlaceholder="Search project..."
+              />
+              <SearchableSelect
+                value={filterPriority}
+                onValueChange={setFilterPriority}
+                options={[
+                  { value: "all", label: "All Priority" },
+                  { value: "low", label: "Low" },
+                  { value: "normal", label: "Normal" },
+                  { value: "high", label: "High" },
+                  { value: "urgent", label: "Urgent" },
+                ]}
+                placeholder="Priority"
+                searchPlaceholder="Search..."
+              />
             </div>
           </div>
         </CardHeader>
@@ -798,25 +794,23 @@ export default function Requirements() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Project</Label>
-                <Select value={form.projectId ? String(form.projectId) : ""} onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}>
-                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.projectId ? String(form.projectId) : ""}
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                  placeholder="Select project"
+                  searchPlaceholder="Search project..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <Select value={form.module ?? ""} onValueChange={(v) => setForm({ ...form, module: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select module" /></SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {executionModules.map((m: any) => (
-                      <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.module ?? ""}
+                  onValueChange={(v) => setForm({ ...form, module: v })}
+                  options={executionModules.map((m: any) => ({ value: m.name, label: m.name }))}
+                  placeholder="Select module"
+                  searchPlaceholder="Search module..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Tracker</Label>
@@ -824,15 +818,18 @@ export default function Requirements() {
               </div>
               <div className="space-y-1.5">
                 <Label>Priority <span className="text-destructive">*</span></Label>
-                <Select value={form.priority ?? "normal"} onValueChange={(v) => setForm({ ...form, priority: v as any })}>
-                  <SelectTrigger className={errors.priority ? "border-destructive" : ""}><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.priority ?? "normal"}
+                  onValueChange={(v) => setForm({ ...form, priority: v as any })}
+                  options={[
+                    { value: "low", label: "Low" },
+                    { value: "normal", label: "Normal" },
+                    { value: "high", label: "High" },
+                    { value: "urgent", label: "Urgent" },
+                  ]}
+                  searchPlaceholder="Search..."
+                  className={errors.priority ? "border-destructive" : ""}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Release</Label>
@@ -870,25 +867,23 @@ export default function Requirements() {
             </div>
             <div className="space-y-1.5">
               <Label>Project <span className="text-destructive">*</span></Label>
-              <Select value={redmineSelectedProject} onValueChange={setRedmineSelectedProject}>
-                <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={redmineSelectedProject}
+                onValueChange={setRedmineSelectedProject}
+                options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                placeholder="Select project"
+                searchPlaceholder="Search project..."
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Module <span className="text-destructive">*</span></Label>
-              <Select value={redmineSelectedModule} onValueChange={setRedmineSelectedModule}>
-                <SelectTrigger><SelectValue placeholder="Select module" /></SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {executionModules.map((m: any) => (
-                    <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={redmineSelectedModule}
+                onValueChange={setRedmineSelectedModule}
+                options={executionModules.map((m: any) => ({ value: m.name, label: m.name }))}
+                placeholder="Select module"
+                searchPlaceholder="Search module..."
+              />
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
@@ -918,14 +913,16 @@ export default function Requirements() {
             </div>
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={projectForm.status} onValueChange={(v) => setProjectForm({ ...projectForm, status: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="on_hold">On Hold</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={projectForm.status}
+                onValueChange={(v) => setProjectForm({ ...projectForm, status: v })}
+                options={[
+                  { value: "active", label: "Active" },
+                  { value: "on_hold", label: "On Hold" },
+                  { value: "completed", label: "Completed" },
+                ]}
+                searchPlaceholder="Search..."
+              />
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
