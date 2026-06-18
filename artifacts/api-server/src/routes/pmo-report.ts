@@ -839,7 +839,7 @@ function buildEmailHtml(
     .filter(([k]) => !["verified", "closed"].includes(k))
     .reduce((s, [, v]) => s + (v as number), 0);
 
-  // --- Donut charts ---
+  // --- CSS segment bars (email-safe, Gmail strips SVG) ---
   const execSegments = [
     { value: te.passed ?? 0,      color: "#4ade80", label: "Passed" },
     { value: te.failed ?? 0,      color: "#f87171", label: "Failed" },
@@ -847,6 +847,7 @@ function buildEmailHtml(
     { value: te.inProgress ?? 0,  color: "#60a5fa", label: "In Progress" },
     { value: te.notExecuted ?? 0, color: "#94a3b8", label: "Not Executed" },
   ];
+  const execTotal = te.total ?? 0;
 
   const defectStatusColors: Record<string, string> = {
     new: "#facc15", in_progress: "#60a5fa", for_qa_test: "#3b82f6",
@@ -855,24 +856,34 @@ function buildEmailHtml(
   };
   const defectSegments = Object.entries(defects.counts ?? {})
     .filter(([, v]) => (v as number) > 0)
-    .map(([k, v]) => ({ value: v as number, color: defectStatusColors[k] ?? "#9ca3af", label: k }));
+    .map(([k, v]) => ({ value: v as number, color: defectStatusColors[k] ?? "#9ca3af", label: k.replace(/_/g, " ") }));
+  const defectTotal = defects.total ?? 0;
 
-  const execSvg = generateDonutSvg(execSegments, `${te.passRate ?? 0}%`, "Pass Rate");
-  const defectSvg = generateDonutSvg(defectSegments, String(defects.total ?? 0), "Total Defects");
+  const makeBar = (segs: {value:number;color:string}[], total: number) => {
+    if (total === 0) return `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr><td style="background:#e5e7eb;height:20px;border-radius:10px;"></td></tr></table>`;
+    const cells = segs.filter(s => s.value > 0).map(s => {
+      const w = Math.max(1, Math.round((s.value / total) * 100));
+      return `<td width="${w}%" style="background:${s.color};height:20px;"></td>`;
+    }).join("");
+    return `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border-radius:10px;overflow:hidden;"><tr>${cells}</tr></table>`;
+  };
 
-  const execLegend = execSegments.map(s =>
-    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-       <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
-       <span style="font-size:12px;color:#374151;">${s.label}</span>
-       <span style="font-size:12px;font-weight:600;color:#111827;margin-left:auto;padding-left:8px;">${s.value}</span>
-     </div>`).join("");
+  const makeLegendTable = (segs: {value:number;color:string;label:string}[]) => {
+    const rows = segs.map(s =>
+      `<tr>
+        <td style="padding:3px 8px 3px 0;vertical-align:middle;">
+          <div style="width:10px;height:10px;border-radius:50%;background:${s.color};display:inline-block;"></div>
+        </td>
+        <td style="padding:3px 16px 3px 0;font-size:12px;color:#374151;white-space:nowrap;">${s.label}</td>
+        <td style="padding:3px 0;font-size:12px;font-weight:700;color:#111827;text-align:right;">${s.value}</td>
+      </tr>`).join("");
+    return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">${rows}</table>`;
+  };
 
-  const defectLegend = defectSegments.map(s =>
-    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-       <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
-       <span style="font-size:12px;color:#374151;text-transform:capitalize;">${s.label.replace("_", " ")}</span>
-       <span style="font-size:12px;font-weight:600;color:#111827;margin-left:auto;padding-left:8px;">${s.value}</span>
-     </div>`).join("");
+  const execBar     = makeBar(execSegments, execTotal);
+  const defectBar   = makeBar(defectSegments, defectTotal);
+  const execLegend  = makeLegendTable(execSegments);
+  const defectLegend = makeLegendTable(defectSegments);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -888,7 +899,7 @@ function buildEmailHtml(
       <div style="font-size:13px;opacity:0.7;margin-top:4px;">Sent by ${senderName}</div>
     </div>
 
-    <!-- Summary Card (mirrors UI) -->
+    <!-- Summary Card -->
     <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
         <div style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
@@ -899,46 +910,60 @@ function buildEmailHtml(
       </div>
     </div>
 
-    <!-- Charts Row -->
-    <div style="padding:24px 32px;border-bottom:1px solid #f3f4f6;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+    <!-- AI: Bug Prediction (if calculated) -->
+    ${riskResult ? `
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
+      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:12px;">
+        <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
+        <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
+      </div>
+      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+        ${(riskResult.modules ?? []).map((m: any) => {
+          const level = m.riskLevel ?? m.risk ?? "";
+          const bg = level === "critical" ? "#fee2e2" : level === "high" ? "#ffedd5" : level === "medium" ? "#fef9c3" : "#dcfce7";
+          const fg = level === "critical" ? "#b91c1c" : level === "high" ? "#c2410c" : level === "medium" ? "#92400e" : "#15803d";
+          return `<tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:6px 8px;font-size:12px;color:#374151;">${m.name ?? m.module ?? ""}</td>
+            <td style="padding:6px 8px;width:90px;">
+              <span style="font-size:11px;font-weight:600;padding:2px 10px;border-radius:9999px;background:${bg};color:${fg};">${level}</span>
+            </td>
+            <td style="padding:6px 8px;font-size:11px;color:#6b7280;">${m.reason ?? m.summary ?? ""}</td>
+          </tr>`;
+        }).join("")}
+      </table>
+    </div>` : ""}
+
+    <!-- AI: Release Readiness (if calculated) -->
+    ${readinessResult ? `
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
+      <div style="background:#f0f9ff;border-radius:8px;padding:16px 20px;">
+        <span style="font-size:28px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%</span>
+        <span style="font-size:13px;font-weight:500;margin-left:10px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status ?? ""}</span>
+        <div style="font-size:13px;color:#374151;margin-top:10px;">${readinessResult.summary ?? ""}</div>
+      </div>
+    </div>` : ""}
+
+    <!-- Test Execution -->
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution</div>
+      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
         <tr>
-          <!-- Test Execution Donut -->
-          <td width="50%" style="padding-right:16px;vertical-align:top;">
-            <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #2563eb;padding-left:10px;">Test Execution</div>
-            <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-              <tr>
-                <td style="vertical-align:middle;padding-right:16px;">${execSvg}</td>
-                <td style="vertical-align:middle;">${execLegend}</td>
-              </tr>
-            </table>
-            <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-              Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
-              &nbsp;·&nbsp; Total: <strong>${te.total ?? 0}</strong>
-            </div>
+          <td style="vertical-align:middle;padding-right:24px;width:140px;">
+            <div style="font-size:30px;font-weight:700;color:#15803d;">${te.passRate ?? 0}%</div>
+            <div style="font-size:11px;color:#6b7280;">Pass Rate</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px;">Total: <strong>${execTotal}</strong></div>
           </td>
-          <!-- Defect Status Donut -->
-          <td width="50%" style="padding-left:16px;vertical-align:top;border-left:1px solid #f3f4f6;">
-            <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #ef4444;padding-left:10px;">Defect Status</div>
-            <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-              <tr>
-                <td style="vertical-align:middle;padding-right:16px;">${defectSvg}</td>
-                <td style="vertical-align:middle;">${defectLegend || '<span style="font-size:12px;color:#9ca3af;">No defects</span>'}</td>
-              </tr>
-            </table>
-            <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-              Open: <strong style="color:#c2410c;">${openCount}</strong>
-              &nbsp;·&nbsp; Open Rate: <strong>${defects.openRate ?? 0}%</strong>
-            </div>
-          </td>
+          <td style="vertical-align:middle;">${execLegend}</td>
         </tr>
       </table>
-    </div>
-
-    <!-- Test Execution Summary Stats -->
-    <div style="padding:24px 32px;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution Summary</div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px;">
+      ${execBar}
+      <div style="margin-top:8px;font-size:12px;color:#6b7280;">
+        Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
+        &nbsp;·&nbsp; Success Rate: <strong style="color:#1d4ed8;">${te.successRate ?? 0}%</strong>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
         ${[
           { label: "Total", val: te.total ?? 0, color: "#1e40af", bg: "#dbeafe" },
           { label: "Passed", val: te.passed ?? 0, color: "#15803d", bg: "#dcfce7" },
@@ -946,22 +971,16 @@ function buildEmailHtml(
           { label: "Blocked", val: te.blocked ?? 0, color: "#c2410c", bg: "#ffedd5" },
           { label: "In Progress", val: te.inProgress ?? 0, color: "#1d4ed8", bg: "#dbeafe" },
           { label: "Not Executed", val: te.notExecuted ?? 0, color: "#374151", bg: "#f3f4f6" },
-        ].map(c => `
-          <div style="background:${c.bg};border-radius:8px;padding:14px 20px;min-width:100px;text-align:center;">
-            <div style="font-size:24px;font-weight:700;color:${c.color};">${c.val}</div>
-            <div style="font-size:11px;color:#6b7280;font-weight:500;margin-top:2px;">${c.label}</div>
-          </div>`).join("")}
-      </div>
-      <div style="margin-top:10px;font-size:13px;color:#6b7280;">
-        Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
-        &nbsp;·&nbsp;
-        Success Rate: <strong style="color:#1d4ed8;">${te.successRate ?? 0}%</strong>
+        ].map(c => `<div style="background:${c.bg};border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div style="font-size:22px;font-weight:700;color:${c.color};">${c.val}</div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">${c.label}</div>
+        </div>`).join("")}
       </div>
     </div>
 
     <!-- Module Breakdown -->
     ${modules.length > 0 ? `
-    <div style="padding:0 32px 24px;">
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #8b5cf6;padding-left:12px;">Module Breakdown</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
@@ -979,32 +998,43 @@ function buildEmailHtml(
       </table>
     </div>` : ""}
 
-    <!-- Defect Summary -->
-    <div style="padding:0 32px 24px;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #ef4444;padding-left:12px;">Defect Summary</div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
-        <div style="background:#fee2e2;border-radius:8px;padding:12px 18px;text-align:center;min-width:90px;">
-          <div style="font-size:22px;font-weight:700;color:#b91c1c;">${defects.total ?? 0}</div>
-          <div style="font-size:11px;color:#6b7280;">Total</div>
+    <!-- Defect Status -->
+    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #ef4444;padding-left:12px;">Defect Status</div>
+      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
+        <tr>
+          <td style="vertical-align:middle;padding-right:24px;width:140px;">
+            <div style="font-size:30px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
+            <div style="font-size:11px;color:#6b7280;">Total Defects</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px;">Open: <strong style="color:#c2410c;">${openCount}</strong></div>
+          </td>
+          <td style="vertical-align:middle;">${defectLegend || '<span style="font-size:12px;color:#9ca3af;">No defects</span>'}</td>
+        </tr>
+      </table>
+      ${defectBar}
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
+        <div style="background:#fee2e2;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div style="font-size:22px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Total</div>
         </div>
-        <div style="background:#ffedd5;border-radius:8px;padding:12px 18px;text-align:center;min-width:90px;">
+        <div style="background:#ffedd5;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
           <div style="font-size:22px;font-weight:700;color:#c2410c;">${openCount}</div>
-          <div style="font-size:11px;color:#6b7280;">Open</div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Open</div>
         </div>
-        <div style="background:#dcfce7;border-radius:8px;padding:12px 18px;text-align:center;min-width:90px;">
+        <div style="background:#dcfce7;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
           <div style="font-size:22px;font-weight:700;color:#15803d;">${(defects.counts?.verified ?? 0) + (defects.counts?.closed ?? 0)}</div>
-          <div style="font-size:11px;color:#6b7280;">Closed/Verified</div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Closed/Verified</div>
         </div>
-        <div style="background:#fff7ed;border-radius:8px;padding:12px 18px;text-align:center;min-width:90px;">
+        <div style="background:#fff7ed;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
           <div style="font-size:22px;font-weight:700;color:#92400e;">${defects.openRate ?? 0}%</div>
-          <div style="font-size:11px;color:#6b7280;">Open Rate</div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Open Rate</div>
         </div>
       </div>
     </div>
 
     <!-- Active Defects Table -->
     ${activeDefects.length > 0 ? `
-    <div style="padding:0 32px 32px;">
+    <div style="padding:24px 32px 32px;">
       <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #f59e0b;padding-left:12px;">Active Defects (${activeDefects.length})</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
@@ -1018,33 +1048,6 @@ function buildEmailHtml(
         </thead>
         <tbody>${defectRows}</tbody>
       </table>
-    </div>` : ""}
-
-    <!-- AI Sections (only if calculated) -->
-    ${riskResult ? `
-    <div style="padding:0 32px 24px;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
-      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:12px;">
-        <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
-        <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
-      </div>
-      ${(riskResult.modules ?? []).map((m: any) => `
-        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;">
-          <span style="font-size:12px;color:#374151;flex:1;">${m.module}</span>
-          <span style="font-size:11px;font-weight:600;padding:2px 10px;border-radius:9999px;background:${m.risk === "critical" ? "#fee2e2" : m.risk === "high" ? "#ffedd5" : m.risk === "medium" ? "#fef9c3" : "#dcfce7"};color:${m.risk === "critical" ? "#b91c1c" : m.risk === "high" ? "#c2410c" : m.risk === "medium" ? "#92400e" : "#15803d"};">${m.risk}</span>
-          <span style="font-size:11px;color:#6b7280;width:180px;">${m.reason ?? ""}</span>
-        </div>`).join("")}
-    </div>` : ""}
-
-    ${readinessResult ? `
-    <div style="padding:0 32px 24px;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
-      <div style="background:#f0f9ff;border-radius:8px;padding:16px 20px;">
-        <div style="font-size:28px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%
-          <span style="font-size:13px;font-weight:500;margin-left:8px;padding:3px 12px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status ?? ""}</span>
-        </div>
-        <div style="font-size:13px;color:#374151;margin-top:8px;">${readinessResult.summary ?? ""}</div>
-      </div>
     </div>` : ""}
 
     <!-- Footer -->
