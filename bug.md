@@ -1,0 +1,13 @@
+# Bug Tracker
+
+| No. | Details | Status |
+|-----|---------|--------|
+| 1 | "No values to set" Drizzle ORM error on PATCH /api/users/:id — generated `useUpdateUser` hook strips unknown fields like `redmineApiKey`. Fixed by creating a dedicated `PATCH /users/:id/redmine-key` endpoint and using direct `fetch` instead of the generated mutation. | FIXED |
+| 2 | 404 on GET /api/redmine/project-configs — Replit server was running stale compiled TypeScript from `dist/`. Fixed by rebuilding and restarting the server. | FIXED |
+| 3 | 404 on PATCH /api/users/:id/redmine-key — Same root cause as Bug 2, stale compiled code on Replit. Fixed by rebuilding the API server. | FIXED |
+| 4 | Edit testcase button in execution dashboard opens in a new tab/browser instead of navigating in the same app. Fixed by replacing `<a target="_blank">` with wouter `setLocation()` in `TestCasesExecution.tsx`. | FIXED |
+| 5 | Redmine API Key input reverts to hidden (password type) after saving — `showRedmineKey` state was not updated on save. Fixed by calling `setShowRedmineKey(true)` after a successful save in `Settings.tsx`. | FIXED |
+| 6 | Redmine Project dropdown in Create Defect popup not rendering as smart search — `PopoverContent` used `w-full` which does not resolve correctly inside a Dialog portal. Fixed by changing to `min-w-[var(--radix-popper-anchor-width)]` in `searchable-select.tsx`. | FIXED |
+| 7 | Leftover `</Select>` closing tags in `Team.tsx` and `Dashboard.tsx` after Select → SearchableSelect conversion caused Vite build to fail with JSX parse error. Fixed by removing the stray closing tags. | FIXED |
+| 8 | Auto defect creation always uses the default Redmine API key even when user has saved a personal key — `getHeaders()` in `execution-api.ts` never sent the `Authorization: Bearer` token, so the server could not identify the user and always fell back to the env default. Fixed by (1) including the JWT token in `getHeaders()` and (2) updating `resolveApiKey` in `redmine.ts` to call `getAuthUser(req)` which reads the user from the JWT header. | FIXED |
+| 9 | Defect created from execution progress page was not linked as a child of the parent Redmine ticket — `parentIssueId` was never passed to the Redmine issue creation payload. Fixed by passing `ticketId` from `TestCasesExecutionProgressPage` as `parentIssueId` prop through `DefectCreationModal` → `createRedmineDefect` → API server → Redmine `parent_issue_id` field. Only set if the ticket ID is a valid number. | FIXED |

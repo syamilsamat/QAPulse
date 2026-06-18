@@ -1,0 +1,12 @@
+# Requirement Tracker
+
+| No. | Details | Status |
+|-----|---------|--------|
+| 1 | **Auto Defect Generation** — When a tester marks a test step or test case as "Failed", a modal opens to create a Redmine defect. Fields: Actual Result (mandatory), Screenshots (file upload), Redmine Project (dropdown), Tracker (locked to "QA Defect"), Complexity (S/M/L/XL, default M), Targeted Start Date, Targeted Completion Date. Includes smart duplicate check before creating. Defect scope toggle: "This step" vs "Entire test case". Saves Redmine issue ID back to the execution record. | FIXED |
+| 2 | **Smart Searchable Combobox for All Dropdowns** — All `Select` dropdowns across the app (Tasks, TestCases, AiFeatures, Requirements, Team, ModuleAndProject, Dashboard, TeamHangouts, HistoryTrail, Settings, DefectCreationModal) converted to a reusable `SearchableSelect` component using Popover + Command pattern with live search/filter. | FIXED |
+| 3 | **Per-User Redmine API Key** — Each user can store a personal Redmine API key in their Settings profile. QAPulse uses this key when creating or searching Redmine issues, falling back to the system default env key if empty. | FIXED |
+| 4 | **Redmine Project Caching & Sync** — Redmine projects are fetched from Redmine API and cached in the QAPulse database. QA Lead can refresh the list via a "Sync Redmine Projects" button. Projects are stored separately from QAPulse projects. | FIXED |
+| 5 | **Custom Field IDs per Redmine Project** — QA Lead can configure Redmine custom field IDs (Complexity, Targeted Start Date, Targeted Completion Date) per Redmine project via the Project & Module Config page. | FIXED |
+| 6 | **Task Progress from Execution Details** — The Progress column in the Tasks page now reflects actual test execution progress. When a task has a linked Redmine ID, it fetches aggregated execution summary data (executed/total test cases) and displays it as a progress bar with a count. | FIXED |
+| 7 | **Move Redmine Integration to Project & Module Config** — The Redmine Integration section (sync button + custom field ID config per project) was moved from the Settings page to the Project & Module Config page for better discoverability by QA Leads. | FIXED |
+| 8 | **Editable Expected Result in Create Defect Modal** — The Expected Result field is shown in the defect creation modal, pre-populated from the test case's Expected Result column. The value is editable before submission and is included in the Redmine issue description under `**Expected Result:**`. | FIXED |

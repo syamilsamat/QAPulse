@@ -6,6 +6,7 @@ import {
   redmineProjectConfigsTable,
   usersTable,
 } from "@workspace/db";
+import { getAuthUser } from "./auth";
 
 const router: IRouter = Router();
 
@@ -20,16 +21,11 @@ function getDefaultApiKey() {
 }
 
 /** Resolves the effective API key for a request.
- *  Uses the authenticated user's personal key when set; falls back to the env default. */
+ *  Reads the authenticated user from the JWT Bearer token, then uses their
+ *  personal Redmine API key if set; falls back to the env default. */
 async function resolveApiKey(req: any): Promise<string> {
-  const userId = req.user?.id ?? req.headers["x-user-id"];
-  if (userId) {
-    const [user] = await db
-      .select({ redmineApiKey: usersTable.redmineApiKey })
-      .from(usersTable)
-      .where(eq(usersTable.id, Number(userId)));
-    if (user?.redmineApiKey?.trim()) return user.redmineApiKey.trim();
-  }
+  const authUser = await getAuthUser(req);
+  if (authUser?.redmineApiKey?.trim()) return authUser.redmineApiKey.trim();
   return getDefaultApiKey();
 }
 
@@ -267,6 +263,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     trackerId,
     subject,
     description,
+    parentIssueId,
     complexityFieldId,
     complexityValue,
     targetedStartDateFieldId,
@@ -325,6 +322,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
         tracker_id: trackerId,
         subject,
         description: description ?? "",
+        ...(parentIssueId && { parent_issue_id: Number(parentIssueId) }),
         ...(customFields.length > 0 && { custom_fields: customFields }),
         ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
       },

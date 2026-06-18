@@ -41,6 +41,7 @@ interface Props {
   stepName?: string;
   testCaseId?: string;
   expectedResult?: string;
+  parentIssueId?: string | number | null;
 }
 
 export default function DefectCreationModal({
@@ -51,11 +52,13 @@ export default function DefectCreationModal({
   stepName,
   testCaseId,
   expectedResult,
+  parentIssueId,
 }: Props) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [scope, setScope] = useState<"step" | "testcase">("testcase");
+  const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
   const [actualResult, setActualResult] = useState("");
   const [screenshots, setScreenshots] = useState<{ name: string; contentType: string; base64: string }[]>([]);
 
@@ -146,7 +149,7 @@ export default function DefectCreationModal({
 
   const buildDescription = () => {
     let desc = "";
-    if (expectedResult) desc += `**Expected Result:**\n${expectedResult}\n\n`;
+    if (expectedResultValue.trim()) desc += `**Expected Result:**\n${expectedResultValue.trim()}\n\n`;
     if (actualResult) desc += `**Actual Result:**\n${actualResult}\n\n`;
     if (testCaseId) desc += `**Test Case ID:** ${testCaseId}`;
     return desc.trim();
@@ -178,11 +181,13 @@ export default function DefectCreationModal({
 
     setIsSubmitting(true);
     try {
+      const parentId = parentIssueId ? Number(parentIssueId) : null;
       const result = await createRedmineDefect({
         projectId: selectedProjectId,
         trackerId: qaDefectTrackerId,
         subject: subject.trim(),
         description: buildDescription(),
+        parentIssueId: parentId && !isNaN(parentId) ? parentId : null,
         complexityFieldId: projectConfig?.complexityFieldId,
         complexityValue: complexity,
         targetedStartDateFieldId: projectConfig?.targetedStartDateFieldId,
@@ -207,6 +212,7 @@ export default function DefectCreationModal({
   };
 
   const handleClose = () => {
+    setExpectedResultValue(expectedResult ?? "");
     setActualResult("");
     setScreenshots([]);
     setSelectedProjectId(null);
@@ -251,6 +257,17 @@ export default function DefectCreationModal({
             </div>
           </div>
 
+          {/* Expected Result */}
+          <div className="space-y-1.5">
+            <Label>Expected Result</Label>
+            <Textarea
+              placeholder="Describe the expected behaviour..."
+              value={expectedResultValue}
+              onChange={(e) => setExpectedResultValue(e.target.value)}
+              className="min-h-[70px]"
+            />
+          </div>
+
           {/* Actual Result */}
           <div className="space-y-1.5">
             <Label>
@@ -260,7 +277,7 @@ export default function DefectCreationModal({
               placeholder="Describe what actually happened..."
               value={actualResult}
               onChange={(e) => setActualResult(e.target.value)}
-              className="min-h-[80px]"
+              className="min-h-[70px]"
             />
           </div>
 

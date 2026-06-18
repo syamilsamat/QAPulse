@@ -45,8 +45,10 @@ export interface ExecutionTestCase {
 }
 
 const getHeaders = () => {
+  const token = localStorage.getItem("qa_pulse_token");
   return {
     "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 };
 
@@ -293,6 +295,7 @@ export interface CreateDefectPayload {
   trackerId: number;
   subject: string;
   description: string;
+  parentIssueId?: number | null;
   complexityFieldId?: number | null;
   complexityValue?: string;
   targetedStartDateFieldId?: number | null;
