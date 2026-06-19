@@ -820,23 +820,24 @@ function buildEmailHtml(
       </tr>`;
   }).join("");
 
-  const moduleRows = modules.map((m) => {
+  const moduleRows = modules.map((m, idx) => {
     const passRate = m.total > 0 ? Math.round((m.passed / m.total) * 100) : 0;
     const execRate = m.total > 0 ? Math.round(((m.total - m.notExecuted) / m.total) * 100) : 0;
-    const barColor = passRate >= 80 ? "#22c55e" : passRate >= 50 ? "#f59e0b" : "#ef4444";
+    const barColor = passRate >= 80 ? "#22C55E" : passRate >= 50 ? "#F59E0B" : "#EF4444";
+    const rowCls = idx % 2 === 0 ? "mod-row-even" : "mod-row-odd";
     return `
-      <tr style="border-bottom:1px solid #e5e7eb;">
-        <td style="padding:8px 10px;font-size:13px;color:#374151;">${m.module}</td>
-        <td style="padding:8px 10px;font-size:13px;text-align:center;">${m.total}</td>
-        <td style="padding:8px 10px;font-size:13px;text-align:center;color:#22c55e;font-weight:600;">${m.passed}</td>
-        <td style="padding:8px 10px;font-size:13px;text-align:center;color:#ef4444;">${m.failed}</td>
-        <td style="padding:8px 10px;font-size:13px;text-align:center;color:#f97316;">${m.blocked}</td>
-        <td style="padding:8px 10px;font-size:13px;text-align:center;color:#6b7280;">${m.notExecuted}</td>
-        <td style="padding:8px 10px;">
-          <div style="background:#e5e7eb;border-radius:4px;height:10px;width:100%;min-width:80px;">
-            <div style="background:${barColor};height:10px;border-radius:4px;width:${passRate}%;"></div>
+      <tr class="${rowCls}" style="border-bottom:1px solid #e5e7eb;">
+        <td class="mod-name" style="padding:9px 10px;font-size:13px;color:#374151;">${m.module}</td>
+        <td style="padding:9px 10px;font-size:13px;text-align:center;color:#374151;">${m.total}</td>
+        <td style="padding:9px 10px;font-size:13px;text-align:center;color:#16A34A;font-weight:700;">${m.passed}</td>
+        <td style="padding:9px 10px;font-size:13px;text-align:center;color:#DC2626;font-weight:700;">${m.failed}</td>
+        <td style="padding:9px 10px;font-size:13px;text-align:center;color:#EA580C;font-weight:700;">${m.blocked}</td>
+        <td style="padding:9px 10px;font-size:13px;text-align:center;color:#6B7280;">${m.notExecuted}</td>
+        <td style="padding:9px 10px;">
+          <div class="mod-track" style="background:#e5e7eb;border-radius:4px;height:12px;width:100%;min-width:80px;">
+            <div style="background:${barColor};height:12px;border-radius:4px;width:${passRate}%;"></div>
           </div>
-          <span style="font-size:11px;color:#6b7280;">${passRate}% pass / ${execRate}% exec</span>
+          <span class="muted-text" style="font-size:11px;color:#6b7280;">${passRate}% pass / ${execRate}% exec</span>
         </td>
       </tr>`;
   }).join("");
@@ -858,10 +859,10 @@ function buildEmailHtml(
       <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#c2410c;">${gt.blocked}</td>
       <td style="padding:10px;font-size:13px;font-weight:700;text-align:center;color:#374151;">${gt.notExecuted}</td>
       <td style="padding:10px;">
-        <div style="background:#e5e7eb;border-radius:4px;height:10px;width:100%;min-width:80px;">
-          <div style="background:${gtBarColor};height:10px;border-radius:4px;width:${gtPassRate}%;"></div>
+        <div class="gt-track" style="background:#e5e7eb;border-radius:4px;height:12px;width:100%;min-width:80px;">
+          <div style="background:${gtBarColor};height:12px;border-radius:4px;width:${gtPassRate}%;"></div>
         </div>
-        <span style="font-size:11px;color:#6b7280;font-weight:600;">${gtPassRate}% pass / ${gtExecRate}% exec</span>
+        <span class="muted-text" style="font-size:11px;color:#6b7280;font-weight:600;">${gtPassRate}% pass / ${gtExecRate}% exec</span>
       </td>
     </tr>` : "";
 
@@ -870,12 +871,13 @@ function buildEmailHtml(
     .reduce((s, [, v]) => s + (v as number), 0);
 
   // --- CSS segment bars (email-safe, Gmail strips SVG) ---
+  // Use vibrant spec colors so they pop on both light and dark backgrounds
   const execSegments = [
-    { value: te.passed ?? 0,      color: "#4ade80", label: "Passed" },
-    { value: te.failed ?? 0,      color: "#f87171", label: "Failed" },
-    { value: te.blocked ?? 0,     color: "#fb923c", label: "Blocked" },
-    { value: te.inProgress ?? 0,  color: "#60a5fa", label: "In Progress" },
-    { value: te.notExecuted ?? 0, color: "#94a3b8", label: "Not Executed" },
+    { value: te.passed ?? 0,      color: "#22C55E", label: "Passed" },
+    { value: te.failed ?? 0,      color: "#EF4444", label: "Failed" },
+    { value: te.blocked ?? 0,     color: "#F97316", label: "Blocked" },
+    { value: te.inProgress ?? 0,  color: "#3B82F6", label: "In Progress" },
+    { value: te.notExecuted ?? 0, color: "#6B7280", label: "Not Executed" },
   ];
   const execTotal = te.total ?? 0;
 
@@ -890,12 +892,12 @@ function buildEmailHtml(
   const defectTotal = defects.total ?? 0;
 
   const makeBar = (segs: {value:number;color:string}[], total: number) => {
-    if (total === 0) return `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr><td style="background:#e5e7eb;height:20px;border-radius:10px;"></td></tr></table>`;
+    if (total === 0) return `<table class="seg-bar" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr><td style="background:#e5e7eb;height:28px;border-radius:10px;"></td></tr></table>`;
     const cells = segs.filter(s => s.value > 0).map(s => {
       const w = Math.max(1, Math.round((s.value / total) * 100));
-      return `<td width="${w}%" style="background:${s.color};height:20px;"></td>`;
+      return `<td width="${w}%" style="background:${s.color};height:28px;"></td>`;
     }).join("");
-    return `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border-radius:10px;overflow:hidden;"><tr>${cells}</tr></table>`;
+    return `<table class="seg-bar" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border-radius:10px;overflow:hidden;"><tr>${cells}</tr></table>`;
   };
 
   const makeLegendTable = (segs: {value:number;color:string;label:string}[]) => {
@@ -923,112 +925,139 @@ function buildEmailHtml(
   <meta name="color-scheme" content="light dark">
   <meta name="supported-color-schemes" content="light dark">
   <style>
-    /* ─────────────────────────────────────────────
-       DARK MODE — applies in Apple Mail, Outlook.com,
-       Samsung Mail. Gmail (Android/iOS) has separate
-       [data-ogsc] rules below.
-    ───────────────────────────────────────────── */
+    /* ═══════════════════════════════════════════════
+       DARK MODE DESIGN SYSTEM
+       Primary bg   : #0F172A   Card bg  : #1E293B
+       Borders      : #334155   Dividers : #1E293B
+       Title text   : #F9FAFB   Body     : #CBD5E1
+       Muted        : #94A3B8
+       Success      : #22C55E   Fail     : #EF4444
+       Warning      : #F97316   Info     : #3B82F6
+       ─────────────────────────────────────────────
+       Applies in: Apple Mail, Outlook.com, Samsung Mail
+       Gmail handled by [data-ogsc] block below.
+    ═══════════════════════════════════════════════ */
     @media (prefers-color-scheme: dark) {
-      /* Layout */
-      body        { background-color: #080d17 !important; }
-      .email-wrap { background-color: #0d1117 !important; box-shadow: 0 4px 40px rgba(0,0,0,0.8) !important; }
+      /* ── Layout ── */
+      body        { background-color: #0F172A !important; }
+      .email-wrap { background-color: #111827 !important; box-shadow: 0 8px 48px rgba(0,0,0,0.9) !important; }
 
-      /* Section wrappers & dividers */
-      .sec-wrap   { background-color: #0d1117 !important; border-color: #21262d !important; }
+      /* ── Section wrappers ── */
+      .sec-wrap       { background-color: #111827 !important; border-color: #334155 !important; }
+      .section-border { border-color: #334155 !important; }
 
-      /* Section headings */
-      .sec-hd { color: #e6edf3 !important; }
+      /* ── Section headings ── */
+      .sec-hd { color: #F9FAFB !important; }
 
-      /* Summary card */
-      .summary-card  { border-color: #1f6feb !important; background-color: #0a1428 !important; }
-      .summary-title { color: #e6edf3 !important; }
-      .summary-sub   { color: #8b949e !important; }
-      .summary-id    { color: #58a6ff !important; }
+      /* ── Summary card ── */
+      .summary-card  { border-color: #3B82F6 !important; background-color: #1E293B !important; }
+      .summary-title { color: #F9FAFB !important; font-weight: 800 !important; }
+      .summary-sub   { color: #94A3B8 !important; }
+      .summary-id    { color: #60A5FA !important; }
 
-      /* Pass-rate area */
-      .pr-num   { color: #3fb950 !important; }
-      .pr-label { color: #8b949e !important; }
-      .pr-line  { color: #8b949e !important; }
+      /* ── Pass-rate KPI ── */
+      .pr-num   { color: #22C55E !important; }
+      .pr-label { color: #94A3B8 !important; }
+      .pr-line  { color: #64748B !important; }
 
-      /* KPI tiles — Test Execution */
-      .t-total { background-color: #0d1e38 !important; border: 1px solid #1a3a6e !important; }
-      .t-pass  { background-color: #0d2d1a !important; border: 1px solid #14532d !important; }
-      .t-fail  { background-color: #2d0d0d !important; border: 1px solid #7f1d1d !important; }
-      .t-block { background-color: #2d1500 !important; border: 1px solid #7c2d12 !important; }
-      .t-prog  { background-color: #0d1d36 !important; border: 1px solid #1e3a8a !important; }
-      .t-nexec { background-color: #161b22 !important; border: 1px solid #30363d !important; }
+      /* ── Progress bars — main segment bar ── */
+      .seg-bar { border-radius: 10px !important; overflow: hidden !important; }
 
-      .t-total .kn { color: #58a6ff !important; }
-      .t-pass  .kn { color: #3fb950 !important; }
-      .t-fail  .kn { color: #f85149 !important; }
-      .t-block .kn { color: #db6d28 !important; }
-      .t-prog  .kn { color: #79c0ff !important; }
-      .t-nexec .kn { color: #8b949e !important; }
-      .kl { color: #6e7681 !important; }
+      /* ── Progress bars — mini bars in table ── */
+      .mod-track { background-color: #374151 !important; }
+      .gt-track  { background-color: #374151 !important; }
 
-      /* KPI tiles — Defect Status */
-      .d-total { background-color: #2d0d0d !important; border: 1px solid #7f1d1d !important; }
-      .d-open  { background-color: #2d1500 !important; border: 1px solid #7c2d12 !important; }
-      .d-closd { background-color: #0d2d1a !important; border: 1px solid #14532d !important; }
-      .d-rate  { background-color: #2d1500 !important; border: 1px solid #7c2d12 !important; }
+      /* ── KPI tiles — Test Execution ── */
+      .t-total { background-color: #1E293B !important; border: 1px solid #334155 !important; }
+      .t-pass  { background-color: #052E16 !important; border: 1px solid #166534 !important; }
+      .t-fail  { background-color: #450A0A !important; border: 1px solid #991B1B !important; }
+      .t-block { background-color: #431407 !important; border: 1px solid #9A3412 !important; }
+      .t-prog  { background-color: #0F2D5E !important; border: 1px solid #1D4ED8 !important; }
+      .t-nexec { background-color: #1F2937 !important; border: 1px solid #374151 !important; }
 
-      .d-total .kn { color: #f85149 !important; }
-      .d-open  .kn { color: #db6d28 !important; }
-      .d-closd .kn { color: #3fb950 !important; }
-      .d-rate  .kn { color: #db6d28 !important; }
+      .t-total .kn { color: #A78BFA !important; }
+      .t-pass  .kn { color: #22C55E !important; }
+      .t-fail  .kn { color: #EF4444 !important; }
+      .t-block .kn { color: #F97316 !important; }
+      .t-prog  .kn { color: #3B82F6 !important; }
+      .t-nexec .kn { color: #6B7280 !important; }
+      .kl { color: #64748B !important; }
 
-      /* Module table */
-      .table-head-row  { background-color: #161b22 !important; }
-      .table-head-cell { color: #8b949e !important; }
-      .mod-name { color: #c9d1d9 !important; }
+      /* ── KPI tiles — Defect Status ── */
+      .d-total { background-color: #450A0A !important; border: 1px solid #991B1B !important; }
+      .d-open  { background-color: #431407 !important; border: 1px solid #9A3412 !important; }
+      .d-closd { background-color: #052E16 !important; border: 1px solid #166534 !important; }
+      .d-rate  { background-color: #431407 !important; border: 1px solid #9A3412 !important; }
 
-      /* Grand total row */
-      .gt-row   { background-color: #0d1e3a !important; border-top-color: #1f6feb !important; }
-      .gt-label { color: #58a6ff !important; }
+      .d-total .kn { color: #EF4444 !important; }
+      .d-open  .kn { color: #F97316 !important; }
+      .d-closd .kn { color: #22C55E !important; }
+      .d-rate  .kn { color: #F97316 !important; }
 
-      /* Footer */
-      .footer-bar  { background-color: #040d21 !important; border-top-color: #21262d !important; }
-      .footer-text { color: #484f58 !important; }
+      /* ── Module table ── */
+      .table-head-row  { background-color: #1E293B !important; border-bottom-color: #334155 !important; }
+      .table-head-cell { color: #94A3B8 !important; }
+      .mod-row-even    { background-color: #1E293B !important; border-color: #334155 !important; }
+      .mod-row-odd     { background-color: #0F172A !important; border-color: #334155 !important; }
+      .mod-name        { color: #CBD5E1 !important; }
 
-      /* Generic */
-      .content-text { color: #c9d1d9 !important; }
-      .muted-text   { color: #6e7681 !important; }
-      .section-border { border-color: #21262d !important; }
+      /* ── Grand total ── */
+      .gt-row   { background-color: #0F2D5E !important; border-top-color: #3B82F6 !important; }
+      .gt-label { color: #60A5FA !important; }
+
+      /* ── Footer ── */
+      .footer-bar  { background-color: #0F172A !important; border-top-color: #334155 !important; }
+      .footer-text { color: #4B5563 !important; }
+
+      /* ── Generic ── */
+      .content-text { color: #CBD5E1 !important; }
+      .muted-text   { color: #94A3B8 !important; }
     }
 
-    /* ─────────────────────────────────────────────
-       GMAIL dark-mode override
-       Gmail adds [data-ogsc] to <html> when it
-       auto-darkens. These rules take precedence.
-    ───────────────────────────────────────────── */
-    [data-ogsc] body        { background-color: #080d17 !important; }
-    [data-ogsc] .email-wrap { background-color: #0d1117 !important; }
-    [data-ogsc] .sec-hd    { color: #e6edf3 !important; }
-    [data-ogsc] .summary-card  { background-color: #0a1428 !important; border-color: #1f6feb !important; }
-    [data-ogsc] .summary-title { color: #e6edf3 !important; }
-    [data-ogsc] .summary-sub   { color: #8b949e !important; }
-    [data-ogsc] .summary-id    { color: #58a6ff !important; }
-    [data-ogsc] .t-total { background-color: #0d1e38 !important; }
-    [data-ogsc] .t-pass  { background-color: #0d2d1a !important; }
-    [data-ogsc] .t-fail  { background-color: #2d0d0d !important; }
-    [data-ogsc] .t-block { background-color: #2d1500 !important; }
-    [data-ogsc] .t-prog  { background-color: #0d1d36 !important; }
-    [data-ogsc] .t-nexec { background-color: #161b22 !important; }
-    [data-ogsc] .t-total .kn { color: #58a6ff !important; }
-    [data-ogsc] .t-pass  .kn { color: #3fb950 !important; }
-    [data-ogsc] .t-fail  .kn { color: #f85149 !important; }
-    [data-ogsc] .t-block .kn { color: #db6d28 !important; }
-    [data-ogsc] .t-prog  .kn { color: #79c0ff !important; }
-    [data-ogsc] .t-nexec .kn { color: #8b949e !important; }
-    [data-ogsc] .kl { color: #6e7681 !important; }
-    [data-ogsc] .d-total .kn { color: #f85149 !important; }
-    [data-ogsc] .d-open  .kn { color: #db6d28 !important; }
-    [data-ogsc] .d-closd .kn { color: #3fb950 !important; }
-    [data-ogsc] .table-head-row { background-color: #161b22 !important; }
-    [data-ogsc] .gt-row  { background-color: #0d1e3a !important; }
-    [data-ogsc] .gt-label { color: #58a6ff !important; }
-    [data-ogsc] .footer-bar { background-color: #040d21 !important; }
-    [data-ogsc] .footer-text { color: #484f58 !important; }
+    /* ═══════════════════════════════════════════════
+       GMAIL DARK MODE OVERRIDE
+       Gmail injects [data-ogsc] on <html> when
+       auto-darkening. Mirror all rules here.
+    ═══════════════════════════════════════════════ */
+    [data-ogsc] body        { background-color: #0F172A !important; }
+    [data-ogsc] .email-wrap { background-color: #111827 !important; }
+    [data-ogsc] .sec-hd    { color: #F9FAFB !important; }
+    [data-ogsc] .sec-wrap  { background-color: #111827 !important; border-color: #334155 !important; }
+    [data-ogsc] .summary-card  { background-color: #1E293B !important; border-color: #3B82F6 !important; }
+    [data-ogsc] .summary-title { color: #F9FAFB !important; }
+    [data-ogsc] .summary-sub   { color: #94A3B8 !important; }
+    [data-ogsc] .summary-id    { color: #60A5FA !important; }
+    [data-ogsc] .pr-num   { color: #22C55E !important; }
+    [data-ogsc] .pr-label { color: #94A3B8 !important; }
+    [data-ogsc] .t-total { background-color: #1E293B !important; border-color: #334155 !important; }
+    [data-ogsc] .t-pass  { background-color: #052E16 !important; border-color: #166534 !important; }
+    [data-ogsc] .t-fail  { background-color: #450A0A !important; border-color: #991B1B !important; }
+    [data-ogsc] .t-block { background-color: #431407 !important; border-color: #9A3412 !important; }
+    [data-ogsc] .t-prog  { background-color: #0F2D5E !important; border-color: #1D4ED8 !important; }
+    [data-ogsc] .t-nexec { background-color: #1F2937 !important; border-color: #374151 !important; }
+    [data-ogsc] .t-total .kn { color: #A78BFA !important; }
+    [data-ogsc] .t-pass  .kn { color: #22C55E !important; }
+    [data-ogsc] .t-fail  .kn { color: #EF4444 !important; }
+    [data-ogsc] .t-block .kn { color: #F97316 !important; }
+    [data-ogsc] .t-prog  .kn { color: #3B82F6 !important; }
+    [data-ogsc] .t-nexec .kn { color: #6B7280 !important; }
+    [data-ogsc] .kl { color: #64748B !important; }
+    [data-ogsc] .d-total { background-color: #450A0A !important; }
+    [data-ogsc] .d-open  { background-color: #431407 !important; }
+    [data-ogsc] .d-closd { background-color: #052E16 !important; }
+    [data-ogsc] .d-total .kn { color: #EF4444 !important; }
+    [data-ogsc] .d-open  .kn { color: #F97316 !important; }
+    [data-ogsc] .d-closd .kn { color: #22C55E !important; }
+    [data-ogsc] .table-head-row { background-color: #1E293B !important; }
+    [data-ogsc] .mod-row-even   { background-color: #1E293B !important; }
+    [data-ogsc] .mod-row-odd    { background-color: #0F172A !important; }
+    [data-ogsc] .mod-track { background-color: #374151 !important; }
+    [data-ogsc] .gt-track  { background-color: #374151 !important; }
+    [data-ogsc] .gt-row    { background-color: #0F2D5E !important; border-top-color: #3B82F6 !important; }
+    [data-ogsc] .gt-label  { color: #60A5FA !important; }
+    [data-ogsc] .footer-bar  { background-color: #0F172A !important; }
+    [data-ogsc] .footer-text { color: #4B5563 !important; }
+    [data-ogsc] .muted-text  { color: #94A3B8 !important; }
   </style>
 </head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f3f4f6;">
@@ -1126,19 +1155,24 @@ function buildEmailHtml(
     <!-- Test Execution -->
     <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution</div>
-      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
+      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:16px;">
         <tr>
-          <td style="vertical-align:middle;padding-right:24px;width:140px;">
-            <div class="pr-num" style="font-size:30px;font-weight:700;color:#15803d;">${te.passRate ?? 0}%</div>
-            <div class="pr-label" style="font-size:11px;color:#6b7280;">Pass Rate</div>
-            <div class="pr-label" style="font-size:11px;color:#6b7280;margin-top:2px;">Total: <strong>${execTotal}</strong></div>
+          <td style="vertical-align:middle;padding-right:28px;width:160px;">
+            <div class="pr-num" style="font-size:44px;font-weight:800;color:#16A34A;line-height:1;">${te.passRate ?? 0}%</div>
+            <div class="pr-label" style="font-size:12px;font-weight:600;color:#6b7280;margin-top:4px;text-transform:uppercase;letter-spacing:0.05em;">Pass Rate</div>
+            <div class="pr-label" style="font-size:11px;color:#9ca3af;margin-top:2px;">Total: <strong>${execTotal}</strong></div>
+            ${(te.passRate ?? 0) >= 90
+              ? `<div style="margin-top:8px;display:inline-block;background:#dcfce7;color:#15803d;font-size:10px;font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:0.03em;">✓ READY FOR RELEASE</div>`
+              : (execTotal > 0 && (te.failed ?? 0) / execTotal > 0.1)
+                ? `<div style="margin-top:8px;display:inline-block;background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:0.03em;">⚠ HIGH RISK</div>`
+                : ""}
           </td>
           <td style="vertical-align:middle;">${execLegend}</td>
         </tr>
       </table>
       ${execBar}
-      <div class="pr-line" style="margin-top:8px;font-size:12px;color:#6b7280;">
-        Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
+      <div class="pr-line" style="margin-top:10px;font-size:12px;color:#6b7280;">
+        Pass Rate: <strong style="color:#16A34A;">${te.passRate ?? 0}%</strong>
         &nbsp;·&nbsp; Success Rate: <strong style="color:#1d4ed8;">${te.successRate ?? 0}%</strong>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
