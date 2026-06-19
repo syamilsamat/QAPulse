@@ -1167,7 +1167,7 @@ function buildEmailHtml(
             <div class="pr-num" style="font-size:44px;font-weight:800;color:#16A34A;line-height:1;">${te.passRate ?? 0}%</div>
             <div class="pr-label" style="font-size:12px;font-weight:600;color:#6b7280;margin-top:4px;text-transform:uppercase;letter-spacing:0.05em;">Pass Rate</div>
             <div class="pr-label" style="font-size:11px;color:#9ca3af;margin-top:2px;">Total: <strong>${execTotal}</strong></div>
-            ${(te.passRate ?? 0) >= 90
+            ${(te.passRate ?? 0) === 100
               ? `<div style="margin-top:8px;display:inline-block;background:#dcfce7;color:#15803d;font-size:10px;font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:0.03em;">✓ READY FOR RELEASE</div>`
               : (execTotal > 0 && (te.failed ?? 0) / execTotal > 0.1)
                 ? `<div style="margin-top:8px;display:inline-block;background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:0.03em;">⚠ HIGH RISK</div>`
