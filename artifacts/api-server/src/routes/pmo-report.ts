@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import express from "express";
 import { eq } from "drizzle-orm";
+import { execSync } from "child_process";
 
 let nodemailer: any = null;
 try {
@@ -17,10 +18,23 @@ try {
   puppeteer = require("puppeteer");
 } catch {}
 
+function findSystemChromium(): string | undefined {
+  // Prefer env override, then search PATH (Nix/Replit installs chromium here)
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  try {
+    const p = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null", { encoding: "utf8" }).trim();
+    return p || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function htmlToScreenshot(html: string): Promise<Buffer> {
   if (!puppeteer) throw new Error("puppeteer is not installed");
+  const executablePath = findSystemChromium();
   const browser = await puppeteer.launch({
     headless: true,
+    executablePath,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
