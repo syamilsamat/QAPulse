@@ -802,7 +802,7 @@ function buildEmailHtml(
     const pc = PRIORITY_COLOR[def.priority] ?? "#3b82f6";
     const reopenCount = def.reopenedCount ?? 0;
     return `
-      <tr style="border-bottom:1px solid #e5e7eb;">
+      <tr class="def-row" style="border-bottom:1px solid #e5e7eb;">
         <td style="padding:8px 10px;font-size:13px;color:#111827;">#${def.id}</td>
         <td style="padding:8px 10px;font-size:13px;color:#374151;max-width:300px;">${def.name}</td>
         <td style="padding:8px 10px;">
@@ -1016,6 +1016,26 @@ function buildEmailHtml(
       /* ── Generic ── */
       .content-text { color: #CBD5E1 !important; }
       .muted-text   { color: #94A3B8 !important; }
+
+      /* ── AI Bug Prediction inner boxes ── */
+      .ai-sum-box  { background-color: #1E293B !important; }
+      .ai-sum-box div { color: #94A3B8 !important; }
+      .ai-sum-box strong { color: #C4B5FD !important; }
+      .risk-card   { background-color: #1E293B !important; border-color: #334155 !important; }
+      .risk-card td { color: #CBD5E1 !important; }
+      .risk-card span { color: #CBD5E1 !important; }
+      .risk-card li { color: #94A3B8 !important; }
+      .reco-box    { background-color: #1E3A5F !important; color: #93C5FD !important; }
+
+      /* ── Release Readiness inner boxes ── */
+      .rr-score-box { background-color: #0C2340 !important; }
+      .rr-score-box div { color: #CBD5E1 !important; }
+      .rr-date-box  { background-color: #1E293B !important; border-color: #334155 !important; }
+      .rr-date-box span { color: #CBD5E1 !important; }
+
+      /* ── Active Defects table rows ── */
+      .def-row { border-color: #334155 !important; }
+      .def-row td { color: #CBD5E1 !important; }
     }
 
     /* ═══════════════════════════════════════════════
@@ -1064,6 +1084,20 @@ function buildEmailHtml(
     [data-ogsc] .footer-bar  { background-color: #0F172A !important; }
     [data-ogsc] .footer-text { color: #4B5563 !important; }
     [data-ogsc] .muted-text  { color: #94A3B8 !important; }
+    [data-ogsc] .ai-sum-box  { background-color: #1E293B !important; }
+    [data-ogsc] .ai-sum-box div { color: #94A3B8 !important; }
+    [data-ogsc] .ai-sum-box strong { color: #C4B5FD !important; }
+    [data-ogsc] .risk-card   { background-color: #1E293B !important; border-color: #334155 !important; }
+    [data-ogsc] .risk-card td { color: #CBD5E1 !important; }
+    [data-ogsc] .risk-card span { color: #CBD5E1 !important; }
+    [data-ogsc] .risk-card li { color: #94A3B8 !important; }
+    [data-ogsc] .reco-box    { background-color: #1E3A5F !important; color: #93C5FD !important; }
+    [data-ogsc] .rr-score-box { background-color: #0C2340 !important; }
+    [data-ogsc] .rr-score-box div { color: #CBD5E1 !important; }
+    [data-ogsc] .rr-date-box  { background-color: #1E293B !important; border-color: #334155 !important; }
+    [data-ogsc] .rr-date-box span { color: #CBD5E1 !important; }
+    [data-ogsc] .def-row { border-color: #334155 !important; }
+    [data-ogsc] .def-row td { color: #CBD5E1 !important; }
   </style>
 </head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f3f4f6;">
@@ -1096,7 +1130,7 @@ function buildEmailHtml(
     ${riskResult ? `
     <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
-      <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:16px;">
+      <div class="ai-sum-box" style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:16px;">
         <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
         <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
       </div>
@@ -1108,7 +1142,7 @@ function buildEmailHtml(
         const barColor = (level === "high" || level === "critical") ? "#ef4444" : level === "medium" ? "#f59e0b" : "#22c55e";
         const reasons: string[] = m.reasons ?? [];
         const recommendation: string = m.recommendation ?? "";
-        return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:10px;">
+        return `<div class="risk-card" style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:10px;">
           <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:${(reasons.length > 0 || recommendation) ? "10px" : "0"};">
             <tr>
               <td style="font-size:13px;font-weight:600;color:#111827;">${m.name ?? m.module ?? ""}</td>
@@ -1120,7 +1154,7 @@ function buildEmailHtml(
             </tr>
           </table>
           ${reasons.length > 0 ? `<ul style="margin:0 0 6px 0;padding-left:18px;">${reasons.map((r: string) => `<li style="font-size:11px;color:#6b7280;margin-bottom:3px;">${r}</li>`).join("")}</ul>` : ""}
-          ${recommendation ? `<div style="font-size:11px;color:#1d4ed8;background:#eff6ff;border-radius:4px;padding:6px 10px;margin-top:4px;">${recommendation}</div>` : ""}
+          ${recommendation ? `<div class="reco-box" style="font-size:11px;color:#1d4ed8;background:#eff6ff;border-radius:4px;padding:6px 10px;margin-top:4px;">${recommendation}</div>` : ""}
         </div>`;
       }).join("")}
     </div>` : ""}
@@ -1129,13 +1163,13 @@ function buildEmailHtml(
     ${readinessResult ? `
     <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
-      <div style="background:#f0f9ff;border-radius:8px;padding:20px;text-align:center;margin-bottom:16px;">
+      <div class="rr-score-box" style="background:#f0f9ff;border-radius:8px;padding:20px;text-align:center;margin-bottom:16px;">
         <div style="font-size:40px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%</div>
         <div style="margin-top:8px;">
           <span style="font-size:13px;font-weight:500;padding:4px 14px;border-radius:9999px;background:${readinessResult.status === "ready" ? "#dcfce7" : readinessResult.status === "caution" ? "#fef9c3" : "#fee2e2"};color:${readinessResult.status === "ready" ? "#15803d" : readinessResult.status === "caution" ? "#92400e" : "#b91c1c"};">${readinessResult.status === "ready" ? "Release Ready" : readinessResult.status === "caution" ? "Caution" : (readinessResult.status ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
         </div>
         ${(readinessResult.verdict ?? readinessResult.summary) ? `<div style="font-size:13px;color:#374151;margin-top:12px;text-align:center;">${readinessResult.verdict ?? readinessResult.summary}</div>` : ""}
-        ${readinessResult.expectedReleaseDate ? `<div style="margin-top:14px;background:#fff;border:1px solid #e0f2fe;border-radius:8px;padding:10px 16px;text-align:left;font-size:13px;"><span style="font-weight:600;color:#111827;">Expected Release: </span><span style="color:#374151;">${readinessResult.expectedReleaseDate}</span></div>` : ""}
+        ${readinessResult.expectedReleaseDate ? `<div class="rr-date-box" style="margin-top:14px;background:#fff;border:1px solid #e0f2fe;border-radius:8px;padding:10px 16px;text-align:left;font-size:13px;"><span style="font-weight:600;color:#111827;">Expected Release: </span><span style="color:#374151;">${readinessResult.expectedReleaseDate}</span></div>` : ""}
       </div>
       ${((readinessResult.positives ?? []).length > 0 || (readinessResult.blockers ?? []).length > 0) ? `
       <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
@@ -1202,8 +1236,8 @@ function buildEmailHtml(
       <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #8b5cf6;padding-left:12px;">Module Breakdown</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
-          <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
-            <th style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Module</th>
+          <tr class="table-head-row" style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
+            <th class="table-head-cell" style="padding:10px;text-align:left;color:#6b7280;font-weight:600;">Module</th>
             <th style="padding:10px;text-align:center;color:#6b7280;font-weight:600;">Total</th>
             <th style="padding:10px;text-align:center;color:#22c55e;font-weight:600;">Pass</th>
             <th style="padding:10px;text-align:center;color:#ef4444;font-weight:600;">Fail</th>
