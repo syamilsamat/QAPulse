@@ -1216,7 +1216,7 @@ function buildEmailHtml(
       <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
         <tr>
           <td style="vertical-align:middle;padding-right:24px;width:140px;">
-            <div class="d-total" style="font-size:30px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
+            <div style="font-size:30px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
             <div class="muted-text" style="font-size:11px;color:#6b7280;">Total Defects</div>
             <div class="muted-text" style="font-size:11px;color:#6b7280;margin-top:2px;">Open: <strong style="color:#c2410c;">${openCount}</strong></div>
           </td>
