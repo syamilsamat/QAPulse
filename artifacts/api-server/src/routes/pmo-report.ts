@@ -983,6 +983,10 @@ function buildEmailHtml(
       .t-nexec .kn { color: #6B7280 !important; }
       .kl { color: #64748B !important; }
 
+      /* ── Defect KPI headline ── */
+      .defect-kpi-num { color: #EF4444 !important; }
+      .defect-kpi-lbl { color: #94A3B8 !important; }
+
       /* ── KPI tiles — Defect Status ── */
       .d-total { background-color: #450A0A !important; border: 1px solid #991B1B !important; }
       .d-open  { background-color: #431407 !important; border: 1px solid #9A3412 !important; }
@@ -1042,6 +1046,8 @@ function buildEmailHtml(
     [data-ogsc] .t-prog  .kn { color: #3B82F6 !important; }
     [data-ogsc] .t-nexec .kn { color: #6B7280 !important; }
     [data-ogsc] .kl { color: #64748B !important; }
+    [data-ogsc] .defect-kpi-num { color: #EF4444 !important; }
+    [data-ogsc] .defect-kpi-lbl { color: #94A3B8 !important; }
     [data-ogsc] .d-total { background-color: #450A0A !important; }
     [data-ogsc] .d-open  { background-color: #431407 !important; }
     [data-ogsc] .d-closd { background-color: #052E16 !important; }
@@ -1213,12 +1219,17 @@ function buildEmailHtml(
     <!-- Defect Status -->
     <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
       <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #ef4444;padding-left:12px;">Defect Status</div>
-      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
+      <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:16px;">
         <tr>
-          <td style="vertical-align:middle;padding-right:24px;width:140px;">
-            <div style="font-size:30px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
-            <div class="muted-text" style="font-size:11px;color:#6b7280;">Total Defects</div>
-            <div class="muted-text" style="font-size:11px;color:#6b7280;margin-top:2px;">Open: <strong style="color:#c2410c;">${openCount}</strong></div>
+          <td style="vertical-align:middle;padding-right:28px;width:160px;">
+            <div class="defect-kpi-num" style="font-size:44px;font-weight:800;color:#DC2626;line-height:1;">${defectTotal}</div>
+            <div class="defect-kpi-lbl" style="font-size:12px;font-weight:600;color:#6b7280;margin-top:4px;text-transform:uppercase;letter-spacing:0.05em;">Total Defects</div>
+            <div class="muted-text" style="font-size:11px;color:#9ca3af;margin-top:2px;">Open: <strong style="color:#EA580C;">${openCount}</strong></div>
+            ${openCount === 0
+              ? `<div style="margin-top:8px;display:inline-block;background:#dcfce7;color:#15803d;font-size:10px;font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:0.03em;">✓ ALL CLEAR</div>`
+              : (defectTotal > 0 && (defects.openRate ?? 0) > 50)
+                ? `<div style="margin-top:8px;display:inline-block;background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:0.03em;">⚠ HIGH OPEN RATE</div>`
+                : ""}
           </td>
           <td style="vertical-align:middle;">${defectLegend || '<span style="font-size:12px;color:#9ca3af;">No defects</span>'}</td>
         </tr>
@@ -1226,19 +1237,19 @@ function buildEmailHtml(
       ${defectBar}
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
         <div class="d-total" style="background:#fee2e2;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div class="kn" style="font-size:22px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
+          <div class="kn" style="font-size:22px;font-weight:700;color:#DC2626;">${defectTotal}</div>
           <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Total</div>
         </div>
         <div class="d-open" style="background:#ffedd5;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div class="kn" style="font-size:22px;font-weight:700;color:#c2410c;">${openCount}</div>
+          <div class="kn" style="font-size:22px;font-weight:700;color:#EA580C;">${openCount}</div>
           <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Open</div>
         </div>
         <div class="d-closd" style="background:#dcfce7;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div class="kn" style="font-size:22px;font-weight:700;color:#15803d;">${(defects.counts?.verified ?? 0) + (defects.counts?.closed ?? 0)}</div>
+          <div class="kn" style="font-size:22px;font-weight:700;color:#16A34A;">${(defects.counts?.verified ?? 0) + (defects.counts?.closed ?? 0)}</div>
           <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Closed/Verified</div>
         </div>
         <div class="d-rate" style="background:#fff7ed;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div class="kn" style="font-size:22px;font-weight:700;color:#92400e;">${defects.openRate ?? 0}%</div>
+          <div class="kn" style="font-size:22px;font-weight:700;color:#C2410C;">${defects.openRate ?? 0}%</div>
           <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Open Rate</div>
         </div>
       </div>
