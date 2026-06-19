@@ -923,30 +923,112 @@ function buildEmailHtml(
   <meta name="color-scheme" content="light dark">
   <meta name="supported-color-schemes" content="light dark">
   <style>
+    /* ─────────────────────────────────────────────
+       DARK MODE — applies in Apple Mail, Outlook.com,
+       Samsung Mail. Gmail (Android/iOS) has separate
+       [data-ogsc] rules below.
+    ───────────────────────────────────────────── */
     @media (prefers-color-scheme: dark) {
-      /* ── Layout ── */
-      body        { background-color: #050a15 !important; }
-      .email-wrap { background-color: #0d1117 !important; box-shadow: 0 4px 32px rgba(0,0,0,0.6) !important; }
-      /* ── Section wrappers ── */
-      .section-border { border-color: #21262d !important; background-color: #0d1117 !important; }
-      /* ── Summary card ── */
-      .summary-card  { border-color: #1f6feb !important; background-color: #0d1424 !important; }
+      /* Layout */
+      body        { background-color: #080d17 !important; }
+      .email-wrap { background-color: #0d1117 !important; box-shadow: 0 4px 40px rgba(0,0,0,0.8) !important; }
+
+      /* Section wrappers & dividers */
+      .sec-wrap   { background-color: #0d1117 !important; border-color: #21262d !important; }
+
+      /* Section headings */
+      .sec-hd { color: #e6edf3 !important; }
+
+      /* Summary card */
+      .summary-card  { border-color: #1f6feb !important; background-color: #0a1428 !important; }
       .summary-title { color: #e6edf3 !important; }
-      .summary-sub   { color: #7d8590 !important; }
+      .summary-sub   { color: #8b949e !important; }
       .summary-id    { color: #58a6ff !important; }
-      /* ── Generic text ── */
-      .content-text  { color: #c9d1d9 !important; }
-      .muted-text    { color: #6e7681 !important; }
-      /* ── Table chrome ── */
+
+      /* Pass-rate area */
+      .pr-num   { color: #3fb950 !important; }
+      .pr-label { color: #8b949e !important; }
+      .pr-line  { color: #8b949e !important; }
+
+      /* KPI tiles — Test Execution */
+      .t-total { background-color: #0d1e38 !important; border: 1px solid #1a3a6e !important; }
+      .t-pass  { background-color: #0d2d1a !important; border: 1px solid #14532d !important; }
+      .t-fail  { background-color: #2d0d0d !important; border: 1px solid #7f1d1d !important; }
+      .t-block { background-color: #2d1500 !important; border: 1px solid #7c2d12 !important; }
+      .t-prog  { background-color: #0d1d36 !important; border: 1px solid #1e3a8a !important; }
+      .t-nexec { background-color: #161b22 !important; border: 1px solid #30363d !important; }
+
+      .t-total .kn { color: #58a6ff !important; }
+      .t-pass  .kn { color: #3fb950 !important; }
+      .t-fail  .kn { color: #f85149 !important; }
+      .t-block .kn { color: #db6d28 !important; }
+      .t-prog  .kn { color: #79c0ff !important; }
+      .t-nexec .kn { color: #8b949e !important; }
+      .kl { color: #6e7681 !important; }
+
+      /* KPI tiles — Defect Status */
+      .d-total { background-color: #2d0d0d !important; border: 1px solid #7f1d1d !important; }
+      .d-open  { background-color: #2d1500 !important; border: 1px solid #7c2d12 !important; }
+      .d-closd { background-color: #0d2d1a !important; border: 1px solid #14532d !important; }
+      .d-rate  { background-color: #2d1500 !important; border: 1px solid #7c2d12 !important; }
+
+      .d-total .kn { color: #f85149 !important; }
+      .d-open  .kn { color: #db6d28 !important; }
+      .d-closd .kn { color: #3fb950 !important; }
+      .d-rate  .kn { color: #db6d28 !important; }
+
+      /* Module table */
       .table-head-row  { background-color: #161b22 !important; }
       .table-head-cell { color: #8b949e !important; }
-      /* ── Grand total row ── */
-      .gt-row   { background-color: #0d2044 !important; border-top-color: #1f6feb !important; }
+      .mod-name { color: #c9d1d9 !important; }
+
+      /* Grand total row */
+      .gt-row   { background-color: #0d1e3a !important; border-top-color: #1f6feb !important; }
       .gt-label { color: #58a6ff !important; }
-      /* ── Footer ── */
+
+      /* Footer */
       .footer-bar  { background-color: #040d21 !important; border-top-color: #21262d !important; }
       .footer-text { color: #484f58 !important; }
+
+      /* Generic */
+      .content-text { color: #c9d1d9 !important; }
+      .muted-text   { color: #6e7681 !important; }
+      .section-border { border-color: #21262d !important; }
     }
+
+    /* ─────────────────────────────────────────────
+       GMAIL dark-mode override
+       Gmail adds [data-ogsc] to <html> when it
+       auto-darkens. These rules take precedence.
+    ───────────────────────────────────────────── */
+    [data-ogsc] body        { background-color: #080d17 !important; }
+    [data-ogsc] .email-wrap { background-color: #0d1117 !important; }
+    [data-ogsc] .sec-hd    { color: #e6edf3 !important; }
+    [data-ogsc] .summary-card  { background-color: #0a1428 !important; border-color: #1f6feb !important; }
+    [data-ogsc] .summary-title { color: #e6edf3 !important; }
+    [data-ogsc] .summary-sub   { color: #8b949e !important; }
+    [data-ogsc] .summary-id    { color: #58a6ff !important; }
+    [data-ogsc] .t-total { background-color: #0d1e38 !important; }
+    [data-ogsc] .t-pass  { background-color: #0d2d1a !important; }
+    [data-ogsc] .t-fail  { background-color: #2d0d0d !important; }
+    [data-ogsc] .t-block { background-color: #2d1500 !important; }
+    [data-ogsc] .t-prog  { background-color: #0d1d36 !important; }
+    [data-ogsc] .t-nexec { background-color: #161b22 !important; }
+    [data-ogsc] .t-total .kn { color: #58a6ff !important; }
+    [data-ogsc] .t-pass  .kn { color: #3fb950 !important; }
+    [data-ogsc] .t-fail  .kn { color: #f85149 !important; }
+    [data-ogsc] .t-block .kn { color: #db6d28 !important; }
+    [data-ogsc] .t-prog  .kn { color: #79c0ff !important; }
+    [data-ogsc] .t-nexec .kn { color: #8b949e !important; }
+    [data-ogsc] .kl { color: #6e7681 !important; }
+    [data-ogsc] .d-total .kn { color: #f85149 !important; }
+    [data-ogsc] .d-open  .kn { color: #db6d28 !important; }
+    [data-ogsc] .d-closd .kn { color: #3fb950 !important; }
+    [data-ogsc] .table-head-row { background-color: #161b22 !important; }
+    [data-ogsc] .gt-row  { background-color: #0d1e3a !important; }
+    [data-ogsc] .gt-label { color: #58a6ff !important; }
+    [data-ogsc] .footer-bar { background-color: #040d21 !important; }
+    [data-ogsc] .footer-text { color: #484f58 !important; }
   </style>
 </head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f3f4f6;">
@@ -977,8 +1059,8 @@ function buildEmailHtml(
 
     <!-- AI: Bug Prediction (if calculated) -->
     ${riskResult ? `
-    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
+    <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #8b5cf6;padding-left:12px;">AI Bug Prediction &amp; Risk Scoring</div>
       <div style="background:#f5f3ff;border-radius:8px;padding:16px 20px;margin-bottom:16px;">
         <div style="font-size:13px;color:#374151;margin-bottom:8px;">${riskResult.summary ?? ""}</div>
         <div style="font-size:13px;color:#6b7280;">Overall Risk: <strong style="color:#7c3aed;">${riskResult.overallRisk ?? "N/A"}</strong></div>
@@ -1010,8 +1092,8 @@ function buildEmailHtml(
 
     <!-- AI: Release Readiness (if calculated) -->
     ${readinessResult ? `
-    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
+    <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;border-left:4px solid #0ea5e9;padding-left:12px;">Release Readiness Score</div>
       <div style="background:#f0f9ff;border-radius:8px;padding:20px;text-align:center;margin-bottom:16px;">
         <div style="font-size:40px;font-weight:700;color:${readinessResult.readinessScore >= 80 ? "#15803d" : readinessResult.readinessScore >= 50 ? "#b45309" : "#b91c1c"};">${readinessResult.readinessScore}%</div>
         <div style="margin-top:8px;">
@@ -1042,42 +1124,42 @@ function buildEmailHtml(
     </div>` : ""}
 
     <!-- Test Execution -->
-    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution</div>
+    <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #2563eb;padding-left:12px;">Test Execution</div>
       <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
         <tr>
           <td style="vertical-align:middle;padding-right:24px;width:140px;">
-            <div style="font-size:30px;font-weight:700;color:#15803d;">${te.passRate ?? 0}%</div>
-            <div style="font-size:11px;color:#6b7280;">Pass Rate</div>
-            <div style="font-size:11px;color:#6b7280;margin-top:2px;">Total: <strong>${execTotal}</strong></div>
+            <div class="pr-num" style="font-size:30px;font-weight:700;color:#15803d;">${te.passRate ?? 0}%</div>
+            <div class="pr-label" style="font-size:11px;color:#6b7280;">Pass Rate</div>
+            <div class="pr-label" style="font-size:11px;color:#6b7280;margin-top:2px;">Total: <strong>${execTotal}</strong></div>
           </td>
           <td style="vertical-align:middle;">${execLegend}</td>
         </tr>
       </table>
       ${execBar}
-      <div style="margin-top:8px;font-size:12px;color:#6b7280;">
+      <div class="pr-line" style="margin-top:8px;font-size:12px;color:#6b7280;">
         Pass Rate: <strong style="color:#15803d;">${te.passRate ?? 0}%</strong>
         &nbsp;·&nbsp; Success Rate: <strong style="color:#1d4ed8;">${te.successRate ?? 0}%</strong>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
         ${[
-          { label: "Total", val: te.total ?? 0, color: "#1e40af", bg: "#dbeafe" },
-          { label: "Passed", val: te.passed ?? 0, color: "#15803d", bg: "#dcfce7" },
-          { label: "Failed", val: te.failed ?? 0, color: "#b91c1c", bg: "#fee2e2" },
-          { label: "Blocked", val: te.blocked ?? 0, color: "#c2410c", bg: "#ffedd5" },
-          { label: "In Progress", val: te.inProgress ?? 0, color: "#1d4ed8", bg: "#dbeafe" },
-          { label: "Not Executed", val: te.notExecuted ?? 0, color: "#374151", bg: "#f3f4f6" },
-        ].map(c => `<div style="background:${c.bg};border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div style="font-size:22px;font-weight:700;color:${c.color};">${c.val}</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:2px;">${c.label}</div>
+          { label: "Total",        val: te.total ?? 0,       color: "#1e40af", bg: "#dbeafe", cls: "t-total" },
+          { label: "Passed",       val: te.passed ?? 0,      color: "#15803d", bg: "#dcfce7", cls: "t-pass"  },
+          { label: "Failed",       val: te.failed ?? 0,      color: "#b91c1c", bg: "#fee2e2", cls: "t-fail"  },
+          { label: "Blocked",      val: te.blocked ?? 0,     color: "#c2410c", bg: "#ffedd5", cls: "t-block" },
+          { label: "In Progress",  val: te.inProgress ?? 0,  color: "#1d4ed8", bg: "#dbeafe", cls: "t-prog"  },
+          { label: "Not Executed", val: te.notExecuted ?? 0, color: "#374151", bg: "#f3f4f6", cls: "t-nexec" },
+        ].map(c => `<div class="${c.cls}" style="background:${c.bg};border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div class="kn" style="font-size:22px;font-weight:700;color:${c.color};">${c.val}</div>
+          <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">${c.label}</div>
         </div>`).join("")}
       </div>
     </div>
 
     <!-- Module Breakdown -->
     ${modules.length > 0 ? `
-    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #8b5cf6;padding-left:12px;">Module Breakdown</div>
+    <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #8b5cf6;padding-left:12px;">Module Breakdown</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
@@ -1095,43 +1177,43 @@ function buildEmailHtml(
     </div>` : ""}
 
     <!-- Defect Status -->
-    <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #ef4444;padding-left:12px;">Defect Status</div>
+    <div class="sec-wrap" style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+      <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #ef4444;padding-left:12px;">Defect Status</div>
       <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:14px;">
         <tr>
           <td style="vertical-align:middle;padding-right:24px;width:140px;">
-            <div style="font-size:30px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
-            <div style="font-size:11px;color:#6b7280;">Total Defects</div>
-            <div style="font-size:11px;color:#6b7280;margin-top:2px;">Open: <strong style="color:#c2410c;">${openCount}</strong></div>
+            <div class="d-total" style="font-size:30px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
+            <div class="muted-text" style="font-size:11px;color:#6b7280;">Total Defects</div>
+            <div class="muted-text" style="font-size:11px;color:#6b7280;margin-top:2px;">Open: <strong style="color:#c2410c;">${openCount}</strong></div>
           </td>
           <td style="vertical-align:middle;">${defectLegend || '<span style="font-size:12px;color:#9ca3af;">No defects</span>'}</td>
         </tr>
       </table>
       ${defectBar}
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
-        <div style="background:#fee2e2;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div style="font-size:22px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Total</div>
+        <div class="d-total" style="background:#fee2e2;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div class="kn" style="font-size:22px;font-weight:700;color:#b91c1c;">${defectTotal}</div>
+          <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Total</div>
         </div>
-        <div style="background:#ffedd5;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div style="font-size:22px;font-weight:700;color:#c2410c;">${openCount}</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Open</div>
+        <div class="d-open" style="background:#ffedd5;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div class="kn" style="font-size:22px;font-weight:700;color:#c2410c;">${openCount}</div>
+          <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Open</div>
         </div>
-        <div style="background:#dcfce7;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div style="font-size:22px;font-weight:700;color:#15803d;">${(defects.counts?.verified ?? 0) + (defects.counts?.closed ?? 0)}</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Closed/Verified</div>
+        <div class="d-closd" style="background:#dcfce7;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div class="kn" style="font-size:22px;font-weight:700;color:#15803d;">${(defects.counts?.verified ?? 0) + (defects.counts?.closed ?? 0)}</div>
+          <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Closed/Verified</div>
         </div>
-        <div style="background:#fff7ed;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
-          <div style="font-size:22px;font-weight:700;color:#92400e;">${defects.openRate ?? 0}%</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:2px;">Open Rate</div>
+        <div class="d-rate" style="background:#fff7ed;border-radius:8px;padding:12px 16px;text-align:center;min-width:80px;">
+          <div class="kn" style="font-size:22px;font-weight:700;color:#92400e;">${defects.openRate ?? 0}%</div>
+          <div class="kl" style="font-size:10px;color:#6b7280;margin-top:2px;">Open Rate</div>
         </div>
       </div>
     </div>
 
     <!-- Active Defects Table -->
     ${activeDefects.length > 0 ? `
-    <div style="padding:24px 32px 32px;">
-      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #f59e0b;padding-left:12px;">Active Defects (${activeDefects.length})</div>
+    <div class="sec-wrap" style="padding:24px 32px 32px;border-bottom:none;">
+      <div class="sec-hd" style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;border-left:4px solid #f59e0b;padding-left:12px;">Active Defects (${activeDefects.length})</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr class="table-head-row" style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
