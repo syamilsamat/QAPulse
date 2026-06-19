@@ -9,7 +9,7 @@ allowBuilds:
   core-js: true
   esbuild: true
   protobufjs: true
-  puppeteer: set this to true or false
+  puppeteer: true
 
 autoInstallPeers: false
 
@@ -52,6 +52,7 @@ onlyBuiltDependencies:
   - core-js
   - esbuild
   - msw
+  - puppeteer
   - unrs-resolver
 
 overrides:
