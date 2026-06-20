@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
+import express from "express";
 import { eq } from "drizzle-orm";
+import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
   testCasesTable,
@@ -379,6 +381,43 @@ router.post("/test-cases/:id/clone", async (req, res): Promise<void> => {
   const { id, createdAt, updatedAt, ...rest } = original;
   const [cloned] = await db.insert(testCasesTable).values({ ...rest, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
   res.status(201).json(await formatTestCase(cloned));
+});
+
+// ─── Export test cases as Excel using the shared template ────────────────────
+
+router.post("/test-cases/export", express.json(), async (req, res): Promise<void> => {
+  const { testCases } = req.body;
+  if (!Array.isArray(testCases) || testCases.length === 0) {
+    res.status(400).json({ error: "testCases array is required" });
+    return;
+  }
+
+  const rows = testCases.map((tc: any) => ({
+    caseId:         tc.caseId ?? (tc.id ? `TC-${tc.id}` : ""),
+    userStory:      tc.userStory ?? tc.redmineUserStory ?? "",
+    tracker:        tc.tracker ?? "",
+    scenario:       tc.scenario ?? "",
+    preCondition:   tc.preCondition ?? tc.preconditions ?? "",
+    caseName:       tc.caseName ?? tc.title ?? tc.case ?? "",
+    testSteps:      tc.testSteps ?? "",
+    testData:       tc.testData ?? "",
+    expectedResult: tc.expectedResult ?? "",
+    result:         tc.result ?? "",
+    defectNumber:   tc.defectNumber ?? tc.redmineDefectId ?? "",
+    comments:       tc.comments ?? "",
+    qaPic:          tc.qaPic ?? tc.authorName ?? "",
+  }));
+
+  const buf = await buildTestCaseExcel(rows);
+  if (!buf) {
+    res.status(500).json({ error: "Failed to generate Excel" });
+    return;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="TestCases_${date}.xlsx"`);
+  res.send(buf);
 });
 
 export default router;

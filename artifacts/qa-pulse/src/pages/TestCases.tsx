@@ -73,70 +73,16 @@ import {
 } from "lucide-react";
 import React from "react";
 import { format } from "date-fns";
-import ExcelJS from "exceljs";
-
-const COL_WIDTHS = [15, 25, 35, 30, 35, 50, 20, 40, 25, 20, 20];
+import { getApiUrl } from "@/lib/api";
 
 async function exportToExcel(testCases: any[]) {
-  const rows = testCases.map((tc) => ({
-    "Case ID": `TC-${tc.id}`,
-    "User Story": tc.redmineUserStory ?? "",
-    Tracker: tc.tracker ?? "",
-    Scenario: tc.scenario ?? "",
-    "Pre Condition": tc.preconditions ?? "",
-    Case: tc.title ?? "",
-    "Test Steps": tc.testSteps ?? "",
-    "Test Data": tc.testData ?? "",
-    "Expected Result": tc.expectedResult ?? "",
-    Result: "",
-    "Redmine Defect": tc.redmineDefectId ?? "",
-    "Additional/Comments/Issues": tc.comments ?? "",
-    "QA PIC": tc.qaPic ?? tc.authorName ?? "",
-  }));
-
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Test Cases");
-
-  const templateHeaders = [
-    "Case ID",
-    "User Story",
-    "Tracker",
-    "Scenario",
-    "Pre Condition",
-    "Case",
-    "Test Steps",
-    "Test Data",
-    "Expected Result",
-    "Result",
-    "Redmine Defect",
-    "Additional/Comments/Issues",
-    "QA PIC",
-  ];
-
-  worksheet.columns = templateHeaders.map((header, i) => ({
-    header,
-    key: header,
-    width: COL_WIDTHS[i] ?? 20,
-  }));
-
-  const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  headerRow.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF1F4E78" },
-  };
-
-  if (rows.length > 0) rows.forEach((row) => worksheet.addRow(row));
-
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber > 1) row.alignment = { vertical: "top", wrapText: true };
+  const res = await fetch(`${getApiUrl()}/test-cases/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ testCases }),
   });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

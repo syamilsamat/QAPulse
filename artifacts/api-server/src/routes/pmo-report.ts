@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { eq } from "drizzle-orm";
 import { execSync } from "child_process";
-import { TEST_CASE_TEMPLATE_B64 } from "./test-case-template-data";
+import { buildTestCaseExcel } from "./excel-builder";
 
 let nodemailer: any = null;
 try {
@@ -1492,125 +1492,7 @@ router.post("/pmo/send-email", async (req, res) => {
   }
 });
 
-// ─── Verdict Excel Builder ────────────────────────────────────────────────────
-
-function buildVerdictExcel(
-  testCases: any[],
-  redmineId: string,
-  issueType: string,
-  issueSubject: string,
-): Buffer | null {
-  if (!xlsx) {
-    console.error("[buildVerdictExcel] xlsx library not available");
-    return null;
-  }
-
-  let wb: any;
-  let usingTemplate = false;
-  try {
-    const tplBuffer = Buffer.from(TEST_CASE_TEMPLATE_B64, "base64");
-    wb = xlsx.read(tplBuffer, { type: "buffer" });
-    usingTemplate = true;
-    console.log("[buildVerdictExcel] template loaded, sheets:", wb.SheetNames);
-  } catch (err) {
-    console.error("[buildVerdictExcel] template load failed, using fallback builder:", err);
-    // Fallback — build a plain workbook with test case data
-    wb = xlsx.utils.book_new();
-    usingTemplate = false;
-  }
-
-  if (!usingTemplate) {
-    // Plain fallback: one sheet per section
-    const projectLabel = `${issueType} #${redmineId} : ${issueSubject}`;
-    if (testCases.length > 0) {
-      const tcRows = testCases.map((tc) => ({
-        "Module": tc.moduleName ?? "",
-        "Case ID": tc.caseId ?? "",
-        "User Story": tc.userStory ?? "",
-        "Tracker": tc.tracker ?? "",
-        "Scenario": tc.scenario ?? "",
-        "Pre Condition": tc.preCondition ?? "",
-        "Case": tc.caseName ?? "",
-        "Steps": tc.testSteps ?? "",
-        "Test Data": tc.testData ?? "",
-        "Expected Result": tc.expectedResult ?? "",
-        "Result": tc.result ?? "",
-        "Actual Result": tc.actualResult ?? "",
-        "Defect Number": tc.defectNumber ?? "",
-        "Comments": tc.comments ?? "",
-        "QA PIC": tc.qaPic ?? "",
-      }));
-      const ws = xlsx.utils.json_to_sheet(tcRows);
-      xlsx.utils.book_append_sheet(wb, ws, `#${redmineId}`);
-    } else {
-      const ws = xlsx.utils.aoa_to_sheet([["Project", projectLabel], ["No test cases found for this ticket"]]);
-      xlsx.utils.book_append_sheet(wb, ws, "Info");
-    }
-    try {
-      return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
-    } catch (err) {
-      console.error("[buildVerdictExcel] fallback write failed:", err);
-      return null;
-    }
-  }
-
-  const projectLabel = `${issueType} #${redmineId} : ${issueSubject}`;
-  const today = new Date();
-
-  // ── Doc Info ──────────────────────────────────────────────────────────────
-  const docWs = wb.Sheets["Doc Info"];
-  if (docWs) {
-    docWs["D5"] = { t: "s", v: projectLabel };
-    docWs["G4"] = { t: "s", v: `Ref. No.: QA-${redmineId}` };
-    // Pre-fill row 9 with today's entry (author = QA Pulse)
-    docWs["B9"] = { t: "n", v: 1 };
-    docWs["C9"] = { t: "d", v: today, z: "DD/MM/YYYY" };
-    docWs["D9"] = { t: "s", v: "QA Pulse" };
-    docWs["E9"] = { t: "s", v: "Generated test case report" };
-    docWs["F9"] = { t: "s", v: "" };
-    docWs["G9"] = { t: "s", v: "" };
-  }
-
-  // ── Rename "Test Step" → #<redmineId> ─────────────────────────────────────
-  const newTestSheetName = `#${redmineId}`;
-  const testStepIdx = wb.SheetNames.indexOf("Test Step");
-  if (testStepIdx !== -1) {
-    wb.SheetNames[testStepIdx] = newTestSheetName;
-    wb.Sheets[newTestSheetName] = wb.Sheets["Test Step"];
-    delete wb.Sheets["Test Step"];
-  }
-
-  // ── Fill #<redmineId> with test case data (all 13 columns) ────────────────
-  const tcWs = wb.Sheets[newTestSheetName];
-  if (tcWs && testCases.length > 0) {
-    const setCell = (r: number, c: number, v: any) => {
-      if (v === null || v === undefined || v === "") return;
-      tcWs[xlsx.utils.encode_cell({ r, c })] = { t: "s", v: String(v) };
-    };
-
-    let row = 1; // row 2 in spreadsheet (0-indexed), header stays in row 1
-    for (const tc of testCases) {
-      setCell(row, 0, tc.caseId);
-      setCell(row, 1, tc.userStory);
-      setCell(row, 2, tc.tracker);
-      setCell(row, 3, tc.scenario);
-      setCell(row, 4, tc.preCondition);
-      setCell(row, 5, tc.caseName);
-      setCell(row, 6, tc.testSteps);
-      setCell(row, 7, tc.testData);
-      setCell(row, 8, tc.expectedResult);
-      setCell(row, 9, tc.result);
-      setCell(row, 10, tc.defectNumber);
-      setCell(row, 11, tc.comments);
-      setCell(row, 12, tc.qaPic);
-      row++;
-    }
-    tcWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row - 1, c: 12 } });
-  }
-
-  console.log("[buildVerdictExcel] writing workbook, sheets:", wb.SheetNames);
-  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
-}
+// buildVerdictExcel → now uses shared buildTestCaseExcel from excel-builder.ts
 
 // ─── Send Verdict Email ───────────────────────────────────────────────────────
 
@@ -1695,7 +1577,11 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
 
       console.log(`[send-verdict] testCases count=${testCases.length}`);
 
-      const xlsxBuffer = buildVerdictExcel(testCases, String(redmineId), typeLabel, issueSubject ?? "");
+      const xlsxBuffer = await buildTestCaseExcel(testCases, {
+        redmineId: String(redmineId),
+        issueType: typeLabel,
+        issueSubject: issueSubject ?? "",
+      });
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
         attachments.push({
