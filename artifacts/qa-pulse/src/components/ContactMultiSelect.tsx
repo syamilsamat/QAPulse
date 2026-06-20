@@ -65,12 +65,15 @@ export function ContactMultiSelect({
                 {selected.map((c) => (
                   <Badge key={c.id} variant="secondary" className="gap-1 py-0.5 pr-0.5 text-xs font-normal max-w-[200px]">
                     <span className="truncate">{c.fullName}</span>
-                    <button
-                      className="ml-0.5 rounded-sm opacity-70 hover:opacity-100 shrink-0"
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="ml-0.5 rounded-sm opacity-70 hover:opacity-100 shrink-0 cursor-pointer"
                       onClick={(e) => remove(c.id, e)}
+                      onKeyDown={(e) => e.key === "Enter" && remove(c.id, e as any)}
                     >
                       <X className="h-3 w-3" />
-                    </button>
+                    </span>
                   </Badge>
                 ))}
               </div>
