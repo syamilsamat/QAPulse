@@ -186,22 +186,57 @@ router.post("/contacts/sync-redmine", express.json(), async (req, res) => {
       nameOnly = result.nameOnly;
     }
 
-    await db.delete(contactsTable).where(eq(contactsTable.source, "redmine"));
+    // Load existing redmine contacts so we can preserve manually added emails
+    const existing = await db.select().from(contactsTable).where(eq(contactsTable.source, "redmine"));
+    const byRedmineId = new Map(existing.filter((c) => c.redmineId).map((c) => [c.redmineId!, c]));
+    const byName     = new Map(existing.map((c) => [c.fullName.toLowerCase(), c]));
+
     const now = new Date();
-    const values = users.map((u) => ({
-      fullName: u.fullName,
-      email: u.email,
-      source: "redmine" as const,
-      isGroup: false,
-      redmineId: u.redmineId,
-      redmineLogin: u.redmineLogin,
-      syncedAt: now,
-    }));
-    if (values.length > 0) {
-      await db.insert(contactsTable).values(values);
+    const syncedIds = new Set<number>();
+
+    for (const u of users) {
+      if (u.redmineId) syncedIds.add(u.redmineId);
+
+      const found = (u.redmineId ? byRedmineId.get(u.redmineId) : null)
+                 ?? byName.get(u.fullName.toLowerCase());
+
+      // Keep existing email when the incoming sync has no email (name-only fallback)
+      const email = u.email?.trim() || found?.email || "";
+
+      if (found) {
+        await db.update(contactsTable)
+          .set({
+            fullName:     u.fullName,
+            email,
+            redmineId:    u.redmineId    || found.redmineId,
+            redmineLogin: u.redmineLogin || found.redmineLogin,
+            syncedAt:     now,
+          })
+          .where(eq(contactsTable.id, found.id));
+      } else {
+        await db.insert(contactsTable).values({
+          fullName:     u.fullName,
+          email,
+          source:       "redmine" as const,
+          isGroup:      false,
+          redmineId:    u.redmineId,
+          redmineLogin: u.redmineLogin,
+          syncedAt:     now,
+        });
+      }
     }
 
-    res.json({ success: true, synced: values.length, source, nameOnly });
+    // Remove contacts that have been removed from Redmine
+    // (only applies when we have redmineId references to compare against)
+    if (syncedIds.size > 0) {
+      for (const c of existing) {
+        if (c.redmineId && !syncedIds.has(c.redmineId)) {
+          await db.delete(contactsTable).where(eq(contactsTable.id, c.id));
+        }
+      }
+    }
+
+    res.json({ success: true, synced: users.length, source, nameOnly });
   } catch (err: any) {
     console.error("Contacts sync error:", err);
     const msg = err.message ?? "Sync failed";
