@@ -91,7 +91,7 @@ export default function HistoryTrail() {
         // Role-based filtering
         const visibleTasks = isAdminOrLead
           ? tasksData
-          : tasksData.filter((t: Task) => t.assigneeId === user?.id);
+          : tasksData.filter((t: any) => t.assigneeIds?.includes(user?.id));
 
         setTasks(visibleTasks);
         setEvents(eventsData);
@@ -104,16 +104,16 @@ export default function HistoryTrail() {
     loadData();
   }, [user?.id, user?.role, isAdminOrLead, toast]);
 
-  const filtered = tasks.filter((t) => {
+  const filtered = (tasks as any[]).filter((t) => {
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
-    if (filterAssignee !== "all" && String(t.assigneeId) !== filterAssignee)
+    if (filterAssignee !== "all" && !t.assigneeIds?.includes(Number(filterAssignee)))
       return false;
     if (search) {
       const q = search.toLowerCase();
       const matches =
         t.name.toLowerCase().includes(q) ||
         (t.redmineId && t.redmineId.toLowerCase().includes(q)) ||
-        (t.assigneeName && t.assigneeName.toLowerCase().includes(q));
+        t.assigneeNames?.some((n: string) => n.toLowerCase().includes(q));
       if (!matches) return false;
     }
     return true;
@@ -144,9 +144,11 @@ export default function HistoryTrail() {
 
   const uniqueAssignees = Array.from(
     new Map(
-      tasks
-        .filter((t) => t.assigneeId)
-        .map((t) => [t.assigneeId, t.assigneeName]),
+      (tasks as any[])
+        .flatMap((t) =>
+          (t.assigneeIds ?? []).map((id: number, i: number) => [id, (t.assigneeNames ?? [])[i] ?? ""])
+        )
+        .filter(([id]) => id),
     ).entries(),
   );
 
@@ -277,8 +279,8 @@ export default function HistoryTrail() {
                             </span>
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
-                            {t.assigneeName ? (
-                              <span className="text-sm">{t.assigneeName}</span>
+                            {(t as any).assigneeNames?.length > 0 ? (
+                              <span className="text-sm">{(t as any).assigneeNames.join(", ")}</span>
                             ) : (
                               <span className="text-sm text-muted-foreground italic">
                                 Unassigned
