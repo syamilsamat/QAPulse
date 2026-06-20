@@ -7,6 +7,7 @@ import {
   CheckSquare,
   Search,
   Settings,
+  CircleUser,
   LogOut,
   Menu,
   Coffee,
@@ -112,6 +113,18 @@ export function HoverSettings({ className, ...props }: LucideProps) {
     <Settings
       className={cn(
         "transition-all duration-500 group-hover:rotate-90 group-hover:text-slate-500 dark:group-hover:text-slate-400",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function HoverAccount({ className, ...props }: LucideProps) {
+  return (
+    <CircleUser
+      className={cn(
+        "transition-all duration-300 group-hover:scale-110 group-hover:text-blue-500 dark:group-hover:text-blue-400",
         className,
       )}
       {...props}

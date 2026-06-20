@@ -239,7 +239,7 @@ export default function Settings() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl">
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <SettingsIcon className="w-7 h-7 text-primary" /> Settings
+          <SettingsIcon className="w-7 h-7 text-primary" /> Account
         </h1>
         <p className="text-muted-foreground mt-1">Manage your account and preferences</p>
       </div>
