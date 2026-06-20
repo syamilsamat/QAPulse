@@ -1512,7 +1512,7 @@ function buildVerdictExcel(
     const tplPath = resolve(process.cwd(), "artifacts/api-server/assets/test-case-template.xlsx");
     console.log("[buildVerdictExcel] loading template from:", tplPath);
     const tplBuffer = readFileSync(tplPath);
-    wb = xlsx.read(tplBuffer, { type: "buffer", cellFormula: true, cellStyles: true });
+    wb = xlsx.read(tplBuffer, { type: "buffer" });
     usingTemplate = true;
     console.log("[buildVerdictExcel] template loaded, sheets:", wb.SheetNames);
   } catch (err) {
@@ -1667,6 +1667,7 @@ function buildVerdictExcel(
     tsWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row - 1, c: 12 } });
   }
 
+  console.log("[buildVerdictExcel] writing workbook, sheets:", wb.SheetNames);
   return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 
