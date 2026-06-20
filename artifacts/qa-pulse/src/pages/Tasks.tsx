@@ -949,20 +949,20 @@ export default function Tasks() {
       )}
 
       <Card>
-        <CardHeader className="pb-4">
-          <div className="flex flex-col lg:flex-row gap-3">
+        <CardHeader className="pb-4 space-y-3">
+          {/* Row 1: search + optional bulk-delete */}
+          <div className="flex gap-3">
             {selectedTasks.length > 0 && (
               <Button
                 variant="destructive"
-                className="shrink-0 w-full lg:w-auto"
+                className="shrink-0"
                 onClick={() => confirmDelete(selectedTasks)}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                Delete Selected ({selectedTasks.length})
+                Delete ({selectedTasks.length})
               </Button>
             )}
-
-            <div className="relative w-full lg:flex-1">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9 w-full"
@@ -971,98 +971,96 @@ export default function Tasks() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+          </div>
 
-            {/* Extended Grid Layout for the Filters + Sort Dropdowns */}
-            <div
-              className={`grid grid-cols-2 md:grid-cols-3 lg:flex lg:flex-row gap-3 w-full lg:w-auto shrink-0`}
-            >
+          {/* Row 2: filters — wrap naturally so nothing overflows */}
+          <div className="flex flex-wrap gap-2">
+            <SearchableSelect
+              value={sortBy}
+              onValueChange={setSortBy}
+              options={[
+                { value: "newest", label: "Newest First" },
+                { value: "oldest", label: "Oldest First" },
+                { value: "updated", label: "Recently Updated" },
+                { value: "due_date", label: "Due Date" },
+              ]}
+              placeholder="Sort By"
+              searchPlaceholder="Search..."
+              className="flex-1 min-w-[130px] bg-muted/30"
+            />
+
+            <SearchableSelect
+              value={filterPriority}
+              onValueChange={setFilterPriority}
+              options={[
+                { value: "all", label: "All Priorities" },
+                { value: "Critical", label: "Critical" },
+                { value: "High", label: "High" },
+                { value: "Medium", label: "Medium" },
+                { value: "Low", label: "Low" },
+              ]}
+              placeholder="Priority"
+              searchPlaceholder="Search..."
+              className="flex-1 min-w-[120px]"
+            />
+
+            <SearchableSelect
+              value={filterModule}
+              onValueChange={setFilterModule}
+              options={[
+                { value: "all", label: "All Modules" },
+                ...modules.map((m: any) => ({ value: String(m.id), label: m.name })),
+              ]}
+              placeholder="Module"
+              searchPlaceholder="Search module..."
+              className="flex-1 min-w-[120px]"
+            />
+
+            <SearchableSelect
+              value={filterProject}
+              onValueChange={setFilterProject}
+              options={[
+                { value: "all", label: "All Projects" },
+                ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+              ]}
+              placeholder="Project"
+              searchPlaceholder="Search project..."
+              className="flex-1 min-w-[130px]"
+            />
+
+            <SearchableSelect
+              value={filterStatus}
+              onValueChange={setFilterStatus}
+              options={[
+                { value: "all", label: "All Status" },
+                { value: "new", label: "New" },
+                { value: "pending", label: "Pending" },
+                { value: "in_progress", label: "In Progress" },
+                { value: "blocked", label: "Blocked" },
+                { value: "uat", label: "UAT" },
+                { value: "sit", label: "SIT" },
+                { value: "done", label: "Done" },
+                { value: "released_to_production", label: "Released" },
+                { value: "overdue", label: "Overdue" },
+              ]}
+              placeholder="Status"
+              searchPlaceholder="Search status..."
+              className="flex-1 min-w-[120px]"
+            />
+
+            {isAdminOrLead && (
               <SearchableSelect
-                value={sortBy}
-                onValueChange={setSortBy}
+                value={filterAssignee}
+                onValueChange={setFilterAssignee}
                 options={[
-                  { value: "newest", label: "Newest First" },
-                  { value: "oldest", label: "Oldest First" },
-                  { value: "updated", label: "Recently Updated" },
-                  { value: "due_date", label: "Due Date" },
+                  { value: "all", label: "All Assignees" },
+                  ...users.map((u) => ({ value: String(u.id), label: u.name })),
                 ]}
-                placeholder="Sort By"
-                searchPlaceholder="Search..."
-                className="w-full lg:w-36 bg-muted/30"
+                placeholder="Assignee"
+                searchPlaceholder="Search assignee..."
+                className="flex-1 min-w-[130px]"
               />
-
-              <SearchableSelect
-                value={filterPriority}
-                onValueChange={setFilterPriority}
-                options={[
-                  { value: "all", label: "All Priorities" },
-                  { value: "Critical", label: "Critical" },
-                  { value: "High", label: "High" },
-                  { value: "Medium", label: "Medium" },
-                  { value: "Low", label: "Low" },
-                ]}
-                placeholder="Priority"
-                searchPlaceholder="Search..."
-                className="w-full lg:w-32"
-              />
-
-              <SearchableSelect
-                value={filterModule}
-                onValueChange={setFilterModule}
-                options={[
-                  { value: "all", label: "All Modules" },
-                  ...modules.map((m: any) => ({ value: String(m.id), label: m.name })),
-                ]}
-                placeholder="Module"
-                searchPlaceholder="Search module..."
-                className="w-full lg:w-32"
-              />
-
-              <SearchableSelect
-                value={filterProject}
-                onValueChange={setFilterProject}
-                options={[
-                  { value: "all", label: "All Projects" },
-                  ...projects.map((p) => ({ value: String(p.id), label: p.name })),
-                ]}
-                placeholder="Project"
-                searchPlaceholder="Search project..."
-                className="w-full lg:w-36"
-              />
-
-              <SearchableSelect
-                value={filterStatus}
-                onValueChange={setFilterStatus}
-                options={[
-                  { value: "all", label: "All Status" },
-                  { value: "new", label: "New" },
-                  { value: "pending", label: "Pending" },
-                  { value: "in_progress", label: "In Progress" },
-                  { value: "blocked", label: "Blocked" },
-                  { value: "uat", label: "UAT" },
-                  { value: "sit", label: "SIT" },
-                  { value: "done", label: "Done" },
-                  { value: "released_to_production", label: "Released" },
-                  { value: "overdue", label: "Overdue" },
-                ]}
-                placeholder="Status"
-                searchPlaceholder="Search status..."
-                className="w-full lg:w-36"
-              />
-
-              {isAdminOrLead && (
-                <SearchableSelect
-                  value={filterAssignee}
-                  onValueChange={setFilterAssignee}
-                  options={[
-                    { value: "all", label: "All Assignees" },
-                    ...users.map((u) => ({ value: String(u.id), label: u.name })),
-                  ]}
-                  placeholder="Assignee"
-                  searchPlaceholder="Search assignee..."
-                  className="w-full lg:w-40"
-                />
-              )}
-            </div>
+            )}
           </div>
           {filterStatus === "overdue" && (
             <div className="flex items-center gap-2 mt-1 px-1">
