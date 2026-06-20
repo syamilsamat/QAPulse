@@ -834,28 +834,17 @@ export default function TestCases() {
     if (!tcToClone || !cloneForm.projectId || !cloneForm.module) return;
     setIsCloning(true);
     try {
-      await createMutation.mutateAsync({
-        data: {
-          title:           tcToClone.title,
-          redmineUserStory: tcToClone.redmineUserStory,
-          tracker:         tcToClone.tracker,
-          scenario:        tcToClone.scenario,
-          preconditions:   tcToClone.preconditions,
-          testSteps:       tcToClone.testSteps,
-          testData:        tcToClone.testData,
-          expectedResult:  tcToClone.expectedResult,
-          redmineDefectId: tcToClone.redmineDefectId,
-          comments:        tcToClone.comments,
-          qaPic:           tcToClone.qaPic,
-          tags:            tcToClone.tags,
-          status:          tcToClone.status || "active",
-          aiAssisted:      tcToClone.aiAssisted,
-          authorId:        tcToClone.authorId,
-          requirementId:   cloneForm.requirementId || undefined,
-          projectId:       cloneForm.projectId,
-          module:          cloneForm.module,
-        } as any,
+      const res = await fetch(`${getApiUrl()}/test-cases/${tcToClone.id}/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: cloneForm.projectId,
+          module: cloneForm.module,
+          requirementId: cloneForm.requirementId || undefined,
+        }),
       });
+      if (!res.ok) throw new Error(await res.text());
+      queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
       toast({ title: "Test case cloned" });
       setCloneDialogOpen(false);
       setTcToClone(null);
