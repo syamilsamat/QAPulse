@@ -16,6 +16,7 @@ import {
   HoverCheckSquare,
   HoverSearch,
   HoverSettings,
+  HoverAccount,
   HoverLogOut,
   HoverMenu,
   HoverCoffee,
@@ -388,7 +389,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     href: "/settings",
     label: "Account",
-    icon: HoverSettings,
+    icon: HoverAccount,
     roles: ["qa_member", "qa_lead", "admin"],
   },
 ];
