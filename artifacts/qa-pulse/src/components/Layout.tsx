@@ -387,7 +387,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/settings",
-    label: "Settings",
+    label: "Account",
     icon: HoverSettings,
     roles: ["qa_member", "qa_lead", "admin"],
   },
