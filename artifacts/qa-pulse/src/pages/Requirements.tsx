@@ -168,16 +168,6 @@ export default function Requirements() {
     setSelectedReqs([]);
   }, [search, filterPriority, filterProject, sortBy]);
 
-  // Auto-expand all parents of descendant results when searching
-  useEffect(() => {
-    if (search) {
-      const parentIds = new Set<number>(
-        filtered.map((r: any) => r.parentId).filter(Boolean) as number[]
-      );
-      setExpandedReqs(parentIds);
-    }
-  }, [search, filtered]);
-
   const createMutation = useCreateRequirement({
     mutation: {
       onSuccess: () => {
@@ -272,6 +262,16 @@ export default function Requirements() {
 
     return result;
   }, [requirements, search, filterPriority, filterProject, sortBy]);
+
+  // Auto-expand all parents of descendant results when searching
+  useEffect(() => {
+    if (search) {
+      const parentIds = new Set<number>(
+        filtered.map((r: any) => r.parentId).filter(Boolean) as number[]
+      );
+      setExpandedReqs(parentIds);
+    }
+  }, [search, filtered]);
 
   const visibleRequirements = useMemo(() => {
     const roots = buildTree(filtered);
