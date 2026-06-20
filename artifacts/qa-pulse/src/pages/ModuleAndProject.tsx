@@ -14,11 +14,15 @@ import {
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCreateUser, getListUsersQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -27,6 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -63,7 +68,11 @@ import {
   RefreshCw,
   Save,
   ChevronsUpDown,
+  Users,
+  UserPlus,
+  Mail,
 } from "lucide-react";
+import { getApiUrl } from "@/lib/api";
 
 interface RedmineProject {
   id: number;
@@ -86,11 +95,21 @@ type ProjectFormState = {
   status: string;
 };
 
+interface ContactRow {
+  id: number;
+  fullName: string;
+  email: string;
+  source: string;
+  isGroup: boolean;
+  redmineId?: number | null;
+}
+
 export default function ModuleAndProject() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isLeadOrAdmin = user?.role === "admin" || user?.role === "qa_lead";
   const itemsPerPage = 10;
+  const qc = useQueryClient();
 
   // =========================
   // REDMINE INTEGRATION STATE
@@ -367,6 +386,131 @@ export default function ModuleAndProject() {
       );
 
   // =========================
+  // CONTACTS STATE
+  // =========================
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactDialogOpen, setContactDialogOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<ContactRow | null>(null);
+  const [contactForm, setContactForm] = useState({ fullName: "", email: "", isGroup: false });
+  const [contactSubmitting, setContactSubmitting] = useState(false);
+  const [isSyncingContacts, setIsSyncingContacts] = useState(false);
+  const [contactToDelete, setContactToDelete] = useState<ContactRow | null>(null);
+  const [contactDeleting, setContactDeleting] = useState(false);
+
+  const loadContacts = async () => {
+    setContactsLoading(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/contacts`);
+      const data = await res.json();
+      setContacts(Array.isArray(data) ? data : []);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to load contacts" });
+    } finally {
+      setContactsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLeadOrAdmin) loadContacts();
+  }, [isLeadOrAdmin]);
+
+  const handleSyncContacts = async () => {
+    setIsSyncingContacts(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/contacts/sync-redmine`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      toast({ title: `Synced ${data.synced} contacts from Redmine` });
+      await loadContacts();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSyncingContacts(false);
+    }
+  };
+
+  const handleSaveContact = async () => {
+    if (!contactForm.fullName.trim() || !contactForm.email.trim()) {
+      toast({ variant: "destructive", title: "Name and email are required" });
+      return;
+    }
+    setContactSubmitting(true);
+    try {
+      const url = editingContact
+        ? `${getApiUrl()}/contacts/${editingContact.id}`
+        : `${getApiUrl()}/contacts`;
+      const res = await fetch(url, {
+        method: editingContact ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(contactForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      toast({ title: editingContact ? "Contact updated" : "Contact added" });
+      setContactDialogOpen(false);
+      setEditingContact(null);
+      setContactForm({ fullName: "", email: "", isGroup: false });
+      await loadContacts();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setContactSubmitting(false);
+    }
+  };
+
+  const confirmDeleteContact = async () => {
+    if (!contactToDelete) return;
+    setContactDeleting(true);
+    try {
+      await fetch(`${getApiUrl()}/contacts/${contactToDelete.id}`, { method: "DELETE" });
+      toast({ title: "Contact deleted" });
+      setContacts((prev) => prev.filter((c) => c.id !== contactToDelete.id));
+    } catch {
+      toast({ variant: "destructive", title: "Failed to delete contact" });
+    } finally {
+      setContactDeleting(false);
+      setContactToDelete(null);
+    }
+  };
+
+  // =========================
+  // TEAM MEMBERS STATE
+  // =========================
+  const [memberName, setMemberName] = useState("");
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState("qa_member");
+  const [memberTeam, setMemberTeam] = useState("");
+  const [memberPw, setMemberPw] = useState("password123");
+
+  const createMutation = useCreateUser({
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
+        toast({ title: `Team member ${memberName} created. They can log in with the temporary password.` });
+        setMemberName(""); setMemberEmail(""); setMemberRole("qa_member"); setMemberTeam(""); setMemberPw("password123");
+      },
+      onError: () => toast({ variant: "destructive", title: "Failed to create team member" }),
+    },
+  });
+
+  const handleCreateMember = () => {
+    if (!memberName.trim() || !memberEmail.trim() || !memberPw.trim()) {
+      toast({ variant: "destructive", title: "Name, email, and password are required" });
+      return;
+    }
+    createMutation.mutate({
+      data: {
+        name: memberName.trim(),
+        email: memberEmail.trim(),
+        password: memberPw,
+        role: memberRole as any,
+        team: memberTeam.trim() || undefined,
+      } as any,
+    });
+  };
+
+  // =========================
   // RENDER HELPERS
   // =========================
   const getStatusColor = (status: string) => {
@@ -386,14 +530,37 @@ export default function ModuleAndProject() {
     <div className="space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
       <div className="flex flex-col gap-1">
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Columns3Cog className="w-7 h-7 text-primary" />Project & Module Config
+          <Columns3Cog className="w-7 h-7 text-primary" />Configuration
         </h1>
         <p className="text-sm text-muted-foreground">
-          Manage system modules and project workspaces centrally.
+          Manage system configuration, contacts, and project workspaces.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+      <Tabs defaultValue="projects" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="projects" className="gap-2">
+            <Box className="w-4 h-4" /> Projects &amp; Modules
+          </TabsTrigger>
+          {isLeadOrAdmin && (
+            <TabsTrigger value="redmine" className="gap-2">
+              <Bug className="w-4 h-4" /> Redmine Integration
+            </TabsTrigger>
+          )}
+          {isLeadOrAdmin && (
+            <TabsTrigger value="contacts" className="gap-2">
+              <Mail className="w-4 h-4" /> Contacts
+            </TabsTrigger>
+          )}
+          {isLeadOrAdmin && (
+            <TabsTrigger value="team" className="gap-2">
+              <Users className="w-4 h-4" /> Team Members
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="projects">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* === PROJECTS SECTION === */}
         <Card className="flex flex-col h-[650px] shadow-none border-border/60 bg-background/50">
           <CardHeader className="border-b px-6 py-5">
@@ -768,10 +935,12 @@ export default function ModuleAndProject() {
             </div>
           </div>
         </Card>
-      </div>
+        </div>
+        </TabsContent>
 
-      {/* === REDMINE INTEGRATION === */}
-      {isLeadOrAdmin && (
+        {/* === REDMINE INTEGRATION TAB === */}
+        {isLeadOrAdmin && (
+          <TabsContent value="redmine">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -861,7 +1030,194 @@ export default function ModuleAndProject() {
             )}
           </CardContent>
         </Card>
-      )}
+          </TabsContent>
+        )}
+
+        {/* === CONTACTS TAB === */}
+        {isLeadOrAdmin && (
+          <TabsContent value="contacts">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Mail className="w-4 h-4" /> Contacts
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Manage email contacts for report distribution. Sync from Redmine or add manually.
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="gap-2" onClick={handleSyncContacts} disabled={isSyncingContacts}>
+                      <RefreshCw className={`w-4 h-4 ${isSyncingContacts ? "animate-spin" : ""}`} />
+                      {isSyncingContacts ? "Syncing..." : "Sync Redmine"}
+                    </Button>
+                    <Button size="sm" className="gap-2" onClick={() => { setEditingContact(null); setContactForm({ fullName: "", email: "", isGroup: false }); setContactDialogOpen(true); }}>
+                      <Plus className="w-4 h-4" /> Add Contact
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {contactsLoading ? (
+                  <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">Loading contacts...</div>
+                ) : contacts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+                    <Mail className="w-8 h-8 opacity-30" />
+                    <p>No contacts yet. Sync from Redmine or add manually.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 px-6 py-3 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      <span>Name</span>
+                      <span>Email</span>
+                      <span>Source</span>
+                      <span></span>
+                    </div>
+                    {contacts.map((contact) => (
+                      <div key={contact.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium truncate">{contact.fullName}</span>
+                          {contact.isGroup && <Badge variant="outline" className="text-[10px] py-0">Group</Badge>}
+                        </div>
+                        <span className="text-sm text-muted-foreground truncate">{contact.email}</span>
+                        <Badge variant={contact.source === "redmine" ? "secondary" : "outline"} className="text-[10px] py-0 shrink-0">
+                          {contact.source === "redmine" ? "Redmine" : "Manual"}
+                        </Badge>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {contact.source === "manual" && (
+                            <>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                onClick={() => { setEditingContact(contact); setContactForm({ fullName: contact.fullName, email: contact.email, isGroup: contact.isGroup }); setContactDialogOpen(true); }}>
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => setContactToDelete(contact)}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* === TEAM MEMBERS TAB === */}
+        {isLeadOrAdmin && (
+          <TabsContent value="team">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <UserPlus className="w-4 h-4" /> Add Team Member
+                </CardTitle>
+                <CardDescription>
+                  Create a new account. They will be prompted to change their password on first login.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Full Name <span className="text-destructive">*</span></Label>
+                    <Input value={memberName} onChange={(e) => setMemberName(e.target.value)} placeholder="Jane Smith" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Email <span className="text-destructive">*</span></Label>
+                    <Input type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} placeholder="jane@company.com" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Role</Label>
+                    <SearchableSelect
+                      value={memberRole}
+                      onValueChange={setMemberRole}
+                      options={[
+                        { value: "qa_member", label: "QA Member" },
+                        { value: "qa_lead", label: "QA Lead" },
+                        ...(user?.role === "admin" ? [{ value: "admin", label: "Admin" }] : []),
+                      ]}
+                      searchPlaceholder="Search role..."
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Team</Label>
+                    <Input value={memberTeam} onChange={(e) => setMemberTeam(e.target.value)} placeholder="e.g. Mobile QA" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Temporary Password <span className="text-destructive">*</span></Label>
+                  <Input value={memberPw} onChange={(e) => setMemberPw(e.target.value)} placeholder="Temporary password" />
+                  <p className="text-xs text-muted-foreground">They'll be asked to change this on first login</p>
+                </div>
+                <Button onClick={handleCreateMember} disabled={createMutation.isPending} className="gap-2">
+                  <UserPlus className="w-4 h-4" />
+                  {createMutation.isPending ? "Creating..." : "Create Member"}
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+      </Tabs>
+
+      {/* === CONTACT ADD/EDIT DIALOG === */}
+      <Dialog open={contactDialogOpen} onOpenChange={(v) => !v && setContactDialogOpen(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingContact ? "Edit Contact" : "Add Contact"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Full Name <span className="text-destructive">*</span></Label>
+              <Input value={contactForm.fullName} onChange={(e) => setContactForm((f) => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Email <span className="text-destructive">*</span></Label>
+              <Input type="email" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} placeholder="jane@company.com" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="isGroup"
+                checked={contactForm.isGroup}
+                onCheckedChange={(v) => setContactForm((f) => ({ ...f, isGroup: v === true }))}
+              />
+              <Label htmlFor="isGroup" className="cursor-pointer">Group / Distribution email</Label>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setContactDialogOpen(false)} disabled={contactSubmitting}>Cancel</Button>
+            <Button onClick={handleSaveContact} disabled={contactSubmitting}>
+              {contactSubmitting ? "Saving..." : editingContact ? "Save Changes" : "Add Contact"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* === CONTACT DELETE DIALOG === */}
+      <Dialog open={!!contactToDelete} onOpenChange={(v) => !v && setContactToDelete(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader className="space-y-3">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+            <DialogTitle>Delete Contact</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to delete <span className="font-semibold text-foreground">{contactToDelete?.fullName}</span>? This cannot be undone.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setContactToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDeleteContact} disabled={contactDeleting}>
+              {contactDeleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* === PROJECT CREATION DIALOG === */}
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>

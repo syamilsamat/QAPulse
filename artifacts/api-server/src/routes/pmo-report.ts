@@ -526,7 +526,7 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
       };
     });
 
-    return buildReportShape(
+    const shape = buildReportShape(
       issueId,
       {
         subject: main.subject,
@@ -536,6 +536,8 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
       [],
       defects,
     );
+    (shape as any).trackerName = main.tracker ?? "";
+    return shape;
   } catch (err: any) {
     console.error("MySQL report fetching error:", err);
     return null;
@@ -637,7 +639,7 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
       })
     );
 
-    return buildReportShape(
+    const shape = buildReportShape(
       issueId,
       {
         subject: main.subject,
@@ -647,6 +649,8 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
       [],
       defects,
     );
+    (shape as any).trackerName = main.tracker?.name ?? "";
+    return shape;
   } catch (err: any) {
     return null;
   }
@@ -721,6 +725,7 @@ router.get("/pmo/report", async (req, res): Promise<void> => {
       activeDefects: defectData.activeDefects,
       issueSubject: defectData.issueSubject || testData.issueSubject,
       projectName: defectData.projectName || testData.projectName,
+      trackerName: (defectData as any).trackerName || (testData as any).trackerName || "",
       source: "app_dashboard",
     });
     return;
@@ -1360,7 +1365,7 @@ function buildEmailHtml(
 }
 
 router.post("/pmo/send-email", async (req, res) => {
-  const { reportName, redmineId, reportData, senderName, riskResult, readinessResult } = req.body;
+  const { reportName, redmineId, reportData, senderName, riskResult, readinessResult, to, cc } = req.body;
 
   if (!reportData) {
     res.status(400).json({ error: "Missing reportData" });
@@ -1373,8 +1378,14 @@ router.post("/pmo/send-email", async (req, res) => {
   const smtpUser = process.env.SMTP_USER ?? "";
   const smtpPass = process.env.SMTP_PASS ?? "";
   const emailFrom = process.env.EMAIL_FROM ?? smtpUser;
-  const emailTo = process.env.PMO_EMAIL_TO ?? "qa.services@bestinet.com.my";
-  const emailCc = process.env.PMO_EMAIL_CC ?? "syamil.samat@bestinet.com,raimi.rosman@bestinet.com.my";
+
+  const formatRecipients = (arr: Array<{ fullName?: string; name?: string; email: string }> | undefined, fallback: string) => {
+    if (!arr || arr.length === 0) return fallback;
+    return arr.map((r) => `"${r.fullName ?? r.name ?? r.email}" <${r.email}>`).join(", ");
+  };
+
+  const emailTo = formatRecipients(to, process.env.PMO_EMAIL_TO ?? "qa.services@bestinet.com.my");
+  const emailCc = formatRecipients(cc, process.env.PMO_EMAIL_CC ?? "");
 
   if (!nodemailer) {
     res.status(500).json({ error: "nodemailer is not installed. Run: pnpm install in artifacts/api-server" });
@@ -1477,6 +1488,92 @@ router.post("/pmo/send-email", async (req, res) => {
   } catch (err: any) {
     console.error("PMO email send error:", err);
     res.status(500).json({ error: err.message ?? "Failed to send email" });
+  }
+});
+
+// ─── Send Verdict Email ───────────────────────────────────────────────────────
+
+router.post("/pmo/send-verdict", express.json(), async (req, res) => {
+  const { redmineId, issueType, issueSubject, verdict, reason, to, cc, senderName } = req.body;
+
+  if (!to || !Array.isArray(to) || to.length === 0) {
+    res.status(400).json({ error: "At least one TO recipient is required" });
+    return;
+  }
+  if (!verdict || !["PASS", "CONDITIONAL SIGN OFF"].includes(verdict)) {
+    res.status(400).json({ error: "verdict must be PASS or CONDITIONAL SIGN OFF" });
+    return;
+  }
+  if (verdict === "CONDITIONAL SIGN OFF" && !reason?.trim()) {
+    res.status(400).json({ error: "reason is required for CONDITIONAL SIGN OFF" });
+    return;
+  }
+
+  const smtpHost = process.env.SMTP_HOST ?? "smtp.gmail.com";
+  const smtpPort = parseInt(process.env.SMTP_PORT ?? "587", 10);
+  const smtpSecure = (process.env.SMTP_SECURE ?? "false").toLowerCase() === "true";
+  const smtpUser = process.env.SMTP_USER ?? "";
+  const smtpPass = process.env.SMTP_PASS ?? "";
+  const emailFrom = process.env.EMAIL_FROM ?? smtpUser;
+
+  if (!nodemailer) {
+    res.status(500).json({ error: "nodemailer is not installed" });
+    return;
+  }
+  if (!smtpUser || !smtpPass) {
+    res.status(500).json({ error: "Email not configured. Set SMTP_USER and SMTP_PASS environment variables." });
+    return;
+  }
+
+  const formatRecipients = (arr: Array<{ fullName?: string; name?: string; email: string }>) =>
+    arr.map((r) => `"${r.fullName ?? r.name ?? r.email}" <${r.email}>`).join(", ");
+
+  const typeLabel = issueType || "Issue";
+  const subject = issueSubject
+    ? `[QA Verdict] ${typeLabel} #${redmineId} : ${issueSubject} — ${verdict}`
+    : `[QA Verdict] #${redmineId} — ${verdict}`;
+
+  const bodyText =
+    verdict === "CONDITIONAL SIGN OFF"
+      ? `Hi All,\n\nThe test verdict for ${typeLabel} #${redmineId} : ${issueSubject} is CONDITIONAL SIGN OFF due to ${reason.trim()}.\nPlease refer attached email for details.\n\nRefer attachment for the details.\n\nThank you.`
+      : `Hi All,\n\nTest Verdict for ${typeLabel} #${redmineId} : ${issueSubject} is PASS.\nAll issues encountered during testing have been fixed & retest.\nAttached is the test case that we had covered during testing.\n\nThank you.`;
+
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;padding:32px;border:1px solid #e5e7eb;">
+    <h2 style="margin:0 0 8px;font-size:18px;color:#111827;">QA Pulse — Test Verdict</h2>
+    <div style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;margin-bottom:24px;background:${verdict === "PASS" ? "#dcfce7" : "#fee2e2"};color:${verdict === "PASS" ? "#166534" : "#991b1b"};">${verdict}</div>
+    <pre style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#374151;white-space:pre-wrap;margin:0;">${bodyText}</pre>
+    <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center;">
+      Sent by ${senderName ?? "QA Team"} via QA Pulse
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+
+    await transporter.sendMail({
+      from: `"QA Pulse" <${emailFrom}>`,
+      to: formatRecipients(to),
+      cc: cc?.length ? formatRecipients(cc) : undefined,
+      subject,
+      text: bodyText,
+      html: htmlBody,
+    });
+
+    res.json({ success: true, message: `Verdict sent to ${formatRecipients(to)}` });
+  } catch (err: any) {
+    console.error("Verdict email send error:", err);
+    res.status(500).json({ error: err.message ?? "Failed to send verdict email" });
   }
 });
 
