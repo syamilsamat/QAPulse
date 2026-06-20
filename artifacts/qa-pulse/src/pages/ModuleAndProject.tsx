@@ -421,10 +421,14 @@ export default function ModuleAndProject() {
       const res = await fetch(`${getApiUrl()}/contacts/sync-redmine`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
-      toast({ title: `Synced ${data.synced} contacts from Redmine` });
+      toast({ title: `Synced ${data.synced} contacts from Redmine`, description: data.source === "api" ? "Used Redmine REST API (DB was unreachable)" : undefined });
       await loadContacts();
     } catch (err: any) {
-      toast({ variant: "destructive", title: err.message });
+      toast({
+        variant: "destructive",
+        title: "Redmine Sync Failed",
+        description: err.message,
+      });
     } finally {
       setIsSyncingContacts(false);
     }

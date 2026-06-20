@@ -69,18 +69,15 @@ router.delete("/contacts/:id", async (req, res) => {
   }
 });
 
-router.post("/contacts/sync-redmine", express.json(), async (_req, res) => {
-  if (!mysql2) {
-    res.status(500).json({ error: "mysql2 is not available" });
-    return;
-  }
+async function syncFromRedmineDB(): Promise<Array<{ fullName: string; email: string; redmineId: number; redmineLogin: string }>> {
+  if (!mysql2) throw new Error("mysql2 not available");
   const cfg = {
     host: process.env.REDMINE_DB_HOST ?? "10.10.4.130",
     port: parseInt(process.env.REDMINE_DB_PORT ?? "3306"),
     user: process.env.REDMINE_DB_USER ?? "bestqa",
     password: process.env.REDMINE_DB_PASSWORD ?? "",
     database: process.env.REDMINE_DB_NAME ?? "redmine",
-    connectTimeout: 8000,
+    connectTimeout: 6000,
   };
   let conn: any = null;
   try {
@@ -88,27 +85,89 @@ router.post("/contacts/sync-redmine", express.json(), async (_req, res) => {
     const [rows] = await conn.query(
       "SELECT id, login, firstname, lastname, mail FROM users WHERE type = 'User' AND status = 1 AND mail != '' ORDER BY firstname, lastname",
     );
-    await db.delete(contactsTable).where(eq(contactsTable.source, "redmine"));
-    const now = new Date();
-    const values = (rows as any[])
+    return (rows as any[])
       .filter((r: any) => r.mail?.trim())
       .map((r: any) => ({
         fullName: `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim() || r.login,
         email: r.mail.trim(),
-        source: "redmine" as const,
-        isGroup: false,
         redmineId: r.id,
         redmineLogin: r.login,
-        syncedAt: now,
       }));
+  } finally {
+    if (conn) await conn.end().catch(() => {});
+  }
+}
+
+async function syncFromRedmineAPI(): Promise<Array<{ fullName: string; email: string; redmineId: number; redmineLogin: string }>> {
+  const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
+  const apiKey = process.env.REDMINE_API_KEY ?? "";
+  if (!baseUrl || !apiKey) throw new Error("REDMINE_URL and REDMINE_API_KEY must be set");
+
+  const headers = { "X-Redmine-API-Key": apiKey, Accept: "application/json" };
+  const users: any[] = [];
+  let offset = 0;
+  const limit = 100;
+
+  while (true) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    let data: any;
+    try {
+      const r = await fetch(`${baseUrl}/users.json?status=1&limit=${limit}&offset=${offset}`, { headers, signal: ctrl.signal });
+      if (!r.ok) throw new Error(`Redmine API returned ${r.status}`);
+      data = await r.json();
+    } finally {
+      clearTimeout(timer);
+    }
+    const batch: any[] = data?.users ?? [];
+    users.push(...batch);
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+
+  return users
+    .filter((u: any) => u.mail?.trim())
+    .map((u: any) => ({
+      fullName: `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim() || u.login,
+      email: u.mail.trim(),
+      redmineId: u.id,
+      redmineLogin: u.login,
+    }));
+}
+
+router.post("/contacts/sync-redmine", express.json(), async (_req, res) => {
+  try {
+    let users: Array<{ fullName: string; email: string; redmineId: number; redmineLogin: string }>;
+    let source = "db";
+
+    try {
+      users = await syncFromRedmineDB();
+    } catch {
+      // DB unreachable — fall back to Redmine REST API
+      source = "api";
+      users = await syncFromRedmineAPI();
+    }
+
+    await db.delete(contactsTable).where(eq(contactsTable.source, "redmine"));
+    const now = new Date();
+    const values = users.map((u) => ({
+      fullName: u.fullName,
+      email: u.email,
+      source: "redmine" as const,
+      isGroup: false,
+      redmineId: u.redmineId,
+      redmineLogin: u.redmineLogin,
+      syncedAt: now,
+    }));
     if (values.length > 0) {
       await db.insert(contactsTable).values(values);
     }
-    res.json({ success: true, synced: values.length });
+
+    res.json({ success: true, synced: values.length, source });
   } catch (err: any) {
-    res.status(500).json({ error: err.message ?? "Sync failed" });
-  } finally {
-    if (conn) await conn.end().catch(() => {});
+    console.error("Contacts sync error:", err);
+    const msg = err.message ?? "Sync failed";
+    res.status(500).json({ error: msg });
   }
 });
 
