@@ -1571,80 +1571,24 @@ function buildVerdictExcel(
     docWs["G9"] = { t: "s", v: "" };
   }
 
-  // ── Test Cases sheet (rename #21362 → #<redmineId>) ───────────────────────
-  const oldTestSheetName = wb.SheetNames.find(
-    (n: string) => n.startsWith("#") && n !== `#${redmineId}`,
-  );
-  const testSheetName = `#${redmineId}`;
-  if (oldTestSheetName && oldTestSheetName !== testSheetName) {
-    const idx = wb.SheetNames.indexOf(oldTestSheetName);
-    wb.SheetNames[idx] = testSheetName;
-    wb.Sheets[testSheetName] = wb.Sheets[oldTestSheetName];
-    delete wb.Sheets[oldTestSheetName];
+  // ── Rename "Test Step" → #<redmineId> ─────────────────────────────────────
+  const newTestSheetName = `#${redmineId}`;
+  const testStepIdx = wb.SheetNames.indexOf("Test Step");
+  if (testStepIdx !== -1) {
+    wb.SheetNames[testStepIdx] = newTestSheetName;
+    wb.Sheets[newTestSheetName] = wb.Sheets["Test Step"];
+    delete wb.Sheets["Test Step"];
   }
 
-  const tcWs = wb.Sheets[testSheetName];
+  // ── Fill #<redmineId> with test case data (all 13 columns) ────────────────
+  const tcWs = wb.Sheets[newTestSheetName];
   if (tcWs && testCases.length > 0) {
-    // Clear data rows (rows 3+ = index 2+) keeping headers in rows 1-2
-    const existingRange = xlsx.utils.decode_range(tcWs["!ref"] || "A1:K3");
-    for (let r = 2; r <= existingRange.e.r + 1; r++) {
-      for (let c = 0; c <= 10; c++) {
-        delete tcWs[xlsx.utils.encode_cell({ r, c })];
-      }
-    }
-
-    // Group by module, preserving rowOrder
-    const grouped = new Map<string, any[]>();
-    for (const tc of testCases) {
-      const mod = tc.moduleName || "General";
-      if (!grouped.has(mod)) grouped.set(mod, []);
-      grouped.get(mod)!.push(tc);
-    }
-
-    const setCell = (ws: any, r: number, c: number, v: any) => {
-      if (v === null || v === undefined || v === "") return;
-      ws[xlsx.utils.encode_cell({ r, c })] = { t: "s", v: String(v) };
-    };
-
-    let currentRow = 2; // 0-indexed (row 3 in spreadsheet)
-    for (const [moduleName, cases] of grouped) {
-      // Module header row
-      tcWs[xlsx.utils.encode_cell({ r: currentRow, c: 0 })] = { t: "s", v: moduleName };
-      currentRow++;
-
-      for (const tc of cases) {
-        const result = (tc.result ?? "").trim().toLowerCase();
-        setCell(tcWs, currentRow, 0, tc.caseId);
-        setCell(tcWs, currentRow, 1, tc.userStory);
-        setCell(tcWs, currentRow, 2, tc.scenario);
-        setCell(tcWs, currentRow, 3, tc.preCondition);
-        setCell(tcWs, currentRow, 4, tc.caseName);
-        setCell(tcWs, currentRow, 5, tc.testSteps);
-        setCell(tcWs, currentRow, 6, tc.expectedResult);
-        // Col H = Pass ✓, Col I = Fail ✓
-        if (result === "passed") {
-          tcWs[xlsx.utils.encode_cell({ r: currentRow, c: 7 })] = { t: "s", v: "✓" };
-        } else if (result === "failed" || result === "blocked") {
-          tcWs[xlsx.utils.encode_cell({ r: currentRow, c: 8 })] = { t: "s", v: "✓" };
-        }
-        setCell(tcWs, currentRow, 9, tc.defectNumber);
-        setCell(tcWs, currentRow, 10, tc.comments);
-        currentRow++;
-      }
-    }
-
-    tcWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: currentRow - 1, c: 10 } });
-  }
-
-  // ── Test Step sheet ───────────────────────────────────────────────────────
-  const tsWs = wb.Sheets["Test Step"];
-  if (tsWs && testCases.length > 0) {
     const setCell = (r: number, c: number, v: any) => {
       if (v === null || v === undefined || v === "") return;
-      tsWs[xlsx.utils.encode_cell({ r, c })] = { t: "s", v: String(v) };
+      tcWs[xlsx.utils.encode_cell({ r, c })] = { t: "s", v: String(v) };
     };
 
-    let row = 1; // start at row 2 (0-indexed = 1), after header
+    let row = 1; // row 2 in spreadsheet (0-indexed), header stays in row 1
     for (const tc of testCases) {
       setCell(row, 0, tc.caseId);
       setCell(row, 1, tc.userStory);
@@ -1661,7 +1605,7 @@ function buildVerdictExcel(
       setCell(row, 12, tc.qaPic);
       row++;
     }
-    tsWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row - 1, c: 12 } });
+    tcWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row - 1, c: 12 } });
   }
 
   console.log("[buildVerdictExcel] writing workbook, sheets:", wb.SheetNames);
