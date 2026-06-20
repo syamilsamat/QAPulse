@@ -45,7 +45,11 @@ import {
   Download,
   Mail,
   Loader2,
-} from "lucide-react"; // Removed FileBarChart2
+  Send,
+} from "lucide-react";
+import { SendReportModal } from "@/components/SendReportModal";
+import { SendVerdictModal, type Verdict } from "@/components/SendVerdictModal";
+import type { ContactOption } from "@/components/ContactMultiSelect";
 import { format } from "date-fns";
 import {
   AlertDialog,
@@ -99,6 +103,7 @@ interface PmoReportData {
   source?: "redmine" | "local";
   issueSubject?: string;
   projectName?: string;
+  trackerName?: string;
   requirements: Array<{
     id: number;
     title: string;
@@ -706,6 +711,9 @@ export default function PmoReport() {
   const [showAllDefects, setShowAllDefects] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isSendingVerdict, setIsSendingVerdict] = useState(false);
+  const [sendReportOpen, setSendReportOpen] = useState(false);
+  const [sendVerdictOpen, setSendVerdictOpen] = useState(false);
 
   // AI Dashboard State
   const [riskResult, setRiskResult] = useState<any>(null);
@@ -942,12 +950,11 @@ export default function PmoReport() {
     }
   };
 
-  const handleSendReport = async () => {
+  const handleSendReport = async (to: ContactOption[], cc: ContactOption[]) => {
     if (!data) return;
     setIsSending(true);
     try {
       const reportName = data.issueSubject || `Ticket #${redmineId}`;
-
       const res = await fetch(`${getApiUrl()}/pmo/send-email`, {
         method: "POST",
         headers: {
@@ -961,17 +968,51 @@ export default function PmoReport() {
           senderName: user?.name || "QA Team",
           riskResult: riskResult ?? null,
           readinessResult: readinessResult ?? null,
+          to,
+          cc,
         }),
       });
-
       const result = await res.json();
       if (!res.ok) throw new Error(result.error ?? "Failed to send email");
-
-      toast({ title: "Report sent!", description: "Email delivered to PMO recipients." });
+      toast({ title: "Report sent!", description: "Email delivered to selected recipients." });
+      setSendReportOpen(false);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Send Failed", description: err.message });
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleSendVerdict = async (to: ContactOption[], cc: ContactOption[], reason: string) => {
+    if (!data) return;
+    setIsSendingVerdict(true);
+    try {
+      const verdict: Verdict = data.testExecution.passRate >= 100 ? "PASS" : "CONDITIONAL SIGN OFF";
+      const res = await fetch(`${getApiUrl()}/pmo/send-verdict`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          redmineId,
+          issueType: data.trackerName || "Issue",
+          issueSubject: data.issueSubject || "",
+          verdict,
+          reason,
+          to,
+          cc,
+          senderName: user?.name || "QA Team",
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error ?? "Failed to send verdict");
+      toast({ title: "Verdict sent!", description: "Verdict email delivered to selected recipients." });
+      setSendVerdictOpen(false);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Send Failed", description: err.message });
+    } finally {
+      setIsSendingVerdict(false);
     }
   };
 
@@ -1096,7 +1137,7 @@ export default function PmoReport() {
                     Download Report
                   </Button>
                   <Button
-                    onClick={handleSendReport}
+                    onClick={() => setSendReportOpen(true)}
                     disabled={isDownloading || isSending}
                     className="gap-2"
                   >
@@ -1106,6 +1147,19 @@ export default function PmoReport() {
                       <Mail className="w-4 h-4" />
                     )}
                     Send Report
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSendVerdictOpen(true)}
+                    disabled={isDownloading || isSendingVerdict}
+                    className="gap-2"
+                  >
+                    {isSendingVerdict ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    Send Verdict
                   </Button>
                 </div>
               )}
@@ -2190,6 +2244,25 @@ export default function PmoReport() {
           </div>
         </main>
       </div>
+
+      <SendReportModal
+        open={sendReportOpen}
+        onClose={() => setSendReportOpen(false)}
+        onSend={handleSendReport}
+        isSending={isSending}
+        reportName={data?.issueSubject || `Ticket #${redmineId}`}
+      />
+
+      <SendVerdictModal
+        open={sendVerdictOpen}
+        onClose={() => setSendVerdictOpen(false)}
+        verdict={data && data.testExecution.passRate >= 100 ? "PASS" : "CONDITIONAL SIGN OFF"}
+        redmineId={redmineId ?? ""}
+        issueType={data?.trackerName || "Issue"}
+        issueSubject={data?.issueSubject || ""}
+        onSend={handleSendVerdict}
+        isSending={isSendingVerdict}
+      />
     </>
   );
 }

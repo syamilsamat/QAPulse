@@ -14,6 +14,7 @@ import aiRouter from "./ai";
 import pmoReportRouter from "./pmo-report";
 import redmineRouter from "./redmine";
 import testExecutionRouter from "./test-execution";
+import contactsRouter from "./contacts";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(aiRouter);
 router.use(pmoReportRouter);
 router.use(redmineRouter);
 router.use(testExecutionRouter);
+router.use(contactsRouter);
 
 export default router;

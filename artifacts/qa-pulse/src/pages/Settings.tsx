@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useUpdateUser, useCreateUser, useChangePassword,
+  useUpdateUser, useChangePassword,
   getListUsersQueryKey,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Settings as SettingsIcon, User, Shield, Bell, Upload, Lock, UserPlus, Eye, EyeOff,
+  Settings as SettingsIcon, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
   RefreshCw, Bug, Save, ChevronsUpDown, Check,
 } from "lucide-react";
 
@@ -67,12 +67,6 @@ export default function Settings() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
 
-  // Create member (admin/lead)
-  const [memberName, setMemberName] = useState("");
-  const [memberEmail, setMemberEmail] = useState("");
-  const [memberRole, setMemberRole] = useState("qa_member");
-  const [memberTeam, setMemberTeam] = useState("");
-  const [memberPw, setMemberPw] = useState("password123");
 
   // Redmine Integration (QA Lead / admin)
   const [redmineProjects, setRedmineProjects] = useState<RedmineProject[]>([]);
@@ -105,16 +99,6 @@ export default function Settings() {
     },
   });
 
-  const createMutation = useCreateUser({
-    mutation: {
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
-        toast({ title: `Team member ${memberName} created. They can log in with the temporary password.` });
-        setMemberName(""); setMemberEmail(""); setMemberRole("qa_member"); setMemberTeam(""); setMemberPw("password123");
-      },
-      onError: () => toast({ variant: "destructive", title: "Failed to create team member" }),
-    },
-  });
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -159,23 +143,6 @@ export default function Settings() {
     });
   };
 
-  const handleCreateMember = () => {
-    if (!memberName.trim() || !memberEmail.trim() || !memberPw.trim()) {
-      toast({ variant: "destructive", title: "Name, email, and password are required" });
-      return;
-    }
-    createMutation.mutate({
-      data: {
-        name: memberName.trim(),
-        email: memberEmail.trim(),
-        password: memberPw,
-        role: memberRole as any,
-        team: memberTeam.trim() || undefined,
-      } as any,
-    });
-  };
-
-  const canManageTeam = user?.role === "admin" || user?.role === "qa_lead";
   const isLeadOrAdmin = user?.role === "admin" || user?.role === "qa_lead";
 
   useEffect(() => {
@@ -484,82 +451,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Create Team Member — admin/lead only */}
-      {canManageTeam && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <UserPlus className="w-4 h-4" /> Add Team Member
-            </CardTitle>
-            <CardDescription>
-              Create a new account. They will be prompted to change their password on first login.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Full Name <span className="text-destructive">*</span></Label>
-                <Input
-                  value={memberName}
-                  onChange={(e) => setMemberName(e.target.value)}
-                  placeholder="Jane Smith"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email <span className="text-destructive">*</span></Label>
-                <Input
-                  type="email"
-                  value={memberEmail}
-                  onChange={(e) => setMemberEmail(e.target.value)}
-                  placeholder="jane@company.com"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Role</Label>
-                <SearchableSelect
-                  value={memberRole}
-                  onValueChange={setMemberRole}
-                  options={[
-                    { value: "qa_member", label: "QA Member" },
-                    { value: "qa_lead", label: "QA Lead" },
-                    ...(user?.role === "admin" ? [{ value: "admin", label: "Admin" }] : []),
-                  ]}
-                  searchPlaceholder="Search role..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Team</Label>
-                <Input
-                  value={memberTeam}
-                  onChange={(e) => setMemberTeam(e.target.value)}
-                  placeholder="e.g. Mobile QA"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Temporary Password <span className="text-destructive">*</span></Label>
-              <Input
-                value={memberPw}
-                onChange={(e) => setMemberPw(e.target.value)}
-                placeholder="Temporary password"
-              />
-              <p className="text-xs text-muted-foreground">
-                They'll be asked to change this on first login
-              </p>
-            </div>
-            <Button
-              onClick={handleCreateMember}
-              disabled={createMutation.isPending}
-              className="gap-2"
-            >
-              <UserPlus className="w-4 h-4" />
-              {createMutation.isPending ? "Creating..." : "Create Member"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {/* Team Members section has moved to Configuration > Team Members tab */}
 
       {/* Redmine Integration moved to Project & Module Config page */}
       {false && (
