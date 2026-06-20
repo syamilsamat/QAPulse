@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import { join } from "path";
 import { TEST_CASE_TEMPLATE_B64 } from "./test-case-template-data";
 
 let XlsxPopulate: any = null;
@@ -5,6 +7,42 @@ try {
   XlsxPopulate = require("xlsx-populate");
 } catch {}
 
+// ── Template loading ──────────────────────────────────────────────────────────
+// Tries to read the .xlsx from assets/ at startup so a server restart is enough
+// to pick up an updated template. Falls back to the embedded base64 if the file
+// is not found (e.g. first deploy before the asset is present on disk).
+function loadTemplate(): Buffer {
+  const candidates = [
+    join(process.cwd(), "artifacts/api-server/assets/test-case-template.xlsx"),
+    join(process.cwd(), "assets/test-case-template.xlsx"),
+  ];
+  for (const p of candidates) {
+    try {
+      const buf = readFileSync(p);
+      console.log("[excel-builder] template loaded from file:", p);
+      return buf;
+    } catch {}
+  }
+  console.log("[excel-builder] template loaded from embedded base64 (fallback)");
+  return Buffer.from(TEST_CASE_TEMPLATE_B64, "base64");
+}
+
+// Loaded once at server startup — restart to pick up a new template file.
+const TEMPLATE_BUFFER = loadTemplate();
+
+// ── Tracker code mapping ──────────────────────────────────────────────────────
+export function trackerCode(issueType: string): string {
+  const t = (issueType ?? "").toLowerCase();
+  if (t.includes("change request")) return "CR";
+  if (t.includes("user story"))     return "US";
+  if (t.includes("prod"))           return "PD";  // Production Defect
+  if (t.includes("qa defect"))      return "QD";
+  if (t.includes("defect") || t.includes("bug")) return "QD";
+  // Fallback: first letters of each word, max 4 chars
+  return issueType.replace(/\s+/g, "").slice(0, 4).toUpperCase() || "TC";
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 export interface TestCaseRow {
   caseId?: string;
   userStory?: string;
@@ -28,6 +66,7 @@ export interface ExcelBuildOptions {
   issueSubject?: string;
 }
 
+// ── Builder ───────────────────────────────────────────────────────────────────
 /**
  * Fills the test-case-template.xlsx with the given rows.
  * When redmineId is supplied, also fills Doc Info and renames the Test Step sheet.
@@ -43,8 +82,7 @@ export async function buildTestCaseExcel(
   }
 
   try {
-    const tplBuf = Buffer.from(TEST_CASE_TEMPLATE_B64, "base64");
-    const wb = await XlsxPopulate.fromDataAsync(tplBuf);
+    const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
 
     const { redmineId, issueType, issueSubject } = options;
 

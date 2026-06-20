@@ -416,7 +416,7 @@ router.post("/test-cases/export", express.json(), async (req, res): Promise<void
 
   const date = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", `attachment; filename="TestCases_${date}.xlsx"`);
+  res.setHeader("Content-Disposition", `attachment; filename="TC_Export_${date}.xlsx"`);
   res.send(buf);
 });
 
