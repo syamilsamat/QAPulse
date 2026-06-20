@@ -397,7 +397,41 @@ router.post(
         .where(eq(executionFilesTable.id, file.id))
         .returning();
 
-      // 4. Trigger live update to dashboard
+      // 4. Auto-aggregate by module and save to PMO (so Load button is not required)
+      const moduleMap: Record<string, { module: string; total: number; passed: number; failed: number; blocked: number; inProg: number; notExec: number }> = {};
+      for (const tc of testCases) {
+        if (!tc.moduleName && !tc.caseName && !tc.result) continue;
+        const modName = tc.moduleName || "Unassigned Module";
+        if (!moduleMap[modName]) {
+          moduleMap[modName] = { module: modName, total: 0, passed: 0, failed: 0, blocked: 0, inProg: 0, notExec: 0 };
+        }
+        const row = moduleMap[modName];
+        row.total += 1;
+        const result = (tc.result?.trim() || "").toLowerCase();
+        if (result === "passed") row.passed += 1;
+        else if (result === "failed") row.failed += 1;
+        else if (result === "blocked") row.blocked += 1;
+        else if (result === "in progress") row.inProg += 1;
+        else row.notExec += 1;
+      }
+      const aggregated = Object.values(moduleMap);
+      if (aggregated.length > 0) {
+        await db.delete(executionSummariesTable).where(eq(executionSummariesTable.redmineTicketId, ticketId));
+        await db.insert(executionSummariesTable).values(
+          aggregated.map((row) => ({
+            redmineTicketId: ticketId,
+            module: row.module,
+            total: row.total,
+            passed: row.passed,
+            failed: row.failed,
+            blocked: row.blocked,
+            inProgress: row.inProg,
+            notExecuted: row.notExec,
+          })),
+        );
+      }
+
+      // 5. Trigger live update to dashboard
       broadcastUpdate(ticketId);
 
       res.json({

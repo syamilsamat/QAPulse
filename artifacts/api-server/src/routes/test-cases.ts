@@ -147,7 +147,7 @@ async function formatTestCase(tc: any) {
 
   return {
     id: tc.id,
-    title: tc.title, 
+    title: tc.title,
     redmineUserStory: tc.redmineUserStory,
     tracker: tc.tracker,
     scenario: tc.scenario,
@@ -159,6 +159,7 @@ async function formatTestCase(tc: any) {
     comments: tc.comments,
     qaPic: tc.qaPic,
     tags: tc.tags,
+    module: tc.module,
     requirementId: tc.requirementId,
     requirementTitle,
     projectId: tc.projectId,

@@ -1402,14 +1402,14 @@ export default function TestCases() {
 
       {/* --- CLONE DIALOG --- */}
       <Dialog open={cloneDialogOpen} onOpenChange={(o) => { if (!o) { setCloneDialogOpen(false); setTcToClone(null); } }}>
-        <DialogContent className="sm:max-w-[440px] w-[95vw]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[440px] w-[95vw] flex flex-col max-h-[90vh]">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Copy className="w-4 h-4 text-primary" /> Clone Test Case
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
+          <div className="flex-1 overflow-y-auto space-y-4 py-2">
+            <p className="text-sm text-muted-foreground line-clamp-2">
               Cloning: <span className="font-medium text-foreground">{tcToClone?.title}</span>
             </p>
             <div className="space-y-1.5">
@@ -1451,12 +1451,12 @@ export default function TestCases() {
               />
             </div>
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setCloneDialogOpen(false)}>
+          <DialogFooter className="shrink-0 border-t pt-4 flex-row justify-end gap-2">
+            <Button variant="outline" className="w-auto" onClick={() => setCloneDialogOpen(false)}>
               Cancel
             </Button>
             <Button
-              className="w-full sm:w-auto gap-2"
+              className="w-auto gap-2"
               onClick={handleConfirmClone}
               disabled={!cloneForm.projectId || !cloneForm.module || isCloning}
             >
