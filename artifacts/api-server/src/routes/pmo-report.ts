@@ -3,7 +3,8 @@ import express from "express";
 import { eq } from "drizzle-orm";
 import { execSync } from "child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let nodemailer: any = null;
 try {
@@ -1509,7 +1510,9 @@ function buildVerdictExcel(
   let wb: any;
   let usingTemplate = false;
   try {
-    const tplPath = resolve(process.cwd(), "artifacts/api-server/assets/test-case-template.xlsx");
+    // Use import.meta.url so the path is always relative to THIS file (dist/index.mjs),
+    // not process.cwd() which changes depending on how pnpm starts the server.
+    const tplPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../assets/test-case-template.xlsx");
     console.log("[buildVerdictExcel] loading template from:", tplPath);
     const tplBuffer = readFileSync(tplPath);
     wb = xlsx.read(tplBuffer, { type: "buffer" });
