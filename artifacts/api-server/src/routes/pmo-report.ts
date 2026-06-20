@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { eq } from "drizzle-orm";
 import { execSync } from "child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 let nodemailer: any = null;
 try {
@@ -1491,6 +1493,138 @@ router.post("/pmo/send-email", async (req, res) => {
   }
 });
 
+// ─── Verdict Excel Builder ────────────────────────────────────────────────────
+
+function buildVerdictExcel(
+  testCases: any[],
+  redmineId: string,
+  issueType: string,
+  issueSubject: string,
+): Buffer | null {
+  if (!xlsx) return null;
+
+  let wb: any;
+  try {
+    const tplPath = resolve(process.cwd(), "artifacts/api-server/assets/test-case-template.xlsx");
+    const tplBuffer = readFileSync(tplPath);
+    wb = xlsx.read(tplBuffer, { type: "buffer", cellFormula: true, cellStyles: true });
+  } catch {
+    return null;
+  }
+
+  const projectLabel = `${issueType} #${redmineId} : ${issueSubject}`;
+  const today = new Date();
+
+  // ── Doc Info ──────────────────────────────────────────────────────────────
+  const docWs = wb.Sheets["Doc Info"];
+  if (docWs) {
+    docWs["D5"] = { t: "s", v: projectLabel };
+    docWs["G4"] = { t: "s", v: `Ref. No.: QA-${redmineId}` };
+    // Pre-fill row 9 with today's entry (author = QA Pulse)
+    docWs["B9"] = { t: "n", v: 1 };
+    docWs["C9"] = { t: "d", v: today, z: "DD/MM/YYYY" };
+    docWs["D9"] = { t: "s", v: "QA Pulse" };
+    docWs["E9"] = { t: "s", v: "Generated test case report" };
+    docWs["F9"] = { t: "s", v: "" };
+    docWs["G9"] = { t: "s", v: "" };
+  }
+
+  // ── Test Cases sheet (rename #21362 → #<redmineId>) ───────────────────────
+  const oldTestSheetName = wb.SheetNames.find(
+    (n: string) => n.startsWith("#") && n !== `#${redmineId}`,
+  );
+  const testSheetName = `#${redmineId}`;
+  if (oldTestSheetName && oldTestSheetName !== testSheetName) {
+    const idx = wb.SheetNames.indexOf(oldTestSheetName);
+    wb.SheetNames[idx] = testSheetName;
+    wb.Sheets[testSheetName] = wb.Sheets[oldTestSheetName];
+    delete wb.Sheets[oldTestSheetName];
+  }
+
+  const tcWs = wb.Sheets[testSheetName];
+  if (tcWs && testCases.length > 0) {
+    // Clear data rows (rows 3+ = index 2+) keeping headers in rows 1-2
+    const existingRange = xlsx.utils.decode_range(tcWs["!ref"] || "A1:K3");
+    for (let r = 2; r <= existingRange.e.r + 1; r++) {
+      for (let c = 0; c <= 10; c++) {
+        delete tcWs[xlsx.utils.encode_cell({ r, c })];
+      }
+    }
+
+    // Group by module, preserving rowOrder
+    const grouped = new Map<string, any[]>();
+    for (const tc of testCases) {
+      const mod = tc.moduleName || "General";
+      if (!grouped.has(mod)) grouped.set(mod, []);
+      grouped.get(mod)!.push(tc);
+    }
+
+    const setCell = (ws: any, r: number, c: number, v: any) => {
+      if (v === null || v === undefined || v === "") return;
+      ws[xlsx.utils.encode_cell({ r, c })] = { t: "s", v: String(v) };
+    };
+
+    let currentRow = 2; // 0-indexed (row 3 in spreadsheet)
+    for (const [moduleName, cases] of grouped) {
+      // Module header row
+      tcWs[xlsx.utils.encode_cell({ r: currentRow, c: 0 })] = { t: "s", v: moduleName };
+      currentRow++;
+
+      for (const tc of cases) {
+        const result = (tc.result ?? "").trim().toLowerCase();
+        setCell(tcWs, currentRow, 0, tc.caseId);
+        setCell(tcWs, currentRow, 1, tc.userStory);
+        setCell(tcWs, currentRow, 2, tc.scenario);
+        setCell(tcWs, currentRow, 3, tc.preCondition);
+        setCell(tcWs, currentRow, 4, tc.caseName);
+        setCell(tcWs, currentRow, 5, tc.testSteps);
+        setCell(tcWs, currentRow, 6, tc.expectedResult);
+        // Col H = Pass ✓, Col I = Fail ✓
+        if (result === "passed") {
+          tcWs[xlsx.utils.encode_cell({ r: currentRow, c: 7 })] = { t: "s", v: "✓" };
+        } else if (result === "failed" || result === "blocked") {
+          tcWs[xlsx.utils.encode_cell({ r: currentRow, c: 8 })] = { t: "s", v: "✓" };
+        }
+        setCell(tcWs, currentRow, 9, tc.defectNumber);
+        setCell(tcWs, currentRow, 10, tc.comments);
+        currentRow++;
+      }
+    }
+
+    tcWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: currentRow - 1, c: 10 } });
+  }
+
+  // ── Test Step sheet ───────────────────────────────────────────────────────
+  const tsWs = wb.Sheets["Test Step"];
+  if (tsWs && testCases.length > 0) {
+    const setCell = (r: number, c: number, v: any) => {
+      if (v === null || v === undefined || v === "") return;
+      tsWs[xlsx.utils.encode_cell({ r, c })] = { t: "s", v: String(v) };
+    };
+
+    let row = 1; // start at row 2 (0-indexed = 1), after header
+    for (const tc of testCases) {
+      setCell(row, 0, tc.caseId);
+      setCell(row, 1, tc.userStory);
+      setCell(row, 2, tc.tracker);
+      setCell(row, 3, tc.scenario);
+      setCell(row, 4, tc.preCondition);
+      setCell(row, 5, tc.caseName);
+      setCell(row, 6, tc.testSteps);
+      setCell(row, 7, tc.testData);
+      setCell(row, 8, tc.expectedResult);
+      setCell(row, 9, tc.result);
+      setCell(row, 10, tc.defectNumber);
+      setCell(row, 11, tc.comments);
+      setCell(row, 12, tc.qaPic);
+      row++;
+    }
+    tsWs["!ref"] = xlsx.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row - 1, c: 12 } });
+  }
+
+  return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+}
+
 // ─── Send Verdict Email ───────────────────────────────────────────────────────
 
 router.post("/pmo/send-verdict", express.json(), async (req, res) => {
@@ -1553,72 +1687,25 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
 </body>
 </html>`;
 
-  // Build test case Excel attachment
+  // Build test case Excel attachment using template
   const attachments: any[] = [];
-  if (xlsx && redmineId) {
+  if (redmineId) {
     try {
-      const wb = xlsx.utils.book_new();
-
-      // Sheet 1 — Module Summary (from executionSummariesTable)
-      const summaryRows = await db
-        .select()
-        .from(executionSummariesTable)
-        .where(eq(executionSummariesTable.redmineTicketId, String(redmineId)));
-
-      if (summaryRows.length > 0) {
-        const summarySheet = xlsx.utils.json_to_sheet(
-          summaryRows.map((r) => ({
-            "Module": r.module,
-            "Total": r.total,
-            "Passed": r.passed,
-            "Failed": r.failed,
-            "Blocked": r.blocked,
-            "In Progress": r.inProgress,
-            "Not Executed": r.notExecuted,
-          })),
-        );
-        xlsx.utils.book_append_sheet(wb, summarySheet, "Test Summary");
-      }
-
-      // Sheet 2 — Detailed Test Cases (from executionFilesTable → executionTestCasesTable)
       const [execFile] = await db
         .select()
         .from(executionFilesTable)
         .where(eq(executionFilesTable.redmineTicketId, String(redmineId)));
 
-      if (execFile) {
-        const testCases = await db
-          .select()
-          .from(executionTestCasesTable)
-          .where(eq(executionTestCasesTable.executionFileId, execFile.id))
-          .orderBy(executionTestCasesTable.rowOrder);
+      const testCases = execFile
+        ? await db
+            .select()
+            .from(executionTestCasesTable)
+            .where(eq(executionTestCasesTable.executionFileId, execFile.id))
+            .orderBy(executionTestCasesTable.rowOrder)
+        : [];
 
-        if (testCases.length > 0) {
-          const detailSheet = xlsx.utils.json_to_sheet(
-            testCases.map((tc) => ({
-              "Module": tc.moduleName ?? "",
-              "Case ID": tc.caseId ?? "",
-              "User Story": tc.userStory ?? "",
-              "Tracker": tc.tracker ?? "",
-              "Scenario": tc.scenario ?? "",
-              "Pre-Condition": tc.preCondition ?? "",
-              "Test Case": tc.caseName ?? "",
-              "Test Steps": tc.testSteps ?? "",
-              "Test Data": tc.testData ?? "",
-              "Expected Result": tc.expectedResult ?? "",
-              "Result": tc.result ?? "",
-              "Actual Result": tc.actualResult ?? "",
-              "Defect Number": tc.defectNumber ?? "",
-              "Comments": tc.comments ?? "",
-              "QA PIC": tc.qaPic ?? "",
-            })),
-          );
-          xlsx.utils.book_append_sheet(wb, detailSheet, "Test Cases");
-        }
-      }
-
-      if (wb.SheetNames.length > 0) {
-        const xlsxBuffer: Buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+      const xlsxBuffer = buildVerdictExcel(testCases, String(redmineId), typeLabel, issueSubject ?? "");
+      if (xlsxBuffer) {
         attachments.push({
           filename: `TestCase_${typeLabel}_${redmineId}_${new Date().toISOString().slice(0, 10)}.xlsx`,
           content: xlsxBuffer,
@@ -1627,7 +1714,7 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       }
     } catch (err) {
       console.error("Verdict attachment build error:", err);
-      // Non-fatal — send email without attachment if Excel build fails
+      // Non-fatal — send email without attachment if build fails
     }
   }
 
