@@ -32,6 +32,7 @@ export const testCasesTable = pgTable("test_cases", {
   redmineDefectId: text("redmine_defect_id"),
   comments: text("comments"),
   qaPic: text("qa_pic"),
+  module: text("module"),
   // --------------------------------------
 
   createdAt: timestamp("created_at", { withTimezone: true })

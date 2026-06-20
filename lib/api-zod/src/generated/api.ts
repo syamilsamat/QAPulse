@@ -438,6 +438,7 @@ export const CreateTestCaseBody = zod.object({
   redmineDefectId: zod.string().optional(),
   comments: zod.string().optional(),
   qaPic: zod.string().optional(),
+  module: zod.string().optional(),
 });
 
 export const CreateTestCaseResponse = zod.void();
@@ -496,6 +497,7 @@ export const UpdateTestCaseBody = zod.object({
   priority: zod.string().optional(),
   tags: zod.string().optional(),
   requirementId: zod.number().optional(),
+  projectId: zod.number().optional(),
   linkedBug: zod.string().optional(),
   aiAssisted: zod.boolean().optional(),
   status: zod.string().optional(),
@@ -506,6 +508,7 @@ export const UpdateTestCaseBody = zod.object({
   redmineDefectId: zod.string().optional(),
   comments: zod.string().optional(),
   qaPic: zod.string().optional(),
+  module: zod.string().optional(),
 });
 
 export const UpdateTestCaseResponse = zod.object({
