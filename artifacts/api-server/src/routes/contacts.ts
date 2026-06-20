@@ -39,18 +39,18 @@ router.post("/contacts", express.json(), async (req, res) => {
 router.put("/contacts/:id", express.json(), async (req, res) => {
   const id = parseInt(req.params.id);
   const { fullName, email, isGroup } = req.body;
-  if (!fullName?.trim() || !email?.trim()) {
-    res.status(400).json({ error: "fullName and email are required" });
+  if (!fullName?.trim()) {
+    res.status(400).json({ error: "fullName is required" });
     return;
   }
   try {
     const [contact] = await db
       .update(contactsTable)
-      .set({ fullName: fullName.trim(), email: email.trim(), isGroup: isGroup ?? false })
-      .where(and(eq(contactsTable.id, id), eq(contactsTable.source, "manual")))
+      .set({ fullName: fullName.trim(), email: (email ?? "").trim(), isGroup: isGroup ?? false })
+      .where(eq(contactsTable.id, id))
       .returning();
     if (!contact) {
-      res.status(404).json({ error: "Contact not found or cannot be edited" });
+      res.status(404).json({ error: "Contact not found" });
       return;
     }
     res.json(contact);
@@ -98,54 +98,92 @@ async function syncFromRedmineDB(): Promise<Array<{ fullName: string; email: str
   }
 }
 
-async function syncFromRedmineAPI(): Promise<Array<{ fullName: string; email: string; redmineId: number; redmineLogin: string }>> {
+async function fetchJson(url: string, headers: Record<string, string>): Promise<any> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const r = await fetch(url, { headers, signal: ctrl.signal });
+    if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function syncFromRedmineAPI(overrideKey?: string): Promise<{ users: Array<{ fullName: string; email: string; redmineId: number; redmineLogin: string }>; nameOnly: boolean }> {
   const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
-  const apiKey = process.env.REDMINE_API_KEY ?? "";
+  const apiKey = overrideKey?.trim() || process.env.REDMINE_API_KEY || "";
   if (!baseUrl || !apiKey) throw new Error("REDMINE_URL and REDMINE_API_KEY must be set");
 
   const headers = { "X-Redmine-API-Key": apiKey, Accept: "application/json" };
-  const users: any[] = [];
-  let offset = 0;
-  const limit = 100;
 
-  while (true) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 10000);
-    let data: any;
-    try {
-      const r = await fetch(`${baseUrl}/users.json?status=1&limit=${limit}&offset=${offset}`, { headers, signal: ctrl.signal });
-      if (!r.ok) throw new Error(`Redmine API returned ${r.status}`);
-      data = await r.json();
-    } finally {
-      clearTimeout(timer);
+  // Try admin endpoint first — returns full user list with emails
+  try {
+    const users: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    while (true) {
+      const data = await fetchJson(`${baseUrl}/users.json?status=1&limit=${limit}&offset=${offset}`, headers);
+      const batch: any[] = data?.users ?? [];
+      users.push(...batch);
+      if (batch.length < limit) break;
+      offset += limit;
     }
-    const batch: any[] = data?.users ?? [];
-    users.push(...batch);
-    if (batch.length < limit) break;
-    offset += limit;
+    return {
+      nameOnly: false,
+      users: users
+        .filter((u: any) => u.mail?.trim())
+        .map((u: any) => ({
+          fullName: `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim() || u.login,
+          email: u.mail.trim(),
+          redmineId: u.id,
+          redmineLogin: u.login ?? "",
+        })),
+    };
+  } catch (err: any) {
+    if (err.status !== 403) throw err;
   }
 
-  return users
-    .filter((u: any) => u.mail?.trim())
-    .map((u: any) => ({
-      fullName: `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim() || u.login,
-      email: u.mail.trim(),
-      redmineId: u.id,
-      redmineLogin: u.login,
-    }));
+  // Non-admin key — fall back to project memberships (names only, no email)
+  const projectsData = await fetchJson(`${baseUrl}/projects.json?limit=100`, headers);
+  const projects: any[] = projectsData?.projects ?? [];
+
+  const userMap = new Map<number, { fullName: string; email: string; redmineId: number; redmineLogin: string }>();
+  await Promise.all(
+    projects.map(async (p: any) => {
+      try {
+        const data = await fetchJson(`${baseUrl}/projects/${p.id}/memberships.json?limit=100`, headers);
+        for (const m of data?.memberships ?? []) {
+          if (m.user && !userMap.has(m.user.id)) {
+            userMap.set(m.user.id, {
+              fullName: m.user.name ?? "",
+              email: "",
+              redmineId: m.user.id,
+              redmineLogin: "",
+            });
+          }
+        }
+      } catch { /* skip inaccessible projects */ }
+    }),
+  );
+
+  return { nameOnly: true, users: Array.from(userMap.values()) };
 }
 
-router.post("/contacts/sync-redmine", express.json(), async (_req, res) => {
+router.post("/contacts/sync-redmine", express.json(), async (req, res) => {
   try {
+    const overrideKey: string | undefined = req.body?.apiKey;
     let users: Array<{ fullName: string; email: string; redmineId: number; redmineLogin: string }>;
     let source = "db";
+    let nameOnly = false;
 
     try {
       users = await syncFromRedmineDB();
     } catch {
-      // DB unreachable — fall back to Redmine REST API
       source = "api";
-      users = await syncFromRedmineAPI();
+      const result = await syncFromRedmineAPI(overrideKey);
+      users = result.users;
+      nameOnly = result.nameOnly;
     }
 
     await db.delete(contactsTable).where(eq(contactsTable.source, "redmine"));
@@ -163,7 +201,7 @@ router.post("/contacts/sync-redmine", express.json(), async (_req, res) => {
       await db.insert(contactsTable).values(values);
     }
 
-    res.json({ success: true, synced: values.length, source });
+    res.json({ success: true, synced: values.length, source, nameOnly });
   } catch (err: any) {
     console.error("Contacts sync error:", err);
     const msg = err.message ?? "Sync failed";

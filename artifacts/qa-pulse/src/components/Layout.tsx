@@ -381,7 +381,7 @@ const NAV_ITEMS: NavItem[] = [
   // Added Configurations Menu Item
   {
     href: "/configurations",
-    label: "Project & Module Config",
+    label: "Configuration",
     icon: Columns3Cog,
     roles: ["qa_member", "qa_lead", "admin"],
   },

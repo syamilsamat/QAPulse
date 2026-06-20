@@ -397,6 +397,7 @@ export default function ModuleAndProject() {
   const [isSyncingContacts, setIsSyncingContacts] = useState(false);
   const [contactToDelete, setContactToDelete] = useState<ContactRow | null>(null);
   const [contactDeleting, setContactDeleting] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
 
   const loadContacts = async () => {
     setContactsLoading(true);
@@ -418,25 +419,33 @@ export default function ModuleAndProject() {
   const handleSyncContacts = async () => {
     setIsSyncingContacts(true);
     try {
-      const res = await fetch(`${getApiUrl()}/contacts/sync-redmine`, { method: "POST" });
+      const res = await fetch(`${getApiUrl()}/contacts/sync-redmine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: user?.redmineApiKey ?? undefined }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
-      toast({ title: `Synced ${data.synced} contacts from Redmine`, description: data.source === "api" ? "Used Redmine REST API (DB was unreachable)" : undefined });
+      const descriptions: string[] = [];
+      if (data.source === "api") descriptions.push("Used Redmine REST API (DB was unreachable)");
+      if (data.nameOnly) descriptions.push("Non-admin key: names only synced — edit contacts to add emails");
+      toast({ title: `Synced ${data.synced} contacts from Redmine`, description: descriptions.join(". ") || undefined });
       await loadContacts();
     } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Redmine Sync Failed",
-        description: err.message,
-      });
+      toast({ variant: "destructive", title: "Redmine Sync Failed", description: err.message });
     } finally {
       setIsSyncingContacts(false);
     }
   };
 
   const handleSaveContact = async () => {
-    if (!contactForm.fullName.trim() || !contactForm.email.trim()) {
-      toast({ variant: "destructive", title: "Name and email are required" });
+    const isNewManual = !editingContact;
+    if (!contactForm.fullName.trim()) {
+      toast({ variant: "destructive", title: "Name is required" });
+      return;
+    }
+    if (isNewManual && !contactForm.email.trim()) {
+      toast({ variant: "destructive", title: "Email is required" });
       return;
     }
     setContactSubmitting(true);
@@ -964,6 +973,13 @@ export default function ModuleAndProject() {
                 <span className="text-xs text-muted-foreground">{redmineProjects.length} projects cached</span>
               )}
             </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" className="gap-2" onClick={handleSyncContacts} disabled={isSyncingContacts}>
+                <RefreshCw className={`w-4 h-4 ${isSyncingContacts ? "animate-spin" : ""}`} />
+                {isSyncingContacts ? "Syncing..." : "Sync Redmine Contact"}
+              </Button>
+              <span className="text-xs text-muted-foreground">Requires a Redmine administrator API key</span>
+            </div>
 
             {redmineProjects.length > 0 && (
               <>
@@ -1048,14 +1064,10 @@ export default function ModuleAndProject() {
                       <Mail className="w-4 h-4" /> Contacts
                     </CardTitle>
                     <CardDescription className="mt-1">
-                      Manage email contacts for report distribution. Sync from Redmine or add manually.
+                      Manage email contacts for report distribution. Add manually or sync from the Redmine Integration tab.
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="gap-2" onClick={handleSyncContacts} disabled={isSyncingContacts}>
-                      <RefreshCw className={`w-4 h-4 ${isSyncingContacts ? "animate-spin" : ""}`} />
-                      {isSyncingContacts ? "Syncing..." : "Sync Redmine"}
-                    </Button>
                     <Button size="sm" className="gap-2" onClick={() => { setEditingContact(null); setContactForm({ fullName: "", email: "", isGroup: false }); setContactDialogOpen(true); }}>
                       <Plus className="w-4 h-4" /> Add Contact
                     </Button>
@@ -1068,42 +1080,62 @@ export default function ModuleAndProject() {
                 ) : contacts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground gap-2">
                     <Mail className="w-8 h-8 opacity-30" />
-                    <p>No contacts yet. Sync from Redmine or add manually.</p>
+                    <p>No contacts yet. Sync from Redmine Integration tab or add manually.</p>
                   </div>
                 ) : (
                   <div className="divide-y">
+                    <div className="px-6 py-3 border-b">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by name or email..."
+                          value={contactSearch}
+                          onChange={(e) => setContactSearch(e.target.value)}
+                          className="pl-9 h-8 text-sm"
+                        />
+                      </div>
+                    </div>
                     <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 px-6 py-3 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       <span>Name</span>
                       <span>Email</span>
                       <span>Source</span>
                       <span></span>
                     </div>
-                    {contacts.map((contact) => (
-                      <div key={contact.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">{contact.fullName}</span>
-                          {contact.isGroup && <Badge variant="outline" className="text-[10px] py-0">Group</Badge>}
+                    {contacts
+                      .filter((c) => {
+                        const q = contactSearch.toLowerCase();
+                        return !q || c.fullName.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
+                      })
+                      .map((contact) => (
+                        <div key={contact.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium truncate">{contact.fullName}</span>
+                            {contact.isGroup && <Badge variant="outline" className="text-[10px] py-0">Group</Badge>}
+                          </div>
+                          <span className={`text-sm truncate ${contact.email ? "text-muted-foreground" : "text-muted-foreground/40 italic"}`}>
+                            {contact.email || "no email — click edit to add"}
+                          </span>
+                          <Badge variant={contact.source === "redmine" ? "secondary" : "outline"} className="text-[10px] py-0 shrink-0">
+                            {contact.source === "redmine" ? "Redmine" : "Manual"}
+                          </Badge>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              onClick={() => { setEditingContact(contact); setContactForm({ fullName: contact.fullName, email: contact.email, isGroup: contact.isGroup }); setContactDialogOpen(true); }}>
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => setContactToDelete(contact)}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </div>
-                        <span className="text-sm text-muted-foreground truncate">{contact.email}</span>
-                        <Badge variant={contact.source === "redmine" ? "secondary" : "outline"} className="text-[10px] py-0 shrink-0">
-                          {contact.source === "redmine" ? "Redmine" : "Manual"}
-                        </Badge>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {contact.source === "manual" && (
-                            <>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                onClick={() => { setEditingContact(contact); setContactForm({ fullName: contact.fullName, email: contact.email, isGroup: contact.isGroup }); setContactDialogOpen(true); }}>
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => setContactToDelete(contact)}>
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    {contacts.length > 0 && contactSearch && contacts.filter((c) => {
+                      const q = contactSearch.toLowerCase();
+                      return c.fullName.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
+                    }).length === 0 && (
+                      <div className="py-8 text-center text-sm text-muted-foreground">No contacts match "{contactSearch}"</div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -1181,7 +1213,10 @@ export default function ModuleAndProject() {
               <Input value={contactForm.fullName} onChange={(e) => setContactForm((f) => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" />
             </div>
             <div className="space-y-1.5">
-              <Label>Email <span className="text-destructive">*</span></Label>
+              <Label>
+                Email {!editingContact && <span className="text-destructive">*</span>}
+                {editingContact?.source === "redmine" && <span className="text-xs text-muted-foreground ml-1">(optional for Redmine contacts)</span>}
+              </Label>
               <Input type="email" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} placeholder="jane@company.com" />
             </div>
             <div className="flex items-center gap-2">
