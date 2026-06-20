@@ -514,7 +514,7 @@ const MobileCardRow = React.memo(
             </Label>
             <select
               className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-              value={row.moduleName}
+              value={row.moduleName || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "moduleName", e.target.value)
               }
@@ -533,7 +533,7 @@ const MobileCardRow = React.memo(
             </Label>
             <select
               className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
-              value={row.result}
+              value={row.result || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "result", e.target.value)
               }
@@ -554,7 +554,7 @@ const MobileCardRow = React.memo(
             </Label>
             <Textarea
               className="min-h-[60px] text-xs p-2"
-              value={row.caseId}
+              value={row.caseId || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "caseId", e.target.value)
               }
@@ -566,7 +566,7 @@ const MobileCardRow = React.memo(
             </Label>
             <Textarea
               className="min-h-[60px] text-xs p-2"
-              value={row.userStory}
+              value={row.userStory || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "userStory", e.target.value)
               }
@@ -593,7 +593,7 @@ const MobileCardRow = React.memo(
             </Label>
             <Textarea
               className="min-h-[40px] text-xs p-2"
-              value={row.testData}
+              value={row.testData || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "testData", e.target.value)
               }
@@ -676,7 +676,7 @@ const MobileCardRow = React.memo(
             </Label>
             <Textarea
               className="min-h-[40px] text-xs p-2"
-              value={row.defectNumber}
+              value={row.defectNumber || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "defectNumber", e.target.value)
               }
@@ -688,7 +688,7 @@ const MobileCardRow = React.memo(
             </Label>
             <select
               className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-              value={row.qaPic}
+              value={row.qaPic || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "qaPic", e.target.value)
               }
@@ -709,7 +709,7 @@ const MobileCardRow = React.memo(
           </Label>
           <Textarea
             className="min-h-[40px] text-xs p-2"
-            value={row.comments}
+            value={row.comments || ""}
             onChange={(e) =>
               onUpdate(row.id as string, "comments", e.target.value)
             }
