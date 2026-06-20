@@ -64,6 +64,7 @@ export async function buildTestCaseExcel(
         docSheet.cell("C9").value(dateStr);
         docSheet.cell("D9").value("QA Pulse");
         docSheet.cell("E9").value("Generated test case report");
+        docSheet.cell("G9").value(dateStr);
       }
     }
 
