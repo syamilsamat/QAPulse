@@ -87,7 +87,7 @@ export function ContactMultiSelect({
             <CommandList className="max-h-52">
               <CommandEmpty>No contacts found.</CommandEmpty>
               <CommandGroup>
-                {contacts.map((contact) => {
+                {contacts.filter((c) => c.email?.trim()).map((contact) => {
                   const isSelected = selected.some((c) => c.id === contact.id);
                   return (
                     <CommandItem
