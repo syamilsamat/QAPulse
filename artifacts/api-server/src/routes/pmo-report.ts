@@ -1501,15 +1501,60 @@ function buildVerdictExcel(
   issueType: string,
   issueSubject: string,
 ): Buffer | null {
-  if (!xlsx) return null;
+  if (!xlsx) {
+    console.error("[buildVerdictExcel] xlsx library not available");
+    return null;
+  }
 
   let wb: any;
+  let usingTemplate = false;
   try {
     const tplPath = resolve(process.cwd(), "artifacts/api-server/assets/test-case-template.xlsx");
+    console.log("[buildVerdictExcel] loading template from:", tplPath);
     const tplBuffer = readFileSync(tplPath);
     wb = xlsx.read(tplBuffer, { type: "buffer", cellFormula: true, cellStyles: true });
-  } catch {
-    return null;
+    usingTemplate = true;
+    console.log("[buildVerdictExcel] template loaded, sheets:", wb.SheetNames);
+  } catch (err) {
+    console.error("[buildVerdictExcel] template load failed, using fallback builder:", err);
+    // Fallback — build a plain workbook with test case data
+    wb = xlsx.utils.book_new();
+    usingTemplate = false;
+  }
+
+  if (!usingTemplate) {
+    // Plain fallback: one sheet per section
+    const projectLabel = `${issueType} #${redmineId} : ${issueSubject}`;
+    if (testCases.length > 0) {
+      const tcRows = testCases.map((tc) => ({
+        "Module": tc.moduleName ?? "",
+        "Case ID": tc.caseId ?? "",
+        "User Story": tc.userStory ?? "",
+        "Tracker": tc.tracker ?? "",
+        "Scenario": tc.scenario ?? "",
+        "Pre Condition": tc.preCondition ?? "",
+        "Case": tc.caseName ?? "",
+        "Steps": tc.testSteps ?? "",
+        "Test Data": tc.testData ?? "",
+        "Expected Result": tc.expectedResult ?? "",
+        "Result": tc.result ?? "",
+        "Actual Result": tc.actualResult ?? "",
+        "Defect Number": tc.defectNumber ?? "",
+        "Comments": tc.comments ?? "",
+        "QA PIC": tc.qaPic ?? "",
+      }));
+      const ws = xlsx.utils.json_to_sheet(tcRows);
+      xlsx.utils.book_append_sheet(wb, ws, `#${redmineId}`);
+    } else {
+      const ws = xlsx.utils.aoa_to_sheet([["Project", projectLabel], ["No test cases found for this ticket"]]);
+      xlsx.utils.book_append_sheet(wb, ws, "Info");
+    }
+    try {
+      return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+    } catch (err) {
+      console.error("[buildVerdictExcel] fallback write failed:", err);
+      return null;
+    }
   }
 
   const projectLabel = `${issueType} #${redmineId} : ${issueSubject}`;
@@ -1696,6 +1741,8 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
         .from(executionFilesTable)
         .where(eq(executionFilesTable.redmineTicketId, String(redmineId)));
 
+      console.log(`[send-verdict] redmineId=${redmineId} execFile=${execFile?.id ?? "not found"}`);
+
       const testCases = execFile
         ? await db
             .select()
@@ -1704,7 +1751,10 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
             .orderBy(executionTestCasesTable.rowOrder)
         : [];
 
+      console.log(`[send-verdict] testCases count=${testCases.length}`);
+
       const xlsxBuffer = buildVerdictExcel(testCases, String(redmineId), typeLabel, issueSubject ?? "");
+      console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
         attachments.push({
           filename: `TestCase_${typeLabel}_${redmineId}_${new Date().toISOString().slice(0, 10)}.xlsx`,
@@ -1713,7 +1763,7 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
         });
       }
     } catch (err) {
-      console.error("Verdict attachment build error:", err);
+      console.error("[send-verdict] attachment build error:", err);
       // Non-fatal — send email without attachment if build fails
     }
   }

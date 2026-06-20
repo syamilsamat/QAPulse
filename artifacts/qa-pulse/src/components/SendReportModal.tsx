@@ -39,7 +39,7 @@ export function SendReportModal({ open, onClose, onSend, isSending, reportName }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl w-[calc(100vw-2rem)]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="w-4 h-4" />

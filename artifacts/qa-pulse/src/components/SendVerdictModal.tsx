@@ -65,7 +65,7 @@ export function SendVerdictModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl w-[calc(100vw-2rem)]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             Send Verdict
