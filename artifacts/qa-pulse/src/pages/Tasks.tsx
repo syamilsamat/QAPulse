@@ -830,7 +830,7 @@ export default function Tasks() {
   };
 
   const handleSubmit = () => {
-    if (!form.name) return;
+    if (!form.name || !form.projectId || !form.moduleId) return;
     if (editingTask) {
       updateMutation.mutate({ id: editingTask.id, data: form as any });
     } else {
@@ -1510,7 +1510,7 @@ export default function Tasks() {
             {/* GROUP 2: Classification */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border p-4 rounded-lg bg-muted/5">
               <div className="space-y-1.5">
-                <Label>Project</Label>
+                <Label>Project <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
                   onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
@@ -1534,7 +1534,7 @@ export default function Tasks() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Module</Label>
+                <Label>Module <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={form.moduleId ? String(form.moduleId) : ""}
                   onValueChange={(v) => setForm({ ...form, moduleId: Number(v) })}
@@ -1783,6 +1783,8 @@ export default function Tasks() {
               onClick={handleSubmit}
               disabled={
                 !form.name ||
+                !form.projectId ||
+                !form.moduleId ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }

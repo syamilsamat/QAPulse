@@ -168,6 +168,16 @@ export default function Requirements() {
     setSelectedReqs([]);
   }, [search, filterPriority, filterProject, sortBy]);
 
+  // Auto-expand all parents of descendant results when searching
+  useEffect(() => {
+    if (search) {
+      const parentIds = new Set<number>(
+        filtered.map((r: any) => r.parentId).filter(Boolean) as number[]
+      );
+      setExpandedReqs(parentIds);
+    }
+  }, [search, filtered]);
+
   const createMutation = useCreateRequirement({
     mutation: {
       onSuccess: () => {
@@ -210,19 +220,44 @@ export default function Requirements() {
   });
 
   const filtered = useMemo(() => {
-    let result = requirements.filter((r) => {
+    const passesBaseFilters = (r: any) => {
       if (filterPriority !== "all" && r.priority !== filterPriority) return false;
       if (filterProject !== "all" && String(r.projectId) !== filterProject) return false;
-      if (search) {
-        const searchLower = search.toLowerCase();
-        const cleanTicketSearch = searchLower.replace(/^#/, "");
-        const matchesTitle = r.title ? r.title.toLowerCase().includes(searchLower) : false;
-        const matchesTicket = r.redmineTicketId ? String(r.redmineTicketId).toLowerCase().includes(cleanTicketSearch) : false;
-        const matchesTracker = r.tracker ? r.tracker.toLowerCase().includes(searchLower) : false;
-        if (!matchesTitle && !matchesTicket && !matchesTracker) return false;
-      }
       return true;
-    });
+    };
+
+    let result: any[];
+
+    if (!search) {
+      result = requirements.filter(passesBaseFilters);
+    } else {
+      const searchLower = search.toLowerCase();
+      const cleanTicketSearch = searchLower.replace(/^#/, "");
+
+      // Directly matched IDs
+      const directIds = new Set<number>();
+      for (const r of requirements) {
+        if (!passesBaseFilters(r)) continue;
+        const matchesTitle  = r.title ? r.title.toLowerCase().includes(searchLower) : false;
+        const matchesTicket = r.redmineTicketId ? String(r.redmineTicketId).includes(cleanTicketSearch) : false;
+        const matchesModule = r.module ? r.module.toLowerCase().includes(searchLower) : false;
+        if (matchesTitle || matchesTicket || matchesModule) directIds.add(r.id);
+      }
+
+      // Recursively collect all descendants of matched nodes
+      const toInclude = new Set<number>(directIds);
+      const addDescendants = (parentId: number) => {
+        for (const r of requirements) {
+          if (r.parentId === parentId && !toInclude.has(r.id)) {
+            toInclude.add(r.id);
+            addDescendants(r.id);
+          }
+        }
+      };
+      for (const id of directIds) addDescendants(id);
+
+      result = requirements.filter((r) => toInclude.has(r.id) && passesBaseFilters(r));
+    }
 
     result.sort((a: any, b: any) => {
       if (sortBy === "newest") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -230,7 +265,7 @@ export default function Requirements() {
       if (sortBy === "updated") return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       if (sortBy === "priority") {
         const pMap: Record<string, number> = { urgent: 4, high: 3, normal: 2, low: 1 };
-        return (pMap[b.priority] || 0) - (pMap[a.priority] || 0); 
+        return (pMap[b.priority] || 0) - (pMap[a.priority] || 0);
       }
       return 0;
     });
@@ -527,7 +562,7 @@ export default function Requirements() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9 w-full"
-                placeholder="Search by title, ID, or tracker..."
+                placeholder="Search by title, ID, or module..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -609,8 +644,8 @@ export default function Requirements() {
                           Title
                         </div>
                       </TableHead>
-                      <TableHead>Tracker</TableHead>
                       <TableHead>Project</TableHead>
+                      <TableHead>Module</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
@@ -657,11 +692,11 @@ export default function Requirements() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm">
-                          <Badge variant="outline">{r.tracker || "None"}</Badge>
-                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                           {r.projectName ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                          {r.module ?? "—"}
                         </TableCell>
                         <TableCell>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PRIORITY_COLORS[r.priority]}`}>

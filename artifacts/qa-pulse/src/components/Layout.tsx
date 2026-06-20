@@ -321,14 +321,14 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
       {
-        href: "/test-cases/execution-details",
-        label: "Execution Details",
-        icon: HoverList,
-      },
-      {
         href: "/test-cases/execution",
         label: "Execution Dashboard",
         icon: HoverPlay,
+      },
+      {
+        href: "/test-cases/execution-details",
+        label: "Execution Details",
+        icon: HoverList,
       },
     ],
   },

@@ -98,6 +98,7 @@ function AIGenerateDialog({
   onClose,
   requirements,
   projects,
+  modules,
   users,
   onSuccess,
 }: any) {
@@ -179,17 +180,6 @@ function AIGenerateDialog({
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Project (optional)</Label>
-                <SearchableSelect
-                  value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
-                  options={projects.map((p: any) => ({ value: String(p.id), label: p.name }))}
-                  placeholder="Select a project..."
-                  searchPlaceholder="Search project..."
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <Label>Base Requirement (optional)</Label>
                 <SearchableSelect
                   value={form.requirementId ? String(form.requirementId) : ""}
@@ -210,12 +200,29 @@ function AIGenerateDialog({
                       const combined = [{ ...req, depth: 0 }, ...descendants];
                       setAvailableReqs(combined);
                       setSelectedReqIds(new Set(combined.map((c) => c.id)));
-                      setForm({ ...form, requirementId: reqId, requirementTitle: req.title, module: req.module ?? "" });
+                      setForm({
+                        ...form,
+                        requirementId: reqId,
+                        requirementTitle: req.title,
+                        module: req.module ?? form.module ?? "",
+                        projectId: req.projectId ?? form.projectId,
+                      });
                     }
                   }}
                   options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
                   placeholder="Select a requirement..."
                   searchPlaceholder="Search requirement..."
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Project <span className="text-destructive">*</span></Label>
+                <SearchableSelect
+                  value={form.projectId ? String(form.projectId) : ""}
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  options={projects.map((p: any) => ({ value: String(p.id), label: p.name }))}
+                  placeholder="Select a project..."
+                  searchPlaceholder="Search project..."
                 />
               </div>
             </div>
@@ -358,11 +365,13 @@ function AIGenerateDialog({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Module</Label>
-                <Input
-                  placeholder="e.g. Auth"
+                <Label>Module <span className="text-destructive">*</span></Label>
+                <SearchableSelect
                   value={form.module ?? ""}
-                  onChange={(e) => setForm({ ...form, module: e.target.value })}
+                  onValueChange={(v) => setForm({ ...form, module: v })}
+                  options={(modules ?? []).map((m: any) => ({ value: m.name, label: m.name }))}
+                  placeholder="Select module..."
+                  searchPlaceholder="Search module..."
                 />
               </div>
               <div className="space-y-1.5">
@@ -490,7 +499,7 @@ function AIGenerateDialog({
           {step === "form" ? (
             <Button
               onClick={handleGenerate}
-              disabled={!form.requirementTitle || generateMutation.isPending}
+              disabled={!form.requirementTitle || !form.projectId || !form.module || generateMutation.isPending}
               className="gap-2 w-full sm:w-auto"
             >
               {generateMutation.isPending ? (
@@ -569,6 +578,7 @@ export default function TestCases() {
 
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState("all");
+  const [filterModule, setFilterModule] = useState("all");
   const [filterAI, setFilterAI] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
 
@@ -576,6 +586,11 @@ export default function TestCases() {
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const [tcToClone, setTcToClone] = useState<any | null>(null);
+  const [cloneForm, setCloneForm] = useState<{ requirementId?: number; projectId?: number; module?: string }>({});
+  const [isCloning, setIsCloning] = useState(false);
 
   const [editingTC, setEditingTC] = useState<any | null>(null);
   const [form, setForm] = useState<Partial<any>>({});
@@ -602,6 +617,15 @@ export default function TestCases() {
     queryFn: () => listRequirements(),
   });
 
+  const { data: modules = [] } = useQuery({
+    queryKey: ["modules"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/modules`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
   const projectsMap = useMemo(
     () => Object.fromEntries(projects.map((p) => [p.id, p.name])),
     [projects],
@@ -609,7 +633,7 @@ export default function TestCases() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterProject, filterAI, sortBy]);
+  }, [search, filterProject, filterModule, filterAI, sortBy]);
 
   const createMutation = useCreateTestCase({
     mutation: {
@@ -651,8 +675,10 @@ export default function TestCases() {
   });
 
   const filtered = useMemo(() => {
-    let result = testCases.filter((t) => {
+    let result = testCases.filter((t: any) => {
       if (filterProject !== "all" && String(t.projectId) !== filterProject)
+        return false;
+      if (filterModule !== "all" && (t.module ?? "") !== filterModule)
         return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
@@ -695,7 +721,7 @@ export default function TestCases() {
     });
 
     return result;
-  }, [testCases, search, filterProject, filterAI, sortBy]);
+  }, [testCases, search, filterProject, filterModule, filterAI, sortBy]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTestCases = filtered.slice(
@@ -766,7 +792,7 @@ export default function TestCases() {
 
   const openCreate = () => {
     setEditingTC(null);
-    setForm({ status: "active" });
+    setForm({ status: "active", module: "" });
     setDialogOpen(true);
   };
 
@@ -787,21 +813,70 @@ export default function TestCases() {
       tags: tc.tags ?? undefined,
       requirementId: tc.requirementId ?? undefined,
       projectId: tc.projectId ?? undefined,
+      module: tc.module ?? undefined,
       authorId: tc.authorId ?? undefined,
       status: tc.status,
     });
     setDialogOpen(true);
   };
 
+  const openCloneDialog = (tc: any) => {
+    setTcToClone(tc);
+    setCloneForm({
+      requirementId: tc.requirementId ?? undefined,
+      projectId:     tc.projectId     ?? undefined,
+      module:        tc.module        ?? undefined,
+    });
+    setCloneDialogOpen(true);
+  };
+
+  const handleConfirmClone = async () => {
+    if (!tcToClone || !cloneForm.projectId || !cloneForm.module) return;
+    setIsCloning(true);
+    try {
+      await createMutation.mutateAsync({
+        data: {
+          title:           tcToClone.title,
+          redmineUserStory: tcToClone.redmineUserStory,
+          tracker:         tcToClone.tracker,
+          scenario:        tcToClone.scenario,
+          preconditions:   tcToClone.preconditions,
+          testSteps:       tcToClone.testSteps,
+          testData:        tcToClone.testData,
+          expectedResult:  tcToClone.expectedResult,
+          redmineDefectId: tcToClone.redmineDefectId,
+          comments:        tcToClone.comments,
+          qaPic:           tcToClone.qaPic,
+          tags:            tcToClone.tags,
+          status:          tcToClone.status || "active",
+          aiAssisted:      tcToClone.aiAssisted,
+          authorId:        tcToClone.authorId,
+          requirementId:   cloneForm.requirementId || undefined,
+          projectId:       cloneForm.projectId,
+          module:          cloneForm.module,
+        } as any,
+      });
+      toast({ title: "Test case cloned" });
+      setCloneDialogOpen(false);
+      setTcToClone(null);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to clone test case" });
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
   const handleSubmit = () => {
     if (
       !form.title?.trim() ||
       !form.testSteps?.trim() ||
-      !form.expectedResult?.trim()
+      !form.expectedResult?.trim() ||
+      !form.projectId ||
+      !form.module
     ) {
       toast({
         variant: "destructive",
-        title: "Case Name, Steps, and Expected Result are required",
+        title: "Case Name, Project, Module, Steps, and Expected Result are required",
       });
       return;
     }
@@ -829,6 +904,7 @@ export default function TestCases() {
           aiAssisted: true,
           requirementId: formData?.requirementId,
           projectId: formData?.projectId,
+          module: formData?.module,
           authorId: formData?.authorId || user?.id,
         } as any,
       }),
@@ -917,7 +993,7 @@ export default function TestCases() {
                 className="pl-9 w-full"
               />
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 w-full lg:w-auto shrink-0">
+            <div className="flex flex-wrap gap-2 w-full lg:w-auto shrink-0">
               <SearchableSelect
                 value={sortBy}
                 onValueChange={setSortBy}
@@ -928,7 +1004,7 @@ export default function TestCases() {
                 ]}
                 placeholder="Sort By"
                 searchPlaceholder="Search..."
-                className="bg-muted/30"
+                className="flex-1 min-w-[120px] bg-muted/30"
               />
               <SearchableSelect
                 value={filterProject}
@@ -939,6 +1015,18 @@ export default function TestCases() {
                 ]}
                 placeholder="Project"
                 searchPlaceholder="Search project..."
+                className="flex-1 min-w-[120px]"
+              />
+              <SearchableSelect
+                value={filterModule}
+                onValueChange={setFilterModule}
+                options={[
+                  { value: "all", label: "All Modules" },
+                  ...modules.map((m: any) => ({ value: m.name, label: m.name })),
+                ]}
+                placeholder="Module"
+                searchPlaceholder="Search module..."
+                className="flex-1 min-w-[120px]"
               />
               <SearchableSelect
                 value={filterAI}
@@ -950,6 +1038,7 @@ export default function TestCases() {
                 ]}
                 placeholder="Source"
                 searchPlaceholder="Search..."
+                className="flex-1 min-w-[110px]"
               />
             </div>
           </div>
@@ -1078,11 +1167,7 @@ export default function TestCases() {
                                   <Pencil className="w-4 h-4 mr-2" />
                                   Edit
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    cloneMutation.mutate({ id: tc.id })
-                                  }
-                                >
+                                <DropdownMenuItem onClick={() => openCloneDialog(tc)}>
                                   <Copy className="w-4 h-4 mr-2" />
                                   Clone
                                 </DropdownMenuItem>
@@ -1183,9 +1268,7 @@ export default function TestCases() {
                             <Pencil className="w-4 h-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => cloneMutation.mutate({ id: tc.id })}
-                          >
+                          <DropdownMenuItem onClick={() => openCloneDialog(tc)}>
                             <Copy className="w-4 h-4 mr-2" />
                             Clone
                           </DropdownMenuItem>
@@ -1317,11 +1400,78 @@ export default function TestCases() {
         </CardContent>
       </Card>
 
+      {/* --- CLONE DIALOG --- */}
+      <Dialog open={cloneDialogOpen} onOpenChange={(o) => { if (!o) { setCloneDialogOpen(false); setTcToClone(null); } }}>
+        <DialogContent className="sm:max-w-[440px] w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-4 h-4 text-primary" /> Clone Test Case
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Cloning: <span className="font-medium text-foreground">{tcToClone?.title}</span>
+            </p>
+            <div className="space-y-1.5">
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <SearchableSelect
+                value={cloneForm.requirementId ? String(cloneForm.requirementId) : ""}
+                onValueChange={(v) => {
+                  const req = requirements.find((r: any) => r.id === Number(v));
+                  setCloneForm({
+                    ...cloneForm,
+                    requirementId: Number(v),
+                    projectId: req?.projectId ?? cloneForm.projectId,
+                    module: req?.module ?? cloneForm.module,
+                  });
+                }}
+                options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
+                placeholder="Select requirement..."
+                searchPlaceholder="Search requirement..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Project <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={cloneForm.projectId ? String(cloneForm.projectId) : ""}
+                onValueChange={(v) => setCloneForm({ ...cloneForm, projectId: Number(v) })}
+                options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                placeholder="Select project..."
+                searchPlaceholder="Search project..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Module <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={cloneForm.module ?? ""}
+                onValueChange={(v) => setCloneForm({ ...cloneForm, module: v })}
+                options={modules.map((m: any) => ({ value: m.name, label: m.name }))}
+                placeholder="Select module..."
+                searchPlaceholder="Search module..."
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setCloneDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="w-full sm:w-auto gap-2"
+              onClick={handleConfirmClone}
+              disabled={!cloneForm.projectId || !cloneForm.module || isCloning}
+            >
+              {isCloning ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloning...</> : <><Copy className="w-4 h-4" /> Clone</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AIGenerateDialog
         open={aiDialogOpen}
         onClose={() => setAiDialogOpen(false)}
         requirements={requirements}
         projects={projects}
+        modules={modules}
         users={users}
         onSuccess={handleAISuccess}
       />
@@ -1344,23 +1494,42 @@ export default function TestCases() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Project</Label>
+                <Label>Requirement</Label>
+                <SearchableSelect
+                  value={form.requirementId ? String(form.requirementId) : ""}
+                  onValueChange={(v) => {
+                    const reqId = Number(v);
+                    const req = requirements.find((r: any) => r.id === reqId);
+                    setForm({
+                      ...form,
+                      requirementId: reqId,
+                      projectId: req?.projectId ?? form.projectId,
+                      module: req?.module ?? form.module,
+                    });
+                  }}
+                  options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
+                  placeholder="Link to requirement..."
+                  searchPlaceholder="Search requirement..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Project <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
                   onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
                   options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
-                  placeholder="Select..."
+                  placeholder="Select project..."
                   searchPlaceholder="Search project..."
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>Requirement</Label>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Module <span className="text-destructive">*</span></Label>
                 <SearchableSelect
-                  value={form.requirementId ? String(form.requirementId) : ""}
-                  onValueChange={(v) => setForm({ ...form, requirementId: Number(v) })}
-                  options={requirements.map((r) => ({ value: String(r.id), label: r.title }))}
-                  placeholder="Link to..."
-                  searchPlaceholder="Search requirement..."
+                  value={form.module ?? ""}
+                  onValueChange={(v) => setForm({ ...form, module: v })}
+                  options={modules.map((m: any) => ({ value: m.name, label: m.name }))}
+                  placeholder="Select module..."
+                  searchPlaceholder="Search module..."
                 />
               </div>
             </div>
