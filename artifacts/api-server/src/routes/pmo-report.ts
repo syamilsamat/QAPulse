@@ -1553,6 +1553,84 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
 </body>
 </html>`;
 
+  // Build test case Excel attachment
+  const attachments: any[] = [];
+  if (xlsx && redmineId) {
+    try {
+      const wb = xlsx.utils.book_new();
+
+      // Sheet 1 — Module Summary (from executionSummariesTable)
+      const summaryRows = await db
+        .select()
+        .from(executionSummariesTable)
+        .where(eq(executionSummariesTable.redmineTicketId, String(redmineId)));
+
+      if (summaryRows.length > 0) {
+        const summarySheet = xlsx.utils.json_to_sheet(
+          summaryRows.map((r) => ({
+            "Module": r.module,
+            "Total": r.total,
+            "Passed": r.passed,
+            "Failed": r.failed,
+            "Blocked": r.blocked,
+            "In Progress": r.inProgress,
+            "Not Executed": r.notExecuted,
+          })),
+        );
+        xlsx.utils.book_append_sheet(wb, summarySheet, "Test Summary");
+      }
+
+      // Sheet 2 — Detailed Test Cases (from executionFilesTable → executionTestCasesTable)
+      const [execFile] = await db
+        .select()
+        .from(executionFilesTable)
+        .where(eq(executionFilesTable.redmineTicketId, String(redmineId)));
+
+      if (execFile) {
+        const testCases = await db
+          .select()
+          .from(executionTestCasesTable)
+          .where(eq(executionTestCasesTable.executionFileId, execFile.id))
+          .orderBy(executionTestCasesTable.rowOrder);
+
+        if (testCases.length > 0) {
+          const detailSheet = xlsx.utils.json_to_sheet(
+            testCases.map((tc) => ({
+              "Module": tc.moduleName ?? "",
+              "Case ID": tc.caseId ?? "",
+              "User Story": tc.userStory ?? "",
+              "Tracker": tc.tracker ?? "",
+              "Scenario": tc.scenario ?? "",
+              "Pre-Condition": tc.preCondition ?? "",
+              "Test Case": tc.caseName ?? "",
+              "Test Steps": tc.testSteps ?? "",
+              "Test Data": tc.testData ?? "",
+              "Expected Result": tc.expectedResult ?? "",
+              "Result": tc.result ?? "",
+              "Actual Result": tc.actualResult ?? "",
+              "Defect Number": tc.defectNumber ?? "",
+              "Comments": tc.comments ?? "",
+              "QA PIC": tc.qaPic ?? "",
+            })),
+          );
+          xlsx.utils.book_append_sheet(wb, detailSheet, "Test Cases");
+        }
+      }
+
+      if (wb.SheetNames.length > 0) {
+        const xlsxBuffer: Buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+        attachments.push({
+          filename: `TestCase_${typeLabel}_${redmineId}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+          content: xlsxBuffer,
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+      }
+    } catch (err) {
+      console.error("Verdict attachment build error:", err);
+      // Non-fatal — send email without attachment if Excel build fails
+    }
+  }
+
   try {
     const transporter = nodemailer.createTransport({
       host: smtpHost,
@@ -1568,9 +1646,10 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       subject,
       text: bodyText,
       html: htmlBody,
+      attachments,
     });
 
-    res.json({ success: true, message: `Verdict sent to ${formatRecipients(to)}` });
+    res.json({ success: true, message: `Verdict sent to ${formatRecipients(to)}`, hasAttachment: attachments.length > 0 });
   } catch (err: any) {
     console.error("Verdict email send error:", err);
     res.status(500).json({ error: err.message ?? "Failed to send verdict email" });
