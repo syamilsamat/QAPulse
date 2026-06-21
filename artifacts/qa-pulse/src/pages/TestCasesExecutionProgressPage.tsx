@@ -130,6 +130,9 @@ const getResultColorClass = (result?: string) => {
 
 const tableInputClass =
   "h-full w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 min-h-[80px] resize-none block";
+
+const parseDefectIds = (value: string): string[] =>
+  value.split(/[\s,;]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s));
 const tableSelectClass =
   "w-full h-full min-h-[80px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative block";
 
@@ -289,7 +292,7 @@ const DesktopTableRow = React.memo(
     hiddenCols,
   }: RowProps) => {
     const hide = (col: string) => hiddenCols.has(col);
-    const isDefectLink = row.defectNumber && /^\d+$/.test(row.defectNumber.trim());
+    const defectIds = parseDefectIds(row.defectNumber || "");
 
     return (
       <tr className="hover:bg-muted/10 group align-top">
@@ -354,19 +357,23 @@ const DesktopTableRow = React.memo(
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
-          {isDefectLink ? (
-            <div className="px-2 py-2 text-xs">
-              <a href={`/redmine/issues/${row.defectNumber}`} target="_blank" rel="noopener noreferrer"
-                className="text-blue-600 hover:underline font-medium flex items-center gap-1">
-                #{row.defectNumber}
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <Textarea className={`${tableInputClass} mt-1`} value={row.defectNumber || ""}
-                onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)} />
+          {defectIds.length > 0 && (
+            <div className="px-2 pt-2 flex flex-wrap gap-x-2 gap-y-1">
+              {defectIds.map(id => (
+                <a key={id} href={`https://redmine.bestinet.my/issues/${id}`} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                  onClick={(e) => e.stopPropagation()}>
+                  <ExternalLink className="w-3 h-3" />#{id}
+                </a>
+              ))}
             </div>
-          ) : (
-            <Textarea className={tableInputClass} value={row.defectNumber || ""} onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)} />
           )}
+          <Textarea
+            className={`h-full w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 resize-none block ${defectIds.length > 0 ? "min-h-[36px]" : "min-h-[80px]"}`}
+            value={row.defectNumber || ""}
+            onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)}
+            placeholder={defectIds.length > 0 ? "" : "e.g. 38032, 38033"}
+          />
         </td>
         {!hide("comments") && (
           <td className="border border-border p-0 relative align-top">
@@ -612,9 +619,21 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Redmine Defect Ticket ID
             </Label>
+            {parseDefectIds(row.defectNumber || "").length > 0 && (
+              <div className="flex flex-wrap gap-x-2 gap-y-1">
+                {parseDefectIds(row.defectNumber || "").map(id => (
+                  <a key={id} href={`https://redmine.bestinet.my/issues/${id}`} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                    onClick={(e) => e.stopPropagation()}>
+                    <ExternalLink className="w-3 h-3" />#{id}
+                  </a>
+                ))}
+              </div>
+            )}
             <Textarea
               className="min-h-[40px] text-xs p-2"
               value={row.defectNumber || ""}
+              placeholder="e.g. 38032, 38033"
               onChange={(e) =>
                 onUpdate(row.id as string, "defectNumber", e.target.value)
               }
@@ -833,7 +852,9 @@ export default function TestCasesExecutionProgressPage() {
         row.id === pendingFailRowId
           ? {
               ...row,
-              defectNumber: result.redmineIssueId,
+              defectNumber: row.defectNumber
+                ? `${row.defectNumber}, ${result.redmineIssueId}`
+                : result.redmineIssueId,
               actualResult: result.actualResult,
               defectScreenshots: result.screenshots,
             }
