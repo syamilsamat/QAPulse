@@ -852,9 +852,11 @@ export default function TestCasesExecutionProgressPage() {
         row.id === pendingFailRowId
           ? {
               ...row,
-              defectNumber: row.defectNumber
-                ? `${row.defectNumber}, ${result.redmineIssueId}`
-                : result.redmineIssueId,
+              defectNumber: (() => {
+                const existing = parseDefectIds(row.defectNumber || "");
+                if (!existing.includes(result.redmineIssueId)) existing.push(result.redmineIssueId);
+                return existing.join(", ");
+              })(),
               actualResult: result.actualResult,
               defectScreenshots: result.screenshots,
             }

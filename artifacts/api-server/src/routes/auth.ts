@@ -41,6 +41,7 @@ function formatUser(user: typeof usersTable.$inferSelect) {
     team: user.team,
     avatarUrl: user.avatarUrl,
     mustChangePassword: user.mustChangePassword,
+    redmineApiKey: user.redmineApiKey ?? null,
     createdAt: user.createdAt.toISOString(),
   };
 }

@@ -38,6 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = (newUser: User, newToken: string) => {
     localStorage.setItem("qa_pulse_token", newToken);
     localStorage.setItem("qa_pulse_user", JSON.stringify(newUser));
+    const key = (newUser as any)?.redmineApiKey;
+    if (key) localStorage.setItem("qa_pulse_redmine_key", key);
+    else localStorage.removeItem("qa_pulse_redmine_key");
     setToken(newToken);
     setUser(newUser);
     setAuthTokenGetter(() => newToken);
@@ -46,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem("qa_pulse_token");
     localStorage.removeItem("qa_pulse_user");
+    localStorage.removeItem("qa_pulse_redmine_key");
     setToken(null);
     setUser(null);
     setAuthTokenGetter(null);
