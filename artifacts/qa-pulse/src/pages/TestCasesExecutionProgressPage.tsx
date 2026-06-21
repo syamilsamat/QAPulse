@@ -355,14 +355,12 @@ const DesktopTableRow = React.memo(
         )}
         <td className="border border-border p-0 relative align-top">
           {isDefectLink ? (
-            <div className="px-2 py-2 text-xs">
-              <a href={`/redmine/issues/${row.defectNumber}`} target="_blank" rel="noopener noreferrer"
-                className="text-blue-600 hover:underline font-medium flex items-center gap-1">
-                #{row.defectNumber}
-                <ExternalLink className="w-3 h-3" />
+            <div className="px-2 py-2">
+              <a href={`https://redmine.bestinet.my/issues/${row.defectNumber}`} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 w-fit"
+                onClick={(e) => e.stopPropagation()}>
+                <ExternalLink className="w-3 h-3" />#{row.defectNumber}
               </a>
-              <Textarea className={`${tableInputClass} mt-1`} value={row.defectNumber || ""}
-                onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)} />
             </div>
           ) : (
             <Textarea className={tableInputClass} value={row.defectNumber || ""} onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)} />
@@ -612,13 +610,21 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Redmine Defect Ticket ID
             </Label>
-            <Textarea
-              className="min-h-[40px] text-xs p-2"
-              value={row.defectNumber || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "defectNumber", e.target.value)
-              }
-            />
+            {row.defectNumber && /^\d+$/.test(row.defectNumber.trim()) ? (
+              <a href={`https://redmine.bestinet.my/issues/${row.defectNumber}`} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 w-fit pt-1"
+                onClick={(e) => e.stopPropagation()}>
+                <ExternalLink className="w-3 h-3" />#{row.defectNumber}
+              </a>
+            ) : (
+              <Textarea
+                className="min-h-[40px] text-xs p-2"
+                value={row.defectNumber || ""}
+                onChange={(e) =>
+                  onUpdate(row.id as string, "defectNumber", e.target.value)
+                }
+              />
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
