@@ -49,7 +49,18 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   rowOrder: integer("row_order").notNull().default(0),
 });
 
-// 4. Execution Summary Table (aggregated module-level data for the Execution Details page)
+// 4. Status Change History Table (audit trail for CAPA / Pareto analysis)
+export const executionTcHistoryTable = pgTable("execution_tc_history", {
+  id: serial("id").primaryKey(),
+  executionFileId: integer("execution_file_id").notNull(),
+  testCaseId: text("test_case_id").notNull(),
+  changedBy: integer("changed_by"),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
+  changedAt: timestamp("changed_at").defaultNow().notNull(),
+});
+
+// 5. Execution Summary Table (aggregated module-level data for the Execution Details page)
 export const executionSummariesTable = pgTable("execution_summaries", {
   id: serial("id").primaryKey(),
   redmineTicketId: text("redmine_ticket_id").notNull(),

@@ -51,9 +51,11 @@ export interface ExecutionTestCase {
 
 const getHeaders = () => {
   const token = localStorage.getItem("qa_pulse_token");
+  const redmineKey = localStorage.getItem("qa_pulse_redmine_key");
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(redmineKey ? { "X-Redmine-User-Key": redmineKey } : {}),
   };
 };
 

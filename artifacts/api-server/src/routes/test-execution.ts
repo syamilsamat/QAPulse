@@ -5,8 +5,10 @@ import {
   executionFilesTable,
   executionModulesTable,
   executionTestCasesTable,
+  executionTcHistoryTable,
   executionSummariesTable,
 } from "@workspace/db";
+import { verifyToken } from "./auth";
 import { buildTestCaseExcel, trackerCode } from "./excel-builder";
 
 const router: IRouter = Router();
@@ -384,6 +386,31 @@ router.post(
         return;
       }
 
+      // 0. Capture current statuses + executedAt before delete (for history diff)
+      const existingRows = await db
+        .select({
+          testCaseId: executionTestCasesTable.testCaseId,
+          result: executionTestCasesTable.result,
+          executedAt: executionTestCasesTable.executedAt,
+        })
+        .from(executionTestCasesTable)
+        .where(eq(executionTestCasesTable.executionFileId, file.id));
+      type ExistingState = { result: string | null; executedAt: Date | null };
+      const existingMap = new Map<string, ExistingState>(
+        existingRows
+          .filter((r) => r.testCaseId)
+          .map((r) => [r.testCaseId!, { result: r.result ?? null, executedAt: r.executedAt ?? null }]),
+      );
+
+      // Extract changedBy from JWT if present
+      let changedBy: number | null = null;
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith("Bearer ")) {
+        try {
+          changedBy = verifyToken(authHeader.slice(7)).id;
+        } catch {}
+      }
+
       // 1. Delete existing
       await db
         .delete(executionTestCasesTable)
@@ -428,6 +455,12 @@ router.post(
             testData: t.testData || null,
             expectedResult: t.expectedResult || null,
             result: t.result || null,
+            executedAt: (() => {
+              const existing = t.testCaseId ? existingMap.get(t.testCaseId) : undefined;
+              const newResult = t.result?.trim() || null;
+              if (newResult && existing?.result !== newResult) return new Date();
+              return existing?.executedAt ?? (t.executedAt ? new Date(t.executedAt) : null);
+            })(),
             actualResult: t.actualResult || null,
             defectNumber: t.defectNumber || null,
             defectScreenshots: t.defectScreenshots || null,
@@ -436,6 +469,29 @@ router.post(
             rowOrder: t.rowOrder ?? idx,
           })),
         ).returning();
+      }
+
+      // 3a. Write status change history
+      const now = new Date();
+      const historyRows = processedCases
+        .filter((t: any) => t.testCaseId)
+        .flatMap((t: any) => {
+          const existing = existingMap.get(t.testCaseId);
+          const oldResult = existing?.result ?? null;
+          const newResult = t.result?.trim() || null;
+          if (oldResult === newResult) return [];
+          if (!oldResult && !newResult) return [];
+          return [{
+            executionFileId: file.id,
+            testCaseId: t.testCaseId,
+            changedBy,
+            fromStatus: oldResult,
+            toStatus: newResult,
+            changedAt: now,
+          }];
+        });
+      if (historyRows.length > 0) {
+        await db.insert(executionTcHistoryTable).values(historyRows);
       }
 
       // 3. Update the file's updatedAt timestamp

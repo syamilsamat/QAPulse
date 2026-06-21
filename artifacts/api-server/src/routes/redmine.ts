@@ -21,11 +21,16 @@ function getDefaultApiKey() {
 }
 
 /** Resolves the effective API key for a request.
- *  Reads the authenticated user from the JWT Bearer token, then uses their
- *  personal Redmine API key if set; falls back to the env default. */
+ *  Priority: X-Redmine-User-Key header > user's saved key in DB > env default.
+ *  Falls back to the env default only if the user has no personal key set. */
 async function resolveApiKey(req: any): Promise<string> {
+  // 1. Explicit header sent by frontend (most reliable)
+  const headerKey = req.headers["x-redmine-user-key"];
+  if (typeof headerKey === "string" && headerKey.trim()) return headerKey.trim();
+  // 2. Look up from DB via JWT
   const authUser = await getAuthUser(req);
   if (authUser?.redmineApiKey?.trim()) return authUser.redmineApiKey.trim();
+  // 3. Fall back to env default (only when user has no personal key)
   return getDefaultApiKey();
 }
 
