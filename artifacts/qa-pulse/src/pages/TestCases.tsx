@@ -918,8 +918,11 @@ export default function TestCases() {
     const matchedModuleIds = modules
       .filter((m: any) => distinctModuleNames.includes(m.name))
       .map((m: any) => m.id);
+    // Pre-populate redmine ticket ID from selected TCs — use shared value if all agree, else first TC
+    const distinctRedmineIds = [...new Set(selectedTCs.map((tc: any) => tc.redmineUserStory).filter(Boolean))] as string[];
+    const prefilledTicketId = (distinctRedmineIds[0] ?? "").replace(/\D/g, "");
     setCompileNewForm({
-      redmineTicketId: "",
+      redmineTicketId: prefilledTicketId,
       title: "",
       remarks: "",
       requirementId: firstTC.requirementId ? String(firstTC.requirementId) : "",
