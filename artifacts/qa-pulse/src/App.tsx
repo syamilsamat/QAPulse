@@ -137,6 +137,13 @@ function Router() {
         />
       </Route>
 
+      <Route path="/test-cases/execution-details/:ticketId">
+        <ProtectedRoute
+          component={TestExecutionDetails}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
       <Route path="/test-cases/execution-details">
         <ProtectedRoute
           component={TestExecutionDetails}

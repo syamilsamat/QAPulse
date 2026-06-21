@@ -37,6 +37,7 @@ import {
   BarChart,
   PieChart,
   Users,
+  ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx-js-style";
@@ -267,6 +268,7 @@ interface RowProps {
   onDelete: (id: string | number) => void;
   availableModules: ExecutionModule[];
   qaUsers: ExecutionUser[];
+  hiddenCols: Set<string>;
 }
 
 const DesktopTableRow = React.memo(
@@ -279,185 +281,102 @@ const DesktopTableRow = React.memo(
     onDelete,
     availableModules,
     qaUsers,
+    hiddenCols,
   }: RowProps) => {
+    const hide = (col: string) => hiddenCols.has(col);
+    const isDefectLink = row.defectNumber && /^\d+$/.test(row.defectNumber.trim());
+
     return (
       <tr className="hover:bg-muted/10 group align-top">
         <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
-          <input
-            type="checkbox"
-            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-            checked={isSelected}
-            onChange={(e) =>
-              onToggleSelect(row.id as string | number, e.target.checked)
-            }
-          />
+          <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+            checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
         </td>
-        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
-          {index + 1}
-        </td>
+        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">{index + 1}</td>
         <td className="border border-border p-0 relative align-top">
-          <select
-            className={tableSelectClass}
-            value={row.moduleName || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "moduleName", e.target.value)
-            }
-          >
+          <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
             <option value="">Select...</option>
-            {availableModules.map((m) => (
-              <option key={m.id} value={m.name}>
-                {m.name}
-              </option>
-            ))}
+            {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
           </select>
         </td>
+        {!hide("caseId") && (
+          <td className="border border-border p-0 relative align-top">
+            <Textarea className={tableInputClass} value={row.caseId || ""} onChange={(e) => onUpdate(row.id as string, "caseId", e.target.value)} />
+          </td>
+        )}
+        {!hide("userStory") && (
+          <td className="border border-border p-0 relative align-top">
+            <Textarea className={tableInputClass} value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+          </td>
+        )}
+        {!hide("tracker") && (
+          <td className="border border-border p-0 relative align-top">
+            <Textarea className={tableInputClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)} />
+          </td>
+        )}
+        {!hide("scenario") && (
+          <td className="border border-border p-0 relative align-top">
+            <CopilotTextarea className={tableInputClass} value={row.scenario || ""} fieldName="Scenario" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+          </td>
+        )}
+        {!hide("preCondition") && (
+          <td className="border border-border p-0 relative align-top">
+            <Textarea className={tableInputClass} value={row.preCondition || ""} onChange={(e) => onUpdate(row.id as string, "preCondition", e.target.value)} />
+          </td>
+        )}
         <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.caseId || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "caseId", e.target.value)
-            }
-          />
+          <CopilotTextarea className={tableInputClass} value={row.caseName || ""} fieldName="Case Name" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
         </td>
         <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.userStory || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "userStory", e.target.value)
-            }
-          />
+          <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
         </td>
+        {!hide("testData") && (
+          <td className="border border-border p-0 relative align-top">
+            <Textarea className={tableInputClass} value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+          </td>
+        )}
         <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.tracker || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "tracker", e.target.value)
-            }
-          />
+          <CopilotTextarea className={tableInputClass} value={row.expectedResult || ""} fieldName="Expected Results" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
         </td>
-        <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea
-            className={tableInputClass}
-            value={row.scenario || ""}
-            fieldName="Scenario"
-            minHeight="80px"
-            onChange={(val: string) =>
-              onUpdate(row.id as string, "scenario", val)
-            }
-          />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.preCondition || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "preCondition", e.target.value)
-            }
-          />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea
-            className={tableInputClass}
-            value={row.caseName || ""}
-            fieldName="Case Name"
-            minHeight="80px"
-            onChange={(val: string) =>
-              onUpdate(row.id as string, "caseName", val)
-            }
-          />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea
-            className={tableInputClass}
-            value={row.testSteps || ""}
-            fieldName="Test Steps"
-            minHeight="80px"
-            onChange={(val: string) =>
-              onUpdate(row.id as string, "testSteps", val)
-            }
-          />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.testData || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "testData", e.target.value)
-            }
-          />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea
-            className={tableInputClass}
-            value={row.expectedResult || ""}
-            fieldName="Expected Results"
-            minHeight="80px"
-            onChange={(val: string) =>
-              onUpdate(row.id as string, "expectedResult", val)
-            }
-          />
-        </td>
-        <td
-          className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}
-        >
-          <select
-            className={`${tableSelectClass} font-bold`}
-            value={row.result || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "result", e.target.value)
-            }
-          >
-            {RESULT_OPTIONS.map((r) => (
-              <option key={r} value={r}>
-                {r || "Select..."}
-              </option>
-            ))}
+        <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
+          <select className={`${tableSelectClass} font-bold`} value={row.result || ""} onChange={(e) => onUpdate(row.id as string, "result", e.target.value)}>
+            {RESULT_OPTIONS.map((r) => <option key={r} value={r}>{r || "Select..."}</option>)}
           </select>
         </td>
+        {!hide("executedAt") && (
+          <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
+            {row.executedAt ? new Date(row.executedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+          </td>
+        )}
         <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.defectNumber || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "defectNumber", e.target.value)
-            }
-          />
+          {isDefectLink ? (
+            <div className="px-2 py-2 text-xs">
+              <a href={`/redmine/issues/${row.defectNumber}`} target="_blank" rel="noopener noreferrer"
+                className="text-blue-600 hover:underline font-medium flex items-center gap-1">
+                #{row.defectNumber}
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <Textarea className={`${tableInputClass} mt-1`} value={row.defectNumber || ""}
+                onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)} />
+            </div>
+          ) : (
+            <Textarea className={tableInputClass} value={row.defectNumber || ""} onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)} />
+          )}
         </td>
+        {!hide("comments") && (
+          <td className="border border-border p-0 relative align-top">
+            <Textarea className={tableInputClass} value={row.comments || ""} onChange={(e) => onUpdate(row.id as string, "comments", e.target.value)} />
+          </td>
+        )}
         <td className="border border-border p-0 relative align-top">
-          <Textarea
-            className={tableInputClass}
-            value={row.comments || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "comments", e.target.value)
-            }
-          />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <select
-            className={`${tableSelectClass}`}
-            value={row.qaPic || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "qaPic", e.target.value)
-            }
-          >
+          <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
             <option value="">Select QA PIC...</option>
-            {qaUsers.map((u) => (
-              <option key={u.id} value={u.name}>
-                {u.name}
-              </option>
-            ))}
+            {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
           </select>
         </td>
         <td className="border border-border p-0 text-center align-top pt-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity mx-auto block"
-            onClick={() => onDelete(row.id as string | number)}
-          >
+          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity mx-auto block"
+            onClick={() => onDelete(row.id as string | number)}>
             <Trash2 className="w-4 h-4" />
           </Button>
         </td>
@@ -476,6 +395,7 @@ const MobileCardRow = React.memo(
     onDelete,
     availableModules,
     qaUsers,
+    hiddenCols,
   }: RowProps) => {
     return (
       <Card
@@ -746,6 +666,15 @@ export default function TestCasesExecutionProgressPage() {
     null,
   );
 
+  // Pull from Test Cases library
+  const [pullDialogOpen, setPullDialogOpen] = useState(false);
+  const [libraryTestCases, setLibraryTestCases] = useState<any[]>([]);
+  const [libraryProjects, setLibraryProjects] = useState<any[]>([]);
+  const [pullFilter, setPullFilter] = useState<{ projectId?: number; module?: string }>({});
+  const [selectedPullIds, setSelectedPullIds] = useState<Set<number>>(new Set());
+  const [isPulling, setIsPulling] = useState(false);
+  const [isPullLoading, setIsPullLoading] = useState(false);
+
   const [pendingImportData, setPendingImportData] = useState<
     AppExecutionTestCase[] | null
   >(null);
@@ -768,21 +697,31 @@ export default function TestCasesExecutionProgressPage() {
   const [defectModalOpen, setDefectModalOpen] = useState(false);
   const [pendingFailRowId, setPendingFailRowId] = useState<string | number | null>(null);
 
+  // Linked task warning
+  const [linkedTask, setLinkedTask] = useState<{ name: string; status: string } | null | undefined>(undefined);
+
+  // Column visibility
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
+  const [showColPicker, setShowColPicker] = useState(false);
+
+  const getHeaders = () => {
+    const token = localStorage.getItem("qa_pulse_token");
+    return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  };
+
   useEffect(() => {
     Promise.all([
       fetchTestCases(ticketId),
       fetchModules(),
       fetchUsers(),
       fetchExecutionFiles(),
+      fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([result, allModules, users, files]) => {
+      .then(([result, allModules, users, files, allTasks]) => {
         const testCases = result?.testCases || [];
         const file = files.find((f) => f.redmineTicketId === ticketId);
         const selectedModuleNames = file?.selectedModules
-          ? file.selectedModules
-              .split(",")
-              .map((m) => m.trim())
-              .filter(Boolean)
+          ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
 
         const filteredModules =
@@ -803,6 +742,9 @@ export default function TestCasesExecutionProgressPage() {
         }
         setAvailableModules(filteredModules);
         setQaUsers(users);
+
+        const matched = (allTasks || []).find((t: any) => String(t.redmineId) === ticketId);
+        setLinkedTask(matched ? { name: matched.name, status: matched.status } : null);
       })
       .catch(() =>
         toast({
@@ -838,14 +780,16 @@ export default function TestCasesExecutionProgressPage() {
 
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
-      if (field === "result" && value === "Failed") {
-        // Mark the row as Failed immediately, then open defect modal
+      if (field === "result") {
+        const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
         setData((prev) =>
-          prev.map((row) => (row.id === id ? { ...row, result: "Failed" } : row)),
+          prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row),
         );
         setHasUnsavedChanges(true);
-        setPendingFailRowId(id);
-        setDefectModalOpen(true);
+        if (value === "Failed") {
+          setPendingFailRowId(id);
+          setDefectModalOpen(true);
+        }
         return;
       }
       setData((prev) =>
@@ -917,6 +861,45 @@ export default function TestCasesExecutionProgressPage() {
 
     return () => clearInterval(interval);
   }, [ticketId]);
+
+  const openPullDialog = async () => {
+    setPullDialogOpen(true);
+    setPullFilter({});
+    setSelectedPullIds(new Set());
+    setIsPullLoading(true);
+    try {
+      const [tcRes, projRes] = await Promise.all([
+        fetch("/api/test-cases", { headers: getHeaders() }),
+        fetch("/api/projects", { headers: getHeaders() }),
+      ]);
+      setLibraryTestCases(tcRes.ok ? await tcRes.json() : []);
+      setLibraryProjects(projRes.ok ? await projRes.json() : []);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to load test case library" });
+    } finally {
+      setIsPullLoading(false);
+    }
+  };
+
+  const handleConfirmPull = () => {
+    setIsPulling(true);
+    const toPull = libraryTestCases.filter((tc: any) => selectedPullIds.has(tc.id));
+    const newRows: AppExecutionTestCase[] = toPull.map((tc: any) => ({
+      ...createEmptyRow(),
+      moduleName: tc.module || "",
+      caseName: tc.title || "",
+      testSteps: tc.testSteps || "",
+      expectedResult: tc.expectedResult || "",
+      preCondition: tc.preConditions || "",
+      caseId: String(tc.id),
+    }));
+    setData(prev => [...prev, ...newRows]);
+    setHasUnsavedChanges(true);
+    toast({ title: `${newRows.length} test case${newRows.length !== 1 ? "s" : ""} pulled from library` });
+    setPullDialogOpen(false);
+    setSelectedPullIds(new Set());
+    setIsPulling(false);
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -1710,11 +1693,6 @@ export default function TestCasesExecutionProgressPage() {
                   Last saved at {format(lastSavedAt, "HH:mm:ss")}
                 </span>
               )}
-              {hasUnsavedChanges && saveStatus !== "saving" && (
-                <span className="text-amber-500 ml-1 font-bold">
-                  (Unsaved changes)
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -1760,6 +1738,14 @@ export default function TestCasesExecutionProgressPage() {
             <Download className="w-4 h-4" /> Download
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={openPullDialog}
+            className="flex-1 lg:flex-none gap-2"
+          >
+            <FileSpreadsheet className="w-4 h-4" /> Pull from Library
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             onClick={handleAddRow}
@@ -1783,6 +1769,32 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       </div>
 
+      {/* STICKY SUMMARY STATS */}
+      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 bg-card border border-border rounded-lg px-3 py-2">
+        {[
+          { label: "Total", value: filteredData.length, color: "text-foreground" },
+          { label: "Passed", value: summaryStats.resultsCount["Passed"] ?? 0, color: "text-green-600" },
+          { label: "Failed", value: summaryStats.resultsCount["Failed"] ?? 0, color: "text-red-600" },
+          { label: "Blocked", value: summaryStats.resultsCount["Blocked"] ?? 0, color: "text-orange-600" },
+          { label: "In Progress", value: summaryStats.resultsCount["In Progress"] ?? 0, color: "text-blue-600" },
+          { label: "Not Executed", value: summaryStats.totalUnexecuted, color: "text-muted-foreground" },
+          { label: "Executed %", value: `${filteredData.length > 0 ? Math.round((summaryStats.totalExecuted / filteredData.length) * 100) : 0}%`, color: "text-primary" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="text-center">
+            <div className={`text-lg font-bold ${color}`}>{value}</div>
+            <div className="text-[10px] text-muted-foreground">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* LINKED TASK WARNING BANNER */}
+      {linkedTask === null && (
+        <div className="shrink-0 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>No linked task found for Ticket #{ticketId}. Create a task in the Tasks page first to track this execution properly.</span>
+        </div>
+      )}
+
       {/* GLOBAL SEARCH & FILTER BAR */}
       <div className="flex flex-col gap-2 bg-muted/30 border border-border p-2 rounded-lg shrink-0">
         <div className="flex flex-col lg:flex-row gap-2 items-start lg:items-center justify-between">
@@ -1803,28 +1815,19 @@ export default function TestCasesExecutionProgressPage() {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground w-full lg:w-auto justify-end">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground w-full lg:w-auto justify-end flex-wrap">
             <Filter className="w-3.5 h-3.5" />
-            <span>
-              {filteredData.length} records found
-              {totalActiveFilters > 0
-                ? ` (${totalActiveFilters} filters active)`
-                : ""}
-            </span>
+            <span>{filteredData.length} records{totalActiveFilters > 0 ? ` (${totalActiveFilters} filters)` : ""}</span>
             {totalActiveFilters > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[10px] px-2 ml-2"
-                onClick={() => {
-                  setModuleFilters([]);
-                  setResultFilters([]);
-                  setQaFilters([]);
-                }}
-              >
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2"
+                onClick={() => { setModuleFilters([]); setResultFilters([]); setQaFilters([]); }}>
                 Clear Filters
               </Button>
             )}
+            <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
+              onClick={() => setShowColPicker(v => !v)}>
+              <span>Columns</span>
+            </Button>
           </div>
         </div>
 
@@ -1918,6 +1921,36 @@ export default function TestCasesExecutionProgressPage() {
             </div>
           </div>
         </div>
+
+        {/* Column visibility picker */}
+        {showColPicker && (
+          <div className="border-t mt-2 pt-2 flex flex-wrap gap-x-4 gap-y-1">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase w-full">Show / Hide Columns</Label>
+            {[
+              { key: "caseId", label: "Case ID" },
+              { key: "userStory", label: "Redmine Ticket ID" },
+              { key: "tracker", label: "Tracker" },
+              { key: "scenario", label: "Scenario" },
+              { key: "preCondition", label: "Pre Condition" },
+              { key: "testData", label: "Test Data" },
+              { key: "executedAt", label: "Executed At" },
+              { key: "comments", label: "Comments" },
+            ].map(col => (
+              <label key={col.key} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                <input type="checkbox" className="rounded border-gray-300 w-3 h-3"
+                  checked={!hiddenCols.has(col.key)}
+                  onChange={e => {
+                    setHiddenCols(prev => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.delete(col.key); else next.add(col.key);
+                      return next;
+                    });
+                  }} />
+                {col.label}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* DESKTOP SPREADSHEET VIEW */}
@@ -1944,63 +1977,26 @@ export default function TestCasesExecutionProgressPage() {
               <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
                 <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="border border-border w-10 p-2 text-center">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-                      checked={
-                        filteredData.length > 0 &&
-                        selectedRows.length === filteredData.length
-                      }
-                      onChange={(e) => handleSelectAll(e.target.checked)}
-                    />
+                    <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                      checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
+                      onChange={(e) => handleSelectAll(e.target.checked)} />
                   </th>
-                  <th className="border border-border w-10 p-2 text-center">
-                    #
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Module Name
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Case ID
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Redmine Ticket ID
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Tracker
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Scenario{" "}
-                    <Sparkles className="w-3 h-3 inline text-primary" />
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Pre Condition
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Case <Sparkles className="w-3 h-3 inline text-primary" />
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Steps <Sparkles className="w-3 h-3 inline text-primary" />
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Test Data
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Expected Result{" "}
-                    <Sparkles className="w-3 h-3 inline text-primary" />
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left text-primary">
-                    Result
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Redmine Defect Ticket ID
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    Additional/Comments/Issues
-                  </th>
-                  <th className="border border-border w-64 p-2 text-left">
-                    QA PIC
-                  </th>
+                  <th className="border border-border w-10 p-2 text-center">#</th>
+                  <th className="border border-border w-48 p-2 text-left">Module Name</th>
+                  {!hiddenCols.has("caseId") && <th className="border border-border w-48 p-2 text-left">Case ID</th>}
+                  {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
+                  {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
+                  {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
+                  {!hiddenCols.has("preCondition") && <th className="border border-border w-48 p-2 text-left">Pre Condition</th>}
+                  <th className="border border-border w-64 p-2 text-left">Case <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                  <th className="border border-border w-64 p-2 text-left">Steps <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                  {!hiddenCols.has("testData") && <th className="border border-border w-48 p-2 text-left">Test Data</th>}
+                  <th className="border border-border w-64 p-2 text-left">Expected Result <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                  <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
+                  {!hiddenCols.has("executedAt") && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
+                  <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
+                  {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">Comments</th>}
+                  <th className="border border-border w-48 p-2 text-left">QA PIC</th>
                   <th className="border border-border w-10 p-2"></th>
                 </tr>
               </thead>
@@ -2010,14 +2006,13 @@ export default function TestCasesExecutionProgressPage() {
                     key={row.id as string}
                     row={row}
                     index={index}
-                    isSelected={selectedRows.includes(
-                      row.id as string | number,
-                    )}
+                    isSelected={selectedRows.includes(row.id as string | number)}
                     onToggleSelect={handleSelectRow}
                     onUpdate={updateCell}
                     onDelete={requestSingleDelete}
                     availableModules={availableModules}
                     qaUsers={qaUsers}
+                    hiddenCols={hiddenCols}
                   />
                 ))}
               </tbody>
@@ -2045,6 +2040,7 @@ export default function TestCasesExecutionProgressPage() {
               onDelete={requestSingleDelete}
               availableModules={availableModules}
               qaUsers={qaUsers}
+              hiddenCols={hiddenCols}
             />
           ))
         )}
@@ -2057,89 +2053,87 @@ export default function TestCasesExecutionProgressPage() {
         </Button>
       </div>
 
-      {/* RESULT ANALYTICS & SUMMARY PANEL */}
-      <div className="shrink-0 pt-2 pb-2 border-t mt-1">
-        <h2 className="text-sm font-bold mb-2 flex items-center gap-2">
-          <BarChart className="w-4 h-4 text-primary" /> Summary Statistics
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Card className="p-2.5 bg-primary/5 border-primary/20">
-            <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 mb-2">
-              <PieChart className="w-3.5 h-3.5" /> Execution Progress
-            </h3>
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-xs">Total Filtered</span>
-                <span className="font-bold text-sm">{filteredData.length}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs">Executed</span>
-                <span className="font-bold text-green-600 text-sm">
-                  {summaryStats.totalExecuted}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs">Unexecuted</span>
-                <span className="font-bold text-muted-foreground text-sm">
-                  {summaryStats.totalUnexecuted}
-                </span>
-              </div>
+      {/* PULL FROM TEST CASES LIBRARY DIALOG */}
+      <Dialog open={pullDialogOpen} onOpenChange={o => { if (!o) { setPullDialogOpen(false); setSelectedPullIds(new Set()); } }}>
+        <DialogContent className="sm:max-w-[600px] w-[95vw] flex flex-col max-h-[85vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-primary" /> Pull from Test Case Library
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-3 py-2">
+            {isPullLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+            ) : (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
+                    value={pullFilter.projectId ?? ""}
+                    onChange={e => setPullFilter(f => ({ ...f, projectId: e.target.value ? Number(e.target.value) : undefined, module: undefined }))}>
+                    <option value="">All Projects</option>
+                    {libraryProjects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
+                    value={pullFilter.module ?? ""}
+                    onChange={e => setPullFilter(f => ({ ...f, module: e.target.value || undefined }))}>
+                    <option value="">All Modules</option>
+                    {Array.from(new Set(libraryTestCases
+                      .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+                      .map((tc: any) => tc.module).filter(Boolean)
+                    )).map(m => <option key={m as string} value={m as string}>{m as string}</option>)}
+                  </select>
+                  <span className="text-xs text-muted-foreground self-center">{selectedPullIds.size} selected</span>
+                </div>
+                <div className="border rounded-md divide-y divide-border overflow-y-auto max-h-[340px]">
+                  {libraryTestCases.filter((tc: any) => {
+                    if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
+                    if (pullFilter.module && tc.module !== pullFilter.module) return false;
+                    return true;
+                  }).map((tc: any) => (
+                    <label key={tc.id} className="flex items-start gap-3 px-3 py-2 hover:bg-muted/40 cursor-pointer">
+                      <input type="checkbox" className="mt-0.5 w-4 h-4 rounded border-gray-300 shrink-0"
+                        checked={selectedPullIds.has(tc.id)}
+                        onChange={e => setSelectedPullIds(prev => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(tc.id); else next.delete(tc.id);
+                          return next;
+                        })} />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{tc.title}</div>
+                        <div className="text-xs text-muted-foreground">{tc.module || "—"}{tc.projectName ? ` · ${tc.projectName}` : ""}</div>
+                      </div>
+                    </label>
+                  ))}
+                  {libraryTestCases.filter((tc: any) => {
+                    if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
+                    if (pullFilter.module && tc.module !== pullFilter.module) return false;
+                    return true;
+                  }).length === 0 && (
+                    <div className="py-8 text-center text-sm text-muted-foreground">No test cases match your filters.</div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter className="shrink-0 border-t pt-4 flex-row justify-between gap-2">
+            <Button variant="ghost" size="sm" onClick={() => {
+              const filtered = libraryTestCases.filter((tc: any) => {
+                if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
+                if (pullFilter.module && tc.module !== pullFilter.module) return false;
+                return true;
+              });
+              setSelectedPullIds(new Set(filtered.map((tc: any) => tc.id)));
+            }}>Select All Filtered</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setPullDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleConfirmPull} disabled={selectedPullIds.size === 0 || isPulling} className="gap-2">
+                {isPulling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Pull {selectedPullIds.size > 0 ? selectedPullIds.size : ""} Cases
+              </Button>
             </div>
-          </Card>
-
-          <Card className="p-2.5">
-            <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 mb-2">
-              <BarChart className="w-3.5 h-3.5" /> Result Breakdown
-            </h3>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 max-h-[64px] overflow-y-auto pr-1">
-              {Object.entries(summaryStats.resultsCount)
-                .sort(([, a], [, b]) => b - a)
-                .map(([result, count]) => (
-                  <div
-                    key={result}
-                    className="flex justify-between items-center bg-muted/30 p-1 rounded text-xs"
-                  >
-                    <span className="truncate max-w-[70px]" title={result}>
-                      {result}
-                    </span>
-                    <span className="font-bold bg-background px-1.5 py-0.5 rounded shadow-sm">
-                      {count}
-                    </span>
-                  </div>
-                ))}
-              {Object.keys(summaryStats.resultsCount).length === 0 && (
-                <span className="text-xs text-muted-foreground italic col-span-2">
-                  No data.
-                </span>
-              )}
-            </div>
-          </Card>
-
-          <Card className="p-2.5">
-            <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 mb-2">
-              <Users className="w-3.5 h-3.5" /> QA Ownership
-            </h3>
-            <div className="space-y-1.5 max-h-[64px] overflow-y-auto pr-1">
-              {Object.entries(summaryStats.qaCount)
-                .sort(([, a], [, b]) => b - a)
-                .map(([qa, count]) => (
-                  <div
-                    key={qa}
-                    className="flex justify-between items-center text-xs border-b border-muted pb-1 last:border-0 last:pb-0"
-                  >
-                    <span className="truncate max-w-[100px]">{qa}</span>
-                    <span className="font-bold">{count} cases</span>
-                  </div>
-                ))}
-              {Object.keys(summaryStats.qaCount).length === 0 && (
-                <span className="text-xs text-muted-foreground italic">
-                  No data.
-                </span>
-              )}
-            </div>
-          </Card>
-        </div>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
