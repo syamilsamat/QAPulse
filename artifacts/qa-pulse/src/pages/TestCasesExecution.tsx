@@ -202,7 +202,16 @@ interface TaskInfo {
   redmineId: string;
   status: string;
   name: string;
+  assigneeNames: string[];
+  priority?: string;
 }
+
+const PRIORITY_COLORS: Record<string, string> = {
+  Critical: "bg-red-100 text-red-700 border-red-200",
+  High: "bg-orange-100 text-orange-700 border-orange-200",
+  Medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  Low: "bg-green-100 text-green-700 border-green-200",
+};
 
 function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   if (!data || data.total === 0) {
@@ -249,6 +258,10 @@ export default function TestCasesExecution() {
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  const [quickTaskOpen, setQuickTaskOpen] = useState(false);
+  const [quickTaskForm, setQuickTaskForm] = useState({ name: "", redmineId: "", status: "new", priority: "Medium", projectId: "", moduleId: "" });
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [fileForm, setFileForm] = useState({
     redmineTicketId: "",
@@ -292,6 +305,8 @@ export default function TestCasesExecution() {
           redmineId: String(t.redmineId),
           status: t.status,
           name: t.name,
+          assigneeNames: t.assigneeNames || [],
+          priority: t.priority || "",
         })));
       })
       .catch(() => toast({ variant: "destructive", title: "Failed to load data" }))
@@ -435,6 +450,46 @@ export default function TestCasesExecution() {
     }
   };
 
+  const handleCreateQuickTask = async () => {
+    if (!quickTaskForm.name.trim() || !quickTaskForm.projectId || !quickTaskForm.moduleId) {
+      toast({ variant: "destructive", title: "Task name, project, and module are required" });
+      return;
+    }
+    setIsCreatingTask(true);
+    try {
+      const token = localStorage.getItem("qa_pulse_token");
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: quickTaskForm.name.trim(),
+          redmineId: quickTaskForm.redmineId || undefined,
+          status: quickTaskForm.status,
+          priority: quickTaskForm.priority,
+          projectId: quickTaskForm.projectId ? Number(quickTaskForm.projectId) : undefined,
+          moduleId: quickTaskForm.moduleId ? Number(quickTaskForm.moduleId) : undefined,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const tasksData = await fetch("/api/tasks", { headers }).then(r => r.ok ? r.json() : []);
+      setTasks((tasksData || []).filter((t: any) => t.redmineId).map((t: any) => ({
+        redmineId: String(t.redmineId),
+        status: t.status,
+        name: t.name,
+        assigneeNames: t.assigneeNames || [],
+        priority: t.priority || "",
+      })));
+      toast({ title: "Task created successfully" });
+      setQuickTaskOpen(false);
+      setQuickTaskForm({ name: "", redmineId: "", status: "new", priority: "Medium", projectId: "", moduleId: "" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to create task" });
+    } finally {
+      setIsCreatingTask(false);
+    }
+  };
+
   const handleSelectAll = (checked: boolean) => {
     setSelectedFiles(checked ? filteredFiles.map(f => f.id) : []);
   };
@@ -515,6 +570,7 @@ export default function TestCasesExecution() {
                   <div className="flex items-center gap-1">Title <SortIcon k="title" /></div>
                 </TableHead>
                 <TableHead className="border-r border-border px-4 py-3">Assignee</TableHead>
+                <TableHead className="border-r border-border px-4 py-3">Priority</TableHead>
                 <TableHead className="border-r border-border">Execution Progress</TableHead>
                 <TableHead className={thClass} onClick={() => handleSort("status")}>
                   <div className="flex items-center gap-1">Task Status <SortIcon k="status" /></div>
@@ -540,6 +596,13 @@ export default function TestCasesExecution() {
                     <TableCell className="border-r border-border font-bold text-primary">#{f.redmineTicketId}</TableCell>
                     <TableCell className="border-r border-border">{f.title || "—"}</TableCell>
                     <TableCell className="border-r border-border">{task?.assigneeNames?.join(", ") || "—"}</TableCell>
+                    <TableCell className="border-r border-border">
+                      {task?.priority ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${PRIORITY_COLORS[task.priority] ?? "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                          {task.priority}
+                        </span>
+                      ) : "—"}
+                    </TableCell>
                     <TableCell className="border-r border-border py-2">
                       <MiniProgressBar data={prog} />
                     </TableCell>
@@ -549,9 +612,12 @@ export default function TestCasesExecution() {
                           {statusInfo.label}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                        <button
+                          className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
+                          onClick={e => { e.stopPropagation(); setQuickTaskForm(prev => ({ ...prev, redmineId: f.redmineTicketId })); setQuickTaskOpen(true); }}
+                        >
                           <AlertCircle className="w-3 h-3" /> No task
-                        </span>
+                        </button>
                       )}
                     </TableCell>
                     <TableCell className="border-r border-border text-muted-foreground text-sm">
@@ -581,7 +647,7 @@ export default function TestCasesExecution() {
               })}
               {sortedFiles.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                     {search ? "No files match your search." : "No test case files yet. Create one to get started."}
                   </TableCell>
                 </TableRow>
@@ -606,6 +672,74 @@ export default function TestCasesExecution() {
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)} disabled={isDeleting}>Cancel</Button>
             <Button variant="destructive" onClick={executeDelete} disabled={isDeleting}>
               {isDeleting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting...</> : "Confirm Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Create Task dialog */}
+      <Dialog open={quickTaskOpen} onOpenChange={open => { setQuickTaskOpen(open); if (!open) setQuickTaskForm({ name: "", redmineId: "", status: "new", priority: "Medium", projectId: "", moduleId: "" }); }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>New Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Task Name <span className="text-destructive">*</span></Label>
+              <Input placeholder="Task name" value={quickTaskForm.name} onChange={e => setQuickTaskForm({ ...quickTaskForm, name: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Redmine ID</Label>
+                <Input placeholder="e.g. 38032" value={quickTaskForm.redmineId} onChange={e => setQuickTaskForm({ ...quickTaskForm, redmineId: e.target.value.replace(/\D/g, "") })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Status</Label>
+                <SearchableSelect value={quickTaskForm.status} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, status: v })}
+                  options={[
+                    { value: "new", label: "New" },
+                    { value: "in_progress", label: "In Progress" },
+                    { value: "blocked", label: "Blocked" },
+                    { value: "uat", label: "UAT" },
+                    { value: "done", label: "Done" },
+                    { value: "released_to_production", label: "Released" },
+                  ]}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Project <span className="text-destructive">*</span></Label>
+                <SearchableSelect value={quickTaskForm.projectId} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, projectId: v })}
+                  options={[{ value: "", label: "Select project..." }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
+                  placeholder="Select project..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Priority</Label>
+                <SearchableSelect value={quickTaskForm.priority} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, priority: v })}
+                  options={[
+                    { value: "Critical", label: "Critical" },
+                    { value: "High", label: "High" },
+                    { value: "Medium", label: "Medium" },
+                    { value: "Low", label: "Low" },
+                  ]}
+                />
+              </div>
+              <div className="space-y-1.5 col-span-2">
+                <Label>Module <span className="text-destructive">*</span></Label>
+                <SearchableSelect value={quickTaskForm.moduleId} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, moduleId: v })}
+                  options={[{ value: "", label: "Select module..." }, ...modules.map(m => ({ value: String(m.id), label: m.name }))]}
+                  placeholder="Select module..."
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickTaskOpen(false)} disabled={isCreatingTask}>Cancel</Button>
+            <Button
+              onClick={handleCreateQuickTask}
+              disabled={!quickTaskForm.name.trim() || !quickTaskForm.projectId || !quickTaskForm.moduleId || isCreatingTask}
+            >
+              {isCreatingTask ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-2" />Create Task</>}
             </Button>
           </DialogFooter>
         </DialogContent>
