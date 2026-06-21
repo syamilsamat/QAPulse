@@ -416,6 +416,7 @@ export default function Tasks() {
   const [singleAssignOpen, setSingleAssignOpen] = useState(false);
   const [taskToAssign, setTaskToAssign] = useState<any | null>(null);
   const [singleAssignSearch, setSingleAssignSearch] = useState("");
+  const [pendingAssigneeIds, setPendingAssigneeIds] = useState<number[]>([]);
 
   // Event dialog state
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -826,6 +827,7 @@ export default function Tasks() {
   const openSingleAssignDialog = (task: any) => {
     setTaskToAssign(task);
     setSingleAssignSearch("");
+    setPendingAssigneeIds(task.assigneeIds ?? []);
     setSingleAssignOpen(true);
   };
 
@@ -1993,10 +1995,10 @@ export default function Tasks() {
       </Dialog>
 
       {/* --- SINGLE ASSIGNMENT DIALOG --- */}
-      <Dialog open={singleAssignOpen} onOpenChange={setSingleAssignOpen}>
+      <Dialog open={singleAssignOpen} onOpenChange={(o) => { if (!o) { setSingleAssignOpen(false); setTaskToAssign(null); } }}>
         <DialogContent className="sm:max-w-[400px] w-[96vw] max-h-[80vh] flex flex-col p-4">
           <DialogHeader>
-            <DialogTitle>Assign Member</DialogTitle>
+            <DialogTitle>Assign Members</DialogTitle>
           </DialogHeader>
           <div className="relative mt-2">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -2007,54 +2009,66 @@ export default function Tasks() {
               onChange={(e) => setSingleAssignSearch(e.target.value)}
             />
           </div>
-          <div className="flex-1 overflow-y-auto mt-4 space-y-1 pr-1 max-h-[300px]">
+          <div className="flex-1 overflow-y-auto mt-3 space-y-1 pr-1 max-h-[300px]">
             {users
               .filter((u) => u.role === "qa_member" || u.role === "qa_lead")
               .filter(
                 (u) =>
                   !singleAssignSearch ||
-                  u.name
-                    .toLowerCase()
-                    .includes(singleAssignSearch.toLowerCase()),
+                  u.name.toLowerCase().includes(singleAssignSearch.toLowerCase()),
               )
-              .map((u) => (
-                <div
-                  key={u.id}
-                  className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
-                    taskToAssign?.assigneeIds?.includes(u.id)
-                      ? "bg-primary/10 hover:bg-primary/20"
-                      : "hover:bg-muted"
-                  }`}
-                  onClick={() => {
-                    if (taskToAssign) {
-                      const updatedAssignees = [
-                        ...new Set([...(taskToAssign.assigneeIds || []), u.id]),
-                      ];
-                      assignMutation.mutate({
-                        id: taskToAssign.id,
-                        data: { assigneeIds: updatedAssignees },
-                      });
-                      setSingleAssignOpen(false);
-                    }
-                  }}
-                >
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                      {u.name.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{u.name}</p>
-                    <p className="text-xs text-muted-foreground capitalize truncate">
-                      {u.role.replace(/_/g, " ")}
-                    </p>
+              .map((u) => {
+                const isSelected = pendingAssigneeIds.includes(u.id);
+                return (
+                  <div
+                    key={u.id}
+                    className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
+                      isSelected ? "bg-primary/10 hover:bg-primary/20" : "hover:bg-muted"
+                    }`}
+                    onClick={() => {
+                      setPendingAssigneeIds((prev) =>
+                        isSelected ? prev.filter((id) => id !== u.id) : [...prev, u.id],
+                      );
+                    }}
+                  >
+                    <Avatar className="w-8 h-8">
+                      <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                        {u.name.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{u.name}</p>
+                      <p className="text-xs text-muted-foreground capitalize truncate">
+                        {u.role.replace(/_/g, " ")}
+                      </p>
+                    </div>
+                    {isSelected && <Check className="w-4 h-4 text-primary shrink-0" />}
                   </div>
-                  {taskToAssign?.assigneeIds?.includes(u.id) && (
-                    <Check className="w-4 h-4 text-primary shrink-0" />
-                  )}
-                </div>
-              ))}
+                );
+              })}
           </div>
+          <DialogFooter className="shrink-0 border-t pt-3 mt-2 flex-row justify-between gap-2">
+            <span className="text-xs text-muted-foreground self-center">
+              {pendingAssigneeIds.length} selected
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setSingleAssignOpen(false); setTaskToAssign(null); }}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (taskToAssign) {
+                    assignMutation.mutate({ id: taskToAssign.id, data: { assigneeIds: pendingAssigneeIds } });
+                  }
+                  setSingleAssignOpen(false);
+                  setTaskToAssign(null);
+                }}
+              >
+                Done
+              </Button>
+            </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

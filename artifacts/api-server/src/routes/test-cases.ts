@@ -372,7 +372,7 @@ router.delete("/test-cases/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.post("/test-cases/:id/clone", async (req, res): Promise<void> => {
+router.post("/test-cases/:id/clone", express.json(), async (req, res): Promise<void> => {
   const params = CloneTestCaseParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
 
@@ -380,7 +380,12 @@ router.post("/test-cases/:id/clone", async (req, res): Promise<void> => {
   if (!original) return res.status(404).json({ error: "Test case not found" }) as any;
 
   const { id, createdAt, updatedAt, ...rest } = original;
-  const [cloned] = await db.insert(testCasesTable).values({ ...rest, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
+  const overrides: Record<string, any> = {};
+  if (req.body?.projectId !== undefined) overrides.projectId = req.body.projectId;
+  if (req.body?.module !== undefined) overrides.module = req.body.module;
+  if (req.body?.requirementId !== undefined) overrides.requirementId = req.body.requirementId || null;
+
+  const [cloned] = await db.insert(testCasesTable).values({ ...rest, ...overrides, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
   res.status(201).json(await formatTestCase(cloned));
 });
 
