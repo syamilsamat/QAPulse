@@ -411,7 +411,7 @@ router.post("/test-cases/:id/clone", express.json(), async (req, res): Promise<v
 // ─── Export test cases as Excel using the shared template ────────────────────
 
 router.post("/test-cases/export", express.json(), async (req, res): Promise<void> => {
-  const { testCases } = req.body;
+  const { testCases, senderName } = req.body;
   if (!Array.isArray(testCases) || testCases.length === 0) {
     res.status(400).json({ error: "testCases array is required" });
     return;
@@ -433,7 +433,7 @@ router.post("/test-cases/export", express.json(), async (req, res): Promise<void
     qaPic:          tc.qaPic ?? tc.authorName ?? "",
   }));
 
-  const buf = await buildTestCaseExcel(rows);
+  const buf = await buildTestCaseExcel(rows, { senderName: senderName || undefined });
   if (!buf) {
     res.status(500).json({ error: "Failed to generate Excel" });
     return;

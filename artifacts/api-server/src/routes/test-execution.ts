@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { verifyToken } from "./auth";
 import { buildTestCaseExcel, trackerCode } from "./excel-builder";
+import { fetchActiveDefectsForIssue } from "./pmo-report";
 
 const router: IRouter = Router();
 
@@ -562,7 +563,7 @@ router.post(
 router.get("/execution-files/:ticketId/download-excel", async (req, res): Promise<void> => {
   try {
     const { ticketId } = req.params;
-    const { issueType, issueSubject } = req.query as Record<string, string>;
+    const { issueType, issueSubject, senderName } = req.query as Record<string, string>;
 
     const [file] = await db
       .select()
@@ -577,11 +578,16 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
           .orderBy(executionTestCasesTable.rowOrder)
       : [];
 
+    // CR002: fetch active defects for Pareto Analysis + CAPA auto-population
+    const activeDefects = await fetchActiveDefectsForIssue(ticketId);
+
     const typeLabel = issueType || "Issue";
     const buffer = await buildTestCaseExcel(testCases, {
       redmineId: ticketId,
       issueType: typeLabel,
       issueSubject: issueSubject || file?.title || "",
+      senderName: senderName || undefined,
+      activeDefects,
     });
 
     if (!buffer) {

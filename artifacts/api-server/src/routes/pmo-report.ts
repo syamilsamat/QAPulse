@@ -438,7 +438,7 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
     const main = mainRows[0];
 
     const [childRows] = (await conn.query(
-      `SELECT i.id, i.subject, i.created_on, i.status_id,
+      `SELECT i.id, i.subject, i.created_on, i.due_date, i.status_id,
          s.name AS status, t.name AS tracker,
          e.name AS priority, c.name AS category,
          CONCAT(u.firstname,' ',u.lastname) AS assignee
@@ -454,7 +454,7 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
     )) as [any[], any];
 
     const [defectRows] = (await conn.query(
-      `SELECT i.id, i.subject, i.created_on, i.status_id,
+      `SELECT i.id, i.subject, i.created_on, i.due_date, i.status_id,
          s.name AS status, t.name AS tracker,
          e.name AS priority, c.name AS category,
          CONCAT(u.firstname,' ',u.lastname) AS assignee
@@ -523,7 +523,8 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
         category: d.category ?? "",
         assignee: d.assignee ?? "Unassigned",
         createdOn: d.created_on,
-        reopenedCount: count 
+        dueDate: d.due_date ? new Date(d.due_date).toISOString().slice(0, 10) : null,
+        reopenedCount: count,
       };
     });
 
@@ -592,7 +593,8 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
       category: i.category?.name ?? "",
       assignee: i.assigned_to?.name ?? "Unassigned",
       createdOn: i.created_on,
-      reopenedCount: 0 // Default, will update below
+      dueDate: i.due_date ?? null,
+      reopenedCount: 0,
     });
 
     for (const i of subjectMatches) {
@@ -1590,10 +1592,15 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
 
       console.log(`[send-verdict] testCases count=${testCases.length}`);
 
+      const activeDefects = await fetchActiveDefectsForIssue(String(redmineId));
+      console.log(`[send-verdict] activeDefects count=${activeDefects.length}`);
+
       const xlsxBuffer = await buildTestCaseExcel(testCases, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",
+        senderName: senderName ?? undefined,
+        activeDefects,
       });
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
@@ -1633,5 +1640,16 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
     res.status(500).json({ error: err.message ?? "Failed to send verdict email" });
   }
 });
+
+// ── CR002: shared defect fetcher used by send-verdict + download-excel ────────
+export async function fetchActiveDefectsForIssue(issueId: string): Promise<any[]> {
+  try {
+    let data = await reportFromMySQL(issueId);
+    if (!data) data = await reportFromRedmineAPI(issueId);
+    return (data?.activeDefects as any[]) ?? [];
+  } catch {
+    return [];
+  }
+}
 
 export default router;

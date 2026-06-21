@@ -75,11 +75,11 @@ import React from "react";
 import { format } from "date-fns";
 import { getApiUrl } from "@/lib/api";
 
-async function exportToExcel(testCases: any[]) {
+async function exportToExcel(testCases: any[], senderName?: string) {
   const res = await fetch(`${getApiUrl()}/test-cases/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ testCases }),
+    body: JSON.stringify({ testCases, senderName }),
   });
   if (!res.ok) throw new Error("Export failed");
   const blob = await res.blob();
@@ -777,7 +777,7 @@ export default function TestCases() {
         variant: "destructive",
         title: "No test cases to export",
       });
-    exportToExcel(toExport).then(() => toast({ title: "Export complete" }));
+    exportToExcel(toExport, currentUser?.name).then(() => toast({ title: "Export complete" }));
   };
 
   const handleBulkDelete = async () => {
