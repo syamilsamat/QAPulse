@@ -9,17 +9,22 @@ on:
 jobs:
   create-pull-request:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create Pull Request to Upstream
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-          branch: "sas-automated-patch"           # A temporary branch it will create to host the PR
-          base: "main"                            # Target branch on upstream
-          title: "SAS: fix/improve code"          # Your default title
-          body: "Automated code improvement sync from syamil."
+      - name: Open Pull Request using GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Uses the built-in repository token
+        run: |
+          gh pr create \
+            --repo "Autoraimix/QAPulse" \
+            --head "syamilsamat:main" \
+            --base "main" \
+            --title "SAS: fix/improve code" \
+            --body "Automated code improvement sync from syamil." || echo "PR already exists or no changes to sync."
