@@ -21,6 +21,7 @@ import {
   GenerateTestCasesWithAIBody,
 } from "@workspace/api-zod";
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
+import { verifyToken } from "./auth";
 
 // Initialize primary Gemini client
 const ai = new GoogleGenAI({});
@@ -331,7 +332,17 @@ router.post("/test-cases", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [tc] = await db.insert(testCasesTable).values(parsed.data).returning();
+  const payload: any = { ...parsed.data };
+  if (!payload.authorId) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const jwt = verifyToken(authHeader.slice(7));
+        payload.authorId = jwt.id;
+      } catch {}
+    }
+  }
+  const [tc] = await db.insert(testCasesTable).values(payload).returning();
   await db.insert(activityTable).values({
     type: "test_case_created",
     description: `Test case "${tc.title}" was created${tc.aiAssisted ? " (AI-assisted)" : ""}`,

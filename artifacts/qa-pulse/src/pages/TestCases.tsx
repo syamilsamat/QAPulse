@@ -907,7 +907,7 @@ export default function TestCases() {
     }
     if (editingTC)
       updateMutation.mutate({ id: editingTC.id, data: form as any });
-    else createMutation.mutate({ data: { ...form, aiAssisted: false } as any });
+    else createMutation.mutate({ data: { ...form, aiAssisted: false, authorId: user?.id } as any });
   };
 
   const handleAISuccess = (aiTestCases: any[], formData: any) => {
@@ -1107,7 +1107,7 @@ export default function TestCases() {
                         Title
                       </th>
                       <th className="w-40 font-semibold text-muted-foreground text-left">
-                        Author / QA PIC
+                        Author
                       </th>
                       <th className="w-48 font-semibold text-muted-foreground text-left">
                         Tags
@@ -1163,7 +1163,9 @@ export default function TestCases() {
                             </div>
                           </TableCell>
                           <TableCell className="py-3 text-muted-foreground truncate">
-                            {tc.qaPic || tc.authorName || "—"}
+                            {tc.aiAssisted
+                              ? tc.authorName ? `AI · ${tc.authorName}` : "AI"
+                              : tc.authorName || "—"}
                           </TableCell>
                           <TableCell className="py-3">
                             {tc.tags ? (
@@ -1340,7 +1342,9 @@ export default function TestCases() {
                           <div className="flex items-center gap-2 mt-2 flex-wrap">
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                               <LayoutList className="w-3 h-3" />{" "}
-                              {tc.qaPic || tc.authorName || "No QA"}
+                              {tc.aiAssisted
+                                ? tc.authorName ? `AI · ${tc.authorName}` : "AI"
+                                : tc.authorName || "—"}
                             </span>
                             {tc.aiAssisted && (
                               <Badge
@@ -1712,7 +1716,7 @@ export default function TestCases() {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t pt-4">
               <div className="space-y-1.5">
                 <Label>Redmine Defect #</Label>
                 <Input
@@ -1721,16 +1725,6 @@ export default function TestCases() {
                   onChange={(e) =>
                     setForm({ ...form, redmineDefectId: e.target.value })
                   }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>QA PIC</Label>
-                <SearchableSelect
-                  value={form.qaPic ?? ""}
-                  onValueChange={(v) => setForm({ ...form, qaPic: v })}
-                  options={users.map((u: any) => ({ value: u.name, label: u.name }))}
-                  placeholder="Select QA PIC..."
-                  searchPlaceholder="Search user..."
                 />
               </div>
               <div className="space-y-1.5">
