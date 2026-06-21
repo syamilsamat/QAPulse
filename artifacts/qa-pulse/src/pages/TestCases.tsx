@@ -918,8 +918,11 @@ export default function TestCases() {
     const matchedModuleIds = modules
       .filter((m: any) => distinctModuleNames.includes(m.name))
       .map((m: any) => m.id);
+    // Pre-populate redmine ticket ID from selected TCs — use shared value if all agree, else first TC
+    const distinctRedmineIds = [...new Set(selectedTCs.map((tc: any) => tc.redmineUserStory).filter(Boolean))] as string[];
+    const prefilledTicketId = (distinctRedmineIds[0] ?? "").replace(/\D/g, "");
     setCompileNewForm({
-      redmineTicketId: "",
+      redmineTicketId: prefilledTicketId,
       title: "",
       remarks: "",
       requirementId: firstTC.requirementId ? String(firstTC.requirementId) : "",
@@ -982,7 +985,10 @@ export default function TestCases() {
             requirementId: compileNewForm.requirementId ? Number(compileNewForm.requirementId) : undefined,
           }),
         });
-        if (!createRes.ok) throw new Error(await createRes.text());
+        if (!createRes.ok) {
+          const body = await createRes.json().catch(() => ({}));
+          throw new Error(body.error ?? `Server error ${createRes.status}`);
+        }
         const created = await createRes.json();
         targetTicketId = created.redmineTicketId;
       }
@@ -999,7 +1005,10 @@ export default function TestCases() {
         headers,
         body: JSON.stringify({ testCases: [...existingTCs, ...newRows] }),
       });
-      if (!saveRes.ok) throw new Error(await saveRes.text());
+      if (!saveRes.ok) {
+        const saveBody = await saveRes.json().catch(() => ({}));
+        throw new Error(saveBody.error ?? `Server error ${saveRes.status}`);
+      }
       toast({ title: `${selectedTCs.length} test case${selectedTCs.length !== 1 ? "s" : ""} compiled into #${targetTicketId}` });
       setCompileOpen(false);
       setSelectedIds(new Set());

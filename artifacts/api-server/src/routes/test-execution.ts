@@ -198,7 +198,13 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
-  } catch {
+  } catch (err: any) {
+    // PostgreSQL unique_violation code 23505
+    if (err?.code === "23505" || err?.message?.includes("unique")) {
+      res.status(409).json({ error: `An execution file for ticket #${req.body.redmineTicketId} already exists` });
+      return;
+    }
+    console.error("[execution-files POST]", err);
     res.status(500).json({ error: "Failed to create execution file" });
   }
 });
