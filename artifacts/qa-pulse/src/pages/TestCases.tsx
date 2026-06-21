@@ -592,6 +592,10 @@ export default function TestCases() {
   const [cloneForm, setCloneForm] = useState<{ requirementId?: number; projectId?: number; module?: string }>({});
   const [isCloning, setIsCloning] = useState(false);
 
+  const [bulkCloneDialogOpen, setBulkCloneDialogOpen] = useState(false);
+  const [bulkCloneForm, setBulkCloneForm] = useState<{ requirementId?: number; projectId?: number; module?: string }>({});
+  const [isBulkCloning, setIsBulkCloning] = useState(false);
+
   const [editingTC, setEditingTC] = useState<any | null>(null);
   const [form, setForm] = useState<Partial<any>>({});
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -855,6 +859,38 @@ export default function TestCases() {
     }
   };
 
+  const handleBulkClone = async () => {
+    if (!bulkCloneForm.projectId || !bulkCloneForm.module) return;
+    setIsBulkCloning(true);
+    const ids = Array.from(selectedIds);
+    let successCount = 0;
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          const res = await fetch(`${getApiUrl()}/test-cases/${id}/clone`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              projectId: bulkCloneForm.projectId,
+              module: bulkCloneForm.module,
+              requirementId: bulkCloneForm.requirementId || undefined,
+            }),
+          });
+          if (res.ok) successCount++;
+        }),
+      );
+      queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
+      toast({ title: `${successCount} test case${successCount !== 1 ? "s" : ""} cloned` });
+      setBulkCloneDialogOpen(false);
+      setBulkCloneForm({});
+      setSelectedIds(new Set());
+    } catch {
+      toast({ variant: "destructive", title: "Some test cases failed to clone" });
+    } finally {
+      setIsBulkCloning(false);
+    }
+  };
+
   const handleSubmit = () => {
     if (
       !form.title?.trim() ||
@@ -950,6 +986,17 @@ export default function TestCases() {
             </span>
           </div>
           <div className="sm:ml-auto flex w-full sm:w-auto items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1"
+              onClick={() => {
+                setBulkCloneForm({});
+                setBulkCloneDialogOpen(true);
+              }}
+            >
+              <Copy className="w-3 h-3" /> Clone
+            </Button>
             <Button
               variant="destructive"
               size="sm"
@@ -1450,6 +1497,72 @@ export default function TestCases() {
               disabled={!cloneForm.projectId || !cloneForm.module || isCloning}
             >
               {isCloning ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloning...</> : <><Copy className="w-4 h-4" /> Clone</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Clone Dialog */}
+      <Dialog open={bulkCloneDialogOpen} onOpenChange={(o) => { if (!o) { setBulkCloneDialogOpen(false); setBulkCloneForm({}); } }}>
+        <DialogContent className="sm:max-w-[440px] w-[95vw] flex flex-col max-h-[90vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-4 h-4 text-primary" /> Clone Test Cases
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Cloning <span className="font-medium text-foreground">{selectedIds.size}</span> selected test case{selectedIds.size !== 1 ? "s" : ""} to:
+            </p>
+            <div className="space-y-1.5">
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <SearchableSelect
+                value={bulkCloneForm.requirementId ? String(bulkCloneForm.requirementId) : ""}
+                onValueChange={(v) => {
+                  const req = requirements.find((r: any) => r.id === Number(v));
+                  setBulkCloneForm({
+                    ...bulkCloneForm,
+                    requirementId: Number(v),
+                    projectId: req?.projectId ?? bulkCloneForm.projectId,
+                    module: req?.module ?? bulkCloneForm.module,
+                  });
+                }}
+                options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
+                placeholder="Select requirement..."
+                searchPlaceholder="Search requirement..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Project <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={bulkCloneForm.projectId ? String(bulkCloneForm.projectId) : ""}
+                onValueChange={(v) => setBulkCloneForm({ ...bulkCloneForm, projectId: Number(v) })}
+                options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                placeholder="Select project..."
+                searchPlaceholder="Search project..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Module <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={bulkCloneForm.module ?? ""}
+                onValueChange={(v) => setBulkCloneForm({ ...bulkCloneForm, module: v })}
+                options={modules.map((m: any) => ({ value: m.name, label: m.name }))}
+                placeholder="Select module..."
+                searchPlaceholder="Search module..."
+              />
+            </div>
+          </div>
+          <DialogFooter className="shrink-0 border-t pt-4 flex-row justify-end gap-2">
+            <Button variant="outline" className="w-auto" onClick={() => setBulkCloneDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="w-auto gap-2"
+              onClick={handleBulkClone}
+              disabled={!bulkCloneForm.projectId || !bulkCloneForm.module || isBulkCloning}
+            >
+              {isBulkCloning ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloning...</> : <><Copy className="w-4 h-4" /> Clone {selectedIds.size}</>}
             </Button>
           </DialogFooter>
         </DialogContent>
