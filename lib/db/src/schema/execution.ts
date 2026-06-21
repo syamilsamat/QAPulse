@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
 
 // 1. Reusable Modules Table
 export const executionModulesTable = pgTable("execution_modules", {
@@ -15,6 +15,8 @@ export const executionFilesTable = pgTable("execution_files", {
   qaPic: text("qa_pic"),
   remarks: text("remarks"),
   selectedModules: text("selected_modules"),
+  projectId: integer("project_id"),
+  requirementId: integer("requirement_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -27,6 +29,8 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
     .notNull(),
   moduleName: text("module_name"),
   caseId: text("case_id"),
+  testCaseId: text("test_case_id"),
+  libraryTcId: integer("library_tc_id"),
   userStory: text("user_story"),
   tracker: text("tracker"), // <--- ADDED HERE
   scenario: text("scenario"),

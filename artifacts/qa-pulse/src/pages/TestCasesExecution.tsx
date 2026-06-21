@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
+import * as XLSX from "xlsx-js-style";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { HoverPlay } from "@/components/icons/animated";
 import {
   Table,
@@ -21,6 +21,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Plus,
   Search,
@@ -31,8 +32,10 @@ import {
   ChevronUp,
   ChevronDown,
   BarChart2,
-  ExternalLink,
   AlertCircle,
+  Upload,
+  FileSpreadsheet,
+  X as XIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -41,12 +44,142 @@ import {
   createExecutionFile,
   deleteExecutionFile,
   fetchModules,
-  fetchUsers,
+  fetchProjects,
+  saveTestCases,
   type ExecutionFile,
   type ExecutionModule,
-  type ExecutionUser,
+  type ExecutionProject,
+  type ExecutionTestCase,
 } from "@/lib/execution-api";
 
+// ─── Excel column mappings (same as progress page) ───────────────────────────
+const COLUMN_MAPPINGS: Record<string, string[]> = {
+  caseId: ["case id", "test case id", "tc id", "id"],
+  userStory: ["redmine ticket id", "redmine user story", "user story", "story", "requirement", "requirement id"],
+  tracker: ["tracker"],
+  scenario: ["scenario", "tracker scenario"],
+  preCondition: ["pre condition", "preconditions", "pre-conditions", "precondition"],
+  caseName: ["case", "case name", "title"],
+  testSteps: ["steps", "test steps", "testing steps"],
+  testData: ["test data", "data"],
+  expectedResult: ["expected result", "expected outcome", "expected results"],
+  result: ["result", "status", "test result"],
+  defectNumber: ["redmine defect ticket id", "redmine defect", "defect #", "defect id", "bug id", "redmine id", "redmine defect number"],
+  qaPic: ["qa pic", "qa owner", "tester", "assigned qa"],
+  comments: ["additional/comments/issues", "additional / comments / issues", "comments", "additional", "issues", "remarks"],
+  moduleName: ["module name", "module", "feature"],
+};
+
+function normalizeHeader(v: any): string {
+  return String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeResult(v: string): string {
+  const low = v.toLowerCase().trim();
+  if (low === "pass" || low === "passed") return "Passed";
+  if (low === "fail" || low === "failed") return "Failed";
+  if (low === "block" || low === "blocked") return "Blocked";
+  if (low === "in progress" || low === "in-progress" || low === "in_progress") return "In Progress";
+  return "Not Executed";
+}
+
+async function parseExcelToRows(file: File): Promise<ExecutionTestCase[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const wb = XLSX.read(arrayBuffer, { type: "array" });
+  const rows: ExecutionTestCase[] = [];
+
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName];
+
+    // Expand merged cells
+    if (sheet["!merges"]) {
+      (sheet["!merges"] as any[]).forEach((merge) => {
+        const startCell = XLSX.utils.encode_cell({ c: merge.s.c, r: merge.s.r });
+        const val = sheet[startCell] ? sheet[startCell].v : undefined;
+        if (val !== undefined) {
+          for (let R = merge.s.r; R <= merge.e.r; ++R) {
+            for (let C = merge.s.c; C <= merge.e.c; ++C) {
+              const ref = XLSX.utils.encode_cell({ c: C, r: R });
+              if (!sheet[ref]) sheet[ref] = { t: "s", v: val };
+              else sheet[ref].v = val;
+            }
+          }
+        }
+      });
+    }
+
+    const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, blankrows: false, raw: false });
+    if (!rawData.length) continue;
+
+    let headerRow = -1;
+    let colMap: Record<string, number> = {};
+    let best = 0;
+
+    for (let r = 0; r < Math.min(rawData.length, 30); r++) {
+      const row = rawData[r];
+      if (!Array.isArray(row)) continue;
+      let count = 0;
+      const map: Record<string, number> = {};
+      row.forEach((cell, ci) => {
+        const norm = normalizeHeader(cell);
+        for (const [key, syns] of Object.entries(COLUMN_MAPPINGS)) {
+          if (syns.includes(norm)) { map[key] = ci; count++; break; }
+        }
+      });
+      if (count > best && map["caseId"] !== undefined && map["testSteps"] !== undefined) {
+        best = count; colMap = map; headerRow = r;
+      }
+    }
+
+    if (headerRow === -1) continue;
+
+    let currentModule = "";
+    for (let r = headerRow + 1; r < rawData.length; r++) {
+      const row = rawData[r];
+      if (!row || row.length === 0) continue;
+
+      const ext: Record<string, string> = {};
+      let hasData = false;
+      for (const [key, ci] of Object.entries(colMap)) {
+        const val = row[ci];
+        if (val !== undefined && val !== null && String(val).trim()) {
+          ext[key] = String(val).trim(); hasData = true;
+        } else {
+          ext[key] = "";
+        }
+      }
+      if (!hasData) continue;
+
+      // Module header row detection (all values identical)
+      const vals = Object.values(ext).filter(v => v);
+      if (vals.length > 1 && vals.every(v => v === vals[0])) {
+        currentModule = vals[0];
+        continue;
+      }
+
+      rows.push({
+        id: `xl-${r}-${Math.random().toString(36).slice(2, 7)}`,
+        moduleName: ext.moduleName || currentModule || "",
+        caseId: ext.caseId || "",
+        userStory: ext.userStory || "",
+        tracker: ext.tracker || "",
+        scenario: ext.scenario || "",
+        preCondition: ext.preCondition || "",
+        caseName: ext.caseName || "",
+        testSteps: ext.testSteps || "",
+        testData: ext.testData || "",
+        expectedResult: ext.expectedResult || "",
+        result: normalizeResult(ext.result || ""),
+        defectNumber: ext.defectNumber || "",
+        comments: ext.comments || "",
+        qaPic: ext.qaPic || "",
+      });
+    }
+  }
+  return rows;
+}
+
+// ─── Task / progress types ────────────────────────────────────────────────────
 const TASK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   new: { label: "New", color: "bg-slate-100 text-slate-700 border-slate-200" },
   in_progress: { label: "In Progress", color: "bg-blue-100 text-blue-700 border-blue-200" },
@@ -98,14 +231,17 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   );
 }
 
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function TestCasesExecution() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState("");
   const [files, setFiles] = useState<ExecutionFile[]>([]);
   const [modules, setModules] = useState<ExecutionModule[]>([]);
-  const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
+  const [projects, setProjects] = useState<ExecutionProject[]>([]);
+  const [requirements, setRequirements] = useState<{ id: number; title: string; projectId?: number | null; module?: string | null }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [progress, setProgress] = useState<ProgressData>({});
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
@@ -117,10 +253,15 @@ export default function TestCasesExecution() {
   const [fileForm, setFileForm] = useState({
     redmineTicketId: "",
     title: "",
-    qaPic: "",
     remarks: "",
+    requirementId: "",
+    projectId: "",
     selectedModules: [] as number[],
   });
+  const [parsedExcelRows, setParsedExcelRows] = useState<ExecutionTestCase[] | null>(null);
+  const [excelFileName, setExcelFileName] = useState("");
+  const [isParsingExcel, setIsParsingExcel] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -136,14 +277,16 @@ export default function TestCasesExecution() {
     Promise.all([
       fetchExecutionFiles(),
       fetchModules(),
-      fetchUsers(),
+      fetchProjects(),
       fetch("/api/execution-progress", { headers: getHeaders() }).then(r => r.ok ? r.json() : {}),
       fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
+      fetch("/api/requirements", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([filesData, modulesData, usersData, progressData, tasksData]) => {
+      .then(([filesData, modulesData, projectsData, progressData, tasksData, reqsData]) => {
         setFiles(filesData);
         setModules(modulesData);
-        setQaUsers(usersData);
+        setProjects(projectsData || []);
+        setRequirements(reqsData || []);
         setProgress(progressData || {});
         setTasks((tasksData || []).filter((t: any) => t.redmineId).map((t: any) => ({
           redmineId: String(t.redmineId),
@@ -191,25 +334,104 @@ export default function TestCasesExecution() {
     });
   }, [filteredFiles, sortKey, sortDir, tasks]);
 
+  // ─── Requirement auto-fill ─────────────────────────────────────────────────
+  const handleRequirementChange = (reqId: string) => {
+    const req = requirements.find((r: any) => String(r.id) === reqId);
+    const updatedForm = { ...fileForm, requirementId: reqId };
+
+    if (req) {
+      // Auto-fill project
+      if (req.projectId) updatedForm.projectId = String(req.projectId);
+      // Auto-fill module: find execution module matching the requirement's module name
+      if (req.module) {
+        const matchedMod = modules.find(m => m.name.toLowerCase() === req.module.toLowerCase());
+        if (matchedMod && !updatedForm.selectedModules.includes(matchedMod.id)) {
+          updatedForm.selectedModules = [matchedMod.id];
+        }
+      }
+    }
+
+    setFileForm(updatedForm);
+  };
+
+  // ─── Excel upload ──────────────────────────────────────────────────────────
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsParsingExcel(true);
+    try {
+      const rows = await parseExcelToRows(file);
+      setParsedExcelRows(rows);
+      setExcelFileName(file.name);
+      if (rows.length === 0) {
+        toast({ variant: "destructive", title: "No rows found in Excel file. Check the column headers." });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Failed to parse Excel file" });
+      setParsedExcelRows(null);
+      setExcelFileName("");
+    } finally {
+      setIsParsingExcel(false);
+      // Reset input so same file can be re-uploaded
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const clearExcel = () => {
+    setParsedExcelRows(null);
+    setExcelFileName("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // ─── Create file ───────────────────────────────────────────────────────────
+  const resetFileForm = () => {
+    setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", selectedModules: [] });
+    clearExcel();
+  };
+
   const handleCreateFile = async () => {
     if (!fileForm.redmineTicketId.trim()) return;
+    if (!fileForm.projectId) {
+      toast({ variant: "destructive", title: "Project is required" });
+      return;
+    }
+    if (fileForm.selectedModules.length === 0) {
+      toast({ variant: "destructive", title: "At least one module must be selected" });
+      return;
+    }
+
+    setIsCreating(true);
     try {
       const selectedModuleNames = fileForm.selectedModules
         .map(id => modules.find(m => m.id === id)?.name)
         .filter(Boolean).join(",");
+
       const newFile = await createExecutionFile({
         redmineTicketId: fileForm.redmineTicketId.trim(),
-        title: fileForm.title,
-        qaPic: fileForm.qaPic,
-        remarks: fileForm.remarks,
+        title: fileForm.title || undefined,
+        remarks: fileForm.remarks || undefined,
         selectedModules: selectedModuleNames || undefined,
+        projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
+        requirementId: fileForm.requirementId ? Number(fileForm.requirementId) : undefined,
       });
+
+      // If Excel was parsed, immediately save the test cases
+      if (parsedExcelRows && parsedExcelRows.length > 0) {
+        await saveTestCases(newFile.redmineTicketId, parsedExcelRows, null);
+      }
+
       setFiles([newFile, ...files]);
       setNewFileOpen(false);
-      setFileForm({ redmineTicketId: "", title: "", qaPic: "", remarks: "", selectedModules: [] });
-      toast({ title: "Test Case File created" });
+      resetFileForm();
+      toast({
+        title: parsedExcelRows && parsedExcelRows.length > 0
+          ? `File created with ${parsedExcelRows.length} imported test cases`
+          : "Test Case File created",
+      });
     } catch {
       toast({ variant: "destructive", title: "Failed to create file. Ticket ID might already exist." });
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -243,6 +465,8 @@ export default function TestCasesExecution() {
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
   const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
+
+  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -390,45 +614,76 @@ export default function TestCasesExecution() {
       </Dialog>
 
       {/* New Test Case File dialog */}
-      <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
-        <DialogContent className="w-[95vw] sm:max-w-[440px]">
+      <Dialog open={newFileOpen} onOpenChange={(open) => { setNewFileOpen(open); if (!open) resetFileForm(); }}>
+        <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>New Test Case File</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+
+          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
+            {/* Redmine Ticket ID */}
             <div className="space-y-1">
               <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
-              <Input placeholder="e.g. 38032"
+              <Input
+                placeholder="e.g. 38032"
                 value={fileForm.redmineTicketId}
-                onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })} />
+                onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
+              />
             </div>
+
+            {/* Title */}
             <div className="space-y-1">
               <Label>Title</Label>
               <Input value={fileForm.title} onChange={e => setFileForm({ ...fileForm, title: e.target.value })} />
             </div>
+
+            {/* Requirement (optional) */}
             <div className="space-y-1">
-              <Label>QA PIC</Label>
-              <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={fileForm.qaPic} onChange={e => setFileForm({ ...fileForm, qaPic: e.target.value })}>
-                <option value="">Select QA PIC...</option>
-                {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-              </select>
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional — auto-fills Project & Module)</span></Label>
+              <SearchableSelect
+                value={fileForm.requirementId}
+                onValueChange={handleRequirementChange}
+                options={[
+                  { value: "", label: "None" },
+                  ...requirements.map((r: any) => ({ value: String(r.id), label: r.title })),
+                ]}
+                placeholder="Search requirement..."
+              />
             </div>
+
+            {/* Project (mandatory) */}
             <div className="space-y-1">
-              <Label>Modules</Label>
-              <div className="border rounded-md p-2 max-h-[160px] overflow-y-auto space-y-1">
+              <Label>Project <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={fileForm.projectId}
+                onValueChange={v => setFileForm({ ...fileForm, projectId: v })}
+                options={[
+                  { value: "", label: "Select project..." },
+                  ...projects.map(p => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Search project..."
+              />
+            </div>
+
+            {/* Module (mandatory, multi-select) */}
+            <div className="space-y-1">
+              <Label>Module <span className="text-destructive">*</span></Label>
+              <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
                 {modules.length === 0
                   ? <p className="text-sm text-muted-foreground text-center py-2">No modules available.</p>
                   : modules.map(m => (
                     <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded">
-                      <input type="checkbox" className="rounded border-gray-300"
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
                         checked={fileForm.selectedModules.includes(m.id)}
                         onChange={e => setFileForm({
                           ...fileForm,
                           selectedModules: e.target.checked
                             ? [...fileForm.selectedModules, m.id]
                             : fileForm.selectedModules.filter(id => id !== m.id),
-                        })} />
+                        })}
+                      />
                       {m.name}
                     </label>
                   ))
@@ -438,11 +693,63 @@ export default function TestCasesExecution() {
                 <p className="text-xs text-muted-foreground">{fileForm.selectedModules.length} module(s) selected</p>
               )}
             </div>
+
+            {/* Remarks */}
+            <div className="space-y-1">
+              <Label>Remarks</Label>
+              <Input value={fileForm.remarks} onChange={e => setFileForm({ ...fileForm, remarks: e.target.value })} />
+            </div>
+
+            {/* Excel upload */}
+            <div className="space-y-1">
+              <Label className="flex items-center gap-1">
+                <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                Import from Excel <span className="text-xs text-muted-foreground">(optional)</span>
+              </Label>
+              {excelFileName ? (
+                <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-md">
+                  <FileSpreadsheet className="w-4 h-4 text-green-600 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-green-800 truncate">{excelFileName}</p>
+                    <p className="text-xs text-green-600">
+                      {parsedExcelRows ? `${parsedExcelRows.length} test case(s) ready to import` : "Parsing..."}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-green-700 hover:text-red-600" onClick={clearExcel}>
+                    <XIcon className="w-4 h-4" />
+                  </Button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 cursor-pointer border border-dashed rounded-md p-3 hover:bg-muted/30 transition-colors">
+                  {isParsingExcel
+                    ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    : <Upload className="w-4 h-4 text-muted-foreground" />
+                  }
+                  <span className="text-sm text-muted-foreground">
+                    {isParsingExcel ? "Parsing file..." : "Click to upload .xlsx / .xls"}
+                  </span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    className="hidden"
+                    disabled={isParsingExcel}
+                    onChange={handleExcelUpload}
+                  />
+                </label>
+              )}
+            </div>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setNewFileOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateFile} disabled={!fileForm.redmineTicketId.trim()}>
-              <Plus className="w-4 h-4 mr-2" /> Create File
+
+          <DialogFooter className="gap-2 pt-2 border-t">
+            <Button variant="ghost" onClick={() => { setNewFileOpen(false); resetFileForm(); }} disabled={isCreating}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateFile} disabled={!canCreate || isCreating || isParsingExcel}>
+              {isCreating
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
+                : <><Plus className="w-4 h-4 mr-2" /> Create File</>
+              }
             </Button>
           </DialogFooter>
         </DialogContent>

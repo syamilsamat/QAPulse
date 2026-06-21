@@ -1224,21 +1224,7 @@ export default function Tasks() {
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             {t.assigneeNames && t.assigneeNames.length > 0 ? (
-                              <div className="flex -space-x-2">
-                                {t.assigneeNames.map(
-                                  (name: string, i: number) => (
-                                    <Avatar
-                                      key={i}
-                                      className="w-7 h-7 border-2 border-background"
-                                      title={name}
-                                    >
-                                      <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                                        {name.substring(0, 2).toUpperCase()}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                  ),
-                                )}
-                              </div>
+                              <span className="text-sm">{t.assigneeNames.join(", ")}</span>
                             ) : (
                               <span className="text-sm text-muted-foreground italic">
                                 Unassigned

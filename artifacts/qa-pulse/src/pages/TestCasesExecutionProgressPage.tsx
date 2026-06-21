@@ -38,7 +38,9 @@ import {
   PieChart,
   Users,
   ExternalLink,
+  Library,
 } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
@@ -66,7 +68,7 @@ const RESULT_OPTIONS = [
 export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
 
 const COLUMN_MAPPINGS: Record<string, string[]> = {
-  caseId: ["case id", "test case id", "tc id", "id"],
+  testCaseId: ["case id", "test case id", "tc id", "id"],
   userStory: [
     "redmine ticket id",
     "redmine user story",
@@ -266,6 +268,7 @@ interface RowProps {
     value: string,
   ) => void;
   onDelete: (id: string | number) => void;
+  onPromote: (row: AppExecutionTestCase) => void;
   availableModules: ExecutionModule[];
   qaUsers: ExecutionUser[];
   hiddenCols: Set<string>;
@@ -279,6 +282,7 @@ const DesktopTableRow = React.memo(
     onToggleSelect,
     onUpdate,
     onDelete,
+    onPromote,
     availableModules,
     qaUsers,
     hiddenCols,
@@ -299,9 +303,9 @@ const DesktopTableRow = React.memo(
             {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
           </select>
         </td>
-        {!hide("caseId") && (
-          <td className="border border-border p-0 relative align-top">
-            <Textarea className={tableInputClass} value={row.caseId || ""} onChange={(e) => onUpdate(row.id as string, "caseId", e.target.value)} />
+        {!hide("testCaseId") && (
+          <td className="border border-border px-2 py-2 align-top">
+            <span className="text-xs text-muted-foreground font-mono select-all">{row.testCaseId || "—"}</span>
           </td>
         )}
         {!hide("userStory") && (
@@ -375,10 +379,27 @@ const DesktopTableRow = React.memo(
           </select>
         </td>
         <td className="border border-border p-0 text-center align-top pt-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity mx-auto block"
-            onClick={() => onDelete(row.id as string | number)}>
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <div className="flex flex-col items-center gap-1">
+            {!row.libraryTcId && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Promote to Library"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                onClick={() => onPromote(row)}
+              >
+                <Library className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+              onClick={() => onDelete(row.id as string | number)}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
         </td>
       </tr>
     );
@@ -470,15 +491,11 @@ const MobileCardRow = React.memo(
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
-              Case ID
+              Test Case ID
             </Label>
-            <Textarea
-              className="min-h-[60px] text-xs p-2"
-              value={row.caseId || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "caseId", e.target.value)
-              }
-            />
+            <div className="min-h-[40px] flex items-center px-2 py-1 text-xs font-mono text-muted-foreground border border-input rounded-md bg-muted/20">
+              {row.testCaseId || "—"}
+            </div>
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
@@ -687,6 +704,12 @@ export default function TestCasesExecutionProgressPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [rowsToDelete, setRowsToDelete] = useState<(string | number)[]>([]);
 
+  // Promote to Library state
+  const [promoteRow, setPromoteRow] = useState<AppExecutionTestCase | null>(null);
+  const [promoteForm, setPromoteForm] = useState({ requirementId: "", projectId: "", module: "" });
+  const [promoteRequirements, setPromoteRequirements] = useState<any[]>([]);
+  const [isPromoting, setIsPromoting] = useState(false);
+
   // Search & Filtering State
   const [globalSearch, setGlobalSearch] = useState("");
   const [moduleFilters, setModuleFilters] = useState<string[]>([]);
@@ -758,7 +781,8 @@ export default function TestCasesExecutionProgressPage() {
   const createEmptyRow = (): AppExecutionTestCase => ({
     id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
     moduleName: "",
-    caseId: "",
+    testCaseId: "",
+    libraryTcId: null,
     userStory: "",
     tracker: "",
     scenario: "",
@@ -849,7 +873,8 @@ export default function TestCasesExecutionProgressPage() {
       if (unsavedRef.current) {
         setSaveStatus("saving");
         try {
-          await saveTestCases(ticketId, dataRef.current as any, null);
+          const result = await saveTestCases(ticketId, dataRef.current as any, null);
+          if (result?.testCases) applyReturnedRows(result.testCases);
           setSaveStatus("saved");
           setLastSavedAt(new Date());
           setHasUnsavedChanges(false);
@@ -891,7 +916,7 @@ export default function TestCasesExecutionProgressPage() {
       testSteps: tc.testSteps || "",
       expectedResult: tc.expectedResult || "",
       preCondition: tc.preConditions || "",
-      caseId: String(tc.id),
+      libraryTcId: tc.id,
     }));
     setData(prev => [...prev, ...newRows]);
     setHasUnsavedChanges(true);
@@ -901,11 +926,26 @@ export default function TestCasesExecutionProgressPage() {
     setIsPulling(false);
   };
 
+  const applyReturnedRows = (savedRows: any[]) => {
+    if (!savedRows || savedRows.length === 0) return;
+    const sorted = [...savedRows].sort((a: any, b: any) => a.rowOrder - b.rowOrder);
+    setData(prev => {
+      if (sorted.length !== prev.length) return prev;
+      return prev.map((row, idx) => ({
+        ...row,
+        id: sorted[idx]?.id ?? row.id,
+        testCaseId: sorted[idx]?.testCaseId ?? row.testCaseId,
+        libraryTcId: sorted[idx]?.libraryTcId ?? row.libraryTcId,
+      }));
+    });
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveStatus("saving");
     try {
-      await saveTestCases(ticketId, data as any, null);
+      const result = await saveTestCases(ticketId, data as any, null);
+      if (result?.testCases) applyReturnedRows(result.testCases);
       toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
       setHasUnsavedChanges(false);
       setSaveStatus("saved");
@@ -1015,140 +1055,107 @@ export default function TestCasesExecutionProgressPage() {
     setHasUnsavedChanges(true);
   };
 
-  const handleDownloadExcel = () => {
-    const exportData = filteredData.map((row) => ({
-      Module: row.moduleName || "",
-      "Case ID": row.caseId || "",
-      "Redmine Ticket ID": row.userStory || "",
-      Tracker: row.tracker || "",
-      Scenario: row.scenario || "",
-      "Pre Condition": row.preCondition || "",
-      Case: row.caseName || "",
-      Steps: row.testSteps || "",
-      "Test Data": row.testData || "",
-      "Expected Result": row.expectedResult || "",
-      Result: row.result || "",
-      "Redmine Defect Ticket ID": row.defectNumber || "",
-      "Additional/Comments/Issues": row.comments || "",
-      "QA PIC": row.qaPic || "",
-    }));
+  const [isDownloading, setIsDownloading] = useState(false);
 
-    const headerOrder = [
-      "Module",
-      "Case ID",
-      "Redmine Ticket ID",
-      "Tracker",
-      "Scenario",
-      "Pre Condition",
-      "Case",
-      "Steps",
-      "Test Data",
-      "Expected Result",
-      "Result", // Index 10
-      "Redmine Defect Ticket ID",
-      "Additional/Comments/Issues",
-      "QA PIC",
-    ];
+  const handleDownloadExcel = async () => {
+    if (!ticketId || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams();
+      if (linkedTask?.name) params.set("issueSubject", linkedTask.name);
 
-    const ws = XLSX.utils.json_to_sheet(exportData, { header: headerOrder });
+      const token = localStorage.getItem("qa_pulse_token");
+      const res = await fetch(
+        `/api/execution-files/${ticketId}/download-excel?${params.toString()}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
 
-    if (ws["!ref"]) {
-      const range = XLSX.utils.decode_range(ws["!ref"]);
-      for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-          const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
-          if (!ws[cell_ref]) ws[cell_ref] = { t: "s", v: "" };
-
-          const isResultCol = headerOrder[C] === "Result";
-
-          ws[cell_ref].s = {
-            border: {
-              top: { style: "thin", color: { rgb: "000000" } },
-              bottom: { style: "thin", color: { rgb: "000000" } },
-              left: { style: "thin", color: { rgb: "000000" } },
-              right: { style: "thin", color: { rgb: "000000" } },
-            },
-            alignment: { vertical: "top", wrapText: true },
-          };
-
-          if (R === 0) {
-            ws[cell_ref].s.fill = {
-              patternType: "solid",
-              fgColor: { rgb: "1F4E78" },
-            };
-            ws[cell_ref].s.font = { bold: true, color: { rgb: "FFFFFF" } };
-            ws[cell_ref].s.alignment = {
-              vertical: "center",
-              horizontal: "center",
-              wrapText: true,
-            };
-          } else if (isResultCol) {
-            // Apply status colors for the Result column
-            const cellVal = ws[cell_ref].v;
-            if (typeof cellVal === "string") {
-              const clean = cellVal.toLowerCase().trim();
-              if (clean === "passed") {
-                ws[cell_ref].s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "DCFCE7" },
-                };
-                ws[cell_ref].s.font = { color: { rgb: "166534" }, bold: true };
-              } else if (clean === "failed") {
-                ws[cell_ref].s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "FEE2E2" },
-                };
-                ws[cell_ref].s.font = { color: { rgb: "991B1B" }, bold: true };
-              } else if (clean === "blocked") {
-                ws[cell_ref].s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "FFEDD5" },
-                };
-                ws[cell_ref].s.font = { color: { rgb: "9A3412" }, bold: true };
-              } else if (clean === "in progress") {
-                ws[cell_ref].s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "DBEAFE" },
-                };
-                ws[cell_ref].s.font = { color: { rgb: "1E40AF" }, bold: true };
-              } else {
-                ws[cell_ref].s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "F1F5F9" },
-                };
-                ws[cell_ref].s.font = { color: { rgb: "64748B" } };
-              }
-              ws[cell_ref].s.alignment = {
-                vertical: "center",
-                horizontal: "center",
-                wrapText: true,
-              };
-            }
-          }
-        }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Download failed" }));
+        toast({ variant: "destructive", title: err.error ?? "Download failed" });
+        return;
       }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      a.href = url;
+      a.download = filenameMatch?.[1] ?? `TC_${ticketId}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ variant: "destructive", title: "Download failed" });
+    } finally {
+      setIsDownloading(false);
     }
+  };
 
-    ws["!cols"] = [
-      { wch: 15 },
-      { wch: 12 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 35 },
-      { wch: 20 },
-      { wch: 25 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 30 },
-      { wch: 20 },
-    ];
+  // ─── Promote to Library ────────────────────────────────────────────────────
+  const openPromoteDialog = async (row: AppExecutionTestCase) => {
+    setPromoteRow(row);
+    setPromoteForm({
+      requirementId: "",
+      projectId: "",
+      module: row.moduleName || "",
+    });
+    // Lazy-load requirements and projects if not yet loaded
+    if (promoteRequirements.length === 0) {
+      const [reqRes, projRes] = await Promise.all([
+        fetch("/api/requirements", { headers: getHeaders() }),
+        fetch("/api/projects", { headers: getHeaders() }),
+      ]);
+      if (reqRes.ok) setPromoteRequirements(await reqRes.json());
+      if (projRes.ok && libraryProjects.length === 0) setLibraryProjects(await projRes.json());
+    } else if (libraryProjects.length === 0) {
+      const projRes = await fetch("/api/projects", { headers: getHeaders() });
+      if (projRes.ok) setLibraryProjects(await projRes.json());
+    }
+  };
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Test Cases");
-    XLSX.writeFile(wb, `Test_Execution_${ticketId}.xlsx`);
+  const handlePromote = async () => {
+    if (!promoteRow || !promoteForm.projectId || !promoteForm.module) return;
+    setIsPromoting(true);
+    try {
+      const token = localStorage.getItem("qa_pulse_token");
+      const headers = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const body: Record<string, any> = {
+        title: promoteRow.caseName || promoteRow.scenario || "Untitled",
+        testSteps: promoteRow.testSteps || undefined,
+        expectedResult: promoteRow.expectedResult || undefined,
+        preconditions: promoteRow.preCondition || undefined,
+        scenario: promoteRow.scenario || undefined,
+        testData: promoteRow.testData || undefined,
+        tracker: promoteRow.tracker || undefined,
+        redmineUserStory: promoteRow.userStory || undefined,
+        comments: promoteRow.comments || undefined,
+        qaPic: promoteRow.qaPic || undefined,
+        module: promoteForm.module,
+        projectId: Number(promoteForm.projectId),
+        requirementId: promoteForm.requirementId ? Number(promoteForm.requirementId) : undefined,
+      };
+      const res = await fetch("/api/test-cases", { method: "POST", headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("Failed to create library test case");
+      const created = await res.json();
+
+      // Link execution row to the new library TC
+      setData(prev =>
+        prev.map(r => r.id === promoteRow.id ? { ...r, libraryTcId: created.id } : r)
+      );
+      setHasUnsavedChanges(true);
+      setPromoteRow(null);
+      toast({ title: `Promoted to library successfully` });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to promote test case to library" });
+    } finally {
+      setIsPromoting(false);
+    }
   };
 
   const normalizeHeader = (val: any) => {
@@ -1281,7 +1288,7 @@ export default function TestCasesExecutionProgressPage() {
           });
 
           const hasCoreTestColumns =
-            currentMap["caseId"] !== undefined &&
+            currentMap["testCaseId"] !== undefined &&
             currentMap["testSteps"] !== undefined &&
             currentMap["expectedResult"] !== undefined;
 
@@ -1349,7 +1356,7 @@ export default function TestCasesExecutionProgressPage() {
             continue;
           }
 
-          const cid = extracted.caseId;
+          const cid = extracted.testCaseId;
           if (cid) {
             if (seenCaseIds.has(cid)) {
               duplicateCaseIdsSet.add(cid);
@@ -1364,7 +1371,7 @@ export default function TestCasesExecutionProgressPage() {
               Math.random().toString(36).substring(2, 8),
             // 3. MODIFIED: Fallback to currentActiveModule if the row doesn't specify one
             moduleName: extracted.moduleName || currentActiveModule || "",
-            caseId: extracted.caseId || "",
+            testCaseId: extracted.testCaseId || "",
             userStory: extracted.userStory || "",
             tracker: extracted.tracker || "",
             scenario: extracted.scenario || "",
@@ -1484,7 +1491,7 @@ export default function TestCasesExecutionProgressPage() {
         onDefectCreated={handleDefectCreated}
         testCaseName={defectRow?.caseName ?? defectRow?.scenario ?? ""}
         stepName={defectRow?.testSteps ?? undefined}
-        testCaseId={defectRow?.caseId ?? undefined}
+        testCaseId={defectRow?.testCaseId ?? undefined}
         expectedResult={defectRow?.expectedResult ?? undefined}
         parentIssueId={ticketId ?? null}
       />
@@ -1733,9 +1740,11 @@ export default function TestCasesExecutionProgressPage() {
             variant="outline"
             size="sm"
             onClick={handleDownloadExcel}
+            disabled={isDownloading}
             className="flex-1 lg:flex-none gap-2"
           >
-            <Download className="w-4 h-4" /> Download
+            {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {isDownloading ? "Downloading..." : "Download"}
           </Button>
           <Button
             variant="outline"
@@ -1927,7 +1936,7 @@ export default function TestCasesExecutionProgressPage() {
           <div className="border-t mt-2 pt-2 flex flex-wrap gap-x-4 gap-y-1">
             <Label className="text-[10px] font-bold text-muted-foreground uppercase w-full">Show / Hide Columns</Label>
             {[
-              { key: "caseId", label: "Case ID" },
+              { key: "testCaseId", label: "Test Case ID" },
               { key: "userStory", label: "Redmine Ticket ID" },
               { key: "tracker", label: "Tracker" },
               { key: "scenario", label: "Scenario" },
@@ -1983,7 +1992,7 @@ export default function TestCasesExecutionProgressPage() {
                   </th>
                   <th className="border border-border w-10 p-2 text-center">#</th>
                   <th className="border border-border w-48 p-2 text-left">Module Name</th>
-                  {!hiddenCols.has("caseId") && <th className="border border-border w-48 p-2 text-left">Case ID</th>}
+                  {!hiddenCols.has("testCaseId") && <th className="border border-border w-48 p-2 text-left">Test Case ID</th>}
                   {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
                   {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
                   {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
@@ -2010,6 +2019,7 @@ export default function TestCasesExecutionProgressPage() {
                     onToggleSelect={handleSelectRow}
                     onUpdate={updateCell}
                     onDelete={requestSingleDelete}
+                    onPromote={openPromoteDialog}
                     availableModules={availableModules}
                     qaUsers={qaUsers}
                     hiddenCols={hiddenCols}
@@ -2131,6 +2141,91 @@ export default function TestCasesExecutionProgressPage() {
                 Pull {selectedPullIds.size > 0 ? selectedPullIds.size : ""} Cases
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Promote to Library Dialog */}
+      <Dialog open={!!promoteRow} onOpenChange={(open) => { if (!open) setPromoteRow(null); }}>
+        <DialogContent className="w-[95vw] sm:max-w-[460px] flex flex-col max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Library className="w-5 h-5 text-primary" />
+              Promote to Library
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
+            <p className="text-sm text-muted-foreground">
+              Saves <span className="font-medium text-foreground">"{promoteRow?.caseName || promoteRow?.scenario || "this row"}"</span> as a reusable test case in the library.
+            </p>
+
+            {/* Requirement (optional) */}
+            <div className="space-y-1.5">
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <SearchableSelect
+                value={promoteForm.requirementId}
+                onValueChange={(v) => {
+                  const req = promoteRequirements.find((r: any) => String(r.id) === v);
+                  setPromoteForm(f => ({
+                    ...f,
+                    requirementId: v,
+                    projectId: req?.projectId ? String(req.projectId) : f.projectId,
+                    module: req?.module || f.module,
+                  }));
+                }}
+                options={[
+                  { value: "", label: "None" },
+                  ...promoteRequirements.map((r: any) => ({ value: String(r.id), label: r.title })),
+                ]}
+                placeholder="Search requirement..."
+                searchPlaceholder="Search requirement..."
+              />
+            </div>
+
+            {/* Project (mandatory) */}
+            <div className="space-y-1.5">
+              <Label>Project <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={promoteForm.projectId}
+                onValueChange={(v) => setPromoteForm(f => ({ ...f, projectId: v }))}
+                options={[
+                  { value: "", label: "Select project..." },
+                  ...libraryProjects.map((p: any) => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Select project..."
+                searchPlaceholder="Search project..."
+              />
+            </div>
+
+            {/* Module (mandatory) */}
+            <div className="space-y-1.5">
+              <Label>Module <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={promoteForm.module}
+                onValueChange={(v) => setPromoteForm(f => ({ ...f, module: v }))}
+                options={[
+                  { value: "", label: "Select module..." },
+                  ...availableModules.map((m) => ({ value: m.name, label: m.name })),
+                ]}
+                placeholder="Select module..."
+                searchPlaceholder="Search module..."
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2 border-t">
+            <Button variant="outline" onClick={() => setPromoteRow(null)} disabled={isPromoting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handlePromote}
+              disabled={!promoteForm.projectId || !promoteForm.module || isPromoting}
+              className="gap-2"
+            >
+              {isPromoting
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Promoting...</>
+                : <><Library className="w-4 h-4" /> Promote to Library</>
+              }
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
