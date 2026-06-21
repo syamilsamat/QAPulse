@@ -1531,10 +1531,23 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
   const formatRecipients = (arr: Array<{ fullName?: string; name?: string; email: string }>) =>
     arr.map((r) => `"${r.fullName ?? r.name ?? r.email}" <${r.email}>`).join(", ");
 
+  // Resolve environment names from the linked task
+  const ENV_NAMES: Record<number, string> = {
+    1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7",
+  };
+  let envLabel = "QA Verdict";
+  try {
+    const [linkedTask] = await db.select().from(tasksTable).where(eq(tasksTable.redmineId, String(redmineId)));
+    if (linkedTask?.environmentIds && linkedTask.environmentIds.length > 0) {
+      const names = linkedTask.environmentIds.map((id: number) => ENV_NAMES[id] ?? `Env ${id}`).filter(Boolean);
+      if (names.length > 0) envLabel = names.join(", ");
+    }
+  } catch {}
+
   const typeLabel = issueType || "Issue";
   const subject = issueSubject
-    ? `[QA Verdict] ${typeLabel} #${redmineId} : ${issueSubject} — ${verdict}`
-    : `[QA Verdict] #${redmineId} — ${verdict}`;
+    ? `[${envLabel}] ${typeLabel} #${redmineId} : ${issueSubject} — ${verdict}`
+    : `[${envLabel}] #${redmineId} — ${verdict}`;
 
   const bodyText =
     verdict === "CONDITIONAL SIGN OFF"
