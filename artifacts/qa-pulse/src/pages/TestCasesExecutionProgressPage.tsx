@@ -740,6 +740,7 @@ export default function TestCasesExecutionProgressPage() {
   // Defect creation modal
   const [defectModalOpen, setDefectModalOpen] = useState(false);
   const [pendingFailRowId, setPendingFailRowId] = useState<string | number | null>(null);
+  const pendingFailRowIdRef = useRef<string | number | null>(null);
 
   // Linked task warning
   const [linkedTask, setLinkedTask] = useState<{ name: string; status: string } | null | undefined>(undefined);
@@ -832,6 +833,7 @@ export default function TestCasesExecutionProgressPage() {
         );
         setHasUnsavedChanges(true);
         if (value === "Failed") {
+          pendingFailRowIdRef.current = id;
           setPendingFailRowId(id);
           setDefectModalOpen(true);
         }
@@ -846,10 +848,11 @@ export default function TestCasesExecutionProgressPage() {
   );
 
   const handleDefectCreated = useCallback((result: DefectCreationResult) => {
-    if (!pendingFailRowId) return;
+    const rowId = pendingFailRowIdRef.current;
+    if (!rowId) return;
     setData((prev) =>
       prev.map((row) =>
-        row.id === pendingFailRowId
+        row.id === rowId
           ? {
               ...row,
               defectNumber: (() => {
@@ -864,8 +867,9 @@ export default function TestCasesExecutionProgressPage() {
       ),
     );
     setHasUnsavedChanges(true);
+    pendingFailRowIdRef.current = null;
     setPendingFailRowId(null);
-  }, [pendingFailRowId]);
+  }, []);
 
   const handleSelectRow = useCallback(
     (id: string | number, checked: boolean) => {
@@ -1512,6 +1516,7 @@ export default function TestCasesExecutionProgressPage() {
         open={defectModalOpen}
         onClose={() => {
           setDefectModalOpen(false);
+          pendingFailRowIdRef.current = null;
           setPendingFailRowId(null);
         }}
         onDefectCreated={handleDefectCreated}
