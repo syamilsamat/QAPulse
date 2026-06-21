@@ -271,18 +271,21 @@ export async function buildTestCaseExcel(
     // Template data range: C33:C47 = cause names, D33:D47 = counts (max 15 rows).
     // All cumulative %, vital few/many, and summary text use pre-built formulas —
     // we only write C and D; everything else auto-calculates.
+    // Always clear the 15 sample rows so "Glue/Binding/Button" placeholder data
+    // never appears in generated files, regardless of whether defects exist.
     const paSheet = wb.sheet("Pareto Analysis");
-    if (paSheet && activeDefects.length > 0) {
-      const categories = buildParetoCategories(activeDefects).slice(0, 15);
-      // Clear all 15 sample rows first so leftover template data doesn't appear
+    if (paSheet) {
       for (let i = 0; i < 15; i++) {
         paSheet.cell(`C${33 + i}`).value("");
-        paSheet.cell(`D${33 + i}`).value(0);
+        paSheet.cell(`D${33 + i}`).value(null);
       }
-      categories.forEach(({ name, count }, i) => {
-        paSheet.cell(`C${33 + i}`).value(name);
-        paSheet.cell(`D${33 + i}`).value(count);
-      });
+      if (activeDefects.length > 0) {
+        const categories = buildParetoCategories(activeDefects).slice(0, 15);
+        categories.forEach(({ name, count }, i) => {
+          paSheet.cell(`C${33 + i}`).value(name);
+          paSheet.cell(`D${33 + i}`).value(count);
+        });
+      }
     }
 
     // ── CAPA ───────────────────────────────────────────────────────────────────
