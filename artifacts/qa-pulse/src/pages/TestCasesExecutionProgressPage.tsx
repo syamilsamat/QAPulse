@@ -958,6 +958,21 @@ export default function TestCasesExecutionProgressPage() {
   const applyReturnedRows = (savedRows: any[]) => {
     if (!savedRows || savedRows.length === 0) return;
     const sorted = [...savedRows].sort((a: any, b: any) => a.rowOrder - b.rowOrder);
+    // If the pending fail row has a temp ID being replaced by a DB ID, update the ref now
+    // so handleDefectCreated can still match it after the state update below.
+    const current = dataRef.current;
+    if (pendingFailRowIdRef.current !== null && current && sorted.length === current.length) {
+      for (let i = 0; i < current.length; i++) {
+        if (current[i].id === pendingFailRowIdRef.current) {
+          const newId = sorted[i]?.id;
+          if (newId != null && newId !== pendingFailRowIdRef.current) {
+            pendingFailRowIdRef.current = newId;
+            setPendingFailRowId(newId);
+          }
+          break;
+        }
+      }
+    }
     setData(prev => {
       if (sorted.length !== prev.length) return prev;
       return prev.map((row, idx) => ({

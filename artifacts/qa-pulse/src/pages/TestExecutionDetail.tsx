@@ -291,14 +291,14 @@ export default function TestExecutionSummary() {
                     </TableRow>
                   ))}
                   {/* Grand total row */}
-                  <TableRow className="bg-muted/30 font-bold border-t-2">
-                    <TableCell className="font-bold uppercase text-xs tracking-wide text-muted-foreground">Grand Total</TableCell>
-                    <TableCell className="text-center font-bold">{totals.total}</TableCell>
-                    <TableCell className="text-center text-green-700 font-bold">{totals.passed}</TableCell>
-                    <TableCell className="text-center text-red-700 font-bold">{totals.failed}</TableCell>
-                    <TableCell className="text-center text-orange-600 font-bold">{totals.blocked}</TableCell>
-                    <TableCell className="text-center text-blue-600 font-bold">{totals.inProg}</TableCell>
-                    <TableCell className="text-center text-muted-foreground font-bold">{totals.notExec}</TableCell>
+                  <TableRow className="bg-muted/50 border-t-2 border-border">
+                    <TableCell className="font-extrabold uppercase text-sm tracking-wide text-foreground">Grand Total</TableCell>
+                    <TableCell className="text-center font-extrabold text-base">{totals.total}</TableCell>
+                    <TableCell className="text-center text-green-700 font-extrabold text-base">{totals.passed}</TableCell>
+                    <TableCell className="text-center text-red-700 font-extrabold text-base">{totals.failed}</TableCell>
+                    <TableCell className="text-center text-orange-600 font-extrabold text-base">{totals.blocked}</TableCell>
+                    <TableCell className="text-center text-blue-600 font-extrabold text-base">{totals.inProg}</TableCell>
+                    <TableCell className="text-center text-muted-foreground font-extrabold text-base">{totals.notExec}</TableCell>
                     <TableCell><ProgressBar value={totals.passed} total={totals.total} color="bg-green-500" /></TableCell>
                     <TableCell><ProgressBar value={totals.total - totals.notExec} total={totals.total} color="bg-slate-400" /></TableCell>
                   </TableRow>
