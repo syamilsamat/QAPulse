@@ -1598,7 +1598,7 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
         attachments.push({
-          filename: `TC_${trackerCode(typeLabel)}_${redmineId}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+          filename: `TC-${trackerCode(typeLabel)}-${redmineId}-${new Date().toISOString().slice(0, 10)}.xlsx`,
           content: xlsxBuffer,
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         });
