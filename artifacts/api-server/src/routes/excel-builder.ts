@@ -7,6 +7,11 @@ try {
   XlsxPopulate = require("xlsx-populate");
 } catch {}
 
+let XlsxSheetJS: any = null;
+try {
+  XlsxSheetJS = require("xlsx");
+} catch {}
+
 // ── Template loading ──────────────────────────────────────────────────────────
 // Tries to read the .xlsx from assets/ at startup so a server restart is enough
 // to pick up an updated template. Falls back to the embedded base64 if the file
@@ -66,19 +71,57 @@ export interface ExcelBuildOptions {
   issueSubject?: string;
 }
 
+// ── SheetJS fallback (used when xlsx-populate is unavailable) ─────────────────
+function buildTestCaseExcelFallback(
+  testCases: TestCaseRow[],
+  options: ExcelBuildOptions = {},
+): Buffer | null {
+  if (!XlsxSheetJS) return null;
+
+  const { redmineId, issueType, issueSubject } = options;
+  const wb = XlsxSheetJS.utils.book_new();
+  const dateStr = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+  // Doc Info
+  const docRows = [
+    ["Project:", `${issueType ?? "Issue"} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`],
+    ["Ref No:", `QA-${redmineId}`],
+    ["Date:", dateStr],
+  ];
+  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet(docRows), "Doc Info");
+
+  // Test cases
+  const headers = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC"];
+  const rows = testCases.map((tc) => [
+    tc.caseId ?? "", tc.userStory ?? "", tc.tracker ?? "", tc.scenario ?? "",
+    tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
+    tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
+  ]);
+  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([headers, ...rows]), redmineId ? `#${redmineId}` : "Test Step");
+
+  // Supporting sheets (empty but present for CAPA/Pareto work)
+  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([["No.", "Date", "Reviewed By", "Description", "Version"]]), "Review Log");
+  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([["Module", "Test Cases", "Passed", "Failed", "Blocked", "Not Executed", "Remarks"]]), "Review & Rework Effort");
+  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([["Defect Category", "Count", "Percentage", "Cumulative %"]]), "Pareto Analysis");
+  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([["No.", "Issue Description", "Root Cause", "Corrective Action", "Preventive Action", "Status", "Due Date", "PIC"]]), "CAPA");
+
+  return XlsxSheetJS.write(wb, { type: "buffer", bookType: "xlsx" });
+}
+
 // ── Builder ───────────────────────────────────────────────────────────────────
 /**
  * Fills the test-case-template.xlsx with the given rows.
  * When redmineId is supplied, also fills Doc Info and renames the Test Step sheet.
  * All template formatting (fonts, borders, colours, logo) is preserved.
+ * Falls back to SheetJS if xlsx-populate is unavailable.
  */
 export async function buildTestCaseExcel(
   testCases: TestCaseRow[],
   options: ExcelBuildOptions = {},
 ): Promise<Buffer | null> {
   if (!XlsxPopulate) {
-    console.error("[buildTestCaseExcel] xlsx-populate not available");
-    return null;
+    console.warn("[buildTestCaseExcel] xlsx-populate not available, using SheetJS fallback");
+    return buildTestCaseExcelFallback(testCases, options);
   }
 
   try {
