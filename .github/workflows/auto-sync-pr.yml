@@ -1,0 +1,26 @@
+name: Auto Sync and PR to Upstream
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows you to run this manually from the Actions tab anytime
+
+jobs:
+  create-pull-request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open Pull Request to Upstream
+        uses: repo-sync/pull-request@v2
+        with:
+          source_branch: "main"                     # Your branch (syamilsamat/QAPulse)
+          destination_branch: "main"                # Target branch (Autoraimix/QAPulse)
+          destination_repository: "Autoraimix/QAPulse" # The main upstream repository
+          github_token: ${{ secrets.PAT_TOKEN }}    # The token we will set up in Step 2
+          pr_title: "SAS: fix/improve code"         # Your default title
+          pr_body: "Automated code improvement sync from syamil."
