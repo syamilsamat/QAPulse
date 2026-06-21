@@ -838,9 +838,10 @@ export default function TestCases() {
     if (!tcToClone || !cloneForm.projectId || !cloneForm.module) return;
     setIsCloning(true);
     try {
+      const token = localStorage.getItem("qa_pulse_token");
       const res = await fetch(`${getApiUrl()}/test-cases/${tcToClone.id}/clone`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           projectId: cloneForm.projectId,
           module: cloneForm.module,
@@ -865,11 +866,12 @@ export default function TestCases() {
     const ids = Array.from(selectedIds);
     let successCount = 0;
     try {
+      const token = localStorage.getItem("qa_pulse_token");
       await Promise.all(
         ids.map(async (id) => {
           const res = await fetch(`${getApiUrl()}/test-cases/${id}/clone`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify({
               projectId: bulkCloneForm.projectId,
               module: bulkCloneForm.module,
