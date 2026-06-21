@@ -7,6 +7,7 @@ import {
   executionTestCasesTable,
   executionSummariesTable,
 } from "@workspace/db";
+import { buildTestCaseExcel, trackerCode } from "./excel-builder";
 
 const router: IRouter = Router();
 
@@ -132,6 +133,8 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
         qaPic: f.qaPic,
         remarks: f.remarks,
         selectedModules: f.selectedModules,
+        projectId: f.projectId,
+        requirementId: f.requirementId,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
@@ -163,7 +166,7 @@ router.get("/execution-progress", async (_req, res): Promise<void> => {
 
 router.post("/execution-files", async (req, res): Promise<void> => {
   try {
-    const { redmineTicketId, title, qaPic, remarks, selectedModules } = req.body;
+    const { redmineTicketId, title, qaPic, remarks, selectedModules, projectId, requirementId } = req.body;
     if (!redmineTicketId || !redmineTicketId.trim()) {
       res.status(400).json({ error: "Redmine Ticket ID is required" });
       return;
@@ -176,6 +179,8 @@ router.post("/execution-files", async (req, res): Promise<void> => {
         qaPic: qaPic || null,
         remarks: remarks || null,
         selectedModules: selectedModules || null,
+        projectId: projectId ? Number(projectId) : null,
+        requirementId: requirementId ? Number(requirementId) : null,
       })
       .returning();
     res.status(201).json({
@@ -185,6 +190,8 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       qaPic: file.qaPic,
       remarks: file.remarks,
       selectedModules: file.selectedModules,
+      projectId: file.projectId,
+      requirementId: file.requirementId,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
@@ -247,6 +254,8 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
       qaPic: file.qaPic,
       remarks: file.remarks,
       selectedModules: file.selectedModules,
+      projectId: file.projectId,
+      requirementId: file.requirementId,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
@@ -316,8 +325,10 @@ router.get(
           id: t.id,
           moduleName: t.moduleName,
           caseId: t.caseId,
+          testCaseId: t.testCaseId,
+          libraryTcId: t.libraryTcId,
           userStory: t.userStory,
-          tracker: (t as any).tracker, // <-- Added Tracker payload
+          tracker: (t as any).tracker,
           scenario: t.scenario,
           preCondition: t.preCondition,
           caseName: t.caseName,
@@ -378,15 +389,38 @@ router.post(
         .delete(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
 
-      // 2. Insert new
-      if (testCases.length > 0) {
-        await db.insert(executionTestCasesTable).values(
-          testCases.map((t: any, idx: number) => ({
+      // 2. Auto-assign TC-[ticketId]-NNN to rows missing testCaseId
+      let nextSeq = 1;
+      for (const t of testCases) {
+        if (t.testCaseId) {
+          const match = /TC-\d+-(\d+)/.exec(t.testCaseId);
+          if (match) {
+            const n = parseInt(match[1], 10);
+            if (n >= nextSeq) nextSeq = n + 1;
+          }
+        }
+      }
+      const processedCases = testCases.map((t: any) => {
+        if (!t.testCaseId) {
+          const id = `TC-${ticketId}-${String(nextSeq).padStart(3, "0")}`;
+          nextSeq++;
+          return { ...t, testCaseId: id };
+        }
+        return t;
+      });
+
+      // 3. Insert new
+      let inserted: any[] = [];
+      if (processedCases.length > 0) {
+        inserted = await db.insert(executionTestCasesTable).values(
+          processedCases.map((t: any, idx: number) => ({
             executionFileId: file.id,
             moduleName: t.moduleName || null,
             caseId: t.caseId || null,
+            testCaseId: t.testCaseId || null,
+            libraryTcId: t.libraryTcId ? Number(t.libraryTcId) : null,
             userStory: t.userStory || null,
-            tracker: t.tracker || null, // <-- Saved to database
+            tracker: t.tracker || null,
             scenario: t.scenario || null,
             preCondition: t.preCondition || null,
             caseName: t.caseName || null,
@@ -401,7 +435,7 @@ router.post(
             qaPic: t.qaPic || null,
             rowOrder: t.rowOrder ?? idx,
           })),
-        );
+        ).returning();
       }
 
       // 3. Update the file's updatedAt timestamp
@@ -413,7 +447,7 @@ router.post(
 
       // 4. Auto-aggregate by module and save to PMO (so Load button is not required)
       const moduleMap: Record<string, { module: string; total: number; passed: number; failed: number; blocked: number; inProg: number; notExec: number }> = {};
-      for (const tc of testCases) {
+      for (const tc of processedCases) {
         if (!tc.moduleName && !tc.caseName && !tc.result) continue;
         const modName = tc.moduleName || "Unassigned Module";
         if (!moduleMap[modName]) {
@@ -450,13 +484,62 @@ router.post(
 
       res.json({
         success: true,
-        count: testCases.length,
+        count: processedCases.length,
         newUpdatedAt: updatedFile.updatedAt,
+        testCases: inserted.map((t) => ({
+          id: t.id,
+          testCaseId: t.testCaseId,
+          libraryTcId: t.libraryTcId,
+          rowOrder: t.rowOrder,
+        })),
       });
     } catch {
       res.status(500).json({ error: "Failed to save test cases" });
     }
   },
 );
+
+/* ────────────────────────────────
+   DOWNLOAD — template-based Excel (same as Send Verdict)
+   ──────────────────────────────── */
+
+router.get("/execution-files/:ticketId/download-excel", async (req, res): Promise<void> => {
+  try {
+    const { ticketId } = req.params;
+    const { issueType, issueSubject } = req.query as Record<string, string>;
+
+    const [file] = await db
+      .select()
+      .from(executionFilesTable)
+      .where(eq(executionFilesTable.redmineTicketId, ticketId));
+
+    const testCases = file
+      ? await db
+          .select()
+          .from(executionTestCasesTable)
+          .where(eq(executionTestCasesTable.executionFileId, file.id))
+          .orderBy(executionTestCasesTable.rowOrder)
+      : [];
+
+    const typeLabel = issueType || "Issue";
+    const buffer = await buildTestCaseExcel(testCases, {
+      redmineId: ticketId,
+      issueType: typeLabel,
+      issueSubject: issueSubject || file?.title || "",
+    });
+
+    if (!buffer) {
+      res.status(500).json({ error: "Failed to build Excel file. Template may be unavailable." });
+      return;
+    }
+
+    const filename = `TC_${trackerCode(typeLabel)}_${ticketId}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch {
+    res.status(500).json({ error: "Failed to download execution file" });
+  }
+});
 
 export default router;

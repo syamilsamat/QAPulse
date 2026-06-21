@@ -20,13 +20,17 @@ export interface ExecutionFile {
   qaPic?: string;
   remarks?: string;
   selectedModules?: string;
+  projectId?: number | null;
+  requirementId?: number | null;
   updatedAt: string;
 }
 
 export interface ExecutionTestCase {
   id?: number | string; // string for unsaved UI rows, number for DB rows
   moduleName: string;
-  caseId: string;
+  caseId?: string;
+  testCaseId?: string;
+  libraryTcId?: number | null;
   userStory: string;
   tracker?: string;
   scenario: string;

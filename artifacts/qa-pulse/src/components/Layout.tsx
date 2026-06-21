@@ -327,7 +327,7 @@ const NAV_ITEMS: NavItem[] = [
       },
       {
         href: "/test-cases/execution-details",
-        label: "Execution Details",
+        label: "Execution Summary",
         icon: HoverList,
       },
     ],
