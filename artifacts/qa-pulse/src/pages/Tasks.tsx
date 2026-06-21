@@ -110,7 +110,7 @@ const STATUS_COLORS: Record<string, string> = {
 const PRIORITY_COLORS: Record<string, string> = {
   Critical: "bg-red-100 text-red-700 border-red-200",
   High: "bg-orange-100 text-orange-700 border-orange-200",
-  Medium: "bg-blue-100 text-blue-700 border-blue-200",
+  Medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
   Low: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
