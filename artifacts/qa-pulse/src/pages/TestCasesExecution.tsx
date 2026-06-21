@@ -190,7 +190,7 @@ const TASK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   on_hold: { label: "On Hold", color: "bg-amber-100 text-amber-700 border-amber-200" },
 };
 
-type SortKey = "redmineTicketId" | "title" | "qaPic" | "updatedAt" | "status";
+type SortKey = "redmineTicketId" | "title" | "updatedAt" | "status";
 type SortDir = "asc" | "desc";
 
 type ProgressData = Record<string, {
@@ -316,7 +316,7 @@ export default function TestCasesExecution() {
     return files.filter(f =>
       f.redmineTicketId.includes(search) ||
       f.title?.toLowerCase().includes(q) ||
-      f.qaPic?.toLowerCase().includes(q)
+      false
     );
   }, [files, search]);
 
@@ -495,7 +495,7 @@ export default function TestCasesExecution() {
             </CardTitle>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search ticket, title, QA PIC..." className="pl-8 h-9" value={search} onChange={e => setSearch(e.target.value)} />
+              <Input placeholder="Search ticket, title..." className="pl-8 h-9" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
         </CardHeader>
@@ -514,9 +514,7 @@ export default function TestCasesExecution() {
                 <TableHead className={thClass} onClick={() => handleSort("title")}>
                   <div className="flex items-center gap-1">Title <SortIcon k="title" /></div>
                 </TableHead>
-                <TableHead className={thClass} onClick={() => handleSort("qaPic")}>
-                  <div className="flex items-center gap-1">QA PIC <SortIcon k="qaPic" /></div>
-                </TableHead>
+                <TableHead className="border-r border-border px-4 py-3">Assignee</TableHead>
                 <TableHead className="border-r border-border">Execution Progress</TableHead>
                 <TableHead className={thClass} onClick={() => handleSort("status")}>
                   <div className="flex items-center gap-1">Task Status <SortIcon k="status" /></div>
@@ -541,7 +539,7 @@ export default function TestCasesExecution() {
                     </TableCell>
                     <TableCell className="border-r border-border font-bold text-primary">#{f.redmineTicketId}</TableCell>
                     <TableCell className="border-r border-border">{f.title || "—"}</TableCell>
-                    <TableCell className="border-r border-border">{f.qaPic || "—"}</TableCell>
+                    <TableCell className="border-r border-border">{task?.assigneeNames?.join(", ") || "—"}</TableCell>
                     <TableCell className="border-r border-border py-2">
                       <MiniProgressBar data={prog} />
                     </TableCell>
