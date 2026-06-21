@@ -395,6 +395,14 @@ router.post("/test-cases/:id/clone", express.json(), async (req, res): Promise<v
   if (req.body?.projectId !== undefined) overrides.projectId = req.body.projectId;
   if (req.body?.module !== undefined) overrides.module = req.body.module;
   if (req.body?.requirementId !== undefined) overrides.requirementId = req.body.requirementId || null;
+  // Set authorId to the user performing the clone, not the original author
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const jwt = verifyToken(authHeader.slice(7));
+      overrides.authorId = jwt.id;
+    } catch {}
+  }
 
   const [cloned] = await db.insert(testCasesTable).values({ ...rest, ...overrides, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
   res.status(201).json(await formatTestCase(cloned));

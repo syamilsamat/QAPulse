@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
 import {
@@ -662,6 +663,7 @@ export default function TestCasesExecutionProgressPage() {
   const [, setLocation] = useLocation();
   const ticketId = params?.id || "Unknown";
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [availableModules, setAvailableModules] = useState<ExecutionModule[]>(
@@ -1139,6 +1141,7 @@ export default function TestCasesExecutionProgressPage() {
         module: promoteForm.module,
         projectId: Number(promoteForm.projectId),
         requirementId: promoteForm.requirementId ? Number(promoteForm.requirementId) : undefined,
+        authorId: currentUser?.id,
       };
       const res = await fetch("/api/test-cases", { method: "POST", headers, body: JSON.stringify(body) });
       if (!res.ok) throw new Error("Failed to create library test case");
