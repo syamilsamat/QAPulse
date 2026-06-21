@@ -179,12 +179,28 @@ export default function DefectCreationModal({
       toast({ variant: "destructive", title: "Description is required" });
       return;
     }
+    if (!expectedResultValue.trim()) {
+      toast({ variant: "destructive", title: "Expected Result is required" });
+      return;
+    }
     if (!actualResult.trim()) {
       toast({ variant: "destructive", title: "Actual Result is required" });
       return;
     }
+    if (!subject.trim()) {
+      toast({ variant: "destructive", title: "Subject is required" });
+      return;
+    }
     if (!selectedProjectId) {
       toast({ variant: "destructive", title: "Please select a Redmine project" });
+      return;
+    }
+    if (!selectedAssigneeId) {
+      toast({ variant: "destructive", title: "Assignee is required" });
+      return;
+    }
+    if (!targetedCompletionDate) {
+      toast({ variant: "destructive", title: "Targeted Completion Date is required" });
       return;
     }
     if (!qaDefectTrackerId) {
@@ -289,7 +305,7 @@ export default function DefectCreationModal({
 
           {/* Expected Result */}
           <div className="space-y-1.5">
-            <Label>Expected Result</Label>
+            <Label>Expected Result <span className="text-destructive">*</span></Label>
             <Textarea
               placeholder="Describe the expected behaviour..."
               value={expectedResultValue}
@@ -349,7 +365,7 @@ export default function DefectCreationModal({
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
 
             <div className="space-y-1.5">
-              <Label>Subject</Label>
+              <Label>Subject <span className="text-destructive">*</span></Label>
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
             </div>
 
@@ -383,7 +399,7 @@ export default function DefectCreationModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Assignee</Label>
+              <Label>Assignee <span className="text-destructive">*</span></Label>
               <SearchableSelect
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
@@ -414,7 +430,7 @@ export default function DefectCreationModal({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Targeted Completion Date</Label>
+                <Label>Targeted Completion Date <span className="text-destructive">*</span></Label>
                 <Input
                   type="date"
                   value={targetedCompletionDate}
