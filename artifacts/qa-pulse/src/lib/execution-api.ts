@@ -49,9 +49,23 @@ export interface ExecutionTestCase {
   rowOrder?: number;
 }
 
+const getRedmineKey = (): string | null => {
+  const direct = localStorage.getItem("qa_pulse_redmine_key");
+  if (direct) return direct;
+  // Fallback: read from stored user object (covers sessions that pre-date the dedicated key entry)
+  try {
+    const stored = localStorage.getItem("qa_pulse_user");
+    if (stored) {
+      const u = JSON.parse(stored);
+      if (u?.redmineApiKey) return u.redmineApiKey;
+    }
+  } catch {}
+  return null;
+};
+
 const getHeaders = () => {
   const token = localStorage.getItem("qa_pulse_token");
-  const redmineKey = localStorage.getItem("qa_pulse_redmine_key");
+  const redmineKey = getRedmineKey();
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

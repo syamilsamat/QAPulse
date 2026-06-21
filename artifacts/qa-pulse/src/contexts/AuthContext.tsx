@@ -23,9 +23,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (storedToken && storedUser) {
       try {
+        const parsedUser = JSON.parse(storedUser);
         setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-        
+        setUser(parsedUser);
+        // Ensure the Redmine key is synced to its dedicated entry on every page load
+        const key = parsedUser?.redmineApiKey;
+        if (key) localStorage.setItem("qa_pulse_redmine_key", key);
         setAuthTokenGetter(() => localStorage.getItem("qa_pulse_token"));
       } catch (e) {
         localStorage.removeItem("qa_pulse_token");
