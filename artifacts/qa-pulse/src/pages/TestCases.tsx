@@ -70,6 +70,8 @@ import {
   ChevronDown,
   ChevronRight,
   LayoutList,
+  PackagePlus,
+  FolderOpen,
 } from "lucide-react";
 import React from "react";
 import { format } from "date-fns";
@@ -601,6 +603,21 @@ export default function TestCases() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+  const [compileOpen, setCompileOpen] = useState(false);
+  const [compileStep, setCompileStep] = useState<"mode" | "existing" | "new">("mode");
+  const [compileExistingFiles, setCompileExistingFiles] = useState<any[]>([]);
+  const [compileExistingSearch, setCompileExistingSearch] = useState("");
+  const [compileTargetTicketId, setCompileTargetTicketId] = useState<string | null>(null);
+  const [compileNewForm, setCompileNewForm] = useState<{
+    redmineTicketId: string;
+    title: string;
+    remarks: string;
+    requirementId: string;
+    projectId: string;
+    selectedModules: number[];
+  }>({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", selectedModules: [] });
+  const [isCompiling, setIsCompiling] = useState(false);
+
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
@@ -893,6 +910,106 @@ export default function TestCases() {
     }
   };
 
+  const openCompileDialog = () => {
+    const selectedTCs = testCases.filter((tc: any) => selectedIds.has(tc.id));
+    if (selectedTCs.length === 0) return;
+    const firstTC = selectedTCs[0];
+    const distinctModuleNames = [...new Set(selectedTCs.map((tc: any) => tc.module).filter(Boolean))] as string[];
+    const matchedModuleIds = modules
+      .filter((m: any) => distinctModuleNames.includes(m.name))
+      .map((m: any) => m.id);
+    setCompileNewForm({
+      redmineTicketId: "",
+      title: "",
+      remarks: "",
+      requirementId: firstTC.requirementId ? String(firstTC.requirementId) : "",
+      projectId: firstTC.projectId ? String(firstTC.projectId) : "",
+      selectedModules: matchedModuleIds,
+    });
+    setCompileStep("mode");
+    setCompileTargetTicketId(null);
+    setCompileExistingSearch("");
+    setCompileExistingFiles([]);
+    setCompileOpen(true);
+  };
+
+  const handleCompileChooseExisting = async () => {
+    try {
+      const token = localStorage.getItem("qa_pulse_token");
+      const res = await fetch(`${getApiUrl()}/execution-files`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) setCompileExistingFiles(await res.json());
+    } catch {}
+    setCompileStep("existing");
+  };
+
+  const handleCompileConfirm = async () => {
+    const selectedTCs = testCases.filter((tc: any) => selectedIds.has(tc.id));
+    const newRows = selectedTCs.map((tc: any) => ({
+      moduleName: tc.module ?? "",
+      caseName: tc.title,
+      userStory: tc.redmineUserStory ?? "",
+      tracker: tc.tracker ?? "",
+      scenario: tc.scenario ?? "",
+      preCondition: tc.preconditions ?? "",
+      testSteps: tc.testSteps ?? "",
+      testData: tc.testData ?? "",
+      expectedResult: tc.expectedResult ?? "",
+      comments: tc.comments ?? "",
+      libraryTcId: tc.id,
+      result: "Not Executed",
+    }));
+    const token = localStorage.getItem("qa_pulse_token");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    setIsCompiling(true);
+    try {
+      let targetTicketId = compileTargetTicketId;
+      if (compileStep === "new") {
+        const selectedModuleNames = compileNewForm.selectedModules
+          .map((id) => modules.find((m: any) => m.id === id)?.name)
+          .filter(Boolean);
+        const createRes = await fetch(`${getApiUrl()}/execution-files`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            redmineTicketId: compileNewForm.redmineTicketId.trim(),
+            title: compileNewForm.title || undefined,
+            remarks: compileNewForm.remarks || undefined,
+            selectedModules: selectedModuleNames.length ? selectedModuleNames : undefined,
+            projectId: compileNewForm.projectId ? Number(compileNewForm.projectId) : undefined,
+            requirementId: compileNewForm.requirementId ? Number(compileNewForm.requirementId) : undefined,
+          }),
+        });
+        if (!createRes.ok) throw new Error(await createRes.text());
+        const created = await createRes.json();
+        targetTicketId = created.redmineTicketId;
+      }
+      if (!targetTicketId) throw new Error("No target execution file");
+      let existingTCs: any[] = [];
+      if (compileStep === "existing") {
+        const getRes = await fetch(`${getApiUrl()}/execution-files/${targetTicketId}/test-cases`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (getRes.ok) existingTCs = (await getRes.json()).testCases ?? [];
+      }
+      const saveRes = await fetch(`${getApiUrl()}/execution-files/${targetTicketId}/test-cases`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ testCases: [...existingTCs, ...newRows] }),
+      });
+      if (!saveRes.ok) throw new Error(await saveRes.text());
+      toast({ title: `${selectedTCs.length} test case${selectedTCs.length !== 1 ? "s" : ""} compiled into #${targetTicketId}` });
+      setCompileOpen(false);
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Compile failed", description: String(err?.message ?? err) });
+    } finally {
+      setIsCompiling(false);
+    }
+  };
+
   const handleSubmit = () => {
     if (
       !form.title?.trim() ||
@@ -998,6 +1115,14 @@ export default function TestCases() {
               }}
             >
               <Copy className="w-3 h-3" /> Clone
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950"
+              onClick={openCompileDialog}
+            >
+              <PackagePlus className="w-3 h-3" /> Compile
             </Button>
             <Button
               variant="destructive"
@@ -1774,6 +1899,232 @@ export default function TestCases() {
                   ? "Save Changes"
                   : "Create"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Compile to Execution File Dialog ── */}
+      <Dialog open={compileOpen} onOpenChange={(o) => { if (!o) { setCompileOpen(false); setCompileStep("mode"); setCompileTargetTicketId(null); } }}>
+        <DialogContent className="sm:max-w-[520px] w-[95vw] flex flex-col max-h-[90vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <PackagePlus className="w-4 h-4 text-primary" />
+              {compileStep === "mode"
+                ? "Compile to Execution File"
+                : compileStep === "existing"
+                  ? "Select Execution File"
+                  : "New Execution File"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-4">
+
+            {/* Step: choose mode */}
+            {compileStep === "mode" && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Compiling <strong>{selectedIds.size}</strong> test case{selectedIds.size !== 1 ? "s" : ""} into an execution file.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handleCompileChooseExisting}
+                    className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all text-center"
+                  >
+                    <FolderOpen className="w-8 h-8 text-muted-foreground" />
+                    <div>
+                      <p className="font-semibold text-sm">Add to Existing</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Append into an existing execution file</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setCompileStep("new")}
+                    className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all text-center"
+                  >
+                    <Plus className="w-8 h-8 text-muted-foreground" />
+                    <div>
+                      <p className="font-semibold text-sm">Create New</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Create a new execution file for these TCs</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step: select existing file */}
+            {compileStep === "existing" && (
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by ticket ID or title..."
+                    value={compileExistingSearch}
+                    onChange={(e) => setCompileExistingSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <div className="border rounded-md max-h-[300px] overflow-y-auto">
+                  {compileExistingFiles.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">No execution files found.</p>
+                  ) : (
+                    compileExistingFiles
+                      .filter((f) => {
+                        if (!compileExistingSearch) return true;
+                        const q = compileExistingSearch.toLowerCase();
+                        return f.redmineTicketId?.includes(q) || f.title?.toLowerCase().includes(q);
+                      })
+                      .map((f) => (
+                        <button
+                          key={f.id}
+                          onClick={() => setCompileTargetTicketId(f.redmineTicketId)}
+                          className={`w-full text-left px-4 py-3 border-b last:border-b-0 text-sm hover:bg-muted/50 transition-colors flex items-center gap-3 ${compileTargetTicketId === f.redmineTicketId ? "bg-primary/10 font-medium" : ""}`}
+                        >
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${compileTargetTicketId === f.redmineTicketId ? "bg-primary" : "bg-transparent border border-border"}`} />
+                          <div>
+                            <span className="font-semibold text-primary">#{f.redmineTicketId}</span>
+                            {f.title && <span className="ml-2 text-muted-foreground">{f.title}</span>}
+                          </div>
+                        </button>
+                      ))
+                  )}
+                </div>
+                {compileTargetTicketId && (
+                  <p className="text-xs text-muted-foreground">
+                    Selected: <span className="font-medium text-foreground">#{compileTargetTicketId}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Step: create new execution file */}
+            {compileStep === "new" && (() => {
+              const canCompileNew =
+                !!compileNewForm.redmineTicketId.trim() &&
+                !!compileNewForm.projectId &&
+                compileNewForm.selectedModules.length > 0;
+              return (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
+                    <Input
+                      placeholder="e.g. 38032"
+                      value={compileNewForm.redmineTicketId}
+                      onChange={(e) => setCompileNewForm({ ...compileNewForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Title</Label>
+                    <Input
+                      value={compileNewForm.title}
+                      onChange={(e) => setCompileNewForm({ ...compileNewForm, title: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Requirement <span className="text-xs text-muted-foreground">(optional — auto-fills Project & Module)</span></Label>
+                    <SearchableSelect
+                      value={compileNewForm.requirementId}
+                      onValueChange={(v) => {
+                        const req = requirements.find((r: any) => r.id === Number(v));
+                        const matchedMod = req?.module ? modules.find((m: any) => m.name === req.module) : null;
+                        setCompileNewForm({
+                          ...compileNewForm,
+                          requirementId: v,
+                          projectId: req?.projectId ? String(req.projectId) : compileNewForm.projectId,
+                          selectedModules: matchedMod ? [matchedMod.id] : compileNewForm.selectedModules,
+                        });
+                      }}
+                      options={[
+                        { value: "", label: "None" },
+                        ...requirements.map((r: any) => ({ value: String(r.id), label: r.title })),
+                      ]}
+                      placeholder="Search requirement..."
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Project <span className="text-destructive">*</span></Label>
+                    <SearchableSelect
+                      value={compileNewForm.projectId}
+                      onValueChange={(v) => setCompileNewForm({ ...compileNewForm, projectId: v })}
+                      options={[
+                        { value: "", label: "Select project..." },
+                        ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+                      ]}
+                      placeholder="Search project..."
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Module <span className="text-destructive">*</span></Label>
+                    <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
+                      {modules.length === 0
+                        ? <p className="text-sm text-muted-foreground text-center py-2">No modules available.</p>
+                        : modules.map((m: any) => (
+                          <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={compileNewForm.selectedModules.includes(m.id)}
+                              onChange={(e) => setCompileNewForm({
+                                ...compileNewForm,
+                                selectedModules: e.target.checked
+                                  ? [...compileNewForm.selectedModules, m.id]
+                                  : compileNewForm.selectedModules.filter((id) => id !== m.id),
+                              })}
+                            />
+                            {m.name}
+                          </label>
+                        ))
+                      }
+                    </div>
+                    {compileNewForm.selectedModules.length > 0 && (
+                      <p className="text-xs text-muted-foreground">{compileNewForm.selectedModules.length} module(s) selected</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Remarks</Label>
+                    <Input
+                      value={compileNewForm.remarks}
+                      onChange={(e) => setCompileNewForm({ ...compileNewForm, remarks: e.target.value })}
+                    />
+                  </div>
+                  <div className="pt-1">
+                    <Button
+                      className="w-full gap-2"
+                      onClick={handleCompileConfirm}
+                      disabled={!canCompileNew || isCompiling}
+                    >
+                      {isCompiling
+                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating & Compiling...</>
+                        : <><PackagePlus className="w-4 h-4" /> Compile {selectedIds.size} test case{selectedIds.size !== 1 ? "s" : ""}</>
+                      }
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          <DialogFooter className="shrink-0 border-t pt-3 gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (compileStep === "mode") { setCompileOpen(false); }
+                else { setCompileStep("mode"); setCompileTargetTicketId(null); }
+              }}
+              disabled={isCompiling}
+            >
+              {compileStep === "mode" ? "Cancel" : "Back"}
+            </Button>
+            {compileStep === "existing" && (
+              <Button
+                onClick={handleCompileConfirm}
+                disabled={!compileTargetTicketId || isCompiling}
+                className="gap-2"
+              >
+                {isCompiling
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Compiling...</>
+                  : <><PackagePlus className="w-4 h-4" /> Compile {selectedIds.size} test case{selectedIds.size !== 1 ? "s" : ""}</>
+                }
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
