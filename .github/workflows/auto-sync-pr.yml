@@ -15,21 +15,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Open Pull Request using GitHub CLI
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          # Verify if a PR already exists to prevent duplicate failures
-          PR_EXISTS=$(gh pr list --repo "Autoraimix/QAPulse" --head "syamilsamat:main" --json number --jq '.[0].number')
-          
-          if [ -z "$PR_EXISTS" ]; then
-            gh pr create \
-              --repo "Autoraimix/QAPulse" \
-              --head "syamilsamat:main" \
-              --base "main" \
-              --title "SAS: fix/improve code" \
-              --body "Automated code improvement sync from syamil."
-            echo "Successfully created a new Pull Request!"
-          else
-            echo "A Pull Request (#$PR_EXISTS) already exists and will be updated automatically with your new commits."
-          fi
+      - name: Create Pull Request to Upstream
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          branch: "sas-automated-patch"           # A temporary branch it will create to host the PR
+          base: "main"                            # Target branch on upstream
+          title: "SAS: fix/improve code"          # Your default title
+          body: "Automated code improvement sync from syamil."
