@@ -15,14 +15,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Open Pull Request to Upstream
-        uses: repo-sync/pull-request@v2
-        with:
-          source_branch: "main"                     # Your branch (syamilsamat/QAPulse)
-          destination_branch: "main"                # Target branch (Autoraimix/QAPulse)
-          destination_repository: "Autoraimix/QAPulse" # The main upstream repository
-          github_token: ${{ secrets.PAT_TOKEN }}    
-          pr_title: "SAS: fix/improve code"         # Your default title
-          pr_body: "Automated code improvement sync from syamil."
+      - name: Open Pull Request using GitHub CLI
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}    # <--- This line fixes the environment variable error
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          gh pr create \
+            --repo "Autoraimix/QAPulse" \
+            --head "syamilsamat:main" \
+            --base "main" \
+            --title "SAS: fix/improve code" \
+            --body "Automated code improvement sync from syamil."
