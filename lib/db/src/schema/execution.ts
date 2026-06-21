@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 
 // 1. Reusable Modules Table
 export const executionModulesTable = pgTable("execution_modules", {
@@ -36,6 +36,7 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   testData: text("test_data"),
   expectedResult: text("expected_result"),
   result: text("result"),
+  executedAt: timestamp("executed_at"),
   actualResult: text("actual_result"),
   defectNumber: text("defect_number"),
   defectScreenshots: text("defect_screenshots"), // JSON array of base64 or file paths

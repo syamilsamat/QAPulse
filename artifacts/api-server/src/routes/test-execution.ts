@@ -141,22 +141,21 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
   }
 });
 
-// Returns aggregated execution progress per redmine ticket ID
+// Returns aggregated execution progress per redmine ticket ID (full breakdown)
 router.get("/execution-progress", async (_req, res): Promise<void> => {
   try {
     const rows = await db.select().from(executionSummariesTable);
-    const agg: Record<string, { total: number; notExecuted: number }> = {};
+    const agg: Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }> = {};
     for (const row of rows) {
-      if (!agg[row.redmineTicketId]) agg[row.redmineTicketId] = { total: 0, notExecuted: 0 };
+      if (!agg[row.redmineTicketId]) agg[row.redmineTicketId] = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
       agg[row.redmineTicketId].total += row.total;
+      agg[row.redmineTicketId].passed += row.passed;
+      agg[row.redmineTicketId].failed += row.failed;
+      agg[row.redmineTicketId].blocked += row.blocked;
+      agg[row.redmineTicketId].inProgress += row.inProgress;
       agg[row.redmineTicketId].notExecuted += row.notExecuted;
     }
-    const result: Record<string, { total: number; executed: number; overallPct: number }> = {};
-    for (const [ticketId, { total, notExecuted }] of Object.entries(agg)) {
-      const executed = total - notExecuted;
-      result[ticketId] = { total, executed, overallPct: total > 0 ? Math.round((executed / total) * 100) : 0 };
-    }
-    res.json(result);
+    res.json(agg);
   } catch {
     res.status(500).json({ error: "Failed to fetch execution progress" });
   }
@@ -269,6 +268,21 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
     res.status(204).send();
   } catch {
     res.status(500).json({ error: "Failed to delete execution file" });
+  }
+});
+
+/* ────────────────────────────────
+   EXECUTION SUMMARIES (by Redmine ticket ID)
+   ──────────────────────────────── */
+
+router.get("/execution-files/:ticketId/summaries", async (req, res): Promise<void> => {
+  try {
+    const { ticketId } = req.params;
+    const rows = await db.select().from(executionSummariesTable)
+      .where(eq(executionSummariesTable.redmineTicketId, ticketId));
+    res.json(rows);
+  } catch {
+    res.status(500).json({ error: "Failed to fetch summaries" });
   }
 });
 

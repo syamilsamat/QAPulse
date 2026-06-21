@@ -36,6 +36,7 @@ export interface ExecutionTestCase {
   testData: string;
   expectedResult: string;
   result: string;
+  executedAt?: string | null;
   actualResult?: string;
   defectNumber: string;
   defectScreenshots?: string; // JSON array of { name, contentType, base64 }
