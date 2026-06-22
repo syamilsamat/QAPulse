@@ -441,7 +441,7 @@ export default function Requirements() {
 
   const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 
-  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, isRoot: boolean = true) => {
+  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -450,11 +450,8 @@ export default function Requirements() {
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
 
-      // For recursive (non-root) calls, apply status and tracker filters using full fetched data
-      if (!isRoot) {
-        if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) return;
-        if (trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) return;
-      }
+      // Skip child tickets with excluded statuses — root is always processed
+      if (parentId !== undefined && EXCLUDED_STATUSES.includes(data.issue.status?.name)) return;
 
       const existingReq = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
 
@@ -486,10 +483,11 @@ export default function Requirements() {
         savedReqId = (res as any).id;
       }
 
-      // Recursively handle children — filters applied inside processRedmineSync
+      // Recursively handle children — apply tracker filter only if explicitly provided (Import flow)
       if (data.issue.children && Array.isArray(data.issue.children)) {
         for (const child of data.issue.children) {
-          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, false);
+          if (trackerFilter && child.tracker?.name && child.tracker?.name !== trackerFilter) continue;
+          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter);
         }
       }
     } else {
@@ -529,7 +527,7 @@ export default function Requirements() {
     });
 
     try {
-      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined);
+      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId);
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
     } catch (err) {
       toast({ variant: "destructive", title: "Sync Failed" });
