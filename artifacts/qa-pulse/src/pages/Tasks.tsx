@@ -464,7 +464,7 @@ export default function Tasks() {
     queryFn: () => fetchModules(),
   });
 
-  const { data: executionProgress = {} } = useQuery<Record<string, { total: number; executed: number; overallPct: number }>>({
+  const { data: executionProgress = {} } = useQuery<Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }>>({
     queryKey: ["execution-progress"],
     queryFn: async () => {
       const res = await fetch("/api/execution-progress");
@@ -1248,24 +1248,31 @@ export default function Tasks() {
                           <TableCell className="whitespace-nowrap">
                             {(() => {
                               const execProg = t.redmineId ? executionProgress[t.redmineId] : null;
-                              const pct = execProg ? execProg.overallPct : (t.completionPercentage ?? null);
+                              if (execProg) {
+                                const passPct = execProg.total > 0 ? Math.round((execProg.passed / execProg.total) * 100) : 0;
+                                return (
+                                  <div className="flex items-center gap-2 min-w-[90px]">
+                                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-green-500 rounded-full transition-all"
+                                        style={{ width: `${passPct}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs font-medium w-8 text-right">{passPct}%</span>
+                                  </div>
+                                );
+                              }
+                              const pct = t.completionPercentage ?? null;
                               if (pct === null || pct === undefined) return "—";
                               return (
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-16">
+                                <div className="flex items-center gap-2 min-w-[90px]">
+                                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                                     <div
                                       className="h-full bg-primary rounded-full transition-all"
                                       style={{ width: `${pct}%` }}
                                     />
                                   </div>
-                                  <span className="text-xs text-muted-foreground w-8">
-                                    {pct}%
-                                  </span>
-                                  {execProg && (
-                                    <span className="text-xs text-muted-foreground">
-                                      {execProg.executed}/{execProg.total}
-                                    </span>
-                                  )}
+                                  <span className="text-xs font-medium w-8 text-right">{pct}%</span>
                                 </div>
                               );
                             })()}

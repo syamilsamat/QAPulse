@@ -4,6 +4,9 @@ import * as XLSX from "xlsx-js-style";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { HoverPlay } from "@/components/icons/animated";
 import {
   Table,
@@ -21,6 +24,20 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Plus,
@@ -258,9 +275,31 @@ export default function TestCasesExecution() {
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  const [users, setUsers] = useState<any[]>([]);
+  const environments = [
+    { id: 1, name: "Env 1" }, { id: 2, name: "Env 2" }, { id: 3, name: "Env 3" },
+    { id: 4, name: "Env 4" }, { id: 5, name: "Env 5" }, { id: 6, name: "Env 6" },
+    { id: 7, name: "Env 7" },
+  ];
+
+  const DEFAULT_QUICK_FORM = {
+    name: "", redmineId: "", status: "new", priority: "Medium",
+    projectId: "", moduleId: "",
+    assigneeIds: [] as number[], environmentIds: [] as number[],
+    startDate: "", dueDate: "", actualStartDate: "", actualEndDate: "",
+    estimatedHours: "", actualHours: "", completionPercentage: "", notes: "",
+  };
+
   const [quickTaskOpen, setQuickTaskOpen] = useState(false);
-  const [quickTaskForm, setQuickTaskForm] = useState({ name: "", redmineId: "", status: "new", priority: "Medium", projectId: "", moduleId: "" });
+  const [quickTaskForm, setQuickTaskForm] = useState(DEFAULT_QUICK_FORM);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+
+  const toggleQuickTaskArrayItem = (key: "assigneeIds" | "environmentIds", id: number) => {
+    setQuickTaskForm(prev => {
+      const arr = prev[key] || [];
+      return { ...prev, [key]: arr.includes(id) ? arr.filter(i => i !== id) : [...arr, id] };
+    });
+  };
 
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [fileForm, setFileForm] = useState({
@@ -294,13 +333,15 @@ export default function TestCasesExecution() {
       fetch("/api/execution-progress", { headers: getHeaders() }).then(r => r.ok ? r.json() : {}),
       fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
       fetch("/api/requirements", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
+      fetch("/api/users", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([filesData, modulesData, projectsData, progressData, tasksData, reqsData]) => {
+      .then(([filesData, modulesData, projectsData, progressData, tasksData, reqsData, usersData]) => {
         setFiles(filesData);
         setModules(modulesData);
         setProjects(projectsData || []);
         setRequirements(reqsData || []);
         setProgress(progressData || {});
+        setUsers(usersData || []);
         setTasks((tasksData || []).filter((t: any) => t.redmineId).map((t: any) => ({
           redmineId: String(t.redmineId),
           status: t.status,
@@ -469,6 +510,16 @@ export default function TestCasesExecution() {
           priority: quickTaskForm.priority,
           projectId: quickTaskForm.projectId ? Number(quickTaskForm.projectId) : undefined,
           moduleId: quickTaskForm.moduleId ? Number(quickTaskForm.moduleId) : undefined,
+          assigneeIds: quickTaskForm.assigneeIds.length ? quickTaskForm.assigneeIds : undefined,
+          environmentIds: quickTaskForm.environmentIds.length ? quickTaskForm.environmentIds : undefined,
+          startDate: quickTaskForm.startDate || undefined,
+          dueDate: quickTaskForm.dueDate || undefined,
+          actualStartDate: quickTaskForm.actualStartDate || undefined,
+          actualEndDate: quickTaskForm.actualEndDate || undefined,
+          estimatedHours: quickTaskForm.estimatedHours ? Number(quickTaskForm.estimatedHours) : undefined,
+          actualHours: quickTaskForm.actualHours ? Number(quickTaskForm.actualHours) : undefined,
+          completionPercentage: quickTaskForm.completionPercentage ? Number(quickTaskForm.completionPercentage) : undefined,
+          notes: quickTaskForm.notes || undefined,
         }),
       });
       if (!res.ok) throw new Error();
@@ -482,7 +533,7 @@ export default function TestCasesExecution() {
       })));
       toast({ title: "Task created successfully" });
       setQuickTaskOpen(false);
-      setQuickTaskForm({ name: "", redmineId: "", status: "new", priority: "Medium", projectId: "", moduleId: "" });
+      setQuickTaskForm(DEFAULT_QUICK_FORM);
     } catch {
       toast({ variant: "destructive", title: "Failed to create task" });
     } finally {
@@ -614,7 +665,7 @@ export default function TestCasesExecution() {
                       ) : (
                         <button
                           className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
-                          onClick={e => { e.stopPropagation(); setQuickTaskForm(prev => ({ ...prev, redmineId: f.redmineTicketId })); setQuickTaskOpen(true); }}
+                          onClick={e => { e.stopPropagation(); setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "" }); setQuickTaskOpen(true); }}
                         >
                           <AlertCircle className="w-3 h-3" /> No task
                         </button>
@@ -677,40 +728,49 @@ export default function TestCasesExecution() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick Create Task dialog */}
-      <Dialog open={quickTaskOpen} onOpenChange={open => { setQuickTaskOpen(open); if (!open) setQuickTaskForm({ name: "", redmineId: "", status: "new", priority: "Medium", projectId: "", moduleId: "" }); }}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* New Task dialog */}
+      <Dialog open={quickTaskOpen} onOpenChange={open => { setQuickTaskOpen(open); if (!open) setQuickTaskForm(DEFAULT_QUICK_FORM); }}>
+        <DialogContent className="max-w-3xl w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Task</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Task Name <span className="text-destructive">*</span></Label>
-              <Input placeholder="Task name" value={quickTaskForm.name} onChange={e => setQuickTaskForm({ ...quickTaskForm, name: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-6 py-2">
+            {/* GROUP 1: Core Identifiers */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Task Name *</Label>
+                <Input placeholder="Task name" value={quickTaskForm.name} onChange={e => setQuickTaskForm({ ...quickTaskForm, name: e.target.value })} />
+              </div>
               <div className="space-y-1.5">
                 <Label>Redmine ID</Label>
-                <Input placeholder="e.g. 38032" value={quickTaskForm.redmineId} onChange={e => setQuickTaskForm({ ...quickTaskForm, redmineId: e.target.value.replace(/\D/g, "") })} />
+                <Input placeholder="e.g. 29303" value={quickTaskForm.redmineId} onChange={e => setQuickTaskForm({ ...quickTaskForm, redmineId: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>Status</Label>
                 <SearchableSelect value={quickTaskForm.status} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, status: v })}
                   options={[
                     { value: "new", label: "New" },
+                    { value: "pending", label: "Pending" },
                     { value: "in_progress", label: "In Progress" },
                     { value: "blocked", label: "Blocked" },
                     { value: "uat", label: "UAT" },
+                    { value: "sit", label: "SIT" },
                     { value: "done", label: "Done" },
                     { value: "released_to_production", label: "Released" },
                   ]}
+                  searchPlaceholder="Search status..."
                 />
               </div>
+            </div>
+
+            {/* GROUP 2: Classification */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border p-4 rounded-lg bg-muted/5">
               <div className="space-y-1.5">
                 <Label>Project <span className="text-destructive">*</span></Label>
                 <SearchableSelect value={quickTaskForm.projectId} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, projectId: v })}
-                  options={[{ value: "", label: "Select project..." }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
-                  placeholder="Select project..."
+                  options={projects.map(p => ({ value: String(p.id), label: p.name }))}
+                  placeholder="Select Project..."
+                  searchPlaceholder="Search project..."
                 />
               </div>
               <div className="space-y-1.5">
@@ -722,24 +782,141 @@ export default function TestCasesExecution() {
                     { value: "Medium", label: "Medium" },
                     { value: "Low", label: "Low" },
                   ]}
+                  searchPlaceholder="Search..."
                 />
               </div>
-              <div className="space-y-1.5 col-span-2">
+              <div className="space-y-1.5">
                 <Label>Module <span className="text-destructive">*</span></Label>
                 <SearchableSelect value={quickTaskForm.moduleId} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, moduleId: v })}
-                  options={[{ value: "", label: "Select module..." }, ...modules.map(m => ({ value: String(m.id), label: m.name }))]}
-                  placeholder="Select module..."
+                  options={modules.map(m => ({ value: String(m.id), label: m.name }))}
+                  placeholder="Select Module"
+                  searchPlaceholder="Search module..."
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label>Environment(s)</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal overflow-hidden min-h-9 h-auto py-1.5 px-3">
+                      {quickTaskForm.environmentIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {quickTaskForm.environmentIds.map(id => {
+                            const env = environments.find(e => e.id === id);
+                            return <Badge key={id} variant="secondary" className="font-normal text-xs py-0 h-5">{env?.name || `ID: ${id}`}</Badge>;
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Select Environments...</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search environments..." />
+                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                        <CommandEmpty>No environment found.</CommandEmpty>
+                        <CommandGroup>
+                          {environments.map(env => (
+                            <CommandItem key={env.id} onSelect={() => toggleQuickTaskArrayItem("environmentIds", env.id)} className="flex items-center gap-2 cursor-pointer">
+                              <Checkbox checked={quickTaskForm.environmentIds.includes(env.id)} className="pointer-events-none" />
+                              {env.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Assignee(s) (QA PIC)</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal overflow-hidden min-h-9 h-auto py-1.5 px-3">
+                      {quickTaskForm.assigneeIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {quickTaskForm.assigneeIds.map(id => {
+                            const u = users.find((u: any) => u.id === id);
+                            return <Badge key={id} variant="secondary" className="font-normal text-xs py-0 h-5">{u?.name || `ID: ${id}`}</Badge>;
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Select QA PICs...</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search QA..." />
+                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                        <CommandEmpty>No QA found.</CommandEmpty>
+                        <CommandGroup>
+                          {users.filter((u: any) => u.role === "qa_member" || u.role === "qa_lead").map((u: any) => (
+                            <CommandItem key={u.id} onSelect={() => toggleQuickTaskArrayItem("assigneeIds", u.id)} className="flex items-center gap-2 cursor-pointer">
+                              <Checkbox checked={quickTaskForm.assigneeIds.includes(u.id)} className="pointer-events-none" />
+                              <Avatar className="w-5 h-5">
+                                <AvatarFallback className="text-[9px] bg-primary/10 text-primary">{u.name.substring(0, 2)}</AvatarFallback>
+                              </Avatar>
+                              {u.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* GROUP 3: Scheduling */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Planned Start Date</Label>
+                <Input type="date" value={quickTaskForm.startDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, startDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Planned End Date</Label>
+                <Input type="date" value={quickTaskForm.dueDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, dueDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Actual Start Date</Label>
+                <Input type="date" value={quickTaskForm.actualStartDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, actualStartDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Actual End Date</Label>
+                <Input type="date" value={quickTaskForm.actualEndDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, actualEndDate: e.target.value })} />
+              </div>
+            </div>
+
+            {/* GROUP 4: Metrics & Notes */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-4">
+              <div className="space-y-1.5">
+                <Label>Est. Hours</Label>
+                <Input type="number" step="0.5" min="0" value={quickTaskForm.estimatedHours} onChange={e => setQuickTaskForm({ ...quickTaskForm, estimatedHours: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Actual Hours</Label>
+                <Input type="number" step="0.5" min="0" value={quickTaskForm.actualHours} onChange={e => setQuickTaskForm({ ...quickTaskForm, actualHours: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Completion %</Label>
+                <Input type="number" min="0" max="100" value={quickTaskForm.completionPercentage} onChange={e => setQuickTaskForm({ ...quickTaskForm, completionPercentage: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Textarea placeholder="Additional context..." rows={3} value={quickTaskForm.notes} onChange={e => setQuickTaskForm({ ...quickTaskForm, notes: e.target.value })} />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQuickTaskOpen(false)} disabled={isCreatingTask}>Cancel</Button>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setQuickTaskOpen(false)} disabled={isCreatingTask}>Cancel</Button>
             <Button
+              className="w-full sm:w-auto"
               onClick={handleCreateQuickTask}
               disabled={!quickTaskForm.name.trim() || !quickTaskForm.projectId || !quickTaskForm.moduleId || isCreatingTask}
             >
-              {isCreatingTask ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-2" />Create Task</>}
+              {isCreatingTask ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : "Create Task"}
             </Button>
           </DialogFooter>
         </DialogContent>
