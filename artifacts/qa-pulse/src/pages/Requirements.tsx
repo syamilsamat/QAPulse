@@ -441,8 +441,8 @@ export default function Requirements() {
 
   const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 
-  // applyFilters: true for recursive child calls, false for the user-initiated root call
-  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, applyFilters: boolean = false) => {
+  // isRoot: true for the user-initiated call; false for all recursive child calls
+  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, isRoot: boolean = true) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -451,11 +451,13 @@ export default function Requirements() {
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
 
-      // Apply filters to child tickets only (not the user-initiated root)
-      if (applyFilters) {
-        if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) return;
-        if (trackerFilter && data.issue.tracker?.name !== trackerFilter) return;
+      // Status filter applies to all tickets — throw on root so caller can show an error toast
+      if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) {
+        if (isRoot) throw new Error(`Ticket #${ticketIdToSync} has status "${data.issue.status.name}" and cannot be imported`);
+        return;
       }
+      // Tracker filter applies only to children (root is always taken as-is)
+      if (!isRoot && trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) return;
 
       const existingReq = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
 
@@ -487,10 +489,10 @@ export default function Requirements() {
         savedReqId = (res as any).id;
       }
 
-      // Recursively handle children — filters are applied inside the recursive call
+      // Recursively handle children — filters applied inside each recursive call
       if (data.issue.children && Array.isArray(data.issue.children)) {
         for (const child of data.issue.children) {
-          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, true);
+          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, false);
         }
       }
     } else {
@@ -530,7 +532,7 @@ export default function Requirements() {
     });
 
     try {
-      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined);
+      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined, true);
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
     } catch (err) {
       toast({ variant: "destructive", title: "Sync Failed" });
