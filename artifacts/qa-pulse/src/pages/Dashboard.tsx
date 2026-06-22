@@ -264,8 +264,14 @@ function TeamCalendar({ users }: { users: User[] }) {
   const eventsByDate = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {};
     events.forEach((e) => {
-      if (!map[e.date]) map[e.date] = [];
-      map[e.date].push(e);
+      const start = parseISO(e.date);
+      const end = (e as any).dateTo ? parseISO((e as any).dateTo) : start;
+      const rangeDays = eachDayOfInterval({ start, end: end >= start ? end : start });
+      rangeDays.forEach((day) => {
+        const key = format(day, "yyyy-MM-dd");
+        if (!map[key]) map[key] = [];
+        if (!map[key].includes(e)) map[key].push(e);
+      });
     });
     return map;
   }, [events]);
