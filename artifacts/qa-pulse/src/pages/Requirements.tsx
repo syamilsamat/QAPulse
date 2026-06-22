@@ -441,7 +441,7 @@ export default function Requirements() {
 
   const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 
-  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string) => {
+  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, isRoot: boolean = true) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -450,8 +450,11 @@ export default function Requirements() {
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
 
-      // Skip child tickets with excluded statuses — root is always processed
-      if (parentId !== undefined && EXCLUDED_STATUSES.includes(data.issue.status?.name)) return;
+      // For recursive (non-root) calls, apply status and tracker filters using full fetched data
+      if (!isRoot) {
+        if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) return;
+        if (trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) return;
+      }
 
       const existingReq = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
 
@@ -483,11 +486,10 @@ export default function Requirements() {
         savedReqId = (res as any).id;
       }
 
-      // Recursively handle children — skip those that don't match the tracker filter
+      // Recursively handle children — filters applied inside processRedmineSync
       if (data.issue.children && Array.isArray(data.issue.children)) {
         for (const child of data.issue.children) {
-          if (trackerFilter && child.tracker?.name !== trackerFilter) continue;
-          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter);
+          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, false);
         }
       }
     } else {
