@@ -225,6 +225,49 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
   }
 });
 
+// ─── Global custom field config (applies to all projects) ────────────────────
+const GLOBAL_CONFIG_ID = 0;
+
+router.get("/redmine/global-config", async (_req, res): Promise<void> => {
+  try {
+    const [config] = await db
+      .select()
+      .from(redmineProjectConfigsTable)
+      .where(eq(redmineProjectConfigsTable.redmineProjectId, GLOBAL_CONFIG_ID));
+    res.json(config ?? null);
+  } catch {
+    res.status(500).json({ error: "Failed to fetch global config" });
+  }
+});
+
+router.post("/redmine/global-config", async (req, res): Promise<void> => {
+  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId } = req.body;
+  try {
+    const [config] = await db
+      .insert(redmineProjectConfigsTable)
+      .values({
+        redmineProjectId: GLOBAL_CONFIG_ID,
+        complexityFieldId: complexityFieldId ?? null,
+        targetedStartDateFieldId: targetedStartDateFieldId ?? null,
+        targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: redmineProjectConfigsTable.redmineProjectId,
+        set: {
+          complexityFieldId: complexityFieldId ?? null,
+          targetedStartDateFieldId: targetedStartDateFieldId ?? null,
+          targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    res.json(config);
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to save global config: ${err.message}` });
+  }
+});
+
 // ─── Trackers: fetch from Redmine (finds "QA Defect" tracker ID) ─────────────
 
 router.get("/redmine/trackers", async (req, res): Promise<void> => {
