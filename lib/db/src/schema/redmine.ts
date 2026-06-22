@@ -21,5 +21,14 @@ export const redmineProjectConfigsTable = pgTable("redmine_project_configs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const redmineGlobalConfigTable = pgTable("redmine_global_config", {
+  id: serial("id").primaryKey(),
+  complexityFieldId: integer("complexity_field_id"),
+  targetedStartDateFieldId: integer("targeted_start_date_field_id"),
+  targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export type RedmineProject = typeof redmineProjectsTable.$inferSelect;
 export type RedmineProjectConfig = typeof redmineProjectConfigsTable.$inferSelect;
+export type RedmineGlobalConfig = typeof redmineGlobalConfigTable.$inferSelect;
