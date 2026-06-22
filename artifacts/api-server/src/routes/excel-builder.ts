@@ -68,6 +68,13 @@ export interface DefectForExcel {
   dueDate?: string | null;
 }
 
+export interface AuditEntry {
+  summary: string;
+  updatedByName?: string | null;
+  createdAt: string; // ISO date string
+  tcCount?: number;
+}
+
 export interface ExcelBuildOptions {
   // Doc Info + sheet rename
   redmineId?: string;
@@ -76,6 +83,8 @@ export interface ExcelBuildOptions {
   // CR002: auto-populate Review Log, Review & Rework Effort, Pareto Analysis, CAPA
   senderName?: string;
   activeDefects?: DefectForExcel[];
+  // CR003: audit trail for Doc Info change history rows
+  auditEntries?: AuditEntry[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -86,6 +95,12 @@ function fmtShortDate(iso?: string | null): string {
   } catch {
     return iso;
   }
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 
 function buildParetoCategories(defects: DefectForExcel[]): Array<{ name: string; count: number }> {
@@ -202,21 +217,29 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [] } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
-    if (redmineId) {
-      const docSheet = wb.sheet("Doc Info");
-      if (docSheet) {
+    // Rows 9+ are the audit history (Sl#, Date, Updated By, Summary, Reviewed By, Reviewed Date).
+    // If auditEntries provided, fill them oldest-first. Otherwise write a single placeholder row.
+    const docSheet = wb.sheet("Doc Info");
+    if (docSheet) {
+      if (redmineId) {
         docSheet.cell("D5").value(`${issueType ?? "Issue"} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`);
         docSheet.cell("G4").value(`Ref. No.: QA-${redmineId}`);
-        docSheet.cell("B9").value(1);
-        docSheet.cell("C9").value(today);
-        docSheet.cell("D9").value(senderName ?? "QA Pulse");
-        docSheet.cell("E9").value("Generated test case report");
-        docSheet.cell("G9").value(today);
       }
+      const entries: AuditEntry[] = auditEntries && auditEntries.length > 0
+        ? auditEntries
+        : [{ summary: "Generated test case report", updatedByName: senderName ?? null, createdAt: new Date().toISOString() }];
+      entries.forEach(({ summary, updatedByName, createdAt }, i) => {
+        const row = 9 + i;
+        docSheet.cell(`B${row}`).value(i + 1);
+        docSheet.cell(`C${row}`).value(fmtShortDate(createdAt));
+        docSheet.cell(`D${row}`).value(updatedByName ?? "");
+        docSheet.cell(`E${row}`).value(summary);
+        // F = Reviewed by, G = Reviewed date — left blank for manual fill
+      });
     }
 
     // ── Test Step sheet ────────────────────────────────────────────────────────
@@ -244,27 +267,42 @@ export async function buildTestCaseExcel(
       });
     }
 
-    // ── Review Log — skeleton first row ───────────────────────────────────────
-    // Template headers (row 4): B=Sl# C=Review Cycle D=Version E=Posted Date
-    //   F=Reviewer Name G=Size H=Document Name … (rest is manual)
+    // ── Review Log — one row per audit entry (same list as Doc Info) ──────────
+    // Template headers (row 4): B=Sl# C=Review Cycle D=Version No. E=Posted Date
+    //   F=Reviewer Name G=Size of Work H=Document Name … (rest is manual)
     const rlSheet = wb.sheet("Review Log");
     if (rlSheet) {
-      rlSheet.cell("B5").value(1);
-      rlSheet.cell("C5").value("1st");
-      rlSheet.cell("D5").value(1);
-      rlSheet.cell("E5").value(today);
-      if (senderName) rlSheet.cell("F5").value(senderName);
-      rlSheet.cell("G5").value("Small");
-      rlSheet.cell("H5").value(issueSubject || (redmineId ? `#${redmineId}` : ""));
+      const rlEntries: AuditEntry[] = auditEntries && auditEntries.length > 0
+        ? auditEntries
+        : [{ summary: "Generated test case report", updatedByName: senderName ?? null, createdAt: new Date().toISOString(), tcCount: 0 }];
+      const docName = issueSubject || (redmineId ? `#${redmineId}` : "");
+      rlEntries.forEach(({ updatedByName, createdAt, tcCount = 0 }, i) => {
+        const row = 5 + i;
+        rlSheet.cell(`B${row}`).value(i + 1);
+        rlSheet.cell(`C${row}`).value(ordinal(i + 1));
+        rlSheet.cell(`D${row}`).value(i + 1);
+        rlSheet.cell(`E${row}`).value(fmtShortDate(createdAt));
+        rlSheet.cell(`F${row}`).value(updatedByName ?? "");
+        rlSheet.cell(`G${row}`).value(tcCount > 0 ? tcCount : "—");
+        rlSheet.cell(`H${row}`).value(docName);
+      });
     }
 
-    // ── Review & Rework Effort — skeleton first row ────────────────────────────
+    // ── Review & Rework Effort — one row per audit entry ──────────────────────
     // Template headers (row 4): B=Sl# C=Review Cycle D=Document Name E=Review Time F=Rework Time G=Remarks
+    // E, F, G left blank — QA Pulse does not track time
     const rrSheet = wb.sheet("Review & Rework Effort");
     if (rrSheet) {
-      rrSheet.cell("B5").value(1);
-      rrSheet.cell("C5").value("1st");
-      rrSheet.cell("D5").value(issueSubject || (redmineId ? `#${redmineId}` : ""));
+      const rrEntries: AuditEntry[] = auditEntries && auditEntries.length > 0
+        ? auditEntries
+        : [{ summary: "Generated test case report", updatedByName: senderName ?? null, createdAt: new Date().toISOString(), tcCount: 0 }];
+      const docName = issueSubject || (redmineId ? `#${redmineId}` : "");
+      rrEntries.forEach((_entry, i) => {
+        const row = 5 + i;
+        rrSheet.cell(`B${row}`).value(i + 1);
+        rrSheet.cell(`C${row}`).value(ordinal(i + 1));
+        rrSheet.cell(`D${row}`).value(docName);
+      });
     }
 
     // ── Pareto Analysis ────────────────────────────────────────────────────────

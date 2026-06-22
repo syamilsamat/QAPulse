@@ -60,7 +60,19 @@ export const executionTcHistoryTable = pgTable("execution_tc_history", {
   changedAt: timestamp("changed_at").defaultNow().notNull(),
 });
 
-// 5. Execution Summary Table (aggregated module-level data for the Execution Details page)
+// 5. Execution File Audit Log (populates Doc Info + Review Log sheets)
+export const executionFileAuditTable = pgTable("execution_file_audit", {
+  id: serial("id").primaryKey(),
+  executionFileId: integer("execution_file_id")
+    .references(() => executionFilesTable.id, { onDelete: "cascade" })
+    .notNull(),
+  updatedByName: text("updated_by_name"),
+  summary: text("summary").notNull(),
+  tcCount: integer("tc_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// 6. Execution Summary Table (aggregated module-level data for the Execution Details page)
 export const executionSummariesTable = pgTable("execution_summaries", {
   id: serial("id").primaryKey(),
   redmineTicketId: text("redmine_ticket_id").notNull(),

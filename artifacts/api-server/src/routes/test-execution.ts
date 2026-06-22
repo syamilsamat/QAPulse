@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import {
   db,
   executionFilesTable,
@@ -7,6 +7,8 @@ import {
   executionTestCasesTable,
   executionTcHistoryTable,
   executionSummariesTable,
+  executionFileAuditTable,
+  usersTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
 import { buildTestCaseExcel, trackerCode } from "./excel-builder";
@@ -186,6 +188,23 @@ router.post("/execution-files", async (req, res): Promise<void> => {
         requirementId: requirementId ? Number(requirementId) : null,
       })
       .returning();
+    // Audit: log execution file creation
+    let creatorName: string | null = null;
+    const createAuth = req.headers.authorization;
+    if (createAuth?.startsWith("Bearer ")) {
+      try {
+        const userId = verifyToken(createAuth.slice(7)).id;
+        const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, userId));
+        if (u) creatorName = u.name;
+      } catch {}
+    }
+    await db.insert(executionFileAuditTable).values({
+      executionFileId: file.id,
+      updatedByName: creatorName,
+      summary: "Draft Test Case file for execution",
+      tcCount: 0,
+    }).catch(() => {});
+
     res.status(201).json({
       id: file.id,
       redmineTicketId: file.redmineTicketId,
@@ -443,6 +462,9 @@ router.post(
         return t;
       });
 
+      // Pre-compute TC diff for audit log
+      const oldTcIdSet = new Set(existingRows.map(r => r.testCaseId).filter(Boolean) as string[]);
+
       // 3. Insert new
       let inserted: any[] = [];
       if (processedCases.length > 0) {
@@ -499,6 +521,65 @@ router.post(
         });
       if (historyRows.length > 0) {
         await db.insert(executionTcHistoryTable).values(historyRows);
+      }
+
+      // 3b. Audit log — record TC add/remove, merging same-user same-day entries
+      const newTcIdSet = new Set(processedCases.map((t: any) => t.testCaseId).filter(Boolean) as string[]);
+      const addedTCCount = processedCases.filter((t: any) => t.testCaseId && !oldTcIdSet.has(t.testCaseId)).length;
+      const removedTCCount = existingRows.filter(r => r.testCaseId && !newTcIdSet.has(r.testCaseId)).length;
+      if (addedTCCount > 0 || removedTCCount > 0) {
+        let changedByName: string | null = null;
+        if (changedBy) {
+          try {
+            const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, changedBy));
+            if (u) changedByName = u.name;
+          } catch {}
+        }
+        // Check for existing entry for same user + same calendar day to merge into
+        const existingAudit = changedByName
+          ? await db.select()
+              .from(executionFileAuditTable)
+              .where(and(
+                eq(executionFileAuditTable.executionFileId, file.id),
+                eq(executionFileAuditTable.updatedByName, changedByName),
+                sql`DATE(${executionFileAuditTable.createdAt}) = CURRENT_DATE`,
+              ))
+              .limit(1)
+              .catch(() => [] as any[])
+          : [];
+        if (existingAudit.length > 0) {
+          const prev = existingAudit[0].summary as string;
+          if (prev === "Draft Test Case file for execution") {
+            // Same day as file creation — keep summary as-is, only refresh tcCount
+            await db.update(executionFileAuditTable)
+              .set({ tcCount: processedCases.length })
+              .where(eq(executionFileAuditTable.id, existingAudit[0].id))
+              .catch(() => {});
+          } else {
+            // Same day as a prior TC-add/remove row — accumulate counts
+            const prevAdded = parseInt(/(\d+) test cases? added/.exec(prev)?.[1] ?? "0");
+            const prevRemoved = parseInt(/(\d+) test cases? removed/.exec(prev)?.[1] ?? "0");
+            const totalAdded = prevAdded + addedTCCount;
+            const totalRemoved = prevRemoved + removedTCCount;
+            const parts: string[] = [];
+            if (totalAdded > 0) parts.push(`${totalAdded} test case${totalAdded !== 1 ? "s" : ""} added`);
+            if (totalRemoved > 0) parts.push(`${totalRemoved} test case${totalRemoved !== 1 ? "s" : ""} removed`);
+            await db.update(executionFileAuditTable)
+              .set({ summary: parts.join(", "), tcCount: processedCases.length })
+              .where(eq(executionFileAuditTable.id, existingAudit[0].id))
+              .catch(() => {});
+          }
+        } else {
+          const parts: string[] = [];
+          if (addedTCCount > 0) parts.push(`${addedTCCount} test case${addedTCCount !== 1 ? "s" : ""} added`);
+          if (removedTCCount > 0) parts.push(`${removedTCCount} test case${removedTCCount !== 1 ? "s" : ""} removed`);
+          await db.insert(executionFileAuditTable).values({
+            executionFileId: file.id,
+            updatedByName: changedByName,
+            summary: parts.join(", "),
+            tcCount: processedCases.length,
+          }).catch(() => {});
+        }
       }
 
       // 3. Update the file's updatedAt timestamp
@@ -587,6 +668,16 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     // CR002: fetch active defects for Pareto Analysis + CAPA auto-population
     const activeDefects = await fetchActiveDefectsForIssue(ticketId);
 
+    // CR003: fetch audit entries for Doc Info
+    const auditRows = file
+      ? await db
+          .select()
+          .from(executionFileAuditTable)
+          .where(eq(executionFileAuditTable.executionFileId, file.id))
+          .orderBy(executionFileAuditTable.createdAt)
+          .catch(() => [] as any[])
+      : [];
+
     const typeLabel = issueType || "Issue";
     const buffer = await buildTestCaseExcel(testCases, {
       redmineId: ticketId,
@@ -594,6 +685,12 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       issueSubject: issueSubject || file?.title || "",
       senderName: senderName || undefined,
       activeDefects,
+      auditEntries: auditRows.map((a: any) => ({
+        summary: a.summary,
+        updatedByName: a.updatedByName ?? null,
+        createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
+        tcCount: a.tcCount ?? 0,
+      })),
     });
 
     if (!buffer) {
