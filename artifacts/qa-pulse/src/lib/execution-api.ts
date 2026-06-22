@@ -285,12 +285,11 @@ export const fetchRedmineProjects = async (): Promise<RedmineProjectItem[]> => {
 };
 
 export const fetchRedmineProjectConfig = async (
-  projectId: number,
+  _projectId?: number,
 ): Promise<RedmineProjectConfigItem | null> => {
-  const res = await fetch("/api/redmine/project-configs", { headers: getHeaders() });
+  const res = await fetch("/api/redmine/global-config", { headers: getHeaders() });
   if (!res.ok) return null;
-  const all: RedmineProjectConfigItem[] = await res.json();
-  return all.find((c) => c.redmineProjectId === projectId) ?? null;
+  return res.json();
 };
 
 export const fetchRedmineTrackers = async (): Promise<RedmineTracker[]> => {
