@@ -62,6 +62,7 @@ import {
   executionSummariesTable,
   executionFilesTable,
   executionTestCasesTable,
+  executionFileAuditTable,
 } from "@workspace/db";
 
 let mysql2: any = null;
@@ -1595,12 +1596,28 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       const activeDefects = await fetchActiveDefectsForIssue(String(redmineId));
       console.log(`[send-verdict] activeDefects count=${activeDefects.length}`);
 
+      // CR003: fetch audit entries for Doc Info
+      const auditRows = execFile
+        ? await db
+            .select()
+            .from(executionFileAuditTable)
+            .where(eq(executionFileAuditTable.executionFileId, execFile.id))
+            .orderBy(executionFileAuditTable.createdAt)
+            .catch(() => [] as any[])
+        : [];
+
       const xlsxBuffer = await buildTestCaseExcel(testCases, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",
         senderName: senderName ?? undefined,
         activeDefects,
+        auditEntries: auditRows.map((a: any) => ({
+          summary: a.summary,
+          updatedByName: a.updatedByName ?? null,
+          createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
+          tcCount: a.tcCount ?? 0,
+        })),
       });
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
