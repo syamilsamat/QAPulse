@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, notificationsTable, taskEventsTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, notificationsTable, taskEventsTable, executionModulesTable } from "@workspace/db";
+
+const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
 import {
   CreateTaskBody,
   UpdateTaskBody,
@@ -36,8 +38,8 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
   let assigneeNames: string[] = [];
   let projectName = null;
   let requirementTitle = null;
+  let moduleName = null;
 
-  // Handle array of Assignees
   if (task.assigneeIds && task.assigneeIds.length > 0) {
     const users = await db.select().from(usersTable).where(inArray(usersTable.id, task.assigneeIds));
     assigneeNames = users.map(u => u.name);
@@ -53,11 +55,20 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
     requirementTitle = req?.title ?? null;
   }
 
+  if (task.moduleId) {
+    const [mod] = await db.select().from(executionModulesTable).where(eq(executionModulesTable.id, task.moduleId));
+    moduleName = mod?.name ?? null;
+  }
+
+  const environmentNames = (task.environmentIds ?? []).map(id => ENV_NAMES[id] ?? `Env ${id}`);
+
   return {
     ...task,
-    assigneeNames, // Pass array of names to the frontend
+    assigneeNames,
     projectName,
     requirementTitle,
+    moduleName,
+    environmentNames,
     isOverdue: isOverdue(task),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),

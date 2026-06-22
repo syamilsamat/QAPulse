@@ -521,7 +521,7 @@ export default function Requirements() {
     });
 
     try {
-      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId);
+      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined);
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
     } catch (err) {
       toast({ variant: "destructive", title: "Sync Failed" });

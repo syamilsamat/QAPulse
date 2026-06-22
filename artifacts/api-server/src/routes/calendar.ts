@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, calendarEventsTable, usersTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import { db, calendarEventsTable, usersTable, notificationsTable } from "@workspace/db";
 import {
   ListCalendarEventsQueryParams,
   CreateCalendarEventBody,
@@ -10,6 +10,18 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+async function notifyUser(userId: number, title: string, message: string, type: string, entityId: number) {
+  await db.insert(notificationsTable).values({
+    userId,
+    title,
+    message,
+    type,
+    entityType: "calendar_event",
+    entityId,
+    read: false,
+  });
+}
 
 function parseTaggedUserIds(raw: string | null | undefined): number[] {
   if (!raw) return [];
@@ -36,6 +48,7 @@ async function formatEvent(event: typeof calendarEventsTable.$inferSelect) {
     title: event.title,
     description: event.description ?? null,
     date: event.date,
+    dateTo: event.dateTo ?? null,
     eventType: event.eventType,
     taggedUserIds: taggedIds,
     taggedUserNames: taggedIds.map((id) => usersMap[id] ?? "Unknown"),
@@ -82,6 +95,13 @@ router.post("/calendar/events", async (req, res): Promise<void> => {
     taggedUserIds: taggedUserIds ? JSON.stringify(taggedUserIds) : null,
   }).returning();
 
+  // Notify tagged users immediately (same pattern as task assignment)
+  if (taggedUserIds?.length) {
+    for (const userId of taggedUserIds) {
+      await notifyUser(userId, "You were tagged in an event", `"${event.title}" on ${event.date}`, "calendar_tag", event.id);
+    }
+  }
+
   res.status(201).json(await formatEvent(event));
 });
 
@@ -100,6 +120,10 @@ router.patch("/calendar/events/:id", async (req, res): Promise<void> => {
 
   const { taggedUserIds, ...rest } = parsed.data;
 
+  // Fetch existing event to diff tagged users
+  const [existing] = await db.select().from(calendarEventsTable).where(eq(calendarEventsTable.id, params.data.id));
+  const prevTaggedIds = parseTaggedUserIds(existing?.taggedUserIds);
+
   const updateData: Record<string, unknown> = { ...rest };
   if (taggedUserIds !== undefined) {
     updateData.taggedUserIds = JSON.stringify(taggedUserIds);
@@ -113,6 +137,14 @@ router.patch("/calendar/events/:id", async (req, res): Promise<void> => {
   if (!event) {
     res.status(404).json({ error: "Event not found" });
     return;
+  }
+
+  // Notify only newly added tagged users
+  if (taggedUserIds?.length) {
+    const newlyTagged = taggedUserIds.filter(id => !prevTaggedIds.includes(id));
+    for (const userId of newlyTagged) {
+      await notifyUser(userId, "You were tagged in an event", `"${event.title}" on ${event.date}`, "calendar_tag", event.id);
+    }
   }
 
   res.json(await formatEvent(event));

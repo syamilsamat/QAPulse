@@ -374,12 +374,11 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: false,
   },
-  // Added Configurations Menu Item
   {
     href: "/configurations",
     label: "Configuration",
     icon: Columns3Cog,
-    roles: ["qa_member", "qa_lead", "admin"],
+    roles: ["qa_lead", "admin"],
   },
   {
     href: "/settings",
