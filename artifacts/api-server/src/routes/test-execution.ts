@@ -548,19 +548,27 @@ router.post(
               .catch(() => [] as any[])
           : [];
         if (existingAudit.length > 0) {
-          // Parse existing counts and accumulate; always update tcCount to latest total
           const prev = existingAudit[0].summary as string;
-          const prevAdded = parseInt(/(\d+) test cases? added/.exec(prev)?.[1] ?? "0");
-          const prevRemoved = parseInt(/(\d+) test cases? removed/.exec(prev)?.[1] ?? "0");
-          const totalAdded = prevAdded + addedTCCount;
-          const totalRemoved = prevRemoved + removedTCCount;
-          const parts: string[] = [];
-          if (totalAdded > 0) parts.push(`${totalAdded} test case${totalAdded !== 1 ? "s" : ""} added`);
-          if (totalRemoved > 0) parts.push(`${totalRemoved} test case${totalRemoved !== 1 ? "s" : ""} removed`);
-          await db.update(executionFileAuditTable)
-            .set({ summary: parts.join(", "), tcCount: processedCases.length })
-            .where(eq(executionFileAuditTable.id, existingAudit[0].id))
-            .catch(() => {});
+          if (prev === "Draft Test Case file for execution") {
+            // Same day as file creation — keep summary as-is, only refresh tcCount
+            await db.update(executionFileAuditTable)
+              .set({ tcCount: processedCases.length })
+              .where(eq(executionFileAuditTable.id, existingAudit[0].id))
+              .catch(() => {});
+          } else {
+            // Same day as a prior TC-add/remove row — accumulate counts
+            const prevAdded = parseInt(/(\d+) test cases? added/.exec(prev)?.[1] ?? "0");
+            const prevRemoved = parseInt(/(\d+) test cases? removed/.exec(prev)?.[1] ?? "0");
+            const totalAdded = prevAdded + addedTCCount;
+            const totalRemoved = prevRemoved + removedTCCount;
+            const parts: string[] = [];
+            if (totalAdded > 0) parts.push(`${totalAdded} test case${totalAdded !== 1 ? "s" : ""} added`);
+            if (totalRemoved > 0) parts.push(`${totalRemoved} test case${totalRemoved !== 1 ? "s" : ""} removed`);
+            await db.update(executionFileAuditTable)
+              .set({ summary: parts.join(", "), tcCount: processedCases.length })
+              .where(eq(executionFileAuditTable.id, existingAudit[0].id))
+              .catch(() => {});
+          }
         } else {
           const parts: string[] = [];
           if (addedTCCount > 0) parts.push(`${addedTCCount} test case${addedTCCount !== 1 ? "s" : ""} added`);
