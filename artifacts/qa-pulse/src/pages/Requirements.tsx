@@ -451,13 +451,16 @@ export default function Requirements() {
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
 
-      // Status filter applies to all tickets — throw on root so caller can show an error toast
+      // Status filter — applies to all tickets including root
       if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) {
-        if (isRoot) throw new Error(`Ticket #${ticketIdToSync} has status "${data.issue.status.name}" and cannot be imported`);
+        if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has status "${data.issue.status?.name}"`);
         return;
       }
-      // Tracker filter applies only to children (root is always taken as-is)
-      if (!isRoot && trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) return;
+      // Tracker filter — applies to all tickets including root
+      if (trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) {
+        if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has tracker "${data.issue.tracker?.name}", expected "${trackerFilter}"`);
+        return;
+      }
 
       const existingReq = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
 
@@ -513,8 +516,13 @@ export default function Requirements() {
       setRedmineSelectedModule("");
       setRedmineSelectedProject("");
       setRedmineSelectedTracker("");
-    } catch {
-      toast({ variant: "destructive", title: "Failed to connect to Redmine" });
+    } catch (err: any) {
+      const msg: string = err?.message ?? "";
+      if (msg.startsWith("NO_RESULT:")) {
+        toast({ variant: "destructive", title: "No results found", description: msg.replace("NO_RESULT:", "").trim() });
+      } else {
+        toast({ variant: "destructive", title: "Failed to connect to Redmine" });
+      }
     } finally {
       setRedmineLoading(false);
     }
@@ -534,8 +542,13 @@ export default function Requirements() {
     try {
       await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined, true);
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
-    } catch (err) {
-      toast({ variant: "destructive", title: "Sync Failed" });
+    } catch (err: any) {
+      const msg: string = err?.message ?? "";
+      if (msg.startsWith("NO_RESULT:")) {
+        toast({ variant: "destructive", title: "No results found", description: msg.replace("NO_RESULT:", "").trim() });
+      } else {
+        toast({ variant: "destructive", title: "Sync Failed" });
+      }
     }
   };
 
