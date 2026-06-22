@@ -634,7 +634,7 @@ function TeamCalendar({ users }: { users: User[] }) {
 type HoverItem = { id: number; name: string; status: string; dueDate?: string | null; isOverdue?: boolean };
 
 function MetricCard({
-  title, value, icon, description, alert, hoverItems,
+  title, value, icon, description, alert, hoverItems, hoverLabel = "blocked / overdue task",
 }: {
   title: string;
   value: number;
@@ -642,6 +642,7 @@ function MetricCard({
   description?: string;
   alert?: boolean;
   hoverItems?: HoverItem[];
+  hoverLabel?: string;
 }) {
   const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
@@ -699,27 +700,29 @@ function MetricCard({
           onMouseEnter={clearCloseTimer}
           onMouseLeave={scheduleClose}
         >
-          <div className="flex items-center gap-2 px-3 py-2 bg-destructive/5 border-b">
-            <AlertTriangle className="w-3.5 h-3.5 text-destructive" />
-            <span className="text-xs font-semibold text-destructive">
-              {hoverItems.length} blocked / overdue task{hoverItems.length !== 1 ? "s" : ""}
+          <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 border-b">
+            <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold text-foreground">
+              {hoverItems.length} {hoverLabel}{hoverItems.length !== 1 ? "s" : ""}
             </span>
           </div>
           <div className="max-h-60 overflow-y-auto divide-y">
-            {hoverItems.map((item) => (
+            {hoverItems.map((item) => {
+              const isPending = item.status === "uat" || item.status === "sit";
+              const dotColor = item.status === "blocked" ? "bg-red-500" : isPending ? "bg-yellow-500" : "bg-orange-500";
+              const badgeCls = item.status === "blocked"
+                ? "bg-red-100 text-red-700"
+                : isPending ? "bg-yellow-100 text-yellow-700"
+                : "bg-orange-100 text-orange-700";
+              const badgeLabel = item.status === "blocked" ? "Blocked" : isPending ? item.status.toUpperCase() : "Overdue";
+              return (
               <div key={item.id} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors" onClick={() => setLocation("/tasks")}>
-                <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
-                  item.status === "blocked" ? "bg-red-500" : "bg-orange-500"
-                }`} />
+                <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${dotColor}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate leading-snug">{item.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                      item.status === "blocked"
-                        ? "bg-red-100 text-red-700"
-                        : "bg-orange-100 text-orange-700"
-                    }`}>
-                      {item.status === "blocked" ? "Blocked" : "Overdue"}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>
+                      {badgeLabel}
                     </span>
                     {item.dueDate && (
                       <span className="text-[10px] text-muted-foreground">
@@ -729,7 +732,8 @@ function MetricCard({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>,
         document.body
@@ -842,7 +846,9 @@ export default function Dashboard() {
           icon={<LayoutDashboard className="w-4 h-4 text-primary" />}
           description={`${summary?.completedTasks || 0} completed`} />
         <MetricCard title="Pending Tasks" value={summary?.pendingTasks || 0}
-          icon={<Clock className="w-4 h-4 text-blue-500" />} description="Awaiting action" />
+          icon={<Clock className="w-4 h-4 text-blue-500" />} description="Awaiting action"
+          hoverItems={(summary as any)?.pendingTasksList ?? []}
+          hoverLabel="pending task" />
         <MetricCard title="Blocked / Overdue" value={(summary?.blockedTasks || 0) + (summary?.overdueTasks || 0)}
           icon={<AlertCircle className="w-4 h-4 text-destructive" />}
           description={`${summary?.blockedTasks || 0} blocked · ${summary?.overdueTasks || 0} overdue`}

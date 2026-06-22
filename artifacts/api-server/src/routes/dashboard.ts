@@ -58,6 +58,11 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       isOverdue: t.status !== "released_to_production" && !!t.dueDate && new Date(t.dueDate) < now,
     }));
 
+  // Pending task details (UAT / SIT)
+  const pendingTasksList = tasks
+    .filter(t => ["uat", "sit"].includes(t.status))
+    .map(t => ({ id: t.id, name: t.name, status: t.status, dueDate: t.dueDate ?? null }));
+
   res.json({
     totalTasks,
     completedTasks,
@@ -71,6 +76,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     manualTestCases,
     automationCandidates,
     blockedOrOverdueTasks,
+    pendingTasksList,
   });
 });
 
