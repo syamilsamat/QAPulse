@@ -439,6 +439,8 @@ export default function Requirements() {
     createProjectMutation.mutate({ data: projectForm as any });
   };
 
+  const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
+
   const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -447,6 +449,10 @@ export default function Requirements() {
 
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
+
+      // Skip child tickets with excluded statuses — root is always processed
+      if (parentId !== undefined && EXCLUDED_STATUSES.includes(data.issue.status?.name)) return;
+
       const existingReq = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
 
       const priorityMap: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
