@@ -115,12 +115,9 @@ export default function ModuleAndProject() {
   // REDMINE INTEGRATION STATE
   // =========================
   const [redmineProjects, setRedmineProjects] = useState<RedmineProject[]>([]);
-  const [projectConfigs, setProjectConfigs] = useState<Record<number, RedmineProjectConfig>>({});
-  const [selectedConfigProjectId, setSelectedConfigProjectId] = useState<number | null>(null);
   const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [projectComboOpen, setProjectComboOpen] = useState(false);
 
   useEffect(() => {
     if (!isLeadOrAdmin) return;
@@ -128,13 +125,15 @@ export default function ModuleAndProject() {
       .then((r) => r.json())
       .then((data: RedmineProject[]) => setRedmineProjects(Array.isArray(data) ? data : []))
       .catch(() => {});
-    fetch("/api/redmine/project-configs")
+    fetch("/api/redmine/global-config")
       .then((r) => r.json())
-      .then((data: RedmineProjectConfig[]) => {
-        if (!Array.isArray(data)) return;
-        const map: Record<number, RedmineProjectConfig> = {};
-        data.forEach((c) => { map[c.redmineProjectId] = c; });
-        setProjectConfigs(map);
+      .then((data: RedmineProjectConfig | null) => {
+        if (!data) return;
+        setConfigForm({
+          complexityFieldId: data.complexityFieldId?.toString() ?? "",
+          targetedStartDateFieldId: data.targetedStartDateFieldId?.toString() ?? "",
+          targetedCompletionDateFieldId: data.targetedCompletionDateFieldId?.toString() ?? "",
+        });
       })
       .catch(() => {});
   }, [isLeadOrAdmin]);
@@ -155,21 +154,10 @@ export default function ModuleAndProject() {
     }
   };
 
-  const handleSelectConfigProject = (redmineId: number) => {
-    setSelectedConfigProjectId(redmineId);
-    const existing = projectConfigs[redmineId];
-    setConfigForm({
-      complexityFieldId: existing?.complexityFieldId?.toString() ?? "",
-      targetedStartDateFieldId: existing?.targetedStartDateFieldId?.toString() ?? "",
-      targetedCompletionDateFieldId: existing?.targetedCompletionDateFieldId?.toString() ?? "",
-    });
-  };
-
-  const handleSaveProjectConfig = async () => {
-    if (!selectedConfigProjectId) return;
+  const handleSaveGlobalConfig = async () => {
     setIsSavingConfig(true);
     try {
-      const res = await fetch(`/api/redmine/project-configs/${selectedConfigProjectId}`, {
+      const res = await fetch("/api/redmine/global-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -180,8 +168,7 @@ export default function ModuleAndProject() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Save failed");
-      setProjectConfigs((prev) => ({ ...prev, [selectedConfigProjectId]: data }));
-      toast({ title: "Project config saved" });
+      toast({ title: "Custom field config saved" });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
@@ -981,73 +968,33 @@ export default function ModuleAndProject() {
               <span className="text-xs text-muted-foreground">Requires a Redmine administrator API key</span>
             </div>
 
-            {redmineProjects.length > 0 && (
-              <>
-                <Separator />
-                <div className="space-y-3">
-                  <Label>Configure Custom Fields per Project</Label>
-                  <Popover open={projectComboOpen} onOpenChange={setProjectComboOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" role="combobox" aria-expanded={projectComboOpen} className="w-full justify-between font-normal">
-                        <span className="truncate">
-                          {selectedConfigProjectId
-                            ? redmineProjects.find((p) => p.redmineId === selectedConfigProjectId)?.name
-                            : "Select a Redmine project..."}
-                        </span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-full p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Search project..." />
-                        <CommandList>
-                          <CommandEmpty>No project found.</CommandEmpty>
-                          <CommandGroup>
-                            {redmineProjects.map((p) => (
-                              <CommandItem
-                                key={p.redmineId}
-                                value={p.name}
-                                onSelect={() => { handleSelectConfigProject(p.redmineId); setProjectComboOpen(false); }}
-                              >
-                                <Check className={`mr-2 h-4 w-4 ${selectedConfigProjectId === p.redmineId ? "opacity-100" : "opacity-0"}`} />
-                                <span className="flex-1">{p.name}</span>
-                                {projectConfigs[p.redmineId] && <span className="ml-2 text-xs text-primary">✓</span>}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-
-                  {selectedConfigProjectId && (
-                    <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-                      <p className="text-xs text-muted-foreground">
-                        Enter the numeric custom field IDs from your Redmine admin panel (Admin → Custom fields).
-                      </p>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Complexity Field ID</Label>
-                          <Input type="number" placeholder="e.g. 12" value={configForm.complexityFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, complexityFieldId: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Targeted Start Date Field ID</Label>
-                          <Input type="number" placeholder="e.g. 14" value={configForm.targetedStartDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedStartDateFieldId: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Targeted Completion Date Field ID</Label>
-                          <Input type="number" placeholder="e.g. 15" value={configForm.targetedCompletionDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedCompletionDateFieldId: e.target.value }))} />
-                        </div>
-                      </div>
-                      <Button size="sm" className="gap-2" onClick={handleSaveProjectConfig} disabled={isSavingConfig}>
-                        <Save className="w-3.5 h-3.5" />
-                        {isSavingConfig ? "Saving..." : "Save Config"}
-                      </Button>
-                    </div>
-                  )}
+            <Separator />
+            <div className="space-y-3">
+              <Label>Custom Field IDs</Label>
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                <p className="text-xs text-muted-foreground">
+                  Enter the numeric custom field IDs from your Redmine admin panel (Admin → Custom fields). These apply to all projects.
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Complexity Field ID</Label>
+                    <Input type="number" placeholder="e.g. 2" value={configForm.complexityFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, complexityFieldId: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Targeted Start Date Field ID</Label>
+                    <Input type="number" placeholder="e.g. 12" value={configForm.targetedStartDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedStartDateFieldId: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Targeted Completion Date Field ID</Label>
+                    <Input type="number" placeholder="e.g. 13" value={configForm.targetedCompletionDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedCompletionDateFieldId: e.target.value }))} />
+                  </div>
                 </div>
-              </>
-            )}
+                <Button size="sm" className="gap-2" onClick={handleSaveGlobalConfig} disabled={isSavingConfig}>
+                  <Save className="w-3.5 h-3.5" />
+                  {isSavingConfig ? "Saving..." : "Save Config"}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
           </TabsContent>
