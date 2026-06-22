@@ -868,6 +868,7 @@ export const CreateCalendarEventBody = zod.object({
   title: zod.string(),
   description: zod.string().optional(),
   date: zod.string(),
+  dateTo: zod.string().optional(),
   eventType: zod.string(),
   taggedUserIds: zod.array(zod.number()).optional(),
   color: zod.string().optional(),
@@ -887,6 +888,7 @@ export const UpdateCalendarEventBody = zod.object({
   title: zod.string().optional(),
   description: zod.string().optional(),
   date: zod.string().optional(),
+  dateTo: zod.string().optional(),
   eventType: zod.string().optional(),
   taggedUserIds: zod.array(zod.number()).optional(),
   color: zod.string().optional(),
@@ -897,6 +899,7 @@ export const UpdateCalendarEventResponse = zod.object({
   title: zod.string(),
   description: zod.string().nullish(),
   date: zod.string().describe("YYYY-MM-DD"),
+  dateTo: zod.string().nullish(),
   eventType: zod
     .string()
     .describe("uat | meeting | deadline | release | other"),

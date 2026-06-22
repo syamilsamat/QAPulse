@@ -645,7 +645,7 @@ export default function TestCasesExecution() {
                         onChange={e => handleSelectFile(f.id, e.target.checked)} />
                     </TableCell>
                     <TableCell className="border-r border-border font-bold text-primary">#{f.redmineTicketId}</TableCell>
-                    <TableCell className="border-r border-border">{f.title || "—"}</TableCell>
+                    <TableCell className="border-r border-border">{getTaskForFile(f)?.name || f.title || "—"}</TableCell>
                     <TableCell className="border-r border-border">{task?.assigneeNames?.join(", ") || "—"}</TableCell>
                     <TableCell className="border-r border-border">
                       {task?.priority ? (
@@ -938,12 +938,6 @@ export default function TestCasesExecution() {
                 value={fileForm.redmineTicketId}
                 onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
               />
-            </div>
-
-            {/* Title */}
-            <div className="space-y-1">
-              <Label>Title</Label>
-              <Input value={fileForm.title} onChange={e => setFileForm({ ...fileForm, title: e.target.value })} />
             </div>
 
             {/* Requirement (optional) */}

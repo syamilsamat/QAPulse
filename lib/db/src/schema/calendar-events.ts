@@ -7,6 +7,7 @@ export const calendarEventsTable = pgTable("calendar_events", {
   title: text("title").notNull(),
   description: text("description"),
   date: text("date").notNull(),
+  dateTo: text("date_to"),
   eventType: text("event_type").notNull().default("other"),
   taggedUserIds: text("tagged_user_ids"),
   color: text("color"),

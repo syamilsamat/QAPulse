@@ -213,6 +213,7 @@ function TeamCalendar({ users }: { users: User[] }) {
     title: "",
     description: "",
     date: "",
+    dateTo: "",
     eventType: "meeting",
     taggedUserIds: [] as number[],
     color: "",
@@ -270,7 +271,7 @@ function TeamCalendar({ users }: { users: User[] }) {
 
   const openCreate = (dateStr: string) => {
     setSelectedDate(dateStr);
-    setEventForm({ title: "", description: "", date: dateStr, eventType: "meeting", taggedUserIds: [], color: "" });
+    setEventForm({ title: "", description: "", date: dateStr, dateTo: "", eventType: "meeting", taggedUserIds: [], color: "" });
     setCreateOpen(true);
   };
 
@@ -286,6 +287,7 @@ function TeamCalendar({ users }: { users: User[] }) {
       title: e.title,
       description: e.description ?? "",
       date: e.date,
+      dateTo: (e as any).dateTo ?? "",
       eventType: e.eventType,
       taggedUserIds: e.taggedUserIds ?? [],
       color: e.color ?? "",
@@ -295,7 +297,7 @@ function TeamCalendar({ users }: { users: User[] }) {
   };
 
   const handleCreate = () => {
-    if (!eventForm.title || !eventForm.date) return;
+    if (!eventForm.title || !eventForm.date || !eventForm.dateTo) return;
     createMutation.mutate({
       data: {
         ...eventForm,
@@ -437,25 +439,30 @@ function TeamCalendar({ users }: { users: User[] }) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Date *</Label>
+                <Label>Date From *</Label>
                 <Input type="date" value={eventForm.date}
                   onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label>Type</Label>
-                <SearchableSelect
-                  value={eventForm.eventType}
-                  onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}
-                  options={[
-                    { value: "uat", label: "UAT" },
-                    { value: "meeting", label: "Meeting" },
-                    { value: "deadline", label: "Deadline" },
-                    { value: "release", label: "Release" },
-                    { value: "other", label: "Other" },
-                  ]}
-                  searchPlaceholder="Search..."
-                />
+                <Label>Date To *</Label>
+                <Input type="date" value={eventForm.dateTo} min={eventForm.date || undefined}
+                  onChange={(e) => setEventForm({ ...eventForm, dateTo: e.target.value })} />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <SearchableSelect
+                value={eventForm.eventType}
+                onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}
+                options={[
+                  { value: "uat", label: "UAT" },
+                  { value: "meeting", label: "Meeting" },
+                  { value: "deadline", label: "Deadline" },
+                  { value: "release", label: "Release" },
+                  { value: "other", label: "Other" },
+                ]}
+                searchPlaceholder="Search..."
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Description</Label>
@@ -486,7 +493,7 @@ function TeamCalendar({ users }: { users: User[] }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!eventForm.title || !eventForm.date || createMutation.isPending}>
+            <Button onClick={handleCreate} disabled={!eventForm.title || !eventForm.date || !eventForm.dateTo || createMutation.isPending}>
               {createMutation.isPending ? "Adding..." : "Add Event"}
             </Button>
           </DialogFooter>
@@ -557,24 +564,28 @@ function TeamCalendar({ users }: { users: User[] }) {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label>Date *</Label>
+                    <Label>Date From *</Label>
                     <Input type="date" value={eventForm.date} onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Type</Label>
-                    <SearchableSelect
-                      value={eventForm.eventType}
-                      onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}
-                      options={[
-                        { value: "uat", label: "UAT" },
-                        { value: "meeting", label: "Meeting" },
-                        { value: "deadline", label: "Deadline" },
-                        { value: "release", label: "Release" },
-                        { value: "other", label: "Other" },
-                      ]}
-                      searchPlaceholder="Search..."
-                    />
+                    <Label>Date To *</Label>
+                    <Input type="date" value={eventForm.dateTo} min={eventForm.date || undefined} onChange={(e) => setEventForm({ ...eventForm, dateTo: e.target.value })} />
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <SearchableSelect
+                    value={eventForm.eventType}
+                    onValueChange={(v) => setEventForm({ ...eventForm, eventType: v })}
+                    options={[
+                      { value: "uat", label: "UAT" },
+                      { value: "meeting", label: "Meeting" },
+                      { value: "deadline", label: "Deadline" },
+                      { value: "release", label: "Release" },
+                      { value: "other", label: "Other" },
+                    ]}
+                    searchPlaceholder="Search..."
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Description</Label>
@@ -631,6 +642,7 @@ function MetricCard({
   alert?: boolean;
   hoverItems?: HoverItem[];
 }) {
+  const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const closeTimer = useRef<number | null>(null);
@@ -694,7 +706,7 @@ function MetricCard({
           </div>
           <div className="max-h-60 overflow-y-auto divide-y">
             {hoverItems.map((item) => (
-              <div key={item.id} className="flex items-start gap-2.5 px-3 py-2.5">
+              <div key={item.id} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors" onClick={() => setLocation("/tasks")}>
                 <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
                   item.status === "blocked" ? "bg-red-500" : "bg-orange-500"
                 }`} />

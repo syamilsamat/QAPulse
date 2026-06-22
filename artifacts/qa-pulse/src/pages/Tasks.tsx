@@ -759,7 +759,11 @@ export default function Tasks() {
       actualEndDate: t.actualEndDate ?? undefined,
       estimatedHours: t.estimatedHours ?? undefined,
       actualHours: t.actualHours ?? undefined,
-      completionPercentage: t.completionPercentage ?? undefined,
+      completionPercentage: (() => {
+        const execProg = t.redmineId ? executionProgress[t.redmineId] : null;
+        if (execProg && execProg.total > 0) return Math.round((execProg.passed / execProg.total) * 100);
+        return t.completionPercentage ?? undefined;
+      })(),
       notes: t.notes ?? undefined,
     });
     setDialogOpen(true);
@@ -1396,7 +1400,10 @@ export default function Tasks() {
                                     label="Completion"
                                     value={(() => {
                                       const execProg = t.redmineId ? executionProgress[t.redmineId] : null;
-                                      if (execProg) return `${execProg.overallPct}% (${execProg.executed}/${execProg.total} executed)`;
+                                      if (execProg && execProg.total > 0) {
+                                        const pct = Math.round((execProg.passed / execProg.total) * 100);
+                                        return `${pct}% pass (${execProg.passed}/${execProg.total})`;
+                                      }
                                       return t.completionPercentage != null ? `${t.completionPercentage}%` : null;
                                     })()}
                                   />
@@ -1739,11 +1746,18 @@ export default function Tasks() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Completion %</Label>
+                <Label>
+                  Completion %
+                  {form.redmineId && executionProgress[form.redmineId] && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">auto from execution</span>
+                  )}
+                </Label>
                 <Input
                   type="number"
                   min="0"
                   max="100"
+                  readOnly={!!(form.redmineId && executionProgress[form.redmineId])}
+                  className={form.redmineId && executionProgress[form.redmineId] ? "bg-muted cursor-not-allowed" : ""}
                   value={form.completionPercentage ?? ""}
                   onChange={(e) =>
                     setForm({
