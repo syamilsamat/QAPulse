@@ -135,6 +135,7 @@ export default function Requirements() {
   const [redmineInput, setRedmineInput] = useState("");
   const [redmineSelectedProject, setRedmineSelectedProject] = useState<string>("");
   const [redmineSelectedModule, setRedmineSelectedModule] = useState<string>("");
+  const [redmineSelectedTracker, setRedmineSelectedTracker] = useState<string>("");
   const [redmineLoading, setRedmineLoading] = useState(false);
 
   const [selectedReqs, setSelectedReqs] = useState<number[]>([]);
@@ -161,6 +162,19 @@ export default function Requirements() {
       if (!res.ok) return [];
       return res.json();
     },
+  });
+
+  const { data: redmineTrackers = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["redmineTrackers"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/redmine/trackers`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -425,7 +439,7 @@ export default function Requirements() {
     createProjectMutation.mutate({ data: projectForm as any });
   };
 
-  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number) => {
+  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -463,10 +477,11 @@ export default function Requirements() {
         savedReqId = (res as any).id;
       }
 
-      // Recursively handle children
+      // Recursively handle children — skip those that don't match the tracker filter
       if (data.issue.children && Array.isArray(data.issue.children)) {
         for (const child of data.issue.children) {
-          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId);
+          if (trackerFilter && child.tracker?.name !== trackerFilter) continue;
+          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter);
         }
       }
     } else {
@@ -480,12 +495,13 @@ export default function Requirements() {
 
     setRedmineLoading(true);
     try {
-      await processRedmineSync(clean, redmineSelectedModule, Number(redmineSelectedProject));
+      await processRedmineSync(clean, redmineSelectedModule, Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined);
       toast({ title: "Import Successful", description: "Successfully imported ticket and subtasks." });
       setRedmineDialogOpen(false);
       setRedmineInput("");
       setRedmineSelectedModule("");
       setRedmineSelectedProject("");
+      setRedmineSelectedTracker("");
     } catch {
       toast({ variant: "destructive", title: "Failed to connect to Redmine" });
     } finally {
@@ -885,7 +901,7 @@ export default function Requirements() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={redmineDialogOpen} onOpenChange={setRedmineDialogOpen}>
+      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModule(""); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); } }}>
         <DialogContent className="w-[95vw] sm:w-full max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -920,9 +936,19 @@ export default function Requirements() {
                 searchPlaceholder="Search module..."
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>Tracker Filter <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
+              <SearchableSelect
+                value={redmineSelectedTracker}
+                onValueChange={setRedmineSelectedTracker}
+                options={redmineTrackers.map((t) => ({ value: t.name, label: t.name }))}
+                placeholder="All trackers"
+                searchPlaceholder="Search tracker..."
+              />
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModule(""); setRedmineSelectedProject(""); }} className="w-full sm:w-auto">Cancel</Button>
+            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModule(""); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); }} className="w-full sm:w-auto">Cancel</Button>
             <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || !redmineSelectedModule || !redmineSelectedProject} className="w-full sm:w-auto">
               {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Fetching…</> : "Import"}
             </Button>
