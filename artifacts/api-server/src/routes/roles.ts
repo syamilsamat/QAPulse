@@ -11,7 +11,7 @@ const DEFAULT_ROLES = [
   { name: "admin",     description: "Admin",      isSystem: true },
   { name: "qa_lead",   description: "QA Lead",    isSystem: false },
   { name: "qa_member", description: "QA Member",  isSystem: false },
-  { name: "pmo",       description: "PMO",        isSystem: true },
+  { name: "pmo",       description: "PMO",        isSystem: false },
 ];
 
 export const ALL_NAV_KEYS = [
