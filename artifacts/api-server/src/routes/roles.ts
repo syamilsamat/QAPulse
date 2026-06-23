@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
-import { db, pool, rolesTable, usersTable, roleNavPermissionsTable } from "@workspace/db";
+import { db, pool, rolesTable, usersTable } from "@workspace/db";
 import { verifyToken } from "./auth";
 
 const router: IRouter = Router();
@@ -199,7 +199,7 @@ router.delete("/roles/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  await db.delete(roleNavPermissionsTable).where(eq(roleNavPermissionsTable.roleId, id));
+  await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
   await db.delete(rolesTable).where(eq(rolesTable.id, id));
   res.sendStatus(204);
 });
@@ -219,12 +219,10 @@ router.get("/roles/:id/permissions", async (req, res): Promise<void> => {
     res.json({ permissions: ALL_NAV_KEYS }); return;
   }
 
-  const perms = await db
-    .select({ permissionKey: roleNavPermissionsTable.permissionKey })
-    .from(roleNavPermissionsTable)
-    .where(eq(roleNavPermissionsTable.roleId, id));
-
-  res.json({ permissions: perms.map((p) => p.permissionKey) });
+  const { rows } = await pool.query<{ permission_key: string }>(
+    `SELECT permission_key FROM role_nav_permissions WHERE role_id = $1`, [id]
+  );
+  res.json({ permissions: rows.map((r) => r.permission_key) });
 });
 
 router.put("/roles/:id/permissions", async (req, res): Promise<void> => {
@@ -242,7 +240,7 @@ router.put("/roles/:id/permissions", async (req, res): Promise<void> => {
   const validKeys = permissions.filter((k) => ALL_NAV_KEYS.includes(k));
 
   // Replace all permissions for this role
-  await db.delete(roleNavPermissionsTable).where(eq(roleNavPermissionsTable.roleId, id));
+  await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
   for (const key of validKeys) {
     await pool.query(
       `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -269,12 +267,10 @@ router.get("/my-nav-permissions", async (req, res): Promise<void> => {
     return;
   }
 
-  const perms = await db
-    .select({ permissionKey: roleNavPermissionsTable.permissionKey })
-    .from(roleNavPermissionsTable)
-    .where(eq(roleNavPermissionsTable.roleId, roleRow.id));
-
-  res.json(perms.map((p) => p.permissionKey));
+  const { rows: permRows } = await pool.query<{ permission_key: string }>(
+    `SELECT permission_key FROM role_nav_permissions WHERE role_id = $1`, [roleRow.id]
+  );
+  res.json(permRows.map((r) => r.permission_key));
 });
 
 export default router;
