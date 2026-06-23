@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import {
   listUsers,
@@ -29,6 +29,16 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Users,
   Plus,
@@ -101,6 +111,8 @@ export default function Team() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [form, setForm] = useState<Partial<UserInput>>({});
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: getListUsersQueryKey(),
@@ -137,6 +149,28 @@ export default function Team() {
       onError: () =>
         toast({ variant: "destructive", title: "Failed to update user" }),
     },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`${getApiUrl()}/users/${id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to delete member");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
+      setDeleteConfirmOpen(false);
+      setDeletingUser(null);
+      setDialogOpen(false);
+      setSelectedUserId(null);
+      toast({ title: "Member deleted" });
+    },
+    onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
   });
 
   const filtered = users.filter((u) => {
@@ -473,7 +507,16 @@ export default function Team() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row items-center">
+            {editingUser && (
+              <Button
+                variant="destructive"
+                className="mr-auto"
+                onClick={() => { setDeletingUser(editingUser); setDeleteConfirmOpen(true); }}
+              >
+                Delete Member
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
@@ -495,6 +538,27 @@ export default function Team() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deletingUser?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove <strong>{deletingUser?.name}</strong> from QA Pulse. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
+              onClick={() => deletingUser && deleteMutation.mutate(deletingUser.id)}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
