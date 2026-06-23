@@ -1473,7 +1473,7 @@ router.post("/pmo/send-email", async (req, res) => {
       xlsx.utils.book_append_sheet(wb, ws, "Open Defects");
       const xlsxBuffer: Buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
       attachments.push({
-        filename: `Open_Defects_${redmineId ?? "report"}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        filename: `Open_Defects_${redmineId ?? "report"}_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.xlsx`,
         content: xlsxBuffer,
         contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -1500,7 +1500,7 @@ router.post("/pmo/send-email", async (req, res) => {
 // ─── Send Verdict Email ───────────────────────────────────────────────────────
 
 router.post("/pmo/send-verdict", express.json(), async (req, res) => {
-  const { redmineId, issueType, issueSubject, verdict, reason, to, cc, senderName } = req.body;
+  const { redmineId, issueType, issueSubject, verdict, reason, to, cc, senderName, projectName } = req.body;
 
   if (!to || !Array.isArray(to) || to.length === 0) {
     res.status(400).json({ error: "At least one TO recipient is required" });
@@ -1622,7 +1622,14 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
         attachments.push({
-          filename: `TC_${trackerCode(typeLabel)}_${redmineId}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+          filename: (() => {
+            const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+            const tracker = (typeLabel || "").replace(/\s+/g, "");
+            const proj = (projectName || "").replace(/\s+/g, "");
+            return proj
+              ? `${date}.${proj}_${tracker}_${redmineId}.xlsx`
+              : `${date}.${tracker}_${redmineId}.xlsx`;
+          })(),
           content: xlsxBuffer,
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         });
