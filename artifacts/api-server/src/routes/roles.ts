@@ -10,13 +10,28 @@ const DEFAULT_ROLES = [
   { name: "qa_member", description: "Standard QA team member", isSystem: false },
 ];
 
-async function seedDefaultRoles() {
+let bootstrapped = false;
+
+async function bootstrap() {
+  if (bootstrapped) return;
+  // Create table if it doesn't exist yet (avoids needing drizzle-kit push on new deployments)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS roles (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_system BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
   for (const role of DEFAULT_ROLES) {
-    const existing = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.name, role.name));
-    if (existing.length === 0) {
-      await db.insert(rolesTable).values(role);
-    }
+    await db.execute(sql`
+      INSERT INTO roles (name, description, is_system)
+      VALUES (${role.name}, ${role.description}, ${role.isSystem})
+      ON CONFLICT (name) DO NOTHING
+    `);
   }
+  bootstrapped = true;
 }
 
 function formatRole(r: typeof rolesTable.$inferSelect, userCount = 0) {
@@ -31,7 +46,7 @@ function formatRole(r: typeof rolesTable.$inferSelect, userCount = 0) {
 }
 
 router.get("/roles", async (req, res): Promise<void> => {
-  await seedDefaultRoles();
+  await bootstrap();
 
   const roles = await db.select().from(rolesTable).orderBy(rolesTable.createdAt);
 
@@ -47,6 +62,7 @@ router.get("/roles", async (req, res): Promise<void> => {
 });
 
 router.post("/roles", async (req, res): Promise<void> => {
+  await bootstrap();
   const name = req.body.name?.trim();
   const description = req.body.description?.trim() || null;
 
@@ -66,6 +82,7 @@ router.post("/roles", async (req, res): Promise<void> => {
 });
 
 router.patch("/roles/:id", async (req, res): Promise<void> => {
+  await bootstrap();
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid role ID" }); return; }
 
@@ -99,6 +116,7 @@ router.patch("/roles/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/roles/:id", async (req, res): Promise<void> => {
+  await bootstrap();
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid role ID" }); return; }
 
