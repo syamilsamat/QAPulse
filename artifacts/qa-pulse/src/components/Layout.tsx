@@ -297,7 +297,8 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   roles: string[];
-  subItems?: { href: string; label: string; icon: React.ElementType }[];
+  activeColor?: string;
+  subItems?: { href: string; label: string; icon: React.ElementType; activeColor?: string }[];
   showBadge?: boolean;
 }
 
@@ -306,52 +307,55 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     label: "Dashboard",
     icon: HoverDashboard,
+    activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/requirements",
     label: "Requirements",
     icon: HoverDocument,
+    activeColor: "text-orange-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/test-cases",
     label: "Test Cases",
     icon: HoverFlask,
+    activeColor: "text-teal-500",
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      {
-        href: "/test-cases/execution",
-        label: "Execution Dashboard",
-        icon: HoverPlay,
-      },
+      { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
     ],
   },
   {
     href: "/tasks",
     label: "Tasks",
     icon: HoverCheckSquare,
+    activeColor: "text-emerald-500",
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      { href: "/history-trail", label: "History Trail", icon: HoverHistory },
+      { href: "/history-trail", label: "History Trail", icon: HoverHistory, activeColor: "text-purple-500" },
     ],
   },
   {
     href: "/ai-features",
     label: "AI Hub",
     icon: HoverSparkles,
+    activeColor: "text-fuchsia-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/pmo-report",
     label: "PMO Report",
     icon: HoverChart,
+    activeColor: "text-pink-500",
     roles: ["qa_member", "pmo", "qa_lead", "admin"],
   },
   {
     href: "/inbox",
     label: "Inbox",
     icon: HoverBell,
+    activeColor: "text-yellow-500",
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: true,
   },
@@ -359,18 +363,21 @@ const NAV_ITEMS: NavItem[] = [
     href: "/team",
     label: "Team",
     icon: HoverUsers,
+    activeColor: "text-indigo-500",
     roles: ["qa_lead", "admin"],
   },
   {
     href: "/admin/search",
     label: "Admin Search",
     icon: HoverSearch,
+    activeColor: "text-violet-500",
     roles: ["admin"],
   },
   {
     href: "/team-hangouts",
     label: "Team Hangouts",
     icon: HoverCoffee,
+    activeColor: "text-amber-500",
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: false,
   },
@@ -378,12 +385,14 @@ const NAV_ITEMS: NavItem[] = [
     href: "/configurations",
     label: "Configuration",
     icon: Columns3Cog,
+    activeColor: "text-slate-500",
     roles: ["qa_lead", "admin"],
   },
   {
     href: "/settings",
     label: "Account",
     icon: HoverAccount,
+    activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
 ];
@@ -453,6 +462,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const badge = item.showBadge ? unreadCount : 0;
+            const isParentActive =
+              location === item.href ||
+              item.subItems?.some((sub) => location === sub.href);
 
             return (
               <div key={item.href} className="flex flex-col">
@@ -468,7 +480,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   >
                     <div className="relative shrink-0">
                       <Icon
-                        className={`${show ? "w-5 h-5" : "w-4 h-4"} transition-transform group-hover:scale-110 ${location === item.href ? "text-primary" : ""}`}
+                        className={`${show ? "w-5 h-5" : "w-4 h-4"} transition-transform ${isParentActive && item.activeColor ? item.activeColor : ""}`}
                       />
                       {show && badge > 0 && (
                         <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-destructive" />
@@ -491,15 +503,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           <div
                             className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs group ${
                               location === sub.href
-                                ? "bg-sidebar-accent text-primary font-medium"
+                                ? "bg-sidebar-accent font-medium"
                                 : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
                             }`}
                             onClick={() => setIsMobileMenuOpen(false)}
                           >
                             <SubIcon
-                              className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? "text-primary" : "text-muted-foreground"}`}
+                              className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? (sub.activeColor ?? "text-primary") : "text-muted-foreground"}`}
                             />
-                            {sub.label}
+                            <span className={location === sub.href ? (sub.activeColor ?? "text-primary") : ""}>
+                              {sub.label}
+                            </span>
                           </div>
                         </Link>
                       );
