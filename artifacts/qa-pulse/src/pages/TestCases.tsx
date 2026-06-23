@@ -72,6 +72,7 @@ import {
   LayoutList,
   PackagePlus,
   FolderOpen,
+  List,
 } from "lucide-react";
 import React from "react";
 import { format } from "date-fns";
@@ -621,6 +622,13 @@ export default function TestCases() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
+  const [filterRequirement, setFilterRequirement] = useState("all");
+  const [groupByModule, setGroupByModule] = useState(false);
+  const [collapsedModules, setCollapsedModules] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"comfy" | "compact">(() => {
+    try { return (localStorage.getItem("tc_view_mode") as "comfy" | "compact") ?? "comfy"; } catch { return "comfy"; }
+  });
+
   const { data: testCases = [], isLoading } = useQuery({
     queryKey: getListTestCasesQueryKey(),
     queryFn: () => listTestCases(),
@@ -654,7 +662,11 @@ export default function TestCases() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterProject, filterModule, filterAI, sortBy]);
+  }, [search, filterProject, filterModule, filterAI, filterRequirement, sortBy, groupByModule]);
+
+  useEffect(() => {
+    try { localStorage.setItem("tc_view_mode", viewMode); } catch {}
+  }, [viewMode]);
 
   const createMutation = useCreateTestCase({
     mutation: {
@@ -701,6 +713,8 @@ export default function TestCases() {
         return false;
       if (filterModule !== "all" && (t.module ?? "") !== filterModule)
         return false;
+      if (filterRequirement !== "all" && String(t.requirementId) !== filterRequirement)
+        return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
       if (search) {
@@ -738,11 +752,13 @@ export default function TestCases() {
         return (
           new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
         );
+      if (sortBy === "requirement")
+        return ((a as any).requirementId ?? Infinity) - ((b as any).requirementId ?? Infinity);
       return 0;
     });
 
     return result;
-  }, [testCases, search, filterProject, filterModule, filterAI, sortBy]);
+  }, [testCases, search, filterProject, filterModule, filterRequirement, filterAI, sortBy]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTestCases = filtered.slice(
@@ -783,6 +799,26 @@ export default function TestCases() {
       return next;
     });
   };
+
+  const toggleModuleCollapse = (moduleName: string) => {
+    setCollapsedModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(moduleName)) next.delete(moduleName);
+      else next.add(moduleName);
+      return next;
+    });
+  };
+
+  const groupedByModule = useMemo(() => {
+    if (!groupByModule) return null;
+    const groups: Record<string, typeof filtered> = {};
+    filtered.forEach((tc: any) => {
+      const key = (tc.module as string) || "— No Module —";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(tc);
+    });
+    return groups;
+  }, [filtered, groupByModule]);
 
   const handleExport = () => {
     const toExport =
@@ -1068,6 +1104,108 @@ export default function TestCases() {
     });
   };
 
+  const tcTableRow = (tc: any) => {
+    const cellPy = viewMode === "compact" ? "py-1.5" : "py-3";
+    return (
+      <React.Fragment key={tc.id}>
+        <TableRow
+          className={`hover:bg-muted/40 cursor-pointer border-b transition-colors ${selectedIds.has(tc.id) ? "bg-primary/5" : ""} ${expandedId === tc.id ? "bg-muted/20" : ""}`}
+          onClick={() => setExpandedId(expandedId === tc.id ? null : tc.id)}
+        >
+          <TableCell className={`pl-4 ${cellPy}`} onClick={(e) => e.stopPropagation()}>
+            <Checkbox checked={selectedIds.has(tc.id)} onCheckedChange={() => toggleSelect(tc.id)} />
+          </TableCell>
+          <TableCell className={cellPy}>
+            <Button variant="ghost" size="icon" className="w-6 h-6 p-0 hover:bg-transparent">
+              {expandedId === tc.id ? (
+                <ChevronDown className="w-4 h-4 text-primary" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+            </Button>
+          </TableCell>
+          <TableCell className={cellPy}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium line-clamp-1">{tc.title}</span>
+              {tc.aiAssisted && (
+                <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary uppercase shrink-0">
+                  <Sparkles className="w-2 h-2 text-primary" />
+                  AI
+                </Badge>
+              )}
+              {(tc.executionCount ?? 0) > 0 && (
+                <Badge variant="outline" className="text-[9px] h-4 border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400 shrink-0">
+                  In {tc.executionCount} run{tc.executionCount !== 1 ? "s" : ""}
+                </Badge>
+              )}
+            </div>
+          </TableCell>
+          <TableCell className={`${cellPy} text-muted-foreground truncate`}>
+            {tc.aiAssisted ? (tc.authorName ? `AI · ${tc.authorName}` : "AI") : tc.authorName || "—"}
+          </TableCell>
+          {viewMode === "comfy" && (
+            <TableCell className={cellPy}>
+              {tc.tags ? (
+                <div className="flex flex-wrap gap-1">
+                  {tc.tags.split(",").slice(0, 2).map((tag: string) => (
+                    <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap">
+                      {tag.trim()}
+                    </span>
+                  ))}
+                </div>
+              ) : "—"}
+            </TableCell>
+          )}
+          <TableCell className={`${cellPy} text-right`} onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openEdit(tc)}>
+                  <Pencil className="w-4 h-4 mr-2" />Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openCloneDialog(tc)}>
+                  <Copy className="w-4 h-4 mr-2" />Clone
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate({ id: tc.id })}>
+                  <Trash2 className="w-4 h-4 mr-2" />Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </TableCell>
+        </TableRow>
+
+        {expandedId === tc.id && (
+          <TableRow className="bg-muted/10 hover:bg-muted/10 border-b shadow-inner">
+            <TableCell colSpan={viewMode === "comfy" ? 6 : 5} className="p-0">
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
+                <div className="space-y-5">
+                  <DetailItem label="Redmine Ticket ID" value={tc.redmineUserStory} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <DetailItem label="Tracker" value={tc.tracker} />
+                    <DetailItem label="Redmine Defect #" value={tc.redmineDefectId} />
+                  </div>
+                  <DetailItem label="Scenario" value={tc.scenario} />
+                  <DetailItem label="Preconditions" value={tc.preconditions} />
+                  <DetailItem label="Test Data" value={tc.testData} />
+                </div>
+                <div className="space-y-5">
+                  <DetailItem label="Test Steps" value={tc.testSteps} isCode />
+                  <DetailItem label="Expected Result" value={tc.expectedResult} highlight />
+                  <DetailItem label="Additional / Comments / Issues" value={tc.comments} />
+                </div>
+              </div>
+            </TableCell>
+          </TableRow>
+        )}
+      </React.Fragment>
+    );
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1173,6 +1311,7 @@ export default function TestCases() {
                   { value: "newest", label: "Newest First" },
                   { value: "oldest", label: "Oldest First" },
                   { value: "updated", label: "Recently Updated" },
+                  { value: "requirement", label: "By Requirement" },
                 ]}
                 placeholder="Sort By"
                 searchPlaceholder="Search..."
@@ -1212,6 +1351,49 @@ export default function TestCases() {
                 searchPlaceholder="Search..."
                 className="flex-1 min-w-[110px]"
               />
+              <SearchableSelect
+                value={filterRequirement}
+                onValueChange={setFilterRequirement}
+                options={[
+                  { value: "all", label: "All Requirements" },
+                  ...requirements.map((r: any) => ({ value: String(r.id), label: r.title })),
+                ]}
+                placeholder="Requirement"
+                searchPlaceholder="Search requirement..."
+                className="flex-1 min-w-[140px]"
+              />
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant={groupByModule ? "default" : "outline"}
+                  size="sm"
+                  className="h-9 px-2.5 gap-1.5 text-xs"
+                  onClick={() => setGroupByModule((v) => !v)}
+                  title="Group by Module"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Group
+                </Button>
+                <div className="flex border rounded-md overflow-hidden ml-1">
+                  <Button
+                    variant={viewMode === "comfy" ? "default" : "ghost"}
+                    size="sm"
+                    className="h-9 px-2.5 rounded-none border-0 text-xs gap-1.5"
+                    onClick={() => setViewMode("comfy")}
+                    title="Comfy view"
+                  >
+                    <LayoutList className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant={viewMode === "compact" ? "default" : "ghost"}
+                    size="sm"
+                    className="h-9 px-2.5 rounded-none border-0 border-l text-xs gap-1.5"
+                    onClick={() => setViewMode("compact")}
+                    title="Compact view"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -1229,194 +1411,66 @@ export default function TestCases() {
             <div className="flex flex-col">
               {/* DESKTOP VIEW - Expandable List */}
               <div className="hidden lg:block overflow-x-auto w-full border-t">
-                <Table className="w-full text-sm">
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent border-b">
-                      <th className="w-12 pl-4 py-3">
-                        <Checkbox
-                          checked={allFilteredSelected}
-                          onCheckedChange={toggleSelectAll}
-                        />
-                      </th>
-                      <th className="w-8"></th>
-                      <th className="font-semibold text-muted-foreground text-left">
-                        Title
-                      </th>
-                      <th className="w-40 font-semibold text-muted-foreground text-left">
-                        Author
-                      </th>
-                      <th className="w-48 font-semibold text-muted-foreground text-left">
-                        Tags
-                      </th>
-                      <th className="w-16"></th>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedTestCases.map((tc) => (
-                      <React.Fragment key={tc.id}>
-                        <TableRow
-                          className={`hover:bg-muted/40 cursor-pointer border-b transition-colors ${selectedIds.has(tc.id) ? "bg-primary/5" : ""} ${expandedId === tc.id ? "bg-muted/20" : ""}`}
-                          onClick={() =>
-                            setExpandedId(expandedId === tc.id ? null : tc.id)
-                          }
-                        >
-                          <TableCell
-                            className="pl-4 py-3"
-                            onClick={(e) => e.stopPropagation()}
+                {groupByModule && groupedByModule ? (
+                  Object.entries(groupedByModule)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([moduleName, moduleTCs]) => {
+                      const isCollapsed = collapsedModules.has(moduleName);
+                      return (
+                        <div key={moduleName}>
+                          <div
+                            className="flex items-center gap-2 px-4 py-2 bg-muted/40 border-b cursor-pointer hover:bg-muted/50 transition-colors select-none"
+                            onClick={() => toggleModuleCollapse(moduleName)}
                           >
-                            <Checkbox
-                              checked={selectedIds.has(tc.id)}
-                              onCheckedChange={() => toggleSelect(tc.id)}
-                            />
-                          </TableCell>
-                          <TableCell className="py-3">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="w-6 h-6 p-0 hover:bg-transparent"
-                            >
-                              {expandedId === tc.id ? (
-                                <ChevronDown className="w-4 h-4 text-primary" />
-                              ) : (
-                                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                              )}
-                            </Button>
-                          </TableCell>
-                          <TableCell className="py-3">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium line-clamp-1">
-                                {tc.title}
-                              </span>
-                              {tc.aiAssisted && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[9px] h-4 bg-primary/10 text-primary uppercase shrink-0"
-                                >
-                                  <Sparkles className="w-2 h-2 text-primary" />
-                                  AI
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-3 text-muted-foreground truncate">
-                            {tc.aiAssisted
-                              ? tc.authorName ? `AI · ${tc.authorName}` : "AI"
-                              : tc.authorName || "—"}
-                          </TableCell>
-                          <TableCell className="py-3">
-                            {tc.tags ? (
-                              <div className="flex flex-wrap gap-1">
-                                {tc.tags
-                                  .split(",")
-                                  .slice(0, 2)
-                                  .map((tag) => (
-                                    <span
-                                      key={tag}
-                                      className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap"
-                                    >
-                                      {tag.trim()}
-                                    </span>
-                                  ))}
-                              </div>
+                            {isCollapsed ? (
+                              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                             ) : (
-                              "—"
+                              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
                             )}
-                          </TableCell>
-                          <TableCell
-                            className="py-3 text-right"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                >
-                                  <MoreHorizontal className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => openEdit(tc)}>
-                                  <Pencil className="w-4 h-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openCloneDialog(tc)}>
-                                  <Copy className="w-4 h-4 mr-2" />
-                                  Clone
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() =>
-                                    deleteMutation.mutate({ id: tc.id })
-                                  }
-                                >
-                                  <Trash2 className="w-4 h-4 mr-2" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-
-                        {/* EXPANDED DETAILS GRID */}
-                        {expandedId === tc.id && (
-                          <TableRow className="bg-muted/10 hover:bg-muted/10 border-b shadow-inner">
-                            <TableCell colSpan={6} className="p-0">
-                              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
-                                <div className="space-y-5">
-                                  <DetailItem
-                                    label="Redmine Ticket ID"
-                                    value={tc.redmineUserStory}
-                                  />
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <DetailItem
-                                      label="Tracker"
-                                      value={tc.tracker}
-                                    />
-                                    <DetailItem
-                                      label="Redmine Defect #"
-                                      value={tc.redmineDefectId}
-                                    />
-                                  </div>
-                                  <DetailItem
-                                    label="Scenario"
-                                    value={tc.scenario}
-                                  />
-                                  <DetailItem
-                                    label="Preconditions"
-                                    value={tc.preconditions}
-                                  />
-                                  <DetailItem
-                                    label="Test Data"
-                                    value={tc.testData}
-                                  />
-                                </div>
-                                <div className="space-y-5">
-                                  <DetailItem
-                                    label="Test Steps"
-                                    value={tc.testSteps}
-                                    isCode
-                                  />
-                                  <DetailItem
-                                    label="Expected Result"
-                                    value={tc.expectedResult}
-                                    highlight
-                                  />
-                                  <DetailItem
-                                    label="Additional / Comments / Issues"
-                                    value={tc.comments}
-                                  />
-                                </div>
-                              </div>
-                            </TableCell>
-                          </TableRow>
+                            <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
+                            <span className="font-semibold text-sm">{moduleName}</span>
+                            <Badge variant="secondary" className="text-[10px] h-4 ml-1">{moduleTCs.length}</Badge>
+                          </div>
+                          {!isCollapsed && (
+                            <Table className="w-full text-sm">
+                              <TableBody>
+                                {moduleTCs.map((tc: any) => tcTableRow(tc))}
+                              </TableBody>
+                            </Table>
+                          )}
+                        </div>
+                      );
+                    })
+                ) : (
+                  <Table className="w-full text-sm">
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent border-b">
+                        <th className="w-12 pl-4 py-3">
+                          <Checkbox
+                            checked={allFilteredSelected}
+                            onCheckedChange={toggleSelectAll}
+                          />
+                        </th>
+                        <th className="w-8"></th>
+                        <th className="font-semibold text-muted-foreground text-left">
+                          Title
+                        </th>
+                        <th className="w-40 font-semibold text-muted-foreground text-left">
+                          Author
+                        </th>
+                        {viewMode === "comfy" && (
+                          <th className="w-48 font-semibold text-muted-foreground text-left">
+                            Tags
+                          </th>
                         )}
-                      </React.Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
+                        <th className="w-16"></th>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedTestCases.map((tc) => tcTableRow(tc))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
 
               {/* MOBILE VIEW - Responsive Cards */}
@@ -1490,6 +1544,11 @@ export default function TestCases() {
                                 AI
                               </Badge>
                             )}
+                            {(tc.executionCount ?? 0) > 0 && (
+                              <Badge variant="outline" className="text-[9px] h-4 border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400">
+                                In {tc.executionCount} run{tc.executionCount !== 1 ? "s" : ""}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1535,42 +1594,49 @@ export default function TestCases() {
               </div>
 
               {/* Pagination Footer */}
-              <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-muted/10 border-t gap-3">
-                <div className="text-xs text-muted-foreground text-center sm:text-left">
-                  Showing{" "}
-                  <span className="font-medium">
-                    {filtered.length === 0
-                      ? 0
-                      : (currentPage - 1) * ITEMS_PER_PAGE + 1}
-                  </span>{" "}
-                  to{" "}
-                  <span className="font-medium">
-                    {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}
-                  </span>{" "}
-                  of <span className="font-medium">{filtered.length}</span>{" "}
-                  cases
+              {groupByModule ? (
+                <div className="px-4 py-3 bg-muted/10 border-t text-xs text-muted-foreground">
+                  <span className="font-medium">{filtered.length}</span> case{filtered.length !== 1 ? "s" : ""} across{" "}
+                  <span className="font-medium">{groupedByModule ? Object.keys(groupedByModule).length : 0}</span> module{groupedByModule && Object.keys(groupedByModule).length !== 1 ? "s" : ""}
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Prev
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setCurrentPage((p) => Math.min(totalPages, p + 1))
-                    }
-                    disabled={currentPage >= totalPages || totalPages === 0}
-                  >
-                    Next
-                  </Button>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-muted/10 border-t gap-3">
+                  <div className="text-xs text-muted-foreground text-center sm:text-left">
+                    Showing{" "}
+                    <span className="font-medium">
+                      {filtered.length === 0
+                        ? 0
+                        : (currentPage - 1) * ITEMS_PER_PAGE + 1}
+                    </span>{" "}
+                    to{" "}
+                    <span className="font-medium">
+                      {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}
+                    </span>{" "}
+                    of <span className="font-medium">{filtered.length}</span>{" "}
+                    cases
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setCurrentPage((p) => Math.min(totalPages, p + 1))
+                      }
+                      disabled={currentPage >= totalPages || totalPages === 0}
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </CardContent>

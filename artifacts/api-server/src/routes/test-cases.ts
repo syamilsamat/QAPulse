@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
@@ -9,6 +9,7 @@ import {
   projectsTable,
   requirementsTable,
   activityTable,
+  executionTestCasesTable,
 } from "@workspace/db";
 import {
   CreateTestCaseBody,
@@ -323,7 +324,21 @@ router.get("/test-cases", async (req, res): Promise<void> => {
     if (search) tcs = tcs.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()));
   }
   const formatted = await Promise.all(tcs.map(formatTestCase));
-  res.json(formatted);
+
+  const tcIds = tcs.map((t) => t.id);
+  const execCountMap: Record<number, number> = {};
+  if (tcIds.length > 0) {
+    const rows = await db
+      .select({ libraryTcId: executionTestCasesTable.libraryTcId, cnt: sql<number>`count(*)::int` })
+      .from(executionTestCasesTable)
+      .where(inArray(executionTestCasesTable.libraryTcId, tcIds))
+      .groupBy(executionTestCasesTable.libraryTcId);
+    for (const row of rows) {
+      if (row.libraryTcId != null) execCountMap[row.libraryTcId] = row.cnt;
+    }
+  }
+
+  res.json(formatted.map((tc) => ({ ...tc, executionCount: execCountMap[tc.id] ?? 0 })));
 });
 
 router.post("/test-cases", async (req, res): Promise<void> => {
