@@ -1,12 +1,14 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { 
-  db, 
-  requirementsTable, 
-  usersTable, 
-  projectsTable, 
+import { eq, inArray, sql } from "drizzle-orm";
+import {
+  db,
+  requirementsTable,
+  usersTable,
+  projectsTable,
   activityTable,
-  insertRequirementSchema 
+  insertRequirementSchema,
+  testCasesTable,
+  executionTestCasesTable,
 } from "@workspace/db";
 import {
   GetRequirementParams,
@@ -66,7 +68,48 @@ router.get("/requirements", async (req, res): Promise<void> => {
   }
 
   const formatted = await Promise.all(reqs.map(formatRequirement));
-  res.json(formatted);
+
+  const reqIds = reqs.map((r) => r.id);
+  const tcCountMap: Record<number, number> = {};
+  const execMap: Record<number, { pass: number; fail: number; pending: number }> = {};
+
+  if (reqIds.length > 0) {
+    const tcRows = await db
+      .select({ requirementId: testCasesTable.requirementId, cnt: sql<number>`count(*)::int` })
+      .from(testCasesTable)
+      .where(inArray(testCasesTable.requirementId, reqIds))
+      .groupBy(testCasesTable.requirementId);
+    for (const row of tcRows) {
+      if (row.requirementId != null) tcCountMap[row.requirementId] = row.cnt;
+    }
+
+    const execRows = await db
+      .select({
+        requirementId: testCasesTable.requirementId,
+        result: executionTestCasesTable.result,
+        cnt: sql<number>`count(*)::int`,
+      })
+      .from(executionTestCasesTable)
+      .innerJoin(testCasesTable, eq(testCasesTable.id, executionTestCasesTable.libraryTcId))
+      .where(inArray(testCasesTable.requirementId, reqIds))
+      .groupBy(testCasesTable.requirementId, executionTestCasesTable.result);
+    for (const row of execRows) {
+      if (row.requirementId == null) continue;
+      if (!execMap[row.requirementId]) execMap[row.requirementId] = { pass: 0, fail: 0, pending: 0 };
+      const r = (row.result ?? "").toLowerCase();
+      if (r.startsWith("pass")) execMap[row.requirementId].pass += row.cnt;
+      else if (r.startsWith("fail")) execMap[row.requirementId].fail += row.cnt;
+      else execMap[row.requirementId].pending += row.cnt;
+    }
+  }
+
+  res.json(formatted.map((r) => ({
+    ...r,
+    tcCount: tcCountMap[r.id] ?? 0,
+    execPass: execMap[r.id]?.pass ?? 0,
+    execFail: execMap[r.id]?.fail ?? 0,
+    execPending: execMap[r.id]?.pending ?? 0,
+  })));
 });
 
 router.post("/requirements", async (req, res): Promise<void> => {
