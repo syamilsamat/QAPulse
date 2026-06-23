@@ -11,6 +11,7 @@ export const usersTable = pgTable("users", {
   team: text("team"),
   avatarUrl: text("avatar_url"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   redmineApiKey: text("redmine_api_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
