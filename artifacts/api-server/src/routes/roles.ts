@@ -112,165 +112,199 @@ function getRoleFromToken(req: import("express").Request): string | null {
   }
 }
 
+function jsonError(res: import("express").Response, status: number, message: string) {
+  res.status(status).json({ error: message });
+}
+
 // ─── Role CRUD ───────────────────────────────────────────────────────────────
 
 router.get("/roles", async (req, res): Promise<void> => {
-  await bootstrap();
-  const roles = await db.select().from(rolesTable).orderBy(rolesTable.createdAt);
-  const counts = await db
-    .select({ role: usersTable.role, count: sql<number>`count(*)::int` })
-    .from(usersTable)
-    .groupBy(usersTable.role);
-  const countMap: Record<string, number> = {};
-  for (const row of counts) countMap[row.role] = row.count;
-  res.json(roles.map((r) => formatRole(r, countMap[r.name] ?? 0)));
+  try {
+    await bootstrap();
+    const roles = await db.select().from(rolesTable).orderBy(rolesTable.createdAt);
+    const counts = await db
+      .select({ role: usersTable.role, count: sql<number>`count(*)::int` })
+      .from(usersTable)
+      .groupBy(usersTable.role);
+    const countMap: Record<string, number> = {};
+    for (const row of counts) countMap[row.role] = row.count;
+    res.json(roles.map((r) => formatRole(r, countMap[r.name] ?? 0)));
+  } catch (err: any) {
+    console.error("[GET /roles]", err);
+    jsonError(res, 500, err?.message ?? "Failed to load roles");
+  }
 });
 
 router.post("/roles", async (req, res): Promise<void> => {
-  await bootstrap();
-  const name = req.body.name?.trim();
-  const description = req.body.description?.trim() || null;
-  if (!name) { res.status(400).json({ error: "Role name is required" }); return; }
+  try {
+    await bootstrap();
+    const name = req.body.name?.trim();
+    const description = req.body.description?.trim() || null;
+    if (!name) { jsonError(res, 400, "Role name is required"); return; }
 
-  const existing = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.name, name));
-  if (existing.length > 0) { res.status(409).json({ error: `A role named "${name}" already exists` }); return; }
+    const existing = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.name, name));
+    if (existing.length > 0) { jsonError(res, 409, `A role named "${name}" already exists`); return; }
 
-  const [role] = await db.insert(rolesTable).values({ name, description, isSystem: false }).returning();
+    const [role] = await db.insert(rolesTable).values({ name, description, isSystem: false }).returning();
 
-  // New custom roles get all nav permissions by default
-  for (const key of ALL_NAV_KEYS) {
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [role.id, key]
-    );
+    for (const key of ALL_NAV_KEYS) {
+      await pool.query(
+        `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [role.id, key]
+      );
+    }
+
+    res.status(201).json(formatRole(role, 0));
+  } catch (err: any) {
+    console.error("[POST /roles]", err);
+    jsonError(res, 500, err?.message ?? "Failed to create role");
   }
-
-  res.status(201).json(formatRole(role, 0));
 });
 
 router.patch("/roles/:id", async (req, res): Promise<void> => {
-  await bootstrap();
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid role ID" }); return; }
+  try {
+    await bootstrap();
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }
 
-  const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
-  if (!role) { res.status(404).json({ error: "Role not found" }); return; }
+    const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
+    if (!role) { jsonError(res, 404, "Role not found"); return; }
 
-  const newName = req.body.name?.trim();
-  const newDescription = req.body.description !== undefined ? (req.body.description?.trim() || null) : undefined;
+    const newName = req.body.name?.trim();
+    const newDescription = req.body.description !== undefined ? (req.body.description?.trim() || null) : undefined;
 
-  if (role.isSystem && newName && newName !== role.name) {
-    res.status(403).json({ error: "System role names cannot be changed" }); return;
+    if (role.isSystem && newName && newName !== role.name) {
+      jsonError(res, 403, "System role names cannot be changed"); return;
+    }
+
+    if (newName && newName !== role.name) {
+      const conflict = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.name, newName));
+      if (conflict.length > 0) { jsonError(res, 409, `A role named "${newName}" already exists`); return; }
+      await db.update(usersTable).set({ role: newName }).where(eq(usersTable.role, role.name));
+    }
+
+    const updateData: Partial<typeof rolesTable.$inferInsert> = {};
+    if (newName) updateData.name = newName;
+    if (newDescription !== undefined) updateData.description = newDescription;
+
+    const [updated] = await db.update(rolesTable).set(updateData).where(eq(rolesTable.id, id)).returning();
+    res.json(formatRole(updated));
+  } catch (err: any) {
+    console.error("[PATCH /roles/:id]", err);
+    jsonError(res, 500, err?.message ?? "Failed to update role");
   }
-
-  if (newName && newName !== role.name) {
-    const conflict = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.name, newName));
-    if (conflict.length > 0) { res.status(409).json({ error: `A role named "${newName}" already exists` }); return; }
-    await db.update(usersTable).set({ role: newName }).where(eq(usersTable.role, role.name));
-  }
-
-  const updateData: Partial<typeof rolesTable.$inferInsert> = {};
-  if (newName) updateData.name = newName;
-  if (newDescription !== undefined) updateData.description = newDescription;
-
-  const [updated] = await db.update(rolesTable).set(updateData).where(eq(rolesTable.id, id)).returning();
-  res.json(formatRole(updated));
 });
 
 router.delete("/roles/:id", async (req, res): Promise<void> => {
-  await bootstrap();
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid role ID" }); return; }
+  try {
+    await bootstrap();
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }
 
-  const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
-  if (!role) { res.status(404).json({ error: "Role not found" }); return; }
-  if (role.isSystem) { res.status(403).json({ error: "System roles cannot be deleted" }); return; }
+    const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
+    if (!role) { jsonError(res, 404, "Role not found"); return; }
+    if (role.isSystem) { jsonError(res, 403, "System roles cannot be deleted"); return; }
 
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(usersTable)
-    .where(eq(usersTable.role, role.name));
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(usersTable)
+      .where(eq(usersTable.role, role.name));
 
-  if (count > 0) {
-    res.status(409).json({
-      error: `Cannot delete "${role.name}". ${count} user${count === 1 ? " has" : "s have"} this role — switch their role first before deleting.`,
-      userCount: count,
-    });
-    return;
+    if (count > 0) {
+      res.status(409).json({
+        error: `Cannot delete "${role.name}". ${count} user${count === 1 ? " has" : "s have"} this role — switch their role first before deleting.`,
+        userCount: count,
+      });
+      return;
+    }
+
+    await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
+    await db.delete(rolesTable).where(eq(rolesTable.id, id));
+    res.sendStatus(204);
+  } catch (err: any) {
+    console.error("[DELETE /roles/:id]", err);
+    jsonError(res, 500, err?.message ?? "Failed to delete role");
   }
-
-  await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
-  await db.delete(rolesTable).where(eq(rolesTable.id, id));
-  res.sendStatus(204);
 });
 
 // ─── Nav Permissions ─────────────────────────────────────────────────────────
 
 router.get("/roles/:id/permissions", async (req, res): Promise<void> => {
-  await bootstrap();
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid role ID" }); return; }
+  try {
+    await bootstrap();
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }
 
-  const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
-  if (!role) { res.status(404).json({ error: "Role not found" }); return; }
+    const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
+    if (!role) { jsonError(res, 404, "Role not found"); return; }
 
-  // Admin always has all permissions
-  if (role.isSystem && role.name === "admin") {
-    res.json({ permissions: ALL_NAV_KEYS }); return;
+    if (role.isSystem && role.name === "admin") {
+      res.json({ permissions: ALL_NAV_KEYS }); return;
+    }
+
+    const { rows } = await pool.query<{ permission_key: string }>(
+      `SELECT permission_key FROM role_nav_permissions WHERE role_id = $1`, [id]
+    );
+    res.json({ permissions: rows.map((r) => r.permission_key) });
+  } catch (err: any) {
+    console.error("[GET /roles/:id/permissions]", err);
+    jsonError(res, 500, err?.message ?? "Failed to load permissions");
   }
-
-  const { rows } = await pool.query<{ permission_key: string }>(
-    `SELECT permission_key FROM role_nav_permissions WHERE role_id = $1`, [id]
-  );
-  res.json({ permissions: rows.map((r) => r.permission_key) });
 });
 
 router.put("/roles/:id/permissions", async (req, res): Promise<void> => {
-  await bootstrap();
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid role ID" }); return; }
+  try {
+    await bootstrap();
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }
 
-  const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
-  if (!role) { res.status(404).json({ error: "Role not found" }); return; }
-  if (role.isSystem && role.name === "admin") {
-    res.status(403).json({ error: "Admin permissions cannot be changed" }); return;
+    const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, id));
+    if (!role) { jsonError(res, 404, "Role not found"); return; }
+    if (role.isSystem && role.name === "admin") {
+      jsonError(res, 403, "Admin permissions cannot be changed"); return;
+    }
+
+    const permissions: string[] = Array.isArray(req.body.permissions) ? req.body.permissions : [];
+    const validKeys = permissions.filter((k) => ALL_NAV_KEYS.includes(k));
+
+    await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
+    for (const key of validKeys) {
+      await pool.query(
+        `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [id, key]
+      );
+    }
+
+    res.json({ permissions: validKeys });
+  } catch (err: any) {
+    console.error("[PUT /roles/:id/permissions]", err);
+    jsonError(res, 500, err?.message ?? "Failed to save permissions");
   }
-
-  const permissions: string[] = Array.isArray(req.body.permissions) ? req.body.permissions : [];
-  const validKeys = permissions.filter((k) => ALL_NAV_KEYS.includes(k));
-
-  // Replace all permissions for this role
-  await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
-  for (const key of validKeys) {
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [id, key]
-    );
-  }
-
-  res.json({ permissions: validKeys });
 });
 
 // Returns nav permission keys for the currently authenticated user (used by the sidebar)
 router.get("/my-nav-permissions", async (req, res): Promise<void> => {
-  await bootstrap();
-  const roleName = getRoleFromToken(req);
-  if (!roleName) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    await bootstrap();
+    const roleName = getRoleFromToken(req);
+    if (!roleName) { jsonError(res, 401, "Unauthorized"); return; }
 
-  // Admin always has everything
-  if (roleName === "admin") { res.json(ALL_NAV_KEYS); return; }
+    if (roleName === "admin") { res.json(ALL_NAV_KEYS); return; }
 
-  const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, roleName));
-  if (!roleRow) {
-    // Role not in DB yet — fall back to defaults
-    res.json(DEFAULT_PERMISSIONS[roleName] ?? ALL_NAV_KEYS);
-    return;
+    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, roleName));
+    if (!roleRow) {
+      res.json(DEFAULT_PERMISSIONS[roleName] ?? ALL_NAV_KEYS);
+      return;
+    }
+
+    const { rows: permRows } = await pool.query<{ permission_key: string }>(
+      `SELECT permission_key FROM role_nav_permissions WHERE role_id = $1`, [roleRow.id]
+    );
+    res.json(permRows.map((r) => r.permission_key));
+  } catch (err: any) {
+    console.error("[GET /my-nav-permissions]", err);
+    jsonError(res, 500, err?.message ?? "Failed to load nav permissions");
   }
-
-  const { rows: permRows } = await pool.query<{ permission_key: string }>(
-    `SELECT permission_key FROM role_nav_permissions WHERE role_id = $1`, [roleRow.id]
-  );
-  res.json(permRows.map((r) => r.permission_key));
 });
 
 export default router;

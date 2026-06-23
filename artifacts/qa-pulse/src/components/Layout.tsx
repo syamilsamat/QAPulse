@@ -400,20 +400,13 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-slate-500",
     roles: ["qa_lead", "admin"],
     permKey: "nav:configurations",
-    subItems: [
-      {
-        href: "/configurations",
-        label: "Module & Project",
-        icon: Columns3Cog,
-        activeColor: "text-slate-500",
-      },
-      {
-        href: "/roles",
-        label: "Roles",
-        icon: Shield,
-        activeColor: "text-slate-400",
-      },
-    ],
+  },
+  {
+    href: "/roles",
+    label: "Roles",
+    icon: Shield,
+    activeColor: "text-slate-400",
+    roles: ["admin"],
   },
   {
     href: "/settings",
