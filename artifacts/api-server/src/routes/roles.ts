@@ -8,9 +8,10 @@ const router: IRouter = Router();
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_ROLES = [
-  { name: "admin", description: "Full system access", isSystem: true },
-  { name: "qa_lead", description: "Team lead with elevated permissions", isSystem: false },
-  { name: "qa_member", description: "Standard QA team member", isSystem: false },
+  { name: "admin",     description: "Admin",      isSystem: true },
+  { name: "qa_lead",   description: "QA Lead",    isSystem: false },
+  { name: "qa_member", description: "QA Member",  isSystem: false },
+  { name: "pmo",       description: "PMO",        isSystem: true },
 ];
 
 export const ALL_NAV_KEYS = [
@@ -31,6 +32,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin: ALL_NAV_KEYS,
   qa_lead: ["nav:requirements", "nav:test-cases", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
   qa_member: ["nav:requirements", "nav:test-cases", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts"],
+  pmo: [],
 };
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
@@ -60,7 +62,8 @@ async function bootstrap() {
 
   for (const role of DEFAULT_ROLES) {
     await pool.query(
-      `INSERT INTO roles (name, description, is_system) VALUES ($1, $2, $3) ON CONFLICT (name) DO NOTHING`,
+      `INSERT INTO roles (name, description, is_system) VALUES ($1, $2, $3)
+       ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, is_system = EXCLUDED.is_system`,
       [role.name, role.description, role.isSystem]
     );
   }

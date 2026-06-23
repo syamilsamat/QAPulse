@@ -156,7 +156,7 @@ export default function Team() {
     : null;
   const isAdmin = currentUser?.role === "admin";
 
-  const { data: dbRoles = [] } = useQuery<{ id: number; name: string }[]>({
+  const { data: dbRoles = [] } = useQuery<{ id: number; name: string; description: string | null }[]>({
     queryKey: ["roles"],
     queryFn: async () => {
       const res = await fetch(`${getApiUrl()}/roles`, {
@@ -169,11 +169,15 @@ export default function Team() {
     enabled: isAdmin,
   });
 
+  const roleLabelMap: Record<string, string> = Object.fromEntries(
+    dbRoles.map((r) => [r.name, r.description || formatRoleLabel(r.name)])
+  );
+
   const roleOptions = (
     dbRoles.length > 0
       ? dbRoles.filter((r) => r.name !== "pmo")
-      : [{ name: "qa_member" }, { name: "qa_lead" }, { name: "admin" }]
-  ).map((r) => ({ value: r.name, label: formatRoleLabel(r.name) }));
+      : [{ name: "qa_member", description: "QA Member" }, { name: "qa_lead", description: "QA Lead" }, { name: "admin", description: "Admin" }]
+  ).map((r) => ({ value: r.name, label: r.description || formatRoleLabel(r.name) }));
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -261,7 +265,7 @@ export default function Team() {
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full font-medium ${getRoleColor(u.role)}`}
                         >
-                          {formatRoleLabel(u.role)}
+                          {roleLabelMap[u.role] || formatRoleLabel(u.role)}
                         </span>
                         {u.team && (
                           <span className="text-xs text-muted-foreground">
@@ -302,7 +306,7 @@ export default function Team() {
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 inline-block ${getRoleColor(selectedUser.role)}`}
                     >
-                      {formatRoleLabel(selectedUser.role)}
+                      {roleLabelMap[selectedUser.role] || formatRoleLabel(selectedUser.role)}
                     </span>
                   </div>
                 </div>
