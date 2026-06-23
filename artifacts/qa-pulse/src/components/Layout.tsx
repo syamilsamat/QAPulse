@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog } from 'lucide-react';
+import { Columns3Cog, Shield } from 'lucide-react';
 
 import {
   HoverPulse,
@@ -387,6 +387,20 @@ const NAV_ITEMS: NavItem[] = [
     icon: Columns3Cog,
     activeColor: "text-slate-500",
     roles: ["qa_lead", "admin"],
+    subItems: [
+      {
+        href: "/configurations",
+        label: "Module & Project",
+        icon: Columns3Cog,
+        activeColor: "text-slate-500",
+      },
+      {
+        href: "/roles",
+        label: "Roles",
+        icon: Shield,
+        activeColor: "text-slate-400",
+      },
+    ],
   },
   {
     href: "/settings",

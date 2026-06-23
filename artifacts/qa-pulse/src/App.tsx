@@ -25,7 +25,8 @@ import ReportDashboard from "@/pages/ReportDashboard";
 import TestExecutionDetails from "@/pages/TestExecutionDetail";
 import TestCasesExecution from "@/pages/TestCasesExecution";
 import TestCasesExecutionProgressPage from "@/pages/TestCasesExecutionProgressPage";
-import ModuleAndProject from "@/pages/ModuleAndProject"; // <-- Added Import
+import ModuleAndProject from "@/pages/ModuleAndProject";
+import Roles from "@/pages/Roles";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -135,6 +136,10 @@ function Router() {
           component={ModuleAndProject}
           roles={["qa_lead", "admin"]}
         />
+      </Route>
+
+      <Route path="/roles">
+        <ProtectedRoute component={Roles} roles={["admin"]} />
       </Route>
 
       <Route path="/test-cases/execution-details/:ticketId">
