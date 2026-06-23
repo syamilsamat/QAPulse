@@ -621,8 +621,8 @@ export default function Requirements() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col lg:flex-row gap-3">
-            <div className="relative w-full lg:flex-1">
+          <div className="flex flex-col gap-3">
+            <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9 w-full"
@@ -631,7 +631,7 @@ export default function Requirements() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="flex flex-wrap gap-2 w-full lg:w-auto shrink-0">
+            <div className="flex flex-wrap gap-2 w-full items-center">
               <SearchableSelect
                 value={sortBy}
                 onValueChange={setSortBy}
@@ -720,7 +720,7 @@ export default function Requirements() {
           ) : (
             <div className="flex flex-col">
               <div className="overflow-x-auto w-full">
-                <Table className="min-w-[800px]">
+                <Table className={viewMode === "compact" ? "min-w-[400px]" : "min-w-[800px]"}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12 text-center">
@@ -732,9 +732,9 @@ export default function Requirements() {
                       </TableHead>
                       <TableHead>
                         <div className="flex items-center gap-2">
-                          <button 
-                            onClick={toggleAllExpand} 
-                            title="Expand/Collapse All" 
+                          <button
+                            onClick={toggleAllExpand}
+                            title="Expand/Collapse All"
                             className="p-1 hover:bg-muted rounded text-muted-foreground transition-colors"
                           >
                             <ChevronsUpDown className="w-4 h-4" />
@@ -742,9 +742,9 @@ export default function Requirements() {
                           Title
                         </div>
                       </TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead>Module</TableHead>
-                      <TableHead>Priority</TableHead>
+                      {viewMode === "comfy" && <TableHead>Project</TableHead>}
+                      {viewMode === "comfy" && <TableHead>Module</TableHead>}
+                      {viewMode === "comfy" && <TableHead>Priority</TableHead>}
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -776,19 +776,11 @@ export default function Requirements() {
                             ) : (
                               <div className="w-5 shrink-0" />
                             )}
-                            <div>
-                              <p className="font-medium line-clamp-2">{r.title}</p>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {viewMode === "compact" ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium">{r.title}</span>
                                 {r.redmineTicketId && (
-                                  <a
-                                    href={`https://redmine.bestinet.my/issues/${r.redmineTicketId}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 w-fit"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <ExternalLink className="w-3 h-3" />#{r.redmineTicketId}
-                                  </a>
+                                  <span className="text-xs text-muted-foreground">#{r.redmineTicketId}</span>
                                 )}
                                 {(r.tcCount ?? 0) > 0 && (
                                   <button
@@ -801,29 +793,63 @@ export default function Requirements() {
                                 )}
                                 {((r.execPass ?? 0) > 0 || (r.execFail ?? 0) > 0) && (
                                   <span className="text-[10px] flex items-center gap-1.5">
-                                    {(r.execPass ?? 0) > 0 && (
-                                      <span className="text-green-600 dark:text-green-400 font-medium">✓{r.execPass}</span>
-                                    )}
-                                    {(r.execFail ?? 0) > 0 && (
-                                      <span className="text-red-600 dark:text-red-400 font-medium">✗{r.execFail}</span>
-                                    )}
+                                    {(r.execPass ?? 0) > 0 && <span className="text-green-600 dark:text-green-400 font-medium">✓{r.execPass}</span>}
+                                    {(r.execFail ?? 0) > 0 && <span className="text-red-600 dark:text-red-400 font-medium">✗{r.execFail}</span>}
                                   </span>
                                 )}
                               </div>
-                            </div>
+                            ) : (
+                              <div>
+                                <p className="font-medium line-clamp-2">{r.title}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  {r.redmineTicketId && (
+                                    <a
+                                      href={`https://redmine.bestinet.my/issues/${r.redmineTicketId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 w-fit"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <ExternalLink className="w-3 h-3" />#{r.redmineTicketId}
+                                    </a>
+                                  )}
+                                  {(r.tcCount ?? 0) > 0 && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
+                                      className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800 flex items-center gap-1 transition-colors"
+                                    >
+                                      <TestTube className="w-2.5 h-2.5" />
+                                      {r.tcCount} TC{r.tcCount !== 1 ? "s" : ""}
+                                    </button>
+                                  )}
+                                  {((r.execPass ?? 0) > 0 || (r.execFail ?? 0) > 0) && (
+                                    <span className="text-[10px] flex items-center gap-1.5">
+                                      {(r.execPass ?? 0) > 0 && <span className="text-green-600 dark:text-green-400 font-medium">✓{r.execPass}</span>}
+                                      {(r.execFail ?? 0) > 0 && <span className="text-red-600 dark:text-red-400 font-medium">✗{r.execFail}</span>}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </TableCell>
-                        <TableCell className={`text-sm text-muted-foreground whitespace-nowrap ${cellPy}`}>
-                          {r.projectName ?? "—"}
-                        </TableCell>
-                        <TableCell className={`text-sm text-muted-foreground whitespace-nowrap ${cellPy}`}>
-                          {r.module ?? "—"}
-                        </TableCell>
-                        <TableCell className={cellPy}>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PRIORITY_COLORS[r.priority]}`}>
-                            {capitalize(r.priority)}
-                          </span>
-                        </TableCell>
+                        {viewMode === "comfy" && (
+                          <TableCell className={`text-sm text-muted-foreground whitespace-nowrap ${cellPy}`}>
+                            {r.projectName ?? "—"}
+                          </TableCell>
+                        )}
+                        {viewMode === "comfy" && (
+                          <TableCell className={`text-sm text-muted-foreground whitespace-nowrap ${cellPy}`}>
+                            {r.module ?? "—"}
+                          </TableCell>
+                        )}
+                        {viewMode === "comfy" && (
+                          <TableCell className={cellPy}>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PRIORITY_COLORS[r.priority]}`}>
+                              {capitalize(r.priority)}
+                            </span>
+                          </TableCell>
+                        )}
                         <TableCell className={cellPy}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>

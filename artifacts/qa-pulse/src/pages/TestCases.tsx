@@ -1145,9 +1145,11 @@ export default function TestCases() {
               )}
             </div>
           </TableCell>
-          <TableCell className={`${cellPy} text-muted-foreground truncate`}>
-            {tc.aiAssisted ? (tc.authorName ? `AI · ${tc.authorName}` : "AI") : tc.authorName || "—"}
-          </TableCell>
+          {viewMode === "comfy" && (
+            <TableCell className={`${cellPy} text-muted-foreground truncate`}>
+              {tc.aiAssisted ? (tc.authorName ? `AI · ${tc.authorName}` : "AI") : tc.authorName || "—"}
+            </TableCell>
+          )}
           {viewMode === "comfy" && (
             <TableCell className={cellPy}>
               {tc.tags ? (
@@ -1186,7 +1188,7 @@ export default function TestCases() {
 
         {expandedId === tc.id && (
           <TableRow className="bg-muted/10 hover:bg-muted/10 border-b shadow-inner">
-            <TableCell colSpan={viewMode === "comfy" ? 6 : 5} className="p-0">
+            <TableCell colSpan={viewMode === "comfy" ? 6 : 4} className="p-0">
               <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
                 <div className="space-y-5">
                   <DetailItem label="Redmine Ticket ID" value={tc.redmineUserStory} />
@@ -1298,8 +1300,8 @@ export default function TestCases() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col lg:flex-row gap-3">
-            <div className="relative w-full lg:flex-1">
+          <div className="flex flex-col gap-3">
+            <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Search case name, story, tracker..."
@@ -1308,7 +1310,7 @@ export default function TestCases() {
                 className="pl-9 w-full"
               />
             </div>
-            <div className="flex flex-wrap gap-2 w-full lg:w-auto shrink-0">
+            <div className="flex flex-wrap gap-2 w-full items-center">
               <SearchableSelect
                 value={sortBy}
                 onValueChange={setSortBy}
@@ -1460,9 +1462,11 @@ export default function TestCases() {
                         <th className="font-semibold text-muted-foreground text-left">
                           Title
                         </th>
-                        <th className="w-40 font-semibold text-muted-foreground text-left">
-                          Author
-                        </th>
+                        {viewMode === "comfy" && (
+                          <th className="w-40 font-semibold text-muted-foreground text-left">
+                            Author
+                          </th>
+                        )}
                         {viewMode === "comfy" && (
                           <th className="w-48 font-semibold text-muted-foreground text-left">
                             Tags
