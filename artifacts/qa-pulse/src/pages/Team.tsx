@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/api";
 import {
   listUsers,
   getListUsersQueryKey,
@@ -56,8 +57,15 @@ const ROLE_COLORS: Record<string, string> = {
   admin: "bg-purple-100 text-purple-700",
 };
 
+function formatRoleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function getRoleColor(role: string) {
+  return ROLE_COLORS[role] ?? "bg-gray-100 text-gray-700";
+}
+
 export default function Team() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -148,6 +156,25 @@ export default function Team() {
     : null;
   const isAdmin = currentUser?.role === "admin";
 
+  const { data: dbRoles = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["roles"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/roles`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: isAdmin,
+  });
+
+  const roleOptions = (
+    dbRoles.length > 0
+      ? dbRoles.filter((r) => r.name !== "pmo")
+      : [{ name: "qa_member" }, { name: "qa_lead" }, { name: "admin" }]
+  ).map((r) => ({ value: r.name, label: formatRoleLabel(r.name) }));
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -179,12 +206,7 @@ export default function Team() {
         <SearchableSelect
           value={filterRole}
           onValueChange={setFilterRole}
-          options={[
-            { value: "all", label: "All Roles" },
-            { value: "qa_member", label: "QA Member" },
-            { value: "qa_lead", label: "QA Lead" },
-            { value: "admin", label: "Admin" },
-          ]}
+          options={[{ value: "all", label: "All Roles" }, ...roleOptions]}
           placeholder="Role"
           searchPlaceholder="Search role..."
           className="w-40"
@@ -237,9 +259,9 @@ export default function Team() {
                       </p>
                       <div className="flex items-center gap-2 mt-2">
                         <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role]}`}
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${getRoleColor(u.role)}`}
                         >
-                          {ROLE_LABELS[u.role]}
+                          {formatRoleLabel(u.role)}
                         </span>
                         {u.team && (
                           <span className="text-xs text-muted-foreground">
@@ -278,9 +300,9 @@ export default function Team() {
                       {selectedUser.email}
                     </p>
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 inline-block ${ROLE_COLORS[selectedUser.role]}`}
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 inline-block ${getRoleColor(selectedUser.role)}`}
                     >
-                      {ROLE_LABELS[selectedUser.role]}
+                      {formatRoleLabel(selectedUser.role)}
                     </span>
                   </div>
                 </div>
@@ -406,11 +428,7 @@ export default function Team() {
                 <SearchableSelect
                   value={form.role ?? "qa_member"}
                   onValueChange={(v) => setForm({ ...form, role: v as any })}
-                  options={[
-                    { value: "qa_member", label: "QA Member" },
-                    { value: "qa_lead", label: "QA Lead" },
-                    { value: "admin", label: "Admin" },
-                  ]}
+                  options={roleOptions}
                   searchPlaceholder="Search role..."
                 />
               </div>
