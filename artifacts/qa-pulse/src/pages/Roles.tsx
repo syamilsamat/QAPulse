@@ -254,7 +254,7 @@ export default function Roles() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Role Name</TableHead>
-                  <TableHead>Description</TableHead>
+                  <TableHead>Display Name</TableHead>
                   <TableHead className="text-center w-28">Users</TableHead>
                   <TableHead className="text-center w-24">Type</TableHead>
                   <TableHead className="w-24" />
@@ -345,13 +345,13 @@ export default function Roles() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="create-desc">Description</Label>
+              <Label htmlFor="create-desc">Display Name</Label>
               <Textarea
                 id="create-desc"
-                placeholder="What can this role do?"
+                placeholder="e.g. QA Manager"
                 value={formDesc}
                 onChange={(e) => setFormDesc(e.target.value)}
-                rows={3}
+                rows={2}
               />
             </div>
           </div>
@@ -387,12 +387,12 @@ export default function Roles() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-desc">Description</Label>
+              <Label htmlFor="edit-desc">Display Name</Label>
               <Textarea
                 id="edit-desc"
                 value={formDesc}
                 onChange={(e) => setFormDesc(e.target.value)}
-                rows={3}
+                rows={2}
               />
             </div>
           </div>
