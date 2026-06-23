@@ -494,6 +494,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     className={`flex items-center gap-3 py-2 rounded-md cursor-pointer transition-colors text-sm group ${
                       location === item.href
                         ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                        : isParentActive
+                        ? "bg-sidebar-accent/40 text-sidebar-foreground font-medium hover:bg-sidebar-accent/60"
                         : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                     } ${show ? "justify-center px-2" : "px-3"}`}
                     onClick={() => setIsMobileMenuOpen(false)}
@@ -630,9 +632,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
               onMouseEnter={() => { if (flyoutTimer.current) clearTimeout(flyoutTimer.current); }}
               onMouseLeave={() => { flyoutTimer.current = setTimeout(() => setFlyout(null), 120); }}
             >
-              <p className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-sidebar-border/50 mb-1">
-                {activeItem.label}
-              </p>
+              <Link href={activeItem.href} onClick={() => setFlyout(null)}>
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-sidebar-border/50 mb-1 hover:text-sidebar-foreground cursor-pointer transition-colors">
+                  {activeItem.label}
+                </div>
+              </Link>
               {activeItem.subItems.map((sub) => {
                 const SubIcon = sub.icon;
                 const isActive = location === sub.href;
