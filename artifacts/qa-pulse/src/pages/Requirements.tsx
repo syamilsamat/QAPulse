@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listRequirements,
@@ -61,7 +62,10 @@ import {
   ArrowUpDown,
   ChevronRight,
   ChevronDown,
-  ChevronsUpDown
+  ChevronsUpDown,
+  TestTube,
+  LayoutList,
+  List,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -111,11 +115,16 @@ export default function Requirements() {
   const { user, token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
 
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState<string>("all");
+  const [filterModule, setFilterModule] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("newest");
+  const [viewMode, setViewMode] = useState<"comfy" | "compact">(() => {
+    try { return (localStorage.getItem("req_view_mode") as "comfy" | "compact") ?? "comfy"; } catch { return "comfy"; }
+  });
 
   const [expandedReqs, setExpandedReqs] = useState<Set<number>>(new Set());
 
@@ -178,9 +187,22 @@ export default function Requirements() {
   });
 
   useEffect(() => {
+    try { localStorage.setItem("req_view_mode", viewMode); } catch {}
+  }, [viewMode]);
+
+  const moduleOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const mods: string[] = [];
+    for (const r of requirements as any[]) {
+      if (r.module && !seen.has(r.module)) { seen.add(r.module); mods.push(r.module); }
+    }
+    return mods.sort();
+  }, [requirements]);
+
+  useEffect(() => {
     setCurrentPage(1);
     setSelectedReqs([]);
-  }, [search, filterPriority, filterProject, sortBy]);
+  }, [search, filterPriority, filterProject, filterModule, sortBy]);
 
   const createMutation = useCreateRequirement({
     mutation: {
@@ -227,6 +249,7 @@ export default function Requirements() {
     const passesBaseFilters = (r: any) => {
       if (filterPriority !== "all" && r.priority !== filterPriority) return false;
       if (filterProject !== "all" && String(r.projectId) !== filterProject) return false;
+      if (filterModule !== "all" && (r.module ?? "") !== filterModule) return false;
       return true;
     };
 
@@ -271,11 +294,12 @@ export default function Requirements() {
         const pMap: Record<string, number> = { urgent: 4, high: 3, normal: 2, low: 1 };
         return (pMap[b.priority] || 0) - (pMap[a.priority] || 0);
       }
+      if (sortBy === "module") return (a.module ?? "").localeCompare(b.module ?? "");
       return 0;
     });
 
     return result;
-  }, [requirements, search, filterPriority, filterProject, sortBy]);
+  }, [requirements, search, filterPriority, filterProject, filterModule, sortBy]);
 
   // Auto-expand all parents of descendant results when searching
   useEffect(() => {
@@ -607,7 +631,7 @@ export default function Requirements() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full lg:w-auto shrink-0">
+            <div className="flex flex-wrap gap-2 w-full lg:w-auto shrink-0">
               <SearchableSelect
                 value={sortBy}
                 onValueChange={setSortBy}
@@ -616,10 +640,11 @@ export default function Requirements() {
                   { value: "oldest", label: "Oldest First" },
                   { value: "updated", label: "Recently Updated" },
                   { value: "priority", label: "Highest Priority" },
+                  { value: "module", label: "By Module" },
                 ]}
                 placeholder="Sort By"
                 searchPlaceholder="Search..."
-                className="bg-muted/30"
+                className="flex-1 min-w-[130px] bg-muted/30"
               />
               <SearchableSelect
                 value={filterProject}
@@ -630,6 +655,18 @@ export default function Requirements() {
                 ]}
                 placeholder="Project"
                 searchPlaceholder="Search project..."
+                className="flex-1 min-w-[120px]"
+              />
+              <SearchableSelect
+                value={filterModule}
+                onValueChange={setFilterModule}
+                options={[
+                  { value: "all", label: "All Modules" },
+                  ...moduleOptions.map((m) => ({ value: m, label: m })),
+                ]}
+                placeholder="Module"
+                searchPlaceholder="Search module..."
+                className="flex-1 min-w-[120px]"
               />
               <SearchableSelect
                 value={filterPriority}
@@ -643,7 +680,28 @@ export default function Requirements() {
                 ]}
                 placeholder="Priority"
                 searchPlaceholder="Search..."
+                className="flex-1 min-w-[110px]"
               />
+              <div className="flex border rounded-md overflow-hidden shrink-0">
+                <Button
+                  variant={viewMode === "comfy" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-9 px-2.5 rounded-none border-0 text-xs"
+                  onClick={() => setViewMode("comfy")}
+                  title="Comfy view"
+                >
+                  <LayoutList className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant={viewMode === "compact" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-9 px-2.5 rounded-none border-0 border-l text-xs"
+                  onClick={() => setViewMode("compact")}
+                  title="Compact view"
+                >
+                  <List className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -691,16 +749,18 @@ export default function Requirements() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedRequirements.map((r: any) => (
+                    {paginatedRequirements.map((r: any) => {
+                      const cellPy = viewMode === "compact" ? "py-1.5" : "py-3";
+                      return (
                       <TableRow key={r.id} className={`hover:bg-muted/40 ${selectedReqs.includes(r.id) ? "bg-primary/5" : ""}`}>
-                        <TableCell className="text-center">
+                        <TableCell className={`text-center ${cellPy}`}>
                           <Checkbox
                             checked={selectedReqs.includes(r.id)}
                             onCheckedChange={(checked) => handleSelectReq(r.id, !!checked)}
                             aria-label={`Select requirement ${r.title}`}
                           />
                         </TableCell>
-                        <TableCell style={{ paddingLeft: `${(r.depth || 0) * 1.5 + 1}rem` }}>
+                        <TableCell className={cellPy} style={{ paddingLeft: `${(r.depth || 0) * 1.5 + 1}rem` }}>
                           <div className="flex items-center gap-2">
                             {r.children && r.children.length > 0 ? (
                               <button
@@ -718,32 +778,53 @@ export default function Requirements() {
                             )}
                             <div>
                               <p className="font-medium line-clamp-2">{r.title}</p>
-                              {r.redmineTicketId && (
-                                <a
-                                  href={`https://redmine.bestinet.my/issues/${r.redmineTicketId}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-0.5 w-fit"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <ExternalLink className="w-3 h-3" />#{r.redmineTicketId}
-                                </a>
-                              )}
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {r.redmineTicketId && (
+                                  <a
+                                    href={`https://redmine.bestinet.my/issues/${r.redmineTicketId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 w-fit"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <ExternalLink className="w-3 h-3" />#{r.redmineTicketId}
+                                  </a>
+                                )}
+                                {(r.tcCount ?? 0) > 0 && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800 flex items-center gap-1 transition-colors"
+                                  >
+                                    <TestTube className="w-2.5 h-2.5" />
+                                    {r.tcCount} TC{r.tcCount !== 1 ? "s" : ""}
+                                  </button>
+                                )}
+                                {((r.execPass ?? 0) > 0 || (r.execFail ?? 0) > 0) && (
+                                  <span className="text-[10px] flex items-center gap-1.5">
+                                    {(r.execPass ?? 0) > 0 && (
+                                      <span className="text-green-600 dark:text-green-400 font-medium">✓{r.execPass}</span>
+                                    )}
+                                    {(r.execFail ?? 0) > 0 && (
+                                      <span className="text-red-600 dark:text-red-400 font-medium">✗{r.execFail}</span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        <TableCell className={`text-sm text-muted-foreground whitespace-nowrap ${cellPy}`}>
                           {r.projectName ?? "—"}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        <TableCell className={`text-sm text-muted-foreground whitespace-nowrap ${cellPy}`}>
                           {r.module ?? "—"}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className={cellPy}>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PRIORITY_COLORS[r.priority]}`}>
                             {capitalize(r.priority)}
                           </span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className={cellPy}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -769,7 +850,8 @@ export default function Requirements() {
                           </DropdownMenu>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

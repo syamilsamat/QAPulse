@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listTestCases,
@@ -578,6 +579,7 @@ export default function TestCases() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const searchString = useSearch();
 
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState("all");
@@ -622,7 +624,10 @@ export default function TestCases() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  const [filterRequirement, setFilterRequirement] = useState("all");
+  const [filterRequirement, setFilterRequirement] = useState(() => {
+    const params = new URLSearchParams(searchString);
+    return params.get("requirementId") ?? "all";
+  });
   const [groupByModule, setGroupByModule] = useState(false);
   const [collapsedModules, setCollapsedModules] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"comfy" | "compact">(() => {
