@@ -621,8 +621,8 @@ export default function Requirements() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col lg:flex-row gap-3">
-            <div className="relative w-full lg:flex-1">
+          <div className="flex flex-col gap-3">
+            <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9 w-full"
@@ -631,7 +631,7 @@ export default function Requirements() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="flex flex-wrap gap-2 w-full lg:w-auto shrink-0">
+            <div className="flex flex-wrap gap-2 w-full items-center">
               <SearchableSelect
                 value={sortBy}
                 onValueChange={setSortBy}
