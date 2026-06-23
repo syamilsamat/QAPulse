@@ -190,6 +190,7 @@ export interface TestCase {
   status: string;
   createdAt: string;
   updatedAt: string;
+  executionCount?: number;
 }
 
 export interface TestCaseInput {
