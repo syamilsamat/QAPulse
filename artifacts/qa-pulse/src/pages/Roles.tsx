@@ -58,6 +58,7 @@ const NAV_PERMISSION_ITEMS = [
   { key: "nav:admin-search",   label: "Admin Search" },
   { key: "nav:team-hangouts",  label: "Team Hangouts" },
   { key: "nav:configurations", label: "Configuration" },
+  { key: "nav:roles",          label: "Roles" },
 ];
 
 const QUERY_KEY = ["roles"];
