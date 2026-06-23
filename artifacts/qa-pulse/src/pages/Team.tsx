@@ -50,18 +50,45 @@ const ROLE_LABELS: Record<string, string> = {
   qa_member: "QA Member",
   qa_lead: "QA Lead",
   admin: "Admin",
+  pmo: "PMO",
 };
 const ROLE_COLORS: Record<string, string> = {
-  qa_member: "bg-slate-100 text-slate-700",
-  qa_lead: "bg-blue-100 text-blue-700",
-  admin: "bg-purple-100 text-purple-700",
+  qa_member:  "bg-slate-100 text-slate-700",
+  qa_lead:    "bg-blue-100 text-blue-700",
+  admin:      "bg-purple-100 text-purple-700",
+  pmo:        "bg-emerald-100 text-emerald-700",
 };
+
+const COLOR_PALETTE = [
+  "bg-rose-100 text-rose-700",
+  "bg-orange-100 text-orange-700",
+  "bg-amber-100 text-amber-700",
+  "bg-lime-100 text-lime-700",
+  "bg-green-100 text-green-700",
+  "bg-teal-100 text-teal-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-sky-100 text-sky-700",
+  "bg-indigo-100 text-indigo-700",
+  "bg-fuchsia-100 text-fuchsia-700",
+  "bg-pink-100 text-pink-700",
+  "bg-violet-100 text-violet-700",
+  "bg-red-100 text-red-700",
+  "bg-yellow-100 text-yellow-700",
+];
+
+function hashRole(role: string): number {
+  let h = 0;
+  for (let i = 0; i < role.length; i++) {
+    h = (Math.imul(31, h) + role.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
 
 function formatRoleLabel(role: string) {
   return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 function getRoleColor(role: string) {
-  return ROLE_COLORS[role] ?? "bg-gray-100 text-gray-700";
+  return ROLE_COLORS[role] ?? COLOR_PALETTE[hashRole(role) % COLOR_PALETTE.length];
 }
 
 export default function Team() {
