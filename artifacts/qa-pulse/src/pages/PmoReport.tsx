@@ -1115,7 +1115,7 @@ export default function PmoReport() {
               <div className="flex items-center gap-3 group">
                 <HoverChart className="w-7 h-7 text-primary shrink-0 hidden sm:block" />
                 <div>
-                  <h1 className="text-xl font-bold">PMO Report Portal</h1>
+                  <h1 className="text-xl font-bold">Report Portal</h1>
                   <p className="text-xs text-muted-foreground">
                     Enter a Redmine ticket number to view the QA status report
                   </p>
