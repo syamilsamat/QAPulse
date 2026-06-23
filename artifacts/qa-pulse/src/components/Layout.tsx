@@ -545,47 +545,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* Sub-item flyout panel for collapsed mode */}
-        {show && flyout && (() => {
-          const activeItem = visibleNavItems.find((i) => i.href === flyout.href);
-          if (!activeItem?.subItems?.length) return null;
-          return (
-            <div
-              className="fixed z-50 bg-sidebar border border-sidebar-border rounded-md shadow-lg py-1 min-w-[190px]"
-              style={{ left: "4.25rem", top: flyout.top }}
-              onMouseEnter={() => { if (flyoutTimer.current) clearTimeout(flyoutTimer.current); }}
-              onMouseLeave={() => { flyoutTimer.current = setTimeout(() => setFlyout(null), 120); }}
-            >
-              <p className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-sidebar-border/50 mb-1">
-                {activeItem.label}
-              </p>
-              {activeItem.subItems.map((sub) => {
-                const SubIcon = sub.icon;
-                const isActive = location === sub.href;
-                return (
-                  <Link key={sub.href} href={sub.href}>
-                    <div
-                      className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer transition-colors group ${
-                        isActive
-                          ? "bg-sidebar-accent/60 font-medium"
-                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                      }`}
-                      onClick={() => setFlyout(null)}
-                    >
-                      <SubIcon
-                        className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${isActive ? (sub.activeColor ?? "text-primary") : "text-muted-foreground"}`}
-                      />
-                      <span className={isActive ? (sub.activeColor ?? "text-primary") : ""}>
-                        {sub.label}
-                      </span>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          );
-        })()}
-
         {/* Collapse / expand toggle — hidden in mobile sheet */}
         {!forMobile && (
           <div className={`px-3 py-2 flex ${show ? "justify-center" : "justify-end"}`}>
@@ -659,6 +618,47 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className={`hidden md:flex shrink-0 flex-col transition-all duration-200 ${collapsed ? "w-16" : "w-64"}`}>
           <SidebarContent />
         </div>
+
+        {/* Sub-item flyout — rendered here (outside sidebar DOM) so it never blocks sidebar clicks */}
+        {collapsed && flyout && (() => {
+          const activeItem = visibleNavItems.find((i) => i.href === flyout.href);
+          if (!activeItem?.subItems?.length) return null;
+          return (
+            <div
+              className="fixed z-50 bg-sidebar border border-sidebar-border rounded-md shadow-lg py-1 min-w-[190px]"
+              style={{ left: "4.25rem", top: flyout.top }}
+              onMouseEnter={() => { if (flyoutTimer.current) clearTimeout(flyoutTimer.current); }}
+              onMouseLeave={() => { flyoutTimer.current = setTimeout(() => setFlyout(null), 120); }}
+            >
+              <p className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-sidebar-border/50 mb-1">
+                {activeItem.label}
+              </p>
+              {activeItem.subItems.map((sub) => {
+                const SubIcon = sub.icon;
+                const isActive = location === sub.href;
+                return (
+                  <Link key={sub.href} href={sub.href}>
+                    <div
+                      className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer transition-colors group ${
+                        isActive
+                          ? "bg-sidebar-accent/60 font-medium"
+                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      }`}
+                      onClick={() => setFlyout(null)}
+                    >
+                      <SubIcon
+                        className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${isActive ? (sub.activeColor ?? "text-primary") : "text-muted-foreground"}`}
+                      />
+                      <span className={isActive ? (sub.activeColor ?? "text-primary") : ""}>
+                        {sub.label}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
