@@ -41,6 +41,7 @@ function formatUser(user: typeof usersTable.$inferSelect) {
     team: user.team,
     avatarUrl: user.avatarUrl,
     mustChangePassword: user.mustChangePassword,
+    isActive: user.isActive ?? true,
     redmineApiKey: user.redmineApiKey ?? null,
     createdAt: user.createdAt.toISOString(),
   };
@@ -77,6 +78,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   if (!passwordValid) {
     await new Promise(r => setTimeout(r, 300 + Math.random() * 200));
     res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  if (user.isActive === false) {
+    res.status(403).json({ error: "Your account has been deactivated. Please contact your administrator." });
     return;
   }
 

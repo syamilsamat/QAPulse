@@ -27,6 +27,7 @@ function formatUser(u: typeof usersTable.$inferSelect) {
     team: u.team,
     avatarUrl: u.avatarUrl,
     mustChangePassword: u.mustChangePassword,
+    isActive: u.isActive ?? true,
     redmineApiKey: u.redmineApiKey ?? null,
     createdAt: u.createdAt.toISOString(),
   };
@@ -214,6 +215,20 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
       createdAt: a.createdAt.toISOString(),
     })),
   });
+});
+
+router.patch("/users/:id/active", async (req, res): Promise<void> => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    const { isActive } = req.body;
+    if (typeof isActive !== "boolean") { res.status(400).json({ error: "isActive must be a boolean" }); return; }
+    const [user] = await db.update(usersTable).set({ isActive }).where(eq(usersTable.id, id)).returning();
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+    res.json(formatUser(user));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to update user status" });
+  }
 });
 
 router.delete("/users/:id", async (req, res): Promise<void> => {

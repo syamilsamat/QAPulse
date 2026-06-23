@@ -151,6 +151,30 @@ export default function Team() {
     },
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      const res = await fetch(`${getApiUrl()}/users/${id}/active`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to update status");
+      }
+      return res.json();
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
+      setEditingUser(updated);
+      toast({ title: updated.isActive ? "Member activated" : "Member deactivated" });
+    },
+    onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`${getApiUrl()}/users/${id}`, {
@@ -322,12 +346,17 @@ export default function Team() {
                       <p className="text-sm text-muted-foreground truncate">
                         {u.email}
                       </p>
-                      <div className="flex items-center gap-2 mt-2">
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full font-medium ${getRoleColor(u.role)}`}
                         >
                           {roleLabelMap[u.role] || formatRoleLabel(u.role)}
                         </span>
+                        {u.isActive === false && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-200 text-gray-500">
+                            Inactive
+                          </span>
+                        )}
                         {u.team && (
                           <span className="text-xs text-muted-foreground">
                             {u.team}
@@ -507,15 +536,25 @@ export default function Team() {
               </div>
             </div>
           </div>
-          <DialogFooter className="flex-row items-center">
+          <DialogFooter className="flex-row items-center gap-2">
             {editingUser && (
-              <Button
-                variant="destructive"
-                className="mr-auto"
-                onClick={() => { setDeletingUser(editingUser); setDeleteConfirmOpen(true); }}
-              >
-                Delete Member
-              </Button>
+              <>
+                <Button
+                  variant={editingUser.isActive === false ? "default" : "outline"}
+                  className={editingUser.isActive === false ? "mr-auto bg-green-600 hover:bg-green-700 text-white" : "mr-auto text-orange-600 border-orange-300 hover:bg-orange-50"}
+                  disabled={toggleActiveMutation.isPending}
+                  onClick={() => toggleActiveMutation.mutate({ id: editingUser.id, isActive: editingUser.isActive === false })}
+                >
+                  {toggleActiveMutation.isPending ? "Saving..." : editingUser.isActive === false ? "Activate" : "Set Inactive"}
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => { setDeletingUser(editingUser); setDeleteConfirmOpen(true); }}
+                >
+                  Delete
+                </Button>
+              </>
             )}
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel

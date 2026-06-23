@@ -91,6 +91,7 @@ export const ListUsersResponseItem = zod.object({
   team: zod.string().nullish(),
   avatarUrl: zod.string().nullish(),
   mustChangePassword: zod.boolean().optional(),
+  isActive: zod.boolean().optional(),
   createdAt: zod.string(),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
@@ -123,6 +124,7 @@ export const GetUserResponse = zod.object({
   team: zod.string().nullish(),
   avatarUrl: zod.string().nullish(),
   mustChangePassword: zod.boolean().optional(),
+  isActive: zod.boolean().optional(),
   createdAt: zod.string(),
 });
 
