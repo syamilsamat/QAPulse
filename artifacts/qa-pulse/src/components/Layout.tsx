@@ -48,7 +48,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // 1. Replaced MessageSquare with Bot
-import { Brain, Bot, Send, Loader2, Plus, X } from "lucide-react";
+import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API_BASE = () => getApiUrl();
 async function callAiEndpoint(
@@ -297,7 +297,8 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   roles: string[];
-  subItems?: { href: string; label: string; icon: React.ElementType }[];
+  activeColor?: string;
+  subItems?: { href: string; label: string; icon: React.ElementType; activeColor?: string }[];
   showBadge?: boolean;
 }
 
@@ -306,52 +307,55 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     label: "Dashboard",
     icon: HoverDashboard,
+    activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/requirements",
     label: "Requirements",
     icon: HoverDocument,
+    activeColor: "text-orange-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/test-cases",
     label: "Test Cases",
     icon: HoverFlask,
+    activeColor: "text-teal-500",
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      {
-        href: "/test-cases/execution",
-        label: "Execution Dashboard",
-        icon: HoverPlay,
-      },
+      { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
     ],
   },
   {
     href: "/tasks",
     label: "Tasks",
     icon: HoverCheckSquare,
+    activeColor: "text-emerald-500",
     roles: ["qa_member", "qa_lead", "admin"],
     subItems: [
-      { href: "/history-trail", label: "History Trail", icon: HoverHistory },
+      { href: "/history-trail", label: "History Trail", icon: HoverHistory, activeColor: "text-purple-500" },
     ],
   },
   {
     href: "/ai-features",
     label: "AI Hub",
     icon: HoverSparkles,
+    activeColor: "text-fuchsia-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/pmo-report",
     label: "PMO Report",
     icon: HoverChart,
+    activeColor: "text-pink-500",
     roles: ["qa_member", "pmo", "qa_lead", "admin"],
   },
   {
     href: "/inbox",
     label: "Inbox",
     icon: HoverBell,
+    activeColor: "text-yellow-500",
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: true,
   },
@@ -359,18 +363,21 @@ const NAV_ITEMS: NavItem[] = [
     href: "/team",
     label: "Team",
     icon: HoverUsers,
+    activeColor: "text-indigo-500",
     roles: ["qa_lead", "admin"],
   },
   {
     href: "/admin/search",
     label: "Admin Search",
     icon: HoverSearch,
+    activeColor: "text-violet-500",
     roles: ["admin"],
   },
   {
     href: "/team-hangouts",
     label: "Team Hangouts",
     icon: HoverCoffee,
+    activeColor: "text-amber-500",
     roles: ["qa_member", "qa_lead", "admin"],
     showBadge: false,
   },
@@ -378,12 +385,14 @@ const NAV_ITEMS: NavItem[] = [
     href: "/configurations",
     label: "Configuration",
     icon: Columns3Cog,
+    activeColor: "text-slate-500",
     roles: ["qa_lead", "admin"],
   },
   {
     href: "/settings",
     label: "Account",
     icon: HoverAccount,
+    activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
   },
 ];
@@ -394,6 +403,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const logoutMutation = useLogout();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar_collapsed") === "true"; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem("sidebar_collapsed", String(collapsed)); } catch {}
+  }, [collapsed]);
 
   const { data: unreadNotifs = [] } = useQuery({
     queryKey: ["notifications-unread", user?.id],
@@ -425,111 +441,161 @@ export function Layout({ children }: { children: React.ReactNode }) {
     return (item.roles as readonly string[]).includes(user.role);
   });
 
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
-      <div className="px-6 py-6 pb-4">
-        <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
-          <AnimatedQALogo className="w-6 h-6" />
-          QA Pulse
-        </h1>
-      </div>
-
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {visibleNavItems.map((item) => {
-          const Icon = item.icon;
-          const isParentActive =
-            location === item.href ||
-            item.subItems?.some((sub) => location === sub.href);
-          const badge = item.showBadge ? unreadCount : 0;
-
-          return (
-            <div key={item.href} className="flex flex-col">
-              <Link href={item.href}>
-                <div
-                  className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors text-sm group ${
-                    location === item.href
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  }`}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  <Icon
-                    className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${location === item.href ? "text-primary" : ""}`}
-                  />
-                  <span className="flex-1">{item.label}</span>
-                  {badge > 0 && (
-                    <Badge
-                      variant="destructive"
-                      className="h-5 min-w-5 px-1 text-[10px] font-bold"
-                    >
-                      {badge}
-                    </Badge>
-                  )}
-                </div>
-              </Link>
-              {item.subItems && (
-                <div className="ml-5 mt-1 flex flex-col space-y-0.5 border-l-2 border-muted/30 pl-2">
-                  {item.subItems.map((sub) => {
-                    const SubIcon = sub.icon;
-                    return (
-                      <Link key={sub.href} href={sub.href}>
-                        <div
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs group ${
-                            location === sub.href
-                              ? "bg-sidebar-accent text-primary font-medium"
-                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <SubIcon
-                            className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? "text-primary" : "text-muted-foreground"}`}
-                          />
-                          {sub.label}
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-
-      <div className="p-3 border-t border-sidebar-border">
-        <div className="flex items-center gap-3 px-2 py-2 mb-1">
-          <Avatar className="w-9 h-9 border border-border shrink-0">
-            <AvatarImage src={user?.avatarUrl ?? undefined} />
-            <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-              {user?.name?.substring(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">
-              {user?.name}
-            </p>
-            <p className="text-xs text-muted-foreground capitalize truncate">
-              {user?.role?.replace(/_/g, " ")}
-            </p>
-          </div>
+  const SidebarContent = ({ forMobile = false }: { forMobile?: boolean }) => {
+    const show = collapsed && !forMobile;
+    return (
+      <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
+        {/* Logo */}
+        <div className={show ? "py-5 flex justify-center" : "px-6 py-6 pb-4"}>
+          {show ? (
+            <AnimatedQALogo className="w-7 h-7" />
+          ) : (
+            <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
+              <AnimatedQALogo className="w-6 h-6" />
+              QA Pulse
+            </h1>
+          )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm group"
-          onClick={() => setLogoutOpen(true)}
-        >
-          <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
-          Sign out
-        </Button>
+
+        {/* Nav */}
+        <nav className={`flex-1 ${show ? "px-2" : "px-3"} space-y-1 overflow-y-auto`}>
+          {visibleNavItems.map((item) => {
+            const Icon = item.icon;
+            const badge = item.showBadge ? unreadCount : 0;
+            const isParentActive =
+              location === item.href ||
+              item.subItems?.some((sub) => location === sub.href);
+
+            return (
+              <div key={item.href} className="flex flex-col">
+                <Link href={item.href}>
+                  <div
+                    title={show ? item.label : undefined}
+                    className={`flex items-center gap-3 py-2 rounded-md cursor-pointer transition-colors text-sm group ${
+                      location === item.href
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    } ${show ? "justify-center px-2" : "px-3"}`}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <div className="relative shrink-0">
+                      <Icon
+                        className={`${show ? "w-5 h-5" : "w-4 h-4"} transition-transform ${isParentActive && item.activeColor ? item.activeColor : ""}`}
+                      />
+                      {show && badge > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-destructive" />
+                      )}
+                    </div>
+                    {!show && <span className="flex-1">{item.label}</span>}
+                    {!show && badge > 0 && (
+                      <Badge variant="destructive" className="h-5 min-w-5 px-1 text-[10px] font-bold">
+                        {badge}
+                      </Badge>
+                    )}
+                  </div>
+                </Link>
+                {item.subItems && !show && (
+                  <div className="ml-5 mt-1 flex flex-col space-y-0.5 border-l-2 border-muted/30 pl-2">
+                    {item.subItems.map((sub) => {
+                      const SubIcon = sub.icon;
+                      return (
+                        <Link key={sub.href} href={sub.href}>
+                          <div
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs group ${
+                              location === sub.href
+                                ? "bg-sidebar-accent font-medium"
+                                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
+                            }`}
+                            onClick={() => setIsMobileMenuOpen(false)}
+                          >
+                            <SubIcon
+                              className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? (sub.activeColor ?? "text-primary") : "text-muted-foreground"}`}
+                            />
+                            <span className={location === sub.href ? (sub.activeColor ?? "text-primary") : ""}>
+                              {sub.label}
+                            </span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+
+        {/* Collapse / expand toggle — hidden in mobile sheet */}
+        {!forMobile && (
+          <div className={`px-3 py-2 flex ${show ? "justify-center" : "justify-end"}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setCollapsed((v) => !v)}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {show ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </Button>
+          </div>
+        )}
+
+        {/* User profile */}
+        <div className="p-3 border-t border-sidebar-border">
+          {show ? (
+            <div className="flex flex-col items-center gap-2 py-1">
+              <Avatar className="w-9 h-9 border border-border shrink-0" title={user?.name ?? undefined}>
+                <AvatarImage src={user?.avatarUrl ?? undefined} />
+                <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                  {user?.name?.substring(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground group"
+                onClick={() => setLogoutOpen(true)}
+                title="Sign out"
+              >
+                <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 px-2 py-2 mb-1">
+                <Avatar className="w-9 h-9 border border-border shrink-0">
+                  <AvatarImage src={user?.avatarUrl ?? undefined} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                    {user?.name?.substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize truncate">
+                    {user?.role?.replace(/_/g, " ")}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm group"
+                onClick={() => setLogoutOpen(true)}
+              >
+                <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
+                Sign out
+              </Button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
       <div className="flex h-screen bg-background overflow-hidden relative">
-        <div className="hidden md:flex w-64 shrink-0 flex-col">
+        <div className={`hidden md:flex shrink-0 flex-col transition-all duration-200 ${collapsed ? "w-16" : "w-64"}`}>
           <SidebarContent />
         </div>
 
@@ -557,7 +623,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           <SheetContent side="left" className="p-0 w-64">
-            <SidebarContent />
+            <SidebarContent forMobile />
           </SheetContent>
         </Sheet>
 
