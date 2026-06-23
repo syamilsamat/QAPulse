@@ -536,12 +536,12 @@ export default function Team() {
               </div>
             </div>
           </div>
-          <DialogFooter className="flex-row items-center gap-2">
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
             {editingUser && (
-              <>
+              <div className="flex gap-2 w-full">
                 <Button
                   variant={editingUser.isActive === false ? "default" : "outline"}
-                  className={editingUser.isActive === false ? "mr-auto bg-green-600 hover:bg-green-700 text-white" : "mr-auto text-orange-600 border-orange-300 hover:bg-orange-50"}
+                  className={`flex-1 ${editingUser.isActive === false ? "bg-green-600 hover:bg-green-700 text-white" : "text-orange-600 border-orange-300 hover:bg-orange-50"}`}
                   disabled={toggleActiveMutation.isPending}
                   onClick={() => toggleActiveMutation.mutate({ id: editingUser.id, isActive: editingUser.isActive === false })}
                 >
@@ -549,31 +549,34 @@ export default function Team() {
                 </Button>
                 <Button
                   variant="destructive"
+                  className="flex-1"
                   disabled={deleteMutation.isPending}
                   onClick={() => { setDeletingUser(editingUser); setDeleteConfirmOpen(true); }}
                 >
-                  Delete
+                  Delete Member
                 </Button>
-              </>
+              </div>
             )}
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={
-                !form.name ||
-                !form.email ||
-                createMutation.isPending ||
-                updateMutation.isPending
-              }
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? "Saving..."
-                : editingUser
-                  ? "Save Changes"
-                  : "Add Member"}
-            </Button>
+            <div className="flex gap-2 w-full justify-end">
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={
+                  !form.name ||
+                  !form.email ||
+                  createMutation.isPending ||
+                  updateMutation.isPending
+                }
+              >
+                {createMutation.isPending || updateMutation.isPending
+                  ? "Saving..."
+                  : editingUser
+                    ? "Save Changes"
+                    : "Add Member"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
