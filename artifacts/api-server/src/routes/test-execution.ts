@@ -650,7 +650,7 @@ router.post(
 router.get("/execution-files/:ticketId/download-excel", async (req, res): Promise<void> => {
   try {
     const { ticketId } = req.params;
-    const { issueType, issueSubject, senderName } = req.query as Record<string, string>;
+    const { issueType, issueSubject, senderName, projectName } = req.query as Record<string, string>;
 
     const [file] = await db
       .select()
@@ -698,7 +698,12 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       return;
     }
 
-    const filename = `TC_${trackerCode(typeLabel)}_${ticketId}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const tracker = (issueType || typeLabel).replace(/\s+/g, "");
+    const proj = (projectName || "").replace(/\s+/g, "");
+    const filename = proj
+      ? `${date}.${proj}_${tracker}_${ticketId}.xlsx`
+      : `${date}.${tracker}_${ticketId}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(buffer);

@@ -998,6 +998,7 @@ export default function PmoReport() {
           redmineId,
           issueType: data.trackerName || "Issue",
           issueSubject: data.issueSubject || "",
+          projectName: data.issue?.projectName || "",
           verdict,
           reason,
           to,

@@ -743,7 +743,7 @@ export default function TestCasesExecutionProgressPage() {
   const pendingFailRowIdRef = useRef<string | number | null>(null);
 
   // Linked task warning
-  const [linkedTask, setLinkedTask] = useState<{ name: string; status: string; type?: string } | null | undefined>(undefined);
+  const [linkedTask, setLinkedTask] = useState<{ name: string; status: string; type?: string; projectName?: string | null } | null | undefined>(undefined);
 
   // Column visibility
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
@@ -789,7 +789,7 @@ export default function TestCasesExecutionProgressPage() {
         setQaUsers(users);
 
         const matched = (allTasks || []).find((t: any) => String(t.redmineId) === ticketId);
-        setLinkedTask(matched ? { name: matched.name, status: matched.status, type: matched.type } : null);
+        setLinkedTask(matched ? { name: matched.name, status: matched.status, type: matched.type, projectName: matched.projectName } : null);
       })
       .catch(() =>
         toast({
@@ -1108,6 +1108,7 @@ export default function TestCasesExecutionProgressPage() {
       const params = new URLSearchParams();
       if (linkedTask?.name) params.set("issueSubject", linkedTask.name);
       if (linkedTask?.type) params.set("issueType", linkedTask.type);
+      if (linkedTask?.projectName) params.set("projectName", linkedTask.projectName);
       if (currentUser?.name) params.set("senderName", currentUser.name);
 
       const token = localStorage.getItem("qa_pulse_token");
