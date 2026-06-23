@@ -300,6 +300,8 @@ interface NavItem {
   activeColor?: string;
   subItems?: { href: string; label: string; icon: React.ElementType; activeColor?: string }[];
   showBadge?: boolean;
+  permKey?: string;      // nav permission key — if present, checked against dynamic permissions
+  alwaysVisible?: boolean; // Dashboard and Account skip the permission check
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -309,6 +311,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverDashboard,
     activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    alwaysVisible: true,
   },
   {
     href: "/requirements",
@@ -316,6 +319,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverDocument,
     activeColor: "text-orange-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:requirements",
   },
   {
     href: "/test-cases",
@@ -323,6 +327,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverFlask,
     activeColor: "text-teal-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:test-cases",
     subItems: [
       { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
     ],
@@ -333,6 +338,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverCheckSquare,
     activeColor: "text-emerald-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:tasks",
     subItems: [
       { href: "/history-trail", label: "History Trail", icon: HoverHistory, activeColor: "text-purple-500" },
     ],
@@ -343,6 +349,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverSparkles,
     activeColor: "text-fuchsia-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:ai-hub",
   },
   {
     href: "/pmo-report",
@@ -350,6 +357,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverChart,
     activeColor: "text-pink-500",
     roles: ["qa_member", "pmo", "qa_lead", "admin"],
+    permKey: "nav:report",
   },
   {
     href: "/inbox",
@@ -357,6 +365,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverBell,
     activeColor: "text-yellow-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:inbox",
     showBadge: true,
   },
   {
@@ -365,6 +374,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverUsers,
     activeColor: "text-indigo-500",
     roles: ["qa_lead", "admin"],
+    permKey: "nav:team",
   },
   {
     href: "/admin/search",
@@ -372,6 +382,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverSearch,
     activeColor: "text-violet-500",
     roles: ["admin"],
+    permKey: "nav:admin-search",
   },
   {
     href: "/team-hangouts",
@@ -379,6 +390,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverCoffee,
     activeColor: "text-amber-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:team-hangouts",
     showBadge: false,
   },
   {
@@ -387,6 +399,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: Columns3Cog,
     activeColor: "text-slate-500",
     roles: ["qa_lead", "admin"],
+    permKey: "nav:configurations",
     subItems: [
       {
         href: "/configurations",
@@ -408,11 +421,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: HoverAccount,
     activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
+    alwaysVisible: true,
   },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { user, logout: localLogout } = useAuth();
+  const { user, token, logout: localLogout } = useAuth();
   const [location, setLocation] = useLocation();
   const logoutMutation = useLogout();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -458,9 +472,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const { data: navPermissions } = useQuery<string[]>({
+    queryKey: ["my-nav-permissions"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/my-nav-permissions`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return null as unknown as string[];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user && user.role !== "pmo",
+  });
+
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!user) return false;
     if (user.role === "pmo") return item.href === "/pmo-report";
+    if (item.alwaysVisible) return true;
+    // Use dynamic permissions when available, fall back to static roles
+    if (navPermissions && item.permKey) return navPermissions.includes(item.permKey);
     return (item.roles as readonly string[]).includes(user.role);
   });
 

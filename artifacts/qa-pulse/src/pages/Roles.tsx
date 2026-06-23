@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, Plus, Pencil, Trash2, Users, Lock } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, Users, Lock, KeyRound } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { getApiUrl } from "@/lib/api";
@@ -46,6 +47,19 @@ interface Role {
   createdAt: string;
 }
 
+const NAV_PERMISSION_ITEMS = [
+  { key: "nav:requirements",   label: "Requirements" },
+  { key: "nav:test-cases",     label: "Test Cases" },
+  { key: "nav:tasks",          label: "Tasks" },
+  { key: "nav:ai-hub",         label: "AI Hub" },
+  { key: "nav:report",         label: "Report" },
+  { key: "nav:inbox",          label: "Inbox" },
+  { key: "nav:team",           label: "Team" },
+  { key: "nav:admin-search",   label: "Admin Search" },
+  { key: "nav:team-hangouts",  label: "Team Hangouts" },
+  { key: "nav:configurations", label: "Configuration" },
+];
+
 const QUERY_KEY = ["roles"];
 
 export default function Roles() {
@@ -56,6 +70,8 @@ export default function Roles() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editRole, setEditRole] = useState<Role | null>(null);
   const [deleteRole, setDeleteRole] = useState<Role | null>(null);
+  const [permRole, setPermRole] = useState<Role | null>(null);
+  const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -112,6 +128,44 @@ export default function Roles() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const { data: permData, isLoading: permLoading } = useQuery<{ permissions: string[] }>({
+    queryKey: ["role-permissions", permRole?.id],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/roles/${permRole!.id}/permissions`, { headers: authHeaders });
+      if (!res.ok) throw new Error("Failed to load permissions");
+      return res.json();
+    },
+    enabled: !!permRole,
+  });
+
+  // Sync fetched permissions into selectedPerms when dialog opens
+  const [permRoleIdLoaded, setPermRoleIdLoaded] = useState<number | null>(null);
+  if (permData && permRole && permRole.id !== permRoleIdLoaded) {
+    setSelectedPerms(new Set(permData.permissions));
+    setPermRoleIdLoaded(permRole.id);
+  }
+
+  const savePermsMutation = useMutation({
+    mutationFn: async ({ id, permissions }: { id: number; permissions: string[] }) => {
+      const res = await fetch(`${getApiUrl()}/roles/${id}/permissions`, {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({ permissions }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Failed to save permissions");
+      return body;
+    },
+    onSuccess: () => {
+      setPermRole(null);
+      setPermRoleIdLoaded(null);
+      // Invalidate the sidebar permissions cache so it re-fetches
+      qc.invalidateQueries({ queryKey: ["my-nav-permissions"] });
+      toast({ title: "Permissions saved" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`${getApiUrl()}/roles/${id}`, {
@@ -132,6 +186,20 @@ export default function Roles() {
       toast({ title: "Cannot delete role", description: e.message, variant: "destructive" });
     },
   });
+
+  function openPerms(role: Role) {
+    setPermRoleIdLoaded(null);
+    setSelectedPerms(new Set());
+    setPermRole(role);
+  }
+
+  function togglePerm(key: string) {
+    setSelectedPerms((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   function openCreate() {
     setFormName("");
@@ -219,6 +287,16 @@ export default function Roles() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openPerms(role)}
+                          title="Edit nav permissions"
+                          disabled={role.isSystem && role.name === "admin"}
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -322,6 +400,53 @@ export default function Roles() {
             <Button variant="outline" onClick={() => setEditRole(null)}>Cancel</Button>
             <Button onClick={handleUpdate} disabled={!formName.trim() || updateMutation.isPending}>
               {updateMutation.isPending ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Permissions Dialog */}
+      <Dialog open={!!permRole} onOpenChange={(o) => { if (!o) { setPermRole(null); setPermRoleIdLoaded(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4" />
+              Nav Permissions — {permRole?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Choose which navigation items this role can see and access.
+              Dashboard and Account are always visible.
+            </DialogDescription>
+          </DialogHeader>
+
+          {permLoading ? (
+            <div className="py-6 text-sm text-muted-foreground text-center">Loading…</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 py-2">
+              {NAV_PERMISSION_ITEMS.map((item) => (
+                <label
+                  key={item.key}
+                  className="flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                >
+                  <Checkbox
+                    checked={selectedPerms.has(item.key)}
+                    onCheckedChange={() => togglePerm(item.key)}
+                  />
+                  <span className="text-sm">{item.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPermRole(null); setPermRoleIdLoaded(null); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => permRole && savePermsMutation.mutate({ id: permRole.id, permissions: [...selectedPerms] })}
+              disabled={permLoading || savePermsMutation.isPending}
+            >
+              {savePermsMutation.isPending ? "Saving…" : "Save Permissions"}
             </Button>
           </DialogFooter>
         </DialogContent>

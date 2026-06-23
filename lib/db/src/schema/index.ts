@@ -1,5 +1,6 @@
 export * from "./users";
 export * from "./roles";
+export * from "./role-nav-permissions";
 export * from "./projects";
 export * from "./requirements";
 export * from "./test-cases";
