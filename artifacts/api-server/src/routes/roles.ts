@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
-import { db, rolesTable, usersTable } from "@workspace/db";
+import { db, pool, rolesTable, usersTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -14,8 +14,8 @@ let bootstrapped = false;
 
 async function bootstrap() {
   if (bootstrapped) return;
-  // Create table if it doesn't exist yet (avoids needing drizzle-kit push on new deployments)
-  await db.execute(sql`
+  // Use raw pool.query for DDL — db.execute is unreliable for CREATE TABLE in some drizzle versions
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS roles (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
@@ -25,11 +25,10 @@ async function bootstrap() {
     )
   `);
   for (const role of DEFAULT_ROLES) {
-    await db.execute(sql`
-      INSERT INTO roles (name, description, is_system)
-      VALUES (${role.name}, ${role.description}, ${role.isSystem})
-      ON CONFLICT (name) DO NOTHING
-    `);
+    await pool.query(
+      `INSERT INTO roles (name, description, is_system) VALUES ($1, $2, $3) ON CONFLICT (name) DO NOTHING`,
+      [role.name, role.description, role.isSystem]
+    );
   }
   bootstrapped = true;
 }
