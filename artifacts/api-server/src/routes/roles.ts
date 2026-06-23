@@ -24,7 +24,6 @@ export const ALL_NAV_KEYS = [
   "nav:admin-search",
   "nav:team-hangouts",
   "nav:configurations",
-  "nav:roles",
 ];
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)

@@ -407,7 +407,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: Shield,
     activeColor: "text-slate-400",
     roles: ["admin"],
-    permKey: "nav:roles",
   },
   {
     href: "/settings",
