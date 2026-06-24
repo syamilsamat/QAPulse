@@ -47,6 +47,11 @@ import {
   Clock,
   AlertCircle,
   TestTube,
+  KeyRound,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   Sheet,
@@ -113,6 +118,12 @@ export default function Team() {
   const [form, setForm] = useState<Partial<UserInput>>({});
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: getListUsersQueryKey(),
@@ -233,6 +244,41 @@ export default function Team() {
       createMutation.mutate({
         data: { ...form, password: "password123" } as UserInput,
       });
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!editingUser) return;
+    if (newPassword.length < 8) {
+      toast({ variant: "destructive", title: "Password must be at least 8 characters" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ variant: "destructive", title: "Passwords do not match" });
+      return;
+    }
+    setIsResettingPassword(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/users/${editingUser.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to reset password");
+      }
+      toast({ title: `Password reset for ${editingUser.name}` });
+      setNewPassword("");
+      setConfirmPassword("");
+      setResetPasswordOpen(false);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message });
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -491,7 +537,7 @@ export default function Team() {
         </SheetContent>
       </Sheet>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setNewPassword(""); setConfirmPassword(""); setResetPasswordOpen(false); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
@@ -536,6 +582,83 @@ export default function Team() {
               </div>
             </div>
           </div>
+
+          {/* Reset Password — only shown when editing an existing member */}
+          {editingUser && (
+            <div className="border rounded-lg overflow-hidden">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/50 transition-colors"
+                onClick={() => { setResetPasswordOpen(o => !o); setNewPassword(""); setConfirmPassword(""); }}
+              >
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <KeyRound className="w-4 h-4" />
+                  Reset Password
+                </span>
+                {resetPasswordOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+              </button>
+              {resetPasswordOpen && (
+                <div className="px-4 pb-4 pt-1 space-y-3 border-t bg-muted/20">
+                  <div className="space-y-1.5">
+                    <Label>New Password</Label>
+                    <div className="relative">
+                      <Input
+                        type={showNewPassword ? "text" : "password"}
+                        placeholder="Min. 8 characters"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowNewPassword(v => !v)}
+                        tabIndex={-1}
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Confirm Password</Label>
+                    <div className="relative">
+                      <Input
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="Re-enter new password"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowConfirmPassword(v => !v)}
+                        tabIndex={-1}
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {confirmPassword && newPassword !== confirmPassword && (
+                      <p className="text-xs text-destructive">Passwords do not match</p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full gap-2"
+                    disabled={!newPassword || newPassword !== confirmPassword || newPassword.length < 8 || isResettingPassword}
+                    onClick={handleResetPassword}
+                  >
+                    {isResettingPassword
+                      ? <><span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />Resetting...</>
+                      : <><KeyRound className="w-3.5 h-3.5" />Reset Password</>
+                    }
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter className="flex-col gap-2 sm:flex-col">
             {editingUser && (
               <div className="flex gap-2 w-full">

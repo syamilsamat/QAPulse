@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, like, or, desc } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import {
   db,
   usersTable,
@@ -101,9 +102,14 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const updateData: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.password) {
+    updateData.password = await bcrypt.hash(parsed.data.password, 12);
+  }
+
   const [user] = await db
     .update(usersTable)
-    .set(parsed.data)
+    .set(updateData)
     .where(eq(usersTable.id, params.data.id))
     .returning();
   if (!user) {
