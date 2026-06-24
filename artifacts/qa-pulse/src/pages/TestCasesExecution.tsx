@@ -285,7 +285,7 @@ export default function TestCasesExecution() {
 
   const DEFAULT_QUICK_FORM = {
     name: "", redmineId: "", status: "new", priority: "Medium",
-    projectId: "", moduleId: "",
+    projectId: "",
     assigneeIds: [] as number[], environmentIds: [] as number[],
     startDate: "", dueDate: "", actualStartDate: "", actualEndDate: "",
     estimatedHours: "", actualHours: "", completionPercentage: "", notes: "",
@@ -293,6 +293,7 @@ export default function TestCasesExecution() {
 
   const [quickTaskOpen, setQuickTaskOpen] = useState(false);
   const [quickTaskForm, setQuickTaskForm] = useState(DEFAULT_QUICK_FORM);
+  const [quickTaskModules, setQuickTaskModules] = useState<number[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
 
   const toggleQuickTaskArrayItem = (key: "assigneeIds" | "environmentIds", id: number) => {
@@ -585,7 +586,7 @@ export default function TestCasesExecution() {
   };
 
   const handleCreateQuickTask = async () => {
-    if (!quickTaskForm.name.trim() || !quickTaskForm.projectId || !quickTaskForm.moduleId) {
+    if (!quickTaskForm.name.trim() || !quickTaskForm.projectId || quickTaskModules.length === 0) {
       toast({ variant: "destructive", title: "Task name, project, and module are required" });
       return;
     }
@@ -602,7 +603,8 @@ export default function TestCasesExecution() {
           status: quickTaskForm.status,
           priority: quickTaskForm.priority,
           projectId: quickTaskForm.projectId ? Number(quickTaskForm.projectId) : undefined,
-          moduleId: quickTaskForm.moduleId ? Number(quickTaskForm.moduleId) : undefined,
+          moduleId: quickTaskModules[0],
+          moduleIds: quickTaskModules.join(","),
           assigneeIds: quickTaskForm.assigneeIds.length ? quickTaskForm.assigneeIds : undefined,
           environmentIds: quickTaskForm.environmentIds.length ? quickTaskForm.environmentIds : undefined,
           startDate: quickTaskForm.startDate || undefined,
@@ -627,6 +629,7 @@ export default function TestCasesExecution() {
       toast({ title: "Task created successfully" });
       setQuickTaskOpen(false);
       setQuickTaskForm(DEFAULT_QUICK_FORM);
+      setQuickTaskModules([]);
     } catch {
       toast({ variant: "destructive", title: "Failed to create task" });
     } finally {
@@ -758,7 +761,7 @@ export default function TestCasesExecution() {
                       ) : (
                         <button
                           className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
-                          onClick={e => { e.stopPropagation(); setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "" }); setQuickTaskOpen(true); }}
+                          onClick={e => { e.stopPropagation(); setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "" }); setQuickTaskModules([]); setQuickTaskOpen(true); }}
                         >
                           <AlertCircle className="w-3 h-3" /> No task
                         </button>
@@ -885,11 +888,18 @@ export default function TestCasesExecution() {
               </div>
               <div className="space-y-1.5">
                 <Label>Module <span className="text-destructive">*</span></Label>
-                <SearchableSelect value={quickTaskForm.moduleId} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, moduleId: v })}
-                  options={modules.map(m => ({ value: String(m.id), label: m.name }))}
-                  placeholder="Select Module"
-                  searchPlaceholder="Search module..."
-                />
+                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
+                  {modules.map(m => (
+                    <label key={m.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                      <Checkbox
+                        checked={quickTaskModules.includes(m.id)}
+                        onCheckedChange={(checked) => setQuickTaskModules(prev => checked ? [...prev, m.id] : prev.filter(id => id !== m.id))}
+                      />
+                      <span className="text-sm">{m.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {quickTaskModules.length > 0 && <p className="text-xs text-muted-foreground">{quickTaskModules.length} selected</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Environment(s)</Label>
@@ -1012,7 +1022,7 @@ export default function TestCasesExecution() {
             <Button
               className="w-full sm:w-auto"
               onClick={handleCreateQuickTask}
-              disabled={!quickTaskForm.name.trim() || !quickTaskForm.projectId || !quickTaskForm.moduleId || isCreatingTask}
+              disabled={!quickTaskForm.name.trim() || !quickTaskForm.projectId || quickTaskModules.length === 0 || isCreatingTask}
             >
               {isCreatingTask ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : "Create Task"}
             </Button>
