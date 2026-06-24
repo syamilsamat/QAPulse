@@ -235,10 +235,18 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    const { selectedModules } = req.body;
+    const { selectedModules, title, redmineTicketId, remarks, projectId, requirementId } = req.body;
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (selectedModules !== undefined) patch.selectedModules = selectedModules || null;
+    if (title !== undefined) patch.title = title || null;
+    if (redmineTicketId !== undefined) patch.redmineTicketId = String(redmineTicketId).trim();
+    if (remarks !== undefined) patch.remarks = remarks || null;
+    if (projectId !== undefined) patch.projectId = projectId ? Number(projectId) : null;
+    if (requirementId !== undefined) patch.requirementId = requirementId ? Number(requirementId) : null;
+
     const [updated] = await db
       .update(executionFilesTable)
-      .set({ selectedModules: selectedModules || null })
+      .set(patch)
       .where(eq(executionFilesTable.id, id))
       .returning();
     if (!updated) {
@@ -255,7 +263,11 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     });
-  } catch {
+  } catch (err: any) {
+    if (err?.code === "23505" || err?.message?.includes("unique")) {
+      res.status(409).json({ error: "An execution file with that Redmine ticket ID already exists" });
+      return;
+    }
     res.status(500).json({ error: "Failed to update execution file" });
   }
 });

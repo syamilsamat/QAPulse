@@ -11,8 +11,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  fetchModules,
+  fetchProjects,
+  type ExecutionModule,
+  type ExecutionProject,
+} from "@/lib/execution-api";
 
 type ExecutionRow = {
   module: string;
@@ -61,6 +78,27 @@ export default function TestExecutionSummary() {
   const [currentTicketId, setCurrentTicketId] = useState(ticketId || "");
   const [hasLoaded, setHasLoaded] = useState(false);
   const [taskInfo, setTaskInfo] = useState<{ status: string; name: string } | null>(null);
+  const [fileInfo, setFileInfo] = useState<{
+    id: number;
+    title: string | null;
+    remarks: string | null;
+    projectId: number | null;
+    requirementId: number | null;
+    selectedModules: string | null;
+  } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    redmineTicketId: "",
+    remarks: "",
+    projectId: "",
+    requirementId: "",
+    selectedModules: [] as number[],
+  });
+  const [editSaving, setEditSaving] = useState(false);
+  const [modules, setModules] = useState<ExecutionModule[]>([]);
+  const [projects, setProjects] = useState<ExecutionProject[]>([]);
+  const [requirements, setRequirements] = useState<{ id: number; title: string; projectId?: number | null }[]>([]);
 
   const TASK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
     new: { label: "New", color: "bg-slate-100 text-slate-700" },
@@ -76,9 +114,10 @@ export default function TestExecutionSummary() {
     if (!tid.trim()) return;
     setIsLoading(true);
     try {
-      const [summariesRes, tasksRes] = await Promise.all([
+      const [summariesRes, tasksRes, filesRes] = await Promise.all([
         fetch(`/api/execution-files/${tid}/summaries`, { headers: getHeaders() }),
         fetch("/api/tasks", { headers: getHeaders() }),
+        fetch("/api/execution-files", { headers: getHeaders() }),
       ]);
 
       // Load summaries from executionSummariesTable
@@ -127,12 +166,82 @@ export default function TestExecutionSummary() {
         const matched = allTasks.find((t: any) => String(t.redmineId) === tid);
         setTaskInfo(matched ? { status: matched.status, name: matched.name } : null);
       }
+
+      // Load execution file metadata (for edit dialog)
+      if (filesRes.ok) {
+        const allFiles = await filesRes.json();
+        const matched = allFiles.find((f: any) => String(f.redmineTicketId) === tid);
+        if (matched) setFileInfo({
+          id: matched.id,
+          title: matched.title,
+          remarks: matched.remarks,
+          projectId: matched.projectId ?? null,
+          requirementId: matched.requirementId ?? null,
+          selectedModules: matched.selectedModules ?? null,
+        });
+      }
     } catch {
       toast({ variant: "destructive", title: "Failed to load execution summary" });
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleEditSave = async () => {
+    if (!fileInfo) return;
+    if (!editForm.redmineTicketId.trim()) {
+      toast({ variant: "destructive", title: "Redmine No. is required" });
+      return;
+    }
+    setEditSaving(true);
+    const selectedModuleNames = editForm.selectedModules
+      .map(id => modules.find(m => m.id === id)?.name)
+      .filter(Boolean)
+      .join(",");
+    try {
+      const res = await fetch(`/api/execution-files/${fileInfo.id}`, {
+        method: "PATCH",
+        headers: { ...getHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editForm.title.trim() || null,
+          redmineTicketId: editForm.redmineTicketId.trim(),
+          remarks: editForm.remarks.trim() || null,
+          projectId: editForm.projectId ? Number(editForm.projectId) : null,
+          requirementId: editForm.requirementId ? Number(editForm.requirementId) : null,
+          selectedModules: selectedModuleNames || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ variant: "destructive", title: err.error || "Failed to save changes" });
+        return;
+      }
+      const updated = await res.json();
+      setEditOpen(false);
+      toast({ title: "Execution file updated" });
+      const newTicketId = updated.redmineTicketId;
+      if (newTicketId !== currentTicketId) {
+        setLocation(`/test-cases/execution-details/${newTicketId}`);
+      } else {
+        loadSummary(currentTicketId);
+      }
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // Load reference data for the edit dialog
+  useEffect(() => {
+    Promise.all([
+      fetchModules(),
+      fetchProjects(),
+      fetch("/api/requirements", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
+    ]).then(([mods, projs, reqs]) => {
+      setModules(mods || []);
+      setProjects(projs || []);
+      setRequirements(reqs || []);
+    }).catch(() => {});
+  }, []);
 
   // Auto-load if ticket ID comes from URL
   useEffect(() => {
@@ -190,6 +299,33 @@ export default function TestExecutionSummary() {
               <span className="flex items-center gap-1 text-sm text-amber-600">
                 <AlertCircle className="w-4 h-4" /> No linked task found
               </span>
+            )}
+            {fileInfo && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  const storedNames = fileInfo.selectedModules
+                    ? fileInfo.selectedModules.split(",").map(s => s.trim()).filter(Boolean)
+                    : [];
+                  const preSelectedIds = modules
+                    .filter(m => storedNames.includes(m.name))
+                    .map(m => m.id);
+                  setEditForm({
+                    title: fileInfo.title || "",
+                    redmineTicketId: currentTicketId,
+                    remarks: fileInfo.remarks || "",
+                    projectId: fileInfo.projectId ? String(fileInfo.projectId) : "",
+                    requirementId: fileInfo.requirementId ? String(fileInfo.requirementId) : "",
+                    selectedModules: preSelectedIds,
+                  });
+                  setEditOpen(true);
+                }}
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </Button>
             )}
             <Button variant="outline" size="sm" onClick={() => loadSummary(currentTicketId)} disabled={isLoading} className="gap-2">
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -308,6 +444,116 @@ export default function TestExecutionSummary() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Edit dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Edit Execution File</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
+            {/* Redmine Ticket ID */}
+            <div className="space-y-1">
+              <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
+              <Input
+                value={editForm.redmineTicketId}
+                onChange={e => setEditForm(f => ({ ...f, redmineTicketId: e.target.value.replace(/\D/g, "") }))}
+                placeholder="e.g. 38032"
+              />
+            </div>
+
+            {/* Title */}
+            <div className="space-y-1">
+              <Label>Title</Label>
+              <Input
+                value={editForm.title}
+                onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="Execution file title"
+              />
+            </div>
+
+            {/* Requirement */}
+            <div className="space-y-1">
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <SearchableSelect
+                value={editForm.requirementId}
+                onValueChange={v => {
+                  const req = requirements.find(r => String(r.id) === v);
+                  const updated = { ...editForm, requirementId: v };
+                  if (req?.projectId) updated.projectId = String(req.projectId);
+                  setEditForm(updated);
+                }}
+                options={[
+                  { value: "", label: "None" },
+                  ...requirements.map(r => ({ value: String(r.id), label: r.title })),
+                ]}
+                placeholder="Search requirement..."
+              />
+            </div>
+
+            {/* Project */}
+            <div className="space-y-1">
+              <Label>Project</Label>
+              <SearchableSelect
+                value={editForm.projectId}
+                onValueChange={v => setEditForm(f => ({ ...f, projectId: v }))}
+                options={[
+                  { value: "", label: "Select project..." },
+                  ...projects.map(p => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Search project..."
+              />
+            </div>
+
+            {/* Module (multiselect) */}
+            <div className="space-y-1">
+              <Label>Module</Label>
+              <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
+                {modules.length === 0
+                  ? <p className="text-sm text-muted-foreground text-center py-2">No modules available.</p>
+                  : modules.map(m => (
+                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
+                        checked={editForm.selectedModules.includes(m.id)}
+                        onChange={e => setEditForm(f => ({
+                          ...f,
+                          selectedModules: e.target.checked
+                            ? [...f.selectedModules, m.id]
+                            : f.selectedModules.filter(id => id !== m.id),
+                        }))}
+                      />
+                      {m.name}
+                    </label>
+                  ))
+                }
+              </div>
+              {editForm.selectedModules.length > 0 && (
+                <p className="text-xs text-muted-foreground">{editForm.selectedModules.length} module(s) selected</p>
+              )}
+            </div>
+
+            {/* Remarks */}
+            <div className="space-y-1">
+              <Label>Remarks</Label>
+              <Textarea
+                value={editForm.remarks}
+                onChange={e => setEditForm(f => ({ ...f, remarks: e.target.value }))}
+                placeholder="Optional notes"
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2 border-t">
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editSaving}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={editSaving} className="gap-2">
+              {editSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
