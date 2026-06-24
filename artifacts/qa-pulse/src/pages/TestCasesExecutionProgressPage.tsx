@@ -775,15 +775,15 @@ export default function TestCasesExecutionProgressPage() {
             : allModules;
 
         if (testCases.length === 0) {
-          if (selectedModuleNames.length === 1) {
-            const firstRow = createEmptyRow();
-            firstRow.moduleName = selectedModuleNames[0];
-            setData([firstRow]);
-          } else {
-            setData([createEmptyRow()]);
-          }
+          const firstRow = createEmptyRow();
+          if (selectedModuleNames.length === 1) firstRow.moduleName = selectedModuleNames[0];
+          setData([firstRow]);
         } else {
-          setData(testCases);
+          // Auto-fill empty module names when only one module is tied to the file
+          const filled = selectedModuleNames.length === 1
+            ? testCases.map((tc: any) => ({ ...tc, moduleName: tc.moduleName || selectedModuleNames[0] }))
+            : testCases;
+          setData(filled);
         }
         setAvailableModules(filteredModules);
         setQaUsers(users);
@@ -820,7 +820,9 @@ export default function TestCasesExecutionProgressPage() {
   });
 
   const handleAddRow = () => {
-    setData((prev) => [...prev, createEmptyRow()]);
+    const row = createEmptyRow();
+    if (availableModules.length === 1) row.moduleName = availableModules[0].name;
+    setData((prev) => [...prev, row]);
     setHasUnsavedChanges(true);
   };
 

@@ -330,9 +330,9 @@ export default function TestCasesExecution() {
 
   const openEditFile = (f: ExecutionFile) => {
     const storedNames = f.selectedModules
-      ? f.selectedModules.split(",").map((s: string) => s.trim()).filter(Boolean)
+      ? f.selectedModules.split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean)
       : [];
-    const preSelected = modules.filter(m => storedNames.includes(m.name)).map(m => m.id);
+    const preSelected = modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
     setEditingFile(f);
     setEditFileForm({
       redmineTicketId: f.redmineTicketId,
