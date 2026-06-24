@@ -201,10 +201,8 @@ function mapDefectStatus(s: string): string {
   return "new";
 }
 
-const DEFECT_TRACKER_WORDS = ["defect", "bug"];
 function isDefectTracker(name: string): boolean {
-  const t = (name ?? "").toLowerCase();
-  return DEFECT_TRACKER_WORDS.some((w) => t.includes(w));
+  return (name ?? "").toLowerCase().trim() === "qa defect";
 }
 
 // ─── Shared report builder ────────────────────────
@@ -454,28 +452,7 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
       [issueId],
     )) as [any[], any];
 
-    const [defectRows] = (await conn.query(
-      `SELECT i.id, i.subject, i.created_on, i.due_date, i.status_id,
-         s.name AS status, t.name AS tracker,
-         e.name AS priority, c.name AS category,
-         CONCAT(u.firstname,' ',u.lastname) AS assignee
-       FROM issues i
-       LEFT JOIN issue_statuses s    ON s.id = i.status_id
-       LEFT JOIN trackers t          ON t.id = i.tracker_id
-       LEFT JOIN enumerations e      ON e.id = i.priority_id AND e.type='IssuePriority'
-       LEFT JOIN issue_categories c  ON c.id = i.category_id
-       LEFT JOIN users u             ON u.id = i.assigned_to_id
-       WHERE (t.name LIKE '%Defect%' OR t.name LIKE '%Bug%')
-         AND i.subject LIKE CONCAT('%', ?, '%')
-         AND i.status_id != 11
-       ORDER BY i.created_on ASC`,
-      [issueId],
-    )) as [any[], any];
-
     const defectMap = new Map<number, any>();
-    for (const d of defectRows as any[]) {
-      defectMap.set(d.id, d);
-    }
     for (const d of (childRows as any[]).filter((r) =>
       isDefectTracker(r.tracker ?? ""),
     )) {
@@ -580,11 +557,6 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
     );
     const children: any[] = childData?.issues ?? [];
 
-    const defectSearch = await safeJson(
-      `${baseUrl}/issues.json?subject=~${issueId}&limit=100&status_id=*`,
-    );
-    const subjectMatches: any[] = defectSearch?.issues ?? [];
-
     const defectMap = new Map<number, any>();
     const toNormDefect = (i: any) => ({
       id: i.id,
@@ -598,10 +570,6 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
       reopenedCount: 0,
     });
 
-    for (const i of subjectMatches) {
-      if (isDefectTracker(i.tracker?.name ?? "") && i.status?.id !== 11)
-        defectMap.set(i.id, toNormDefect(i));
-    }
     for (const i of children) {
       if (isDefectTracker(i.tracker?.name ?? "") && i.status?.id !== 11)
         defectMap.set(i.id, toNormDefect(i));
