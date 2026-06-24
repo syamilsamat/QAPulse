@@ -398,6 +398,7 @@ export default function Tasks() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<any | null>(null);
   const [form, setForm] = useState<Partial<any>>({});
+  const [taskFormModules, setTaskFormModules] = useState<number[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -738,6 +739,7 @@ export default function Tasks() {
       assigneeIds: [],
       environmentIds: [],
     });
+    setTaskFormModules([]);
     setDialogOpen(true);
   };
 
@@ -766,6 +768,10 @@ export default function Tasks() {
       })(),
       notes: t.notes ?? undefined,
     });
+    const ids = t.moduleIds
+      ? t.moduleIds.split(",").map((s: string) => Number(s.trim())).filter((n: number) => !isNaN(n) && n > 0)
+      : t.moduleId ? [t.moduleId] : [];
+    setTaskFormModules(ids);
     setDialogOpen(true);
   };
 
@@ -836,11 +842,16 @@ export default function Tasks() {
   };
 
   const handleSubmit = () => {
-    if (!form.name || !form.projectId || !form.moduleId) return;
+    if (!form.name || !form.projectId || taskFormModules.length === 0) return;
+    const submitData = {
+      ...form,
+      moduleId: taskFormModules[0],
+      moduleIds: taskFormModules.join(","),
+    };
     if (editingTask) {
-      updateMutation.mutate({ id: editingTask.id, data: form as any });
+      updateMutation.mutate({ id: editingTask.id, data: submitData as any });
     } else {
-      createMutation.mutate({ data: form as TaskInput });
+      createMutation.mutate({ data: submitData as TaskInput });
     }
   };
 
@@ -1537,13 +1548,18 @@ export default function Tasks() {
               </div>
               <div className="space-y-1.5">
                 <Label>Module <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.moduleId ? String(form.moduleId) : ""}
-                  onValueChange={(v) => setForm({ ...form, moduleId: Number(v) })}
-                  options={modules.map((m: any) => ({ value: String(m.id), label: m.name }))}
-                  placeholder="Select Module"
-                  searchPlaceholder="Search module..."
-                />
+                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
+                  {(modules as any[]).map((m: any) => (
+                    <label key={m.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                      <Checkbox
+                        checked={taskFormModules.includes(m.id)}
+                        onCheckedChange={(checked) => setTaskFormModules(prev => checked ? [...prev, m.id] : prev.filter(id => id !== m.id))}
+                      />
+                      <span className="text-sm">{m.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {taskFormModules.length > 0 && <p className="text-xs text-muted-foreground">{taskFormModules.length} selected</p>}
               </div>
 
               <div className="space-y-1.5">
@@ -1793,7 +1809,7 @@ export default function Tasks() {
               disabled={
                 !form.name ||
                 !form.projectId ||
-                !form.moduleId ||
+                taskFormModules.length === 0 ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }

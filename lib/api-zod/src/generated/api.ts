@@ -643,6 +643,7 @@ export const CreateTaskBody = zod.object({
   // type is REMOVED
   priority: zod.string().optional(),
   moduleId: zod.number().optional(),
+  moduleIds: zod.string().optional(),
   environmentIds: zod.array(zod.number()).optional(),
   assigneeIds: zod.array(zod.number()).optional(),
   actualStartDate: zod.string().optional(),
@@ -782,6 +783,7 @@ export const UpdateTaskBody = zod.object({
   name: zod.string().optional(),
   priority: zod.string().optional(),
   moduleId: zod.number().optional(),
+  moduleIds: zod.string().optional(),
   environmentIds: zod.array(zod.number()).optional(),
   assigneeIds: zod.array(zod.number()).optional(),
   actualStartDate: zod.string().optional(),
