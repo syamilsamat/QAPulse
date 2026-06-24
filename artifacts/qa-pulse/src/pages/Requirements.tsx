@@ -143,7 +143,8 @@ export default function Requirements() {
   const [redmineDialogOpen, setRedmineDialogOpen] = useState(false);
   const [redmineInput, setRedmineInput] = useState("");
   const [redmineSelectedProject, setRedmineSelectedProject] = useState<string>("");
-  const [redmineSelectedModule, setRedmineSelectedModule] = useState<string>("");
+  const [reqFormModules, setReqFormModules] = useState<string[]>([]);
+  const [redmineSelectedModules, setRedmineSelectedModules] = useState<string[]>([]);
   const [redmineSelectedTracker, setRedmineSelectedTracker] = useState<string>("");
   const [redmineLoading, setRedmineLoading] = useState(false);
 
@@ -374,6 +375,7 @@ export default function Requirements() {
   const openCreate = () => {
     setEditingReq(null);
     setForm({ priority: "normal", status: "draft" });
+    setReqFormModules([]);
     setErrors({});
     setDialogOpen(true);
   };
@@ -387,7 +389,6 @@ export default function Requirements() {
     setForm({
       title: r.title,
       description: r.description ?? undefined,
-      module: r.module ?? undefined,
       tracker: r.tracker ?? undefined,
       parentId: r.parentId ?? undefined,
       parentRedmineTicketId: parentReq?.redmineTicketId ?? undefined,
@@ -398,6 +399,7 @@ export default function Requirements() {
       redmineTicketId: r.redmineTicketId ?? undefined,
       status: r.status,
     });
+    setReqFormModules(r.module ? r.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setDialogOpen(true);
   };
 
@@ -407,11 +409,11 @@ export default function Requirements() {
       parentId: parentReq.id,
       parentRedmineTicketId: parentReq.redmineTicketId ?? undefined,
       projectId: parentReq.projectId ?? undefined,
-      module: parentReq.module ?? undefined,
       release: parentReq.release ?? undefined,
-      priority: "normal", 
+      priority: "normal",
       status: "draft"
     });
+    setReqFormModules(parentReq.module ? parentReq.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setErrors({});
     setDialogOpen(true);
   };
@@ -449,7 +451,7 @@ export default function Requirements() {
     }
 
     const { parentRedmineTicketId, ...restForm } = form;
-    const payload = { ...restForm, parentId: finalParentId };
+    const payload = { ...restForm, parentId: finalParentId, module: reqFormModules.join(",") || undefined };
 
     if (editingReq) updateMutation.mutate({ id: editingReq.id, data: payload as any });
     else createMutation.mutate({ data: payload as RequirementInput });
@@ -529,15 +531,15 @@ export default function Requirements() {
 
   const handleImportFromRedmine = async () => {
     const clean = redmineInput.trim().replace(/^#/, "").replace(/.*\/issues\//, "");
-    if (!clean || !redmineSelectedModule || !redmineSelectedProject) return;
+    if (!clean || redmineSelectedModules.length === 0 || !redmineSelectedProject) return;
 
     setRedmineLoading(true);
     try {
-      await processRedmineSync(clean, redmineSelectedModule, Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined);
+      await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined);
       toast({ title: "Import Successful", description: "Successfully imported ticket and subtasks." });
       setRedmineDialogOpen(false);
       setRedmineInput("");
-      setRedmineSelectedModule("");
+      setRedmineSelectedModules([]);
       setRedmineSelectedProject("");
       setRedmineSelectedTracker("");
     } catch (err: any) {
@@ -987,13 +989,18 @@ export default function Requirements() {
               </div>
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <SearchableSelect
-                  value={form.module ?? ""}
-                  onValueChange={(v) => setForm({ ...form, module: v })}
-                  options={executionModules.map((m: any) => ({ value: m.name, label: m.name }))}
-                  placeholder="Select module"
-                  searchPlaceholder="Search module..."
-                />
+                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
+                  {(executionModules as any[]).map((m: any) => (
+                    <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                      <Checkbox
+                        checked={reqFormModules.includes(m.name)}
+                        onCheckedChange={(checked) => setReqFormModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
+                      />
+                      <span className="text-sm">{m.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {reqFormModules.length > 0 && <p className="text-xs text-muted-foreground">{reqFormModules.length} selected</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Tracker</Label>
@@ -1033,7 +1040,7 @@ export default function Requirements() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModule(""); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); } }}>
+      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); } }}>
         <DialogContent className="w-[95vw] sm:w-full max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1060,13 +1067,18 @@ export default function Requirements() {
             </div>
             <div className="space-y-1.5">
               <Label>Module <span className="text-destructive">*</span></Label>
-              <SearchableSelect
-                value={redmineSelectedModule}
-                onValueChange={setRedmineSelectedModule}
-                options={executionModules.map((m: any) => ({ value: m.name, label: m.name }))}
-                placeholder="Select module"
-                searchPlaceholder="Search module..."
-              />
+              <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
+                {(executionModules as any[]).map((m: any) => (
+                  <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                    <Checkbox
+                      checked={redmineSelectedModules.includes(m.name)}
+                      onCheckedChange={(checked) => setRedmineSelectedModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
+                    />
+                    <span className="text-sm">{m.name}</span>
+                  </label>
+                ))}
+              </div>
+              {redmineSelectedModules.length > 0 && <p className="text-xs text-muted-foreground">{redmineSelectedModules.length} selected</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Tracker Filter <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
@@ -1081,7 +1093,7 @@ export default function Requirements() {
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
             <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModule(""); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); }} className="w-full sm:w-auto">Cancel</Button>
-            <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || !redmineSelectedModule || !redmineSelectedProject} className="w-full sm:w-auto">
+            <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || redmineSelectedModules.length === 0 || !redmineSelectedProject} className="w-full sm:w-auto">
               {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Fetching…</> : "Import"}
             </Button>
           </DialogFooter>

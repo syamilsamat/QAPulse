@@ -114,6 +114,7 @@ function AIGenerateDialog({
     generateNegative: false,
     generateEdgeCases: false,
   });
+  const [aiFormModules, setAiFormModules] = useState<string[]>([]);
   const [availableReqs, setAvailableReqs] = useState<any[]>([]);
   const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<any[]>([]);
@@ -162,6 +163,7 @@ function AIGenerateDialog({
     setPreview([]);
     setAvailableReqs([]);
     setSelectedReqIds(new Set());
+    setAiFormModules([]);
     setForm({
       generatePositive: true,
       generateNegative: false,
@@ -208,9 +210,11 @@ function AIGenerateDialog({
                         ...form,
                         requirementId: reqId,
                         requirementTitle: req.title,
-                        module: req.module ?? form.module ?? "",
                         projectId: req.projectId ?? form.projectId,
                       });
+                      if (req.module) {
+                        setAiFormModules(req.module.split(",").map((s: string) => s.trim()).filter(Boolean));
+                      }
                     }
                   }}
                   options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
@@ -370,13 +374,18 @@ function AIGenerateDialog({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Module <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.module ?? ""}
-                  onValueChange={(v) => setForm({ ...form, module: v })}
-                  options={(modules ?? []).map((m: any) => ({ value: m.name, label: m.name }))}
-                  placeholder="Select module..."
-                  searchPlaceholder="Search module..."
-                />
+                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
+                  {(modules ?? []).map((m: any) => (
+                    <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                      <Checkbox
+                        checked={aiFormModules.includes(m.name)}
+                        onCheckedChange={(checked) => setAiFormModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
+                      />
+                      <span className="text-sm">{m.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {aiFormModules.length > 0 && <p className="text-xs text-muted-foreground">{aiFormModules.length} selected</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Assign Author</Label>
@@ -503,7 +512,7 @@ function AIGenerateDialog({
           {step === "form" ? (
             <Button
               onClick={handleGenerate}
-              disabled={!form.requirementTitle || !form.projectId || !form.module || generateMutation.isPending}
+              disabled={!form.requirementTitle || !form.projectId || aiFormModules.length === 0 || generateMutation.isPending}
               className="gap-2 w-full sm:w-auto"
             >
               {generateMutation.isPending ? (
@@ -521,7 +530,7 @@ function AIGenerateDialog({
           ) : (
             <Button
               onClick={() => {
-                onSuccess(preview, form);
+                onSuccess(preview, { ...form, module: aiFormModules.join(",") });
                 handleClose();
               }}
               className="gap-2 w-full sm:w-auto"
@@ -603,6 +612,7 @@ export default function TestCases() {
 
   const [editingTC, setEditingTC] = useState<any | null>(null);
   const [form, setForm] = useState<Partial<any>>({});
+  const [formModules, setFormModules] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -854,7 +864,8 @@ export default function TestCases() {
 
   const openCreate = () => {
     setEditingTC(null);
-    setForm({ status: "active", module: "" });
+    setForm({ status: "active" });
+    setFormModules([]);
     setDialogOpen(true);
   };
 
@@ -879,6 +890,7 @@ export default function TestCases() {
       authorId: tc.authorId ?? undefined,
       status: tc.status,
     });
+    setFormModules(tc.module ? tc.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setDialogOpen(true);
   };
 
@@ -1013,7 +1025,7 @@ export default function TestCases() {
       if (compileStep === "new") {
         const selectedModuleNames = compileNewForm.selectedModules
           .map((id) => modules.find((m: any) => m.id === id)?.name)
-          .filter(Boolean);
+          .filter(Boolean) as string[];
         const createRes = await fetch(`${getApiUrl()}/execution-files`, {
           method: "POST",
           headers,
@@ -1021,7 +1033,7 @@ export default function TestCases() {
             redmineTicketId: compileNewForm.redmineTicketId.trim(),
             title: compileNewForm.title || undefined,
             remarks: compileNewForm.remarks || undefined,
-            selectedModules: selectedModuleNames.length ? selectedModuleNames : undefined,
+            selectedModules: selectedModuleNames.length ? selectedModuleNames.join(",") : undefined,
             projectId: compileNewForm.projectId ? Number(compileNewForm.projectId) : undefined,
             requirementId: compileNewForm.requirementId ? Number(compileNewForm.requirementId) : undefined,
           }),
@@ -1040,6 +1052,31 @@ export default function TestCases() {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (getRes.ok) existingTCs = (await getRes.json()).testCases ?? [];
+        // Merge new module names into the existing file's selectedModules
+        const newModuleNames = [...new Set(newRows.map((r: any) => r.moduleName).filter(Boolean))] as string[];
+        if (newModuleNames.length > 0) {
+          const fileRes = await fetch(`${getApiUrl()}/execution-files`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (fileRes.ok) {
+            const allFiles = await fileRes.json();
+            const existingFile = allFiles.find((f: any) => String(f.redmineTicketId) === String(targetTicketId));
+            if (existingFile) {
+              const existingModules = (existingFile.selectedModules || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+              const merged = [...new Set([...existingModules, ...newModuleNames])];
+              if (merged.length !== existingModules.length) {
+                const existingFileObj = allFiles.find((f: any) => String(f.redmineTicketId) === String(targetTicketId));
+                if (existingFileObj) {
+                  await fetch(`${getApiUrl()}/execution-files/${existingFileObj.id}`, {
+                    method: "PATCH",
+                    headers,
+                    body: JSON.stringify({ selectedModules: merged.join(",") }),
+                  }).catch(() => {});
+                }
+              }
+            }
+          }
+        }
       }
       const saveRes = await fetch(`${getApiUrl()}/execution-files/${targetTicketId}/test-cases`, {
         method: "POST",
@@ -1066,7 +1103,7 @@ export default function TestCases() {
       !form.testSteps?.trim() ||
       !form.expectedResult?.trim() ||
       !form.projectId ||
-      !form.module
+      formModules.length === 0
     ) {
       toast({
         variant: "destructive",
@@ -1074,9 +1111,10 @@ export default function TestCases() {
       });
       return;
     }
+    const submitData = { ...form, module: formModules.join(",") };
     if (editingTC)
-      updateMutation.mutate({ id: editingTC.id, data: form as any });
-    else createMutation.mutate({ data: { ...form, aiAssisted: false, authorId: user?.id } as any });
+      updateMutation.mutate({ id: editingTC.id, data: submitData as any });
+    else createMutation.mutate({ data: { ...submitData, aiAssisted: false, authorId: user?.id } as any });
   };
 
   const handleAISuccess = (aiTestCases: any[], formData: any) => {
@@ -1821,8 +1859,10 @@ export default function TestCases() {
                       ...form,
                       requirementId: reqId,
                       projectId: req?.projectId ?? form.projectId,
-                      module: req?.module ?? form.module,
                     });
+                    if (req?.module) {
+                      setFormModules(req.module.split(",").map((s: string) => s.trim()).filter(Boolean));
+                    }
                   }}
                   options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
                   placeholder="Link to requirement..."
@@ -1841,13 +1881,18 @@ export default function TestCases() {
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Module <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.module ?? ""}
-                  onValueChange={(v) => setForm({ ...form, module: v })}
-                  options={modules.map((m: any) => ({ value: m.name, label: m.name }))}
-                  placeholder="Select module..."
-                  searchPlaceholder="Search module..."
-                />
+                <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-0.5">
+                  {(modules as any[]).map((m: any) => (
+                    <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                      <Checkbox
+                        checked={formModules.includes(m.name)}
+                        onCheckedChange={(checked) => setFormModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
+                      />
+                      <span className="text-sm">{m.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {formModules.length > 0 && <p className="text-xs text-muted-foreground">{formModules.length} selected</p>}
               </div>
             </div>
 
