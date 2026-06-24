@@ -318,6 +318,7 @@ export default function TestCasesExecution() {
 
   const [editFileOpen, setEditFileOpen] = useState(false);
   const [editingFile, setEditingFile] = useState<ExecutionFile | null>(null);
+  const editModulesInitRef = useRef(false);
   const [editFileForm, setEditFileForm] = useState({
     redmineTicketId: "",
     title: "",
@@ -329,10 +330,7 @@ export default function TestCasesExecution() {
   const [isSavingFile, setIsSavingFile] = useState(false);
 
   const openEditFile = (f: ExecutionFile) => {
-    const storedNames = f.selectedModules
-      ? f.selectedModules.split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean)
-      : [];
-    const preSelected = modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
+    editModulesInitRef.current = false;
     setEditingFile(f);
     setEditFileForm({
       redmineTicketId: f.redmineTicketId,
@@ -340,10 +338,21 @@ export default function TestCasesExecution() {
       remarks: f.remarks || "",
       requirementId: f.requirementId ? String(f.requirementId) : "",
       projectId: f.projectId ? String(f.projectId) : "",
-      selectedModules: preSelected,
+      selectedModules: [],
     });
     setEditFileOpen(true);
   };
+
+  // Reactive module pre-selection — runs after dialog opens OR after modules finish loading
+  useEffect(() => {
+    if (!editFileOpen) { editModulesInitRef.current = false; return; }
+    if (editModulesInitRef.current || modules.length === 0 || !editingFile) return;
+    const storedNames = (editingFile.selectedModules || "")
+      .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+    const ids = modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
+    setEditFileForm(prev => ({ ...prev, selectedModules: ids }));
+    editModulesInitRef.current = true;
+  }, [editFileOpen, modules, editingFile]);
 
   const handleSaveEditFile = async () => {
     if (!editingFile) return;
@@ -376,6 +385,22 @@ export default function TestCasesExecution() {
       }
       const updated = await res.json();
       setFiles(prev => prev.map(f => f.id === updated.id ? { ...f, ...updated } : f));
+
+      // Re-link task if Redmine No. changed
+      const oldTicketId = editingFile.redmineTicketId;
+      const newTicketId = updated.redmineTicketId;
+      if (oldTicketId !== newTicketId) {
+        const linkedTask = tasks.find(t => t.redmineId === oldTicketId);
+        if (linkedTask) {
+          await fetch(`/api/tasks/${linkedTask.id}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({ redmineId: newTicketId }),
+          }).catch(() => {});
+          setTasks(prev => prev.map(t => t.id === linkedTask.id ? { ...t, redmineId: newTicketId } : t));
+        }
+      }
+
       toast({ title: "Execution file updated" });
       setEditFileOpen(false);
     } finally {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { HoverList } from "@/components/icons/animated";
@@ -77,7 +77,7 @@ export default function TestExecutionSummary() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTicketId, setCurrentTicketId] = useState(ticketId || "");
   const [hasLoaded, setHasLoaded] = useState(false);
-  const [taskInfo, setTaskInfo] = useState<{ status: string; name: string } | null>(null);
+  const [taskInfo, setTaskInfo] = useState<{ id: number; status: string; name: string } | null>(null);
   const [fileInfo, setFileInfo] = useState<{
     id: number;
     title: string | null;
@@ -87,6 +87,7 @@ export default function TestExecutionSummary() {
     selectedModules: string | null;
   } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const editModulesInitRef = useRef(false);
   const [editForm, setEditForm] = useState({
     title: "",
     redmineTicketId: "",
@@ -164,7 +165,7 @@ export default function TestExecutionSummary() {
       if (tasksRes.ok) {
         const allTasks = await tasksRes.json();
         const matched = allTasks.find((t: any) => String(t.redmineId) === tid);
-        setTaskInfo(matched ? { status: matched.status, name: matched.name } : null);
+        setTaskInfo(matched ? { id: matched.id, status: matched.status, name: matched.name } : null);
       }
 
       // Load execution file metadata (for edit dialog)
@@ -220,6 +221,14 @@ export default function TestExecutionSummary() {
       setEditOpen(false);
       toast({ title: "Execution file updated" });
       const newTicketId = updated.redmineTicketId;
+      // Relink task when Redmine No. changed
+      if (taskInfo && newTicketId !== currentTicketId) {
+        await fetch(`/api/tasks/${taskInfo.id}`, {
+          method: "PATCH",
+          headers: { ...getHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ redmineId: newTicketId }),
+        }).catch(() => {});
+      }
       if (newTicketId !== currentTicketId) {
         setLocation(`/test-cases/execution-details/${newTicketId}`);
       } else {
@@ -229,6 +238,17 @@ export default function TestExecutionSummary() {
       setEditSaving(false);
     }
   };
+
+  // Reactively pre-select module checkboxes once dialog is open and modules are loaded
+  useEffect(() => {
+    if (!editOpen) { editModulesInitRef.current = false; return; }
+    if (editModulesInitRef.current || modules.length === 0 || !fileInfo) return;
+    const storedNames = (fileInfo.selectedModules || "")
+      .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+    const ids = modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
+    setEditForm(prev => ({ ...prev, selectedModules: ids }));
+    editModulesInitRef.current = true;
+  }, [editOpen, modules, fileInfo]);
 
   // Load reference data for the edit dialog
   useEffect(() => {
@@ -306,19 +326,14 @@ export default function TestExecutionSummary() {
                 size="sm"
                 className="gap-2"
                 onClick={() => {
-                  const storedNames = fileInfo.selectedModules
-                    ? fileInfo.selectedModules.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
-                    : [];
-                  const preSelectedIds = modules
-                    .filter(m => storedNames.includes(m.name.trim().toLowerCase()))
-                    .map(m => m.id);
+                  editModulesInitRef.current = false;
                   setEditForm({
                     title: fileInfo.title || "",
                     redmineTicketId: currentTicketId,
                     remarks: fileInfo.remarks || "",
                     projectId: fileInfo.projectId ? String(fileInfo.projectId) : "",
                     requirementId: fileInfo.requirementId ? String(fileInfo.requirementId) : "",
-                    selectedModules: preSelectedIds,
+                    selectedModules: [],
                   });
                   setEditOpen(true);
                 }}
