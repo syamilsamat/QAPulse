@@ -761,7 +761,16 @@ export default function TestCasesExecution() {
                       ) : (
                         <button
                           className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
-                          onClick={e => { e.stopPropagation(); setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "" }); setQuickTaskModules([]); setQuickTaskOpen(true); }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "" });
+                            const preSelectedIds = f.selectedModules
+                              ? f.selectedModules.split(",").map((s: string) => s.trim().toLowerCase())
+                                  .flatMap((name: string) => modules.filter(m => m.name.trim().toLowerCase() === name).map(m => m.id))
+                              : [];
+                            setQuickTaskModules(preSelectedIds);
+                            setQuickTaskOpen(true);
+                          }}
                         >
                           <AlertCircle className="w-3 h-3" /> No task
                         </button>
@@ -830,7 +839,7 @@ export default function TestCasesExecution() {
       </Dialog>
 
       {/* New Task dialog */}
-      <Dialog open={quickTaskOpen} onOpenChange={open => { setQuickTaskOpen(open); if (!open) setQuickTaskForm(DEFAULT_QUICK_FORM); }}>
+      <Dialog open={quickTaskOpen} onOpenChange={open => { setQuickTaskOpen(open); if (!open) { setQuickTaskForm(DEFAULT_QUICK_FORM); setQuickTaskModules([]); } }}>
         <DialogContent className="max-w-3xl w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Task</DialogTitle>
