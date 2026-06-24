@@ -764,14 +764,15 @@ export default function TestCasesExecutionProgressPage() {
     ])
       .then(([result, allModules, users, files, allTasks]) => {
         const testCases = result?.testCases || [];
-        const file = files.find((f) => f.redmineTicketId === ticketId);
+        const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
 
+        const selectedModuleLower = selectedModuleNames.map(n => n.toLowerCase());
         const filteredModules =
-          selectedModuleNames.length > 0
-            ? allModules.filter((m) => selectedModuleNames.includes(m.name))
+          selectedModuleLower.length > 0
+            ? allModules.filter((m) => selectedModuleLower.includes(m.name.trim().toLowerCase()))
             : allModules;
 
         if (testCases.length === 0) {
