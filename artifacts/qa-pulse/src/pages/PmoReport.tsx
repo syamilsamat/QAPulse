@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +14,8 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { fetchExecutionFiles, type ExecutionFile } from "@/lib/execution-api";
 import {
   Card,
   CardContent,
@@ -706,6 +708,18 @@ export default function PmoReport() {
 
   const [input, setInput] = useState("");
   const [redmineId, setRedmineId] = useState<string | null>(null);
+  const [executionFiles, setExecutionFiles] = useState<ExecutionFile[]>([]);
+
+  useEffect(() => {
+    fetchExecutionFiles()
+      .then(files => {
+        const sorted = [...files].sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+        setExecutionFiles(sorted);
+      })
+      .catch(() => {});
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeDefectsPage, setActiveDefectsPage] = useState(1);
   const [showAllDefects, setShowAllDefects] = useState(false);
@@ -1169,16 +1183,18 @@ export default function PmoReport() {
             <Card className="no-print">
               <CardContent className="pt-5 pb-5">
                 <div className="flex gap-3">
-                  <div className="flex-1 relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
-                      #
-                    </span>
-                    <Input
-                      className="pl-7"
-                      placeholder="Enter Redmine number (e.g. 34555)"
+                  <div className="flex-1">
+                    <SearchableSelect
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      onValueChange={(val) => {
+                        setInput(val);
+                      }}
+                      options={executionFiles.map(f => ({
+                        value: f.redmineTicketId,
+                        label: `#${f.redmineTicketId}${f.title ? ` — ${f.title}` : ""}`,
+                      }))}
+                      placeholder="Select ticket..."
+                      searchPlaceholder="Search by ticket or title..."
                     />
                   </div>
                   <Button

@@ -307,10 +307,10 @@ export default function TestExecutionSummary() {
                 className="gap-2"
                 onClick={() => {
                   const storedNames = fileInfo.selectedModules
-                    ? fileInfo.selectedModules.split(",").map(s => s.trim()).filter(Boolean)
+                    ? fileInfo.selectedModules.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
                     : [];
                   const preSelectedIds = modules
-                    .filter(m => storedNames.includes(m.name))
+                    .filter(m => storedNames.includes(m.name.trim().toLowerCase()))
                     .map(m => m.id);
                   setEditForm({
                     title: fileInfo.title || "",
