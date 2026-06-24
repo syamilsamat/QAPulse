@@ -466,7 +466,7 @@ export default function TestCasesExecution() {
     tasks.find(t => t.redmineId === f.redmineTicketId);
 
   const isFullyExecuted = (prog: ProgressData[string] | undefined) =>
-    !!prog && prog.total > 0 && prog.notExecuted === 0 && prog.inProgress === 0;
+    !!prog && prog.total > 0 && prog.passed === prog.total;
 
   const getVerdict = (prog: ProgressData[string]): Verdict =>
     prog.failed === 0 && prog.blocked === 0 ? "PASS" : "CONDITIONAL SIGN OFF";
@@ -1348,7 +1348,7 @@ export default function TestCasesExecution() {
         <SendVerdictModal
           open={sendVerdictOpen}
           onClose={() => setSendVerdictOpen(false)}
-          verdict={isFullyExecuted(progress[verdictFile.redmineTicketId]) ? getVerdict(progress[verdictFile.redmineTicketId]) : "PASS"}
+          verdict="PASS"
           redmineId={verdictFile.redmineTicketId}
           issueType="Issue"
           issueSubject={getTaskForFile(verdictFile)?.name || verdictFile.title || ""}
