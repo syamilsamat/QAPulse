@@ -845,7 +845,7 @@ export default function TestCases() {
         variant: "destructive",
         title: "No test cases to export",
       });
-    exportToExcel(toExport, currentUser?.name).then(() => toast({ title: "Export complete" }));
+    exportToExcel(toExport, user?.name).then(() => toast({ title: "Export complete" }));
   };
 
   const handleBulkDelete = async () => {
