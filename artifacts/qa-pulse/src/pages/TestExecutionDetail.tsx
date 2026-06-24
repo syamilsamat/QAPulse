@@ -221,13 +221,18 @@ export default function TestExecutionSummary() {
       setEditOpen(false);
       toast({ title: "Execution file updated" });
       const newTicketId = updated.redmineTicketId;
-      // Relink task when Redmine No. changed
-      if (taskInfo && newTicketId !== currentTicketId) {
-        await fetch(`/api/tasks/${taskInfo.id}`, {
-          method: "PATCH",
-          headers: { ...getHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ redmineId: newTicketId }),
-        }).catch(() => {});
+      // Update linked task: name sync + re-link if Redmine No. changed
+      if (taskInfo) {
+        const taskPatch: Record<string, any> = {};
+        if (newTicketId !== currentTicketId) taskPatch.redmineId = newTicketId;
+        if (editForm.title.trim()) taskPatch.name = editForm.title.trim();
+        if (Object.keys(taskPatch).length > 0) {
+          await fetch(`/api/tasks/${taskInfo.id}`, {
+            method: "PATCH",
+            headers: { ...getHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify(taskPatch),
+          }).catch(() => {});
+        }
       }
       if (newTicketId !== currentTicketId) {
         setLocation(`/test-cases/execution-details/${newTicketId}`);
@@ -331,7 +336,7 @@ export default function TestExecutionSummary() {
                 onClick={() => {
                   editModulesInitRef.current = false;
                   setEditForm({
-                    title: fileInfo.title || "",
+                    title: taskInfo?.name || fileInfo.title || "",
                     redmineTicketId: currentTicketId,
                     remarks: fileInfo.remarks || "",
                     projectId: fileInfo.projectId ? String(fileInfo.projectId) : "",
