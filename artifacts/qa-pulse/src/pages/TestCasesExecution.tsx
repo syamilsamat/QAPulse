@@ -53,6 +53,7 @@ import {
   Upload,
   FileSpreadsheet,
   X as XIcon,
+  Settings2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -314,6 +315,73 @@ export default function TestCasesExecution() {
   const [excelFileName, setExcelFileName] = useState("");
   const [isParsingExcel, setIsParsingExcel] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+
+  const [editFileOpen, setEditFileOpen] = useState(false);
+  const [editingFile, setEditingFile] = useState<ExecutionFile | null>(null);
+  const [editFileForm, setEditFileForm] = useState({
+    redmineTicketId: "",
+    title: "",
+    remarks: "",
+    requirementId: "",
+    projectId: "",
+    selectedModules: [] as number[],
+  });
+  const [isSavingFile, setIsSavingFile] = useState(false);
+
+  const openEditFile = (f: ExecutionFile) => {
+    const storedNames = f.selectedModules
+      ? f.selectedModules.split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [];
+    const preSelected = modules.filter(m => storedNames.includes(m.name)).map(m => m.id);
+    setEditingFile(f);
+    setEditFileForm({
+      redmineTicketId: f.redmineTicketId,
+      title: f.title || "",
+      remarks: f.remarks || "",
+      requirementId: f.requirementId ? String(f.requirementId) : "",
+      projectId: f.projectId ? String(f.projectId) : "",
+      selectedModules: preSelected,
+    });
+    setEditFileOpen(true);
+  };
+
+  const handleSaveEditFile = async () => {
+    if (!editingFile) return;
+    if (!editFileForm.redmineTicketId.trim()) {
+      toast({ variant: "destructive", title: "Redmine Ticket ID is required" });
+      return;
+    }
+    setIsSavingFile(true);
+    const selectedModuleNames = editFileForm.selectedModules
+      .map(id => modules.find(m => m.id === id)?.name)
+      .filter(Boolean)
+      .join(",");
+    try {
+      const res = await fetch(`/api/execution-files/${editingFile.id}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          redmineTicketId: editFileForm.redmineTicketId.trim(),
+          title: editFileForm.title.trim() || null,
+          remarks: editFileForm.remarks.trim() || null,
+          projectId: editFileForm.projectId ? Number(editFileForm.projectId) : null,
+          requirementId: editFileForm.requirementId ? Number(editFileForm.requirementId) : null,
+          selectedModules: selectedModuleNames || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ variant: "destructive", title: err.error || "Failed to save" });
+        return;
+      }
+      const updated = await res.json();
+      setFiles(prev => prev.map(f => f.id === updated.id ? { ...f, ...updated } : f));
+      toast({ title: "Execution file updated" });
+      setEditFileOpen(false);
+    } finally {
+      setIsSavingFile(false);
+    }
+  };
 
   const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -680,6 +748,11 @@ export default function TestCasesExecution() {
                           className="text-purple-600 hover:text-purple-800 hover:bg-purple-50"
                           onClick={() => setLocation(`/test-cases/execution-details/${f.redmineTicketId}`)}>
                           <BarChart2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" title="Edit File Info"
+                          className="text-amber-600 hover:text-amber-800 hover:bg-amber-50"
+                          onClick={() => openEditFile(f)}>
+                          <Settings2 className="w-4 h-4" />
                         </Button>
                         <Button variant="ghost" size="sm" title="Open Execution Sheet"
                           className="text-blue-600 hover:text-blue-800"
@@ -1053,6 +1126,105 @@ export default function TestCasesExecution() {
                 ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
                 : <><Plus className="w-4 h-4 mr-2" /> Create File</>
               }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit File Info dialog */}
+      <Dialog open={editFileOpen} onOpenChange={setEditFileOpen}>
+        <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Edit File Info</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
+            <div className="space-y-1">
+              <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder="e.g. 38032"
+                value={editFileForm.redmineTicketId}
+                onChange={e => setEditFileForm(f => ({ ...f, redmineTicketId: e.target.value.replace(/\D/g, "") }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Title</Label>
+              <Input
+                placeholder="Execution file title"
+                value={editFileForm.title}
+                onChange={e => setEditFileForm(f => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <SearchableSelect
+                value={editFileForm.requirementId}
+                onValueChange={v => {
+                  const req = requirements.find((r: any) => String(r.id) === v);
+                  const updated = { ...editFileForm, requirementId: v };
+                  if (req?.projectId) updated.projectId = String(req.projectId);
+                  setEditFileForm(updated);
+                }}
+                options={[
+                  { value: "", label: "None" },
+                  ...requirements.map((r: any) => ({ value: String(r.id), label: r.title })),
+                ]}
+                placeholder="Search requirement..."
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Project</Label>
+              <SearchableSelect
+                value={editFileForm.projectId}
+                onValueChange={v => setEditFileForm(f => ({ ...f, projectId: v }))}
+                options={[
+                  { value: "", label: "Select project..." },
+                  ...projects.map(p => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Search project..."
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Module</Label>
+              <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
+                {modules.length === 0
+                  ? <p className="text-sm text-muted-foreground text-center py-2">No modules available.</p>
+                  : modules.map(m => (
+                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
+                        checked={editFileForm.selectedModules.includes(m.id)}
+                        onChange={e => setEditFileForm(f => ({
+                          ...f,
+                          selectedModules: e.target.checked
+                            ? [...f.selectedModules, m.id]
+                            : f.selectedModules.filter(id => id !== m.id),
+                        }))}
+                      />
+                      {m.name}
+                    </label>
+                  ))
+                }
+              </div>
+              {editFileForm.selectedModules.length > 0 && (
+                <p className="text-xs text-muted-foreground">{editFileForm.selectedModules.length} module(s) selected</p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>Remarks</Label>
+              <Input
+                value={editFileForm.remarks}
+                onChange={e => setEditFileForm(f => ({ ...f, remarks: e.target.value }))}
+                placeholder="Optional notes"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2 border-t">
+            <Button variant="ghost" onClick={() => setEditFileOpen(false)} disabled={isSavingFile}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEditFile} disabled={!editFileForm.redmineTicketId.trim() || isSavingFile}>
+              {isSavingFile ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
