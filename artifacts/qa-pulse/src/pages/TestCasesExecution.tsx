@@ -54,9 +54,14 @@ import {
   FileSpreadsheet,
   X as XIcon,
   Settings2,
+  Send,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { SendVerdictModal, type Verdict } from "@/components/SendVerdictModal";
+import { type ContactOption } from "@/components/ContactMultiSelect";
+import { getApiUrl } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   fetchExecutionFiles,
   createExecutionFile,
@@ -263,6 +268,7 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
 export default function TestCasesExecution() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState("");
@@ -330,6 +336,9 @@ export default function TestCasesExecution() {
     selectedModules: [] as number[],
   });
   const [isSavingFile, setIsSavingFile] = useState(false);
+  const [verdictFile, setVerdictFile] = useState<ExecutionFile | null>(null);
+  const [sendVerdictOpen, setSendVerdictOpen] = useState(false);
+  const [isSendingVerdict, setIsSendingVerdict] = useState(false);
 
   const openEditFile = (f: ExecutionFile) => {
     editModulesInitRef.current = false;
@@ -455,6 +464,46 @@ export default function TestCasesExecution() {
 
   const getTaskForFile = (f: ExecutionFile) =>
     tasks.find(t => t.redmineId === f.redmineTicketId);
+
+  const isFullyExecuted = (prog: ProgressData[string] | undefined) =>
+    !!prog && prog.total > 0 && prog.notExecuted === 0 && prog.inProgress === 0;
+
+  const getVerdict = (prog: ProgressData[string]): Verdict =>
+    prog.failed === 0 && prog.blocked === 0 ? "PASS" : "CONDITIONAL SIGN OFF";
+
+  const handleSendVerdict = async (to: ContactOption[], cc: ContactOption[], reason: string) => {
+    if (!verdictFile) return;
+    const prog = progress[verdictFile.redmineTicketId];
+    const task = getTaskForFile(verdictFile);
+    const project = projects.find(p => p.id === verdictFile.projectId);
+    setIsSendingVerdict(true);
+    try {
+      const verdict = getVerdict(prog);
+      const res = await fetch(`${getApiUrl()}/pmo/send-verdict`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          redmineId: verdictFile.redmineTicketId,
+          issueType: "Issue",
+          issueSubject: task?.name || verdictFile.title || "",
+          projectName: project?.name || "",
+          verdict,
+          reason,
+          to,
+          cc,
+          senderName: user?.name || "QA Team",
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error ?? "Failed to send verdict");
+      toast({ title: "Verdict sent!", description: "Verdict email delivered to selected recipients." });
+      setSendVerdictOpen(false);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Send Failed", description: err.message });
+    } finally {
+      setIsSendingVerdict(false);
+    }
+  };
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -787,6 +836,21 @@ export default function TestCasesExecution() {
                     </TableCell>
                     <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
+                        {task && isFullyExecuted(prog) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Send Verdict Now"
+                            className="text-green-600 hover:text-green-800 hover:bg-green-50"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setVerdictFile(f);
+                              setSendVerdictOpen(true);
+                            }}
+                          >
+                            <Send className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" title="View Execution Summary"
                           className="text-purple-600 hover:text-purple-800 hover:bg-purple-50"
                           onClick={() => setLocation(`/test-cases/execution-details/${f.redmineTicketId}`)}>
@@ -1279,6 +1343,19 @@ export default function TestCasesExecution() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {verdictFile && (
+        <SendVerdictModal
+          open={sendVerdictOpen}
+          onClose={() => setSendVerdictOpen(false)}
+          verdict={isFullyExecuted(progress[verdictFile.redmineTicketId]) ? getVerdict(progress[verdictFile.redmineTicketId]) : "PASS"}
+          redmineId={verdictFile.redmineTicketId}
+          issueType="Issue"
+          issueSubject={getTaskForFile(verdictFile)?.name || verdictFile.title || ""}
+          onSend={handleSendVerdict}
+          isSending={isSendingVerdict}
+        />
+      )}
     </div>
   );
 }
