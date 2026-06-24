@@ -217,6 +217,7 @@ type ProgressData = Record<string, {
 }>;
 
 interface TaskInfo {
+  id: number;
   redmineId: string;
   status: string;
   name: string;
@@ -335,7 +336,7 @@ export default function TestCasesExecution() {
     setEditingFile(f);
     setEditFileForm({
       redmineTicketId: f.redmineTicketId,
-      title: f.title || "",
+      title: tasks.find(t => t.redmineId === f.redmineTicketId)?.name || f.title || "",
       remarks: f.remarks || "",
       requirementId: f.requirementId ? String(f.requirementId) : "",
       projectId: f.projectId ? String(f.projectId) : "",
@@ -387,18 +388,21 @@ export default function TestCasesExecution() {
       const updated = await res.json();
       setFiles(prev => prev.map(f => f.id === updated.id ? { ...f, ...updated } : f));
 
-      // Re-link task if Redmine No. changed
+      // Update linked task: name sync + re-link if Redmine No. changed
       const oldTicketId = editingFile.redmineTicketId;
       const newTicketId = updated.redmineTicketId;
-      if (oldTicketId !== newTicketId) {
-        const linkedTask = tasks.find(t => t.redmineId === oldTicketId);
-        if (linkedTask) {
+      const linkedTask = tasks.find(t => t.redmineId === oldTicketId);
+      if (linkedTask) {
+        const taskPatch: Record<string, any> = {};
+        if (oldTicketId !== newTicketId) taskPatch.redmineId = newTicketId;
+        if (editFileForm.title.trim()) taskPatch.name = editFileForm.title.trim();
+        if (Object.keys(taskPatch).length > 0) {
           await fetch(`/api/tasks/${linkedTask.id}`, {
             method: "PATCH",
             headers: getHeaders(),
-            body: JSON.stringify({ redmineId: newTicketId }),
+            body: JSON.stringify(taskPatch),
           }).catch(() => {});
-          setTasks(prev => prev.map(t => t.id === linkedTask.id ? { ...t, redmineId: newTicketId } : t));
+          setTasks(prev => prev.map(t => t.id === linkedTask.id ? { ...t, ...taskPatch } : t));
         }
       }
 
@@ -437,6 +441,7 @@ export default function TestCasesExecution() {
         setProgress(progressData || {});
         setUsers(usersData || []);
         setTasks((tasksData || []).filter((t: any) => t.redmineId).map((t: any) => ({
+          id: t.id,
           redmineId: String(t.redmineId),
           status: t.status,
           name: t.name,
@@ -620,6 +625,7 @@ export default function TestCasesExecution() {
       if (!res.ok) throw new Error();
       const tasksData = await fetch("/api/tasks", { headers }).then(r => r.ok ? r.json() : []);
       setTasks((tasksData || []).filter((t: any) => t.redmineId).map((t: any) => ({
+        id: t.id,
         redmineId: String(t.redmineId),
         status: t.status,
         name: t.name,
