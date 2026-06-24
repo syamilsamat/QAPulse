@@ -303,6 +303,9 @@ export default function TestExecutionSummary() {
               <HoverList className="w-6 h-6 sm:w-7 sm:h-7 text-primary shrink-0 group" />
               Execution Summary
               {currentTicketId && <span className="text-muted-foreground font-normal text-xl">— Ticket #{currentTicketId}</span>}
+              {(taskInfo?.name || fileInfo?.title) && (
+                <span className="text-muted-foreground font-normal text-xl">— {taskInfo?.name || fileInfo?.title}</span>
+              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">Aggregated test execution progress by module.</p>
           </div>

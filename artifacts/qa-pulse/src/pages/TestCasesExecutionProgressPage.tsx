@@ -1718,9 +1718,11 @@ export default function TestCasesExecutionProgressPage() {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-primary" /> Ticket #
-              {ticketId}
+            <h1 className="text-xl font-bold flex items-center gap-2 flex-wrap">
+              <FileSpreadsheet className="w-5 h-5 text-primary shrink-0" /> Ticket #{ticketId}
+              {linkedTask?.name && (
+                <span className="text-muted-foreground font-normal">— {linkedTask.name}</span>
+              )}
             </h1>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               Test Case Execution Progress{" "}
