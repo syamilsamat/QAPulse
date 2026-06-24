@@ -55,9 +55,15 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
     requirementTitle = req?.title ?? null;
   }
 
-  if (task.moduleId) {
-    const [mod] = await db.select().from(executionModulesTable).where(eq(executionModulesTable.id, task.moduleId));
-    moduleName = mod?.name ?? null;
+  // Resolve module names — prefer moduleIds (multi), fall back to moduleId (single)
+  let moduleNames: string[] = [];
+  const parsedModuleIds = task.moduleIds
+    ? task.moduleIds.split(",").map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0)
+    : task.moduleId ? [task.moduleId] : [];
+  if (parsedModuleIds.length > 0) {
+    const mods = await db.select().from(executionModulesTable).where(inArray(executionModulesTable.id, parsedModuleIds));
+    moduleNames = mods.map(m => m.name);
+    moduleName = moduleNames[0] ?? null;
   }
 
   const environmentNames = (task.environmentIds ?? []).map(id => ENV_NAMES[id] ?? `Env ${id}`);
@@ -68,6 +74,7 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
     projectName,
     requirementTitle,
     moduleName,
+    moduleNames,
     environmentNames,
     isOverdue: isOverdue(task),
     createdAt: task.createdAt.toISOString(),

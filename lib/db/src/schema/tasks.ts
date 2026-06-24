@@ -13,6 +13,7 @@ export const tasksTable = pgTable("tasks", {
   testCaseId: integer("test_case_id"),
   projectId: integer("project_id"),
   moduleId: integer("module_id"),
+  moduleIds: text("module_ids"),                        // Comma-separated module IDs for multi-select
   environmentIds: integer("environment_ids").array(), // Multi-select Environments
   assigneeIds: integer("assignee_ids").array(),       // Multi-select QA PICs
   startDate: text("start_date"),                      // Planned Start Date
