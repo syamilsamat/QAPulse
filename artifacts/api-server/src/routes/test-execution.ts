@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray, notInArray } from "drizzle-orm";
 import {
   db,
   executionFilesTable,
@@ -395,7 +395,10 @@ router.post(
   async (req, res): Promise<void> => {
     try {
       const ticketId = req.params.ticketId;
-      const { testCases, lastUpdatedAt } = req.body;
+      // testCases: rows to upsert (dirty rows for auto-save, all rows for full sync)
+      // deletedIds: numeric DB row IDs to explicitly delete
+      // isFullSync: if true, also delete DB rows whose IDs are not in testCases
+      const { testCases, deletedIds = [], isFullSync = false } = req.body;
       if (!Array.isArray(testCases)) {
         res.status(400).json({ error: "testCases array required" });
         return;
@@ -411,34 +414,25 @@ router.post(
         return;
       }
 
-      // CONCURRENCY CHECK: Compare timestamps
-      if (
-        lastUpdatedAt &&
-        new Date(file.updatedAt).getTime() > new Date(lastUpdatedAt).getTime()
-      ) {
-        res.status(409).json({
-          error: "Conflict",
-          message:
-            "Another user has updated this file since you opened it. Please refresh to see their changes.",
-        });
-        return;
-      }
-
-      // 0. Capture current statuses + executedAt before delete (for history diff)
+      // 0. Capture current rows for history diff + audit + upsert decisions
       const existingRows = await db
         .select({
+          id: executionTestCasesTable.id,
           testCaseId: executionTestCasesTable.testCaseId,
           result: executionTestCasesTable.result,
           executedAt: executionTestCasesTable.executedAt,
         })
         .from(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
+
       type ExistingState = { result: string | null; executedAt: Date | null };
       const existingMap = new Map<string, ExistingState>(
         existingRows
           .filter((r) => r.testCaseId)
           .map((r) => [r.testCaseId!, { result: r.result ?? null, executedAt: r.executedAt ?? null }]),
       );
+      const existingDbIdSet = new Set(existingRows.map((r) => r.id));
+      const oldTcIdSet = new Set(existingRows.map((r) => r.testCaseId).filter(Boolean) as string[]);
 
       // Extract changedBy from JWT if present
       let changedBy: number | null = null;
@@ -449,79 +443,136 @@ router.post(
         } catch {}
       }
 
-      // 1. Delete existing
-      await db
-        .delete(executionTestCasesTable)
-        .where(eq(executionTestCasesTable.executionFileId, file.id));
+      // 1. Delete explicitly removed rows (only those belonging to this file)
+      const safeDeleteIds = (deletedIds as any[])
+        .map((id: any) => Number(id))
+        .filter((id: number) => !isNaN(id) && existingDbIdSet.has(id));
 
-      // 2. Auto-assign TC-[ticketId]-NNN to rows missing testCaseId
+      let removedTCCount = 0;
+      if (safeDeleteIds.length > 0) {
+        removedTCCount = existingRows.filter((r) => safeDeleteIds.includes(r.id) && r.testCaseId).length;
+        await db.delete(executionTestCasesTable).where(
+          and(
+            eq(executionTestCasesTable.executionFileId, file.id),
+            inArray(executionTestCasesTable.id, safeDeleteIds),
+          ),
+        );
+      }
+
+      // 1b. Full-sync: also delete DB rows not present in the incoming testCases array
+      if (isFullSync && testCases.length > 0) {
+        const incomingDbIds = testCases
+          .map((t: any) => (typeof t.id === "number" ? t.id : null))
+          .filter((id: number | null): id is number => id !== null && existingDbIdSet.has(id));
+        const orphanIds = existingRows
+          .map((r) => r.id)
+          .filter((id) => !incomingDbIds.includes(id) && !safeDeleteIds.includes(id));
+        if (orphanIds.length > 0) {
+          removedTCCount += existingRows.filter((r) => orphanIds.includes(r.id) && r.testCaseId).length;
+          await db.delete(executionTestCasesTable).where(
+            and(
+              eq(executionTestCasesTable.executionFileId, file.id),
+              inArray(executionTestCasesTable.id, orphanIds),
+            ),
+          );
+        }
+      }
+
+      // 2. Auto-assign TC IDs — find the highest existing sequence number
       let nextSeq = 1;
+      for (const r of existingRows) {
+        const match = r.testCaseId ? /TC-\d+-(\d+)/.exec(r.testCaseId) : null;
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n >= nextSeq) nextSeq = n + 1;
+        }
+      }
       for (const t of testCases) {
-        if (t.testCaseId) {
-          const match = /TC-\d+-(\d+)/.exec(t.testCaseId);
-          if (match) {
-            const n = parseInt(match[1], 10);
-            if (n >= nextSeq) nextSeq = n + 1;
+        const match = t.testCaseId ? /TC-\d+-(\d+)/.exec(t.testCaseId) : null;
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n >= nextSeq) nextSeq = n + 1;
+        }
+      }
+
+      // 3. Upsert incoming rows — UPDATE if DB id exists, INSERT if new
+      const insertedRows: any[] = [];
+      const processedCases: any[] = [];
+      const now = new Date();
+
+      for (let idx = 0; idx < testCases.length; idx++) {
+        const t = testCases[idx];
+        const dbId = typeof t.id === "number" && existingDbIdSet.has(t.id) ? t.id : null;
+
+        let tcId: string = t.testCaseId || "";
+        if (!tcId) {
+          tcId = `TC-${ticketId}-${String(nextSeq).padStart(3, "0")}`;
+          nextSeq++;
+        }
+
+        const existing = existingMap.get(tcId);
+        const newResult = (t.result?.trim() || null) as string | null;
+        const computedExecutedAt =
+          newResult && existing?.result !== newResult
+            ? now
+            : (existing?.executedAt ?? (t.executedAt ? new Date(t.executedAt) : null));
+
+        const rowData = {
+          executionFileId: file.id,
+          moduleName: t.moduleName || null,
+          caseId: t.caseId || null,
+          testCaseId: tcId,
+          libraryTcId: t.libraryTcId ? Number(t.libraryTcId) : null,
+          userStory: t.userStory || null,
+          tracker: t.tracker || null,
+          scenario: t.scenario || null,
+          preCondition: t.preCondition || null,
+          caseName: t.caseName || null,
+          testSteps: t.testSteps || null,
+          testData: t.testData || null,
+          expectedResult: t.expectedResult || null,
+          result: newResult,
+          executedAt: computedExecutedAt,
+          actualResult: t.actualResult || null,
+          defectNumber: t.defectNumber || null,
+          defectScreenshots: t.defectScreenshots || null,
+          comments: t.comments || null,
+          qaPic: t.qaPic || null,
+          rowOrder: t.rowOrder ?? idx,
+        };
+
+        if (dbId !== null) {
+          const [updated] = await db
+            .update(executionTestCasesTable)
+            .set(rowData)
+            .where(
+              and(
+                eq(executionTestCasesTable.id, dbId),
+                eq(executionTestCasesTable.executionFileId, file.id),
+              ),
+            )
+            .returning();
+          if (updated) processedCases.push({ ...t, testCaseId: tcId });
+        } else {
+          const [inserted] = await db
+            .insert(executionTestCasesTable)
+            .values(rowData)
+            .returning();
+          if (inserted) {
+            insertedRows.push({ ...inserted, _tempId: t._tempId });
+            processedCases.push({ ...t, testCaseId: tcId });
           }
         }
       }
-      const processedCases = testCases.map((t: any) => {
-        if (!t.testCaseId) {
-          const id = `TC-${ticketId}-${String(nextSeq).padStart(3, "0")}`;
-          nextSeq++;
-          return { ...t, testCaseId: id };
-        }
-        return t;
-      });
 
-      // Pre-compute TC diff for audit log
-      const oldTcIdSet = new Set(existingRows.map(r => r.testCaseId).filter(Boolean) as string[]);
-
-      // 3. Insert new
-      let inserted: any[] = [];
-      if (processedCases.length > 0) {
-        inserted = await db.insert(executionTestCasesTable).values(
-          processedCases.map((t: any, idx: number) => ({
-            executionFileId: file.id,
-            moduleName: t.moduleName || null,
-            caseId: t.caseId || null,
-            testCaseId: t.testCaseId || null,
-            libraryTcId: t.libraryTcId ? Number(t.libraryTcId) : null,
-            userStory: t.userStory || null,
-            tracker: t.tracker || null,
-            scenario: t.scenario || null,
-            preCondition: t.preCondition || null,
-            caseName: t.caseName || null,
-            testSteps: t.testSteps || null,
-            testData: t.testData || null,
-            expectedResult: t.expectedResult || null,
-            result: t.result || null,
-            executedAt: (() => {
-              const existing = t.testCaseId ? existingMap.get(t.testCaseId) : undefined;
-              const newResult = t.result?.trim() || null;
-              if (newResult && existing?.result !== newResult) return new Date();
-              return existing?.executedAt ?? (t.executedAt ? new Date(t.executedAt) : null);
-            })(),
-            actualResult: t.actualResult || null,
-            defectNumber: t.defectNumber || null,
-            defectScreenshots: t.defectScreenshots || null,
-            comments: t.comments || null,
-            qaPic: t.qaPic || null,
-            rowOrder: t.rowOrder ?? idx,
-          })),
-        ).returning();
-      }
-
-      // 3a. Write status change history
-      const now = new Date();
+      // 3a. Write status change history for incoming rows
       const historyRows = processedCases
         .filter((t: any) => t.testCaseId)
         .flatMap((t: any) => {
           const existing = existingMap.get(t.testCaseId);
           const oldResult = existing?.result ?? null;
-          const newResult = t.result?.trim() || null;
-          if (oldResult === newResult) return [];
-          if (!oldResult && !newResult) return [];
+          const newResult = (t.result?.trim() || null) as string | null;
+          if (oldResult === newResult || (!oldResult && !newResult)) return [];
           return [{
             executionFileId: file.id,
             testCaseId: t.testCaseId,
@@ -536,9 +587,9 @@ router.post(
       }
 
       // 3b. Audit log — record TC add/remove, merging same-user same-day entries
-      const newTcIdSet = new Set(processedCases.map((t: any) => t.testCaseId).filter(Boolean) as string[]);
-      const addedTCCount = processedCases.filter((t: any) => t.testCaseId && !oldTcIdSet.has(t.testCaseId)).length;
-      const removedTCCount = existingRows.filter(r => r.testCaseId && !newTcIdSet.has(r.testCaseId)).length;
+      const addedTCCount = processedCases.filter(
+        (t: any) => t.testCaseId && !oldTcIdSet.has(t.testCaseId),
+      ).length;
       if (addedTCCount > 0 || removedTCCount > 0) {
         let changedByName: string | null = null;
         if (changedBy) {
@@ -547,28 +598,34 @@ router.post(
             if (u) changedByName = u.name;
           } catch {}
         }
-        // Check for existing entry for same user + same calendar day to merge into
+        const allFileRows = await db
+          .select({ id: executionTestCasesTable.id })
+          .from(executionTestCasesTable)
+          .where(eq(executionTestCasesTable.executionFileId, file.id));
+        const currentTcCount = allFileRows.length;
+
         const existingAudit = changedByName
-          ? await db.select()
+          ? await db
+              .select()
               .from(executionFileAuditTable)
-              .where(and(
-                eq(executionFileAuditTable.executionFileId, file.id),
-                eq(executionFileAuditTable.updatedByName, changedByName),
-                sql`DATE(${executionFileAuditTable.createdAt}) = CURRENT_DATE`,
-              ))
+              .where(
+                and(
+                  eq(executionFileAuditTable.executionFileId, file.id),
+                  eq(executionFileAuditTable.updatedByName, changedByName),
+                  sql`DATE(${executionFileAuditTable.createdAt}) = CURRENT_DATE`,
+                ),
+              )
               .limit(1)
               .catch(() => [] as any[])
           : [];
         if (existingAudit.length > 0) {
           const prev = existingAudit[0].summary as string;
           if (prev === "Draft Test Case file for execution") {
-            // Same day as file creation — keep summary as-is, only refresh tcCount
             await db.update(executionFileAuditTable)
-              .set({ tcCount: processedCases.length })
+              .set({ tcCount: currentTcCount })
               .where(eq(executionFileAuditTable.id, existingAudit[0].id))
               .catch(() => {});
           } else {
-            // Same day as a prior TC-add/remove row — accumulate counts
             const prevAdded = parseInt(/(\d+) test cases? added/.exec(prev)?.[1] ?? "0");
             const prevRemoved = parseInt(/(\d+) test cases? removed/.exec(prev)?.[1] ?? "0");
             const totalAdded = prevAdded + addedTCCount;
@@ -577,7 +634,7 @@ router.post(
             if (totalAdded > 0) parts.push(`${totalAdded} test case${totalAdded !== 1 ? "s" : ""} added`);
             if (totalRemoved > 0) parts.push(`${totalRemoved} test case${totalRemoved !== 1 ? "s" : ""} removed`);
             await db.update(executionFileAuditTable)
-              .set({ summary: parts.join(", "), tcCount: processedCases.length })
+              .set({ summary: parts.join(", "), tcCount: currentTcCount })
               .where(eq(executionFileAuditTable.id, existingAudit[0].id))
               .catch(() => {});
           }
@@ -589,21 +646,30 @@ router.post(
             executionFileId: file.id,
             updatedByName: changedByName,
             summary: parts.join(", "),
-            tcCount: processedCases.length,
+            tcCount: currentTcCount,
           }).catch(() => {});
         }
       }
 
-      // 3. Update the file's updatedAt timestamp
+      // 4. Update file's updatedAt
       const [updatedFile] = await db
         .update(executionFilesTable)
         .set({ updatedAt: new Date() })
         .where(eq(executionFilesTable.id, file.id))
         .returning();
 
-      // 4. Auto-aggregate by module and save to PMO (so Load button is not required)
+      // 5. Recompute summary from ALL rows in this file (not just incoming)
+      const allTcRows = await db
+        .select({
+          moduleName: executionTestCasesTable.moduleName,
+          caseName: executionTestCasesTable.caseName,
+          result: executionTestCasesTable.result,
+        })
+        .from(executionTestCasesTable)
+        .where(eq(executionTestCasesTable.executionFileId, file.id));
+
       const moduleMap: Record<string, { module: string; total: number; passed: number; failed: number; blocked: number; inProg: number; notExec: number }> = {};
-      for (const tc of processedCases) {
+      for (const tc of allTcRows) {
         if (!tc.moduleName && !tc.caseName && !tc.result) continue;
         const modName = tc.moduleName || "Unassigned Module";
         if (!moduleMap[modName]) {
@@ -635,18 +701,20 @@ router.post(
         );
       }
 
-      // 5. Trigger live update to dashboard
+      // 6. Trigger live update to dashboard
       broadcastUpdate(ticketId);
 
       res.json({
         success: true,
-        count: processedCases.length,
+        count: allTcRows.length,
         newUpdatedAt: updatedFile.updatedAt,
-        testCases: inserted.map((t) => ({
+        // Only newly inserted rows are returned — the client needs their real DB IDs
+        testCases: insertedRows.map((t) => ({
           id: t.id,
           testCaseId: t.testCaseId,
           libraryTcId: t.libraryTcId,
           rowOrder: t.rowOrder,
+          _tempId: t._tempId,
         })),
       });
     } catch {

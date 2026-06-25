@@ -154,22 +154,16 @@ export const fetchTestCases = async (
 export const saveTestCases = async (
   ticketId: string,
   testCases: ExecutionTestCase[],
-  lastUpdatedAt: string | null,
+  deletedIds: number[] = [],
+  isFullSync = false,
 ) => {
   const res = await fetch(`/api/execution-files/${ticketId}/test-cases`, {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ testCases, lastUpdatedAt }),
+    body: JSON.stringify({ testCases, deletedIds, isFullSync }),
   });
 
-  if (!res.ok) {
-    if (res.status === 409) {
-      const err = new Error("Concurrent edit detected");
-      (err as any).response = res;
-      throw err;
-    }
-    throw new Error("Failed to save test cases");
-  }
+  if (!res.ok) throw new Error("Failed to save test cases");
   return res.json();
 };
 
