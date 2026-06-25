@@ -17,7 +17,7 @@ import {
   useAssignTask,
   type TaskInput,
 } from "@workspace/api-client-react";
-import { fetchModules } from "@/lib/execution-api";
+import { fetchModules, fetchExecutionFiles } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -399,6 +399,7 @@ export default function Tasks() {
   const [editingTask, setEditingTask] = useState<any | null>(null);
   const [form, setForm] = useState<Partial<any>>({});
   const [taskFormModules, setTaskFormModules] = useState<number[]>([]);
+  const [selectedExecFileId, setSelectedExecFileId] = useState<string>("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -474,6 +475,25 @@ export default function Tasks() {
     },
     staleTime: 30_000,
   });
+
+  const { data: allExecutionFiles = [] } = useQuery({
+    queryKey: ["execution-files"],
+    queryFn: () => fetchExecutionFiles(),
+    staleTime: 60_000,
+  });
+
+  const availableExecutionFiles = useMemo(() => {
+    // Exclude redmineIds already linked to OTHER tasks (not the one being edited)
+    const linkedRedmineIds = new Set(
+      (tasks as any[])
+        .filter((t: any) => !editingTask || t.id !== editingTask.id)
+        .map((t: any) => String(t.redmineId))
+        .filter(Boolean)
+    );
+    return (allExecutionFiles as any[]).filter(
+      (f: any) => !linkedRedmineIds.has(String(f.redmineTicketId))
+    );
+  }, [allExecutionFiles, tasks, editingTask]);
 
   const { data: environments = [] } = useQuery({
     queryKey: ["environments"],
@@ -740,6 +760,7 @@ export default function Tasks() {
       environmentIds: [],
     });
     setTaskFormModules([]);
+    setSelectedExecFileId("");
     setDialogOpen(true);
   };
 
@@ -772,6 +793,10 @@ export default function Tasks() {
       ? t.moduleIds.split(",").map((s: string) => Number(s.trim())).filter((n: number) => !isNaN(n) && n > 0)
       : t.moduleId ? [t.moduleId] : [];
     setTaskFormModules(ids);
+    const linkedFile = (allExecutionFiles as any[]).find(
+      (f: any) => t.redmineId && String(f.redmineTicketId) === String(t.redmineId)
+    );
+    setSelectedExecFileId(linkedFile ? String(linkedFile.id) : "");
     setDialogOpen(true);
   };
 
@@ -1480,6 +1505,44 @@ export default function Tasks() {
             <DialogTitle>{editingTask ? "Edit Task" : "New Task"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-6 py-2">
+            {/* Test Case File — auto-fills fields below */}
+            <div className="space-y-1.5 border rounded-lg p-4 bg-muted/10">
+              <Label className="text-sm font-medium">Test Case File <span className="text-xs text-muted-foreground font-normal">(optional — auto-fills fields below)</span></Label>
+              <SearchableSelect
+                value={selectedExecFileId}
+                onValueChange={(v) => {
+                  setSelectedExecFileId(v);
+                  if (!v) return;
+                  const file = (allExecutionFiles as any[]).find((f: any) => String(f.id) === v);
+                  if (!file) return;
+                  setForm((prev) => ({
+                    ...prev,
+                    ...(file.title ? { name: file.title } : {}),
+                    redmineId: file.redmineTicketId,
+                    ...(file.projectId ? { projectId: file.projectId } : {}),
+                    ...(file.requirementId ? { requirementId: file.requirementId } : {}),
+                  }));
+                  if (file.selectedModules) {
+                    const storedNames = file.selectedModules
+                      .split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean);
+                    const matchedIds = (modules as any[])
+                      .filter((m: any) => storedNames.includes(m.name.trim().toLowerCase()))
+                      .map((m: any) => m.id);
+                    if (matchedIds.length > 0) setTaskFormModules(matchedIds);
+                  }
+                }}
+                options={availableExecutionFiles.map((f: any) => ({
+                  value: String(f.id),
+                  label: f.title ? `${f.title} (#${f.redmineTicketId})` : `#${f.redmineTicketId}`,
+                }))}
+                placeholder="Select execution file..."
+                searchPlaceholder="Search by title or ticket ID..."
+              />
+              {selectedExecFileId && (
+                <p className="text-xs text-muted-foreground">Fields auto-filled. Edit below if needed.</p>
+              )}
+            </div>
+
             {/* GROUP 1: Core Identifiers */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 sm:col-span-2">
