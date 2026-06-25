@@ -129,7 +129,7 @@ const getResultColorClass = (result?: string) => {
 };
 
 const tableInputClass =
-  "h-full w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 min-h-[80px] resize-none block";
+  "h-full w-full text-xs md:text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 min-h-[80px] resize-none block";
 
 const parseDefectIds = (value: string): string[] =>
   value.split(/[\s,;]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s));
@@ -260,6 +260,37 @@ const CopilotTextarea = ({
   );
 };
 
+// Auto-expanding textarea for table cells — matches font + size of CopilotTextarea
+const TableAutoTextarea = ({
+  value,
+  onChange,
+  className,
+  ...props
+}: React.ComponentProps<typeof Textarea>) => {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <Textarea
+      ref={ref}
+      value={value}
+      className={className}
+      onChange={(e) => {
+        e.target.style.height = "auto";
+        e.target.style.height = `${e.target.scrollHeight}px`;
+        onChange?.(e);
+      }}
+      {...props}
+    />
+  );
+};
+
 // --- MEMOIZED ROW COMPONENTS FOR PERFORMANCE ---
 interface RowProps {
   row: AppExecutionTestCase;
@@ -314,12 +345,12 @@ const DesktopTableRow = React.memo(
         )}
         {!hide("userStory") && (
           <td className="border border-border p-0 relative align-top">
-            <Textarea className={tableInputClass} value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            <TableAutoTextarea className={tableInputClass} value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
           </td>
         )}
         {!hide("tracker") && (
           <td className="border border-border p-0 relative align-top">
-            <Textarea className={tableInputClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)} />
+            <TableAutoTextarea className={tableInputClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)} />
           </td>
         )}
         {!hide("scenario") && (
@@ -329,7 +360,7 @@ const DesktopTableRow = React.memo(
         )}
         {!hide("preCondition") && (
           <td className="border border-border p-0 relative align-top">
-            <Textarea className={tableInputClass} value={row.preCondition || ""} onChange={(e) => onUpdate(row.id as string, "preCondition", e.target.value)} />
+            <TableAutoTextarea className={tableInputClass} value={row.preCondition || ""} onChange={(e) => onUpdate(row.id as string, "preCondition", e.target.value)} />
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
@@ -340,7 +371,7 @@ const DesktopTableRow = React.memo(
         </td>
         {!hide("testData") && (
           <td className="border border-border p-0 relative align-top">
-            <Textarea className={tableInputClass} value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            <TableAutoTextarea className={tableInputClass} value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
@@ -368,8 +399,8 @@ const DesktopTableRow = React.memo(
               ))}
             </div>
           )}
-          <Textarea
-            className={`h-full w-full text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 resize-none block ${defectIds.length > 0 ? "min-h-[36px]" : "min-h-[80px]"}`}
+          <TableAutoTextarea
+            className={`h-full w-full text-xs md:text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 resize-none block ${defectIds.length > 0 ? "min-h-[36px]" : "min-h-[80px]"}`}
             value={row.defectNumber || ""}
             onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)}
             placeholder={defectIds.length > 0 ? "" : "e.g. 38032, 38033"}
@@ -377,7 +408,7 @@ const DesktopTableRow = React.memo(
         </td>
         {!hide("comments") && (
           <td className="border border-border p-0 relative align-top">
-            <Textarea className={tableInputClass} value={row.comments || ""} onChange={(e) => onUpdate(row.id as string, "comments", e.target.value)} />
+            <TableAutoTextarea className={tableInputClass} value={row.comments || ""} onChange={(e) => onUpdate(row.id as string, "comments", e.target.value)} />
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
@@ -509,8 +540,8 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Redmine Ticket ID
             </Label>
-            <Textarea
-              className="min-h-[60px] text-xs p-2"
+            <TableAutoTextarea
+              className="min-h-[60px] text-xs md:text-xs p-2"
               value={row.userStory || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "userStory", e.target.value)
@@ -524,8 +555,8 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Tracker
             </Label>
-            <Textarea
-              className="min-h-[40px] text-xs p-2"
+            <TableAutoTextarea
+              className="min-h-[40px] text-xs md:text-xs p-2"
               value={row.tracker || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "tracker", e.target.value)
@@ -536,8 +567,8 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Test Data
             </Label>
-            <Textarea
-              className="min-h-[40px] text-xs p-2"
+            <TableAutoTextarea
+              className="min-h-[40px] text-xs md:text-xs p-2"
               value={row.testData || ""}
               onChange={(e) =>
                 onUpdate(row.id as string, "testData", e.target.value)
@@ -630,8 +661,8 @@ const MobileCardRow = React.memo(
                 ))}
               </div>
             )}
-            <Textarea
-              className="min-h-[40px] text-xs p-2"
+            <TableAutoTextarea
+              className="min-h-[40px] text-xs md:text-xs p-2"
               value={row.defectNumber || ""}
               placeholder="e.g. 38032, 38033"
               onChange={(e) =>
@@ -664,8 +695,8 @@ const MobileCardRow = React.memo(
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
             Additional/Comments/Issues
           </Label>
-          <Textarea
-            className="min-h-[40px] text-xs p-2"
+          <TableAutoTextarea
+            className="min-h-[40px] text-xs md:text-xs p-2"
             value={row.comments || ""}
             onChange={(e) =>
               onUpdate(row.id as string, "comments", e.target.value)
@@ -690,6 +721,12 @@ export default function TestCasesExecutionProgressPage() {
   );
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
+
+  // Dirty tracking — only changed rows go out on auto-save
+  const [dirtyRowIds, setDirtyRowIds] = useState<Set<string | number>>(new Set());
+  const [deletedDbIds, setDeletedDbIds] = useState<Set<number>>(new Set());
+  const dirtyRowIdsRef = useRef<Set<string | number>>(new Set());
+  const deletedDbIdsRef = useRef<Set<number>>(new Set());
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
@@ -824,11 +861,13 @@ export default function TestCasesExecutionProgressPage() {
     const row = createEmptyRow();
     if (availableModules.length === 1) row.moduleName = availableModules[0].name;
     setData((prev) => [...prev, row]);
+    setDirtyRowIds((prev) => new Set([...prev, row.id]));
     setHasUnsavedChanges(true);
   };
 
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
+      setDirtyRowIds((prev) => new Set([...prev, id]));
       if (field === "result") {
         const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
         setData((prev) =>
@@ -869,6 +908,7 @@ export default function TestCasesExecutionProgressPage() {
           : row,
       ),
     );
+    setDirtyRowIds((prev) => new Set([...prev, rowId]));
     setHasUnsavedChanges(true);
     pendingFailRowIdRef.current = null;
     setPendingFailRowId(null);
@@ -893,28 +933,38 @@ export default function TestCasesExecutionProgressPage() {
   const dataRef = useRef(data);
   const unsavedRef = useRef(hasUnsavedChanges);
 
-  useEffect(() => {
-    dataRef.current = data;
-  }, [data]);
-  useEffect(() => {
-    unsavedRef.current = hasUnsavedChanges;
-  }, [hasUnsavedChanges]);
+  useEffect(() => { dataRef.current = data; }, [data]);
+  useEffect(() => { unsavedRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
+  useEffect(() => { dirtyRowIdsRef.current = dirtyRowIds; }, [dirtyRowIds]);
+  useEffect(() => { deletedDbIdsRef.current = deletedDbIds; }, [deletedDbIds]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (unsavedRef.current) {
-        setSaveStatus("saving");
-        try {
-          const result = await saveTestCases(ticketId, dataRef.current as any, null);
-          if (result?.testCases) applyReturnedRows(result.testCases);
-          setSaveStatus("saved");
-          setLastSavedAt(new Date());
-          setHasUnsavedChanges(false);
-        } catch (err) {
-          setSaveStatus("error");
-        }
+      const dirty = dirtyRowIdsRef.current;
+      const deleted = deletedDbIdsRef.current;
+      if (dirty.size === 0 && deleted.size === 0) return;
+
+      setSaveStatus("saving");
+      try {
+        const currentData = dataRef.current;
+        const rowsToSave = currentData
+          .filter((r) => dirty.has(r.id))
+          .map((r, _i) => ({
+            ...r,
+            _tempId: typeof r.id === "string" ? r.id : undefined,
+            rowOrder: currentData.indexOf(r),
+          }));
+        const result = await saveTestCases(ticketId, rowsToSave as any, Array.from(deleted));
+        if (result?.testCases) applyReturnedRows(result.testCases);
+        setSaveStatus("saved");
+        setLastSavedAt(new Date());
+        setHasUnsavedChanges(false);
+        setDirtyRowIds(new Set());
+        setDeletedDbIds(new Set());
+      } catch {
+        setSaveStatus("error");
       }
-    }, 10000); // 10 seconds
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [ticketId]);
@@ -951,6 +1001,7 @@ export default function TestCasesExecutionProgressPage() {
       libraryTcId: tc.id,
     }));
     setData(prev => [...prev, ...newRows]);
+    setDirtyRowIds(prev => new Set([...prev, ...newRows.map(r => r.id)]));
     setHasUnsavedChanges(true);
     toast({ title: `${newRows.length} test case${newRows.length !== 1 ? "s" : ""} pulled from library` });
     setPullDialogOpen(false);
@@ -960,44 +1011,55 @@ export default function TestCasesExecutionProgressPage() {
 
   const applyReturnedRows = (savedRows: any[]) => {
     if (!savedRows || savedRows.length === 0) return;
-    const sorted = [...savedRows].sort((a: any, b: any) => a.rowOrder - b.rowOrder);
-    // If the pending fail row has a temp ID being replaced by a DB ID, update the ref now
-    // so handleDefectCreated can still match it after the state update below.
-    const current = dataRef.current;
-    if (pendingFailRowIdRef.current !== null && current && sorted.length === current.length) {
-      for (let i = 0; i < current.length; i++) {
-        if (current[i].id === pendingFailRowIdRef.current) {
-          const newId = sorted[i]?.id;
-          if (newId != null && newId !== pendingFailRowIdRef.current) {
-            pendingFailRowIdRef.current = newId;
-            setPendingFailRowId(newId);
-          }
-          break;
-        }
+    // Server only returns newly inserted rows, keyed by _tempId (the client's temp string ID)
+    const tempIdMap = new Map<string, any>(
+      savedRows.filter((r) => r._tempId).map((r) => [r._tempId, r]),
+    );
+    if (tempIdMap.size === 0) return;
+
+    // If the pending-fail row had a temp ID, update the ref to the real DB ID
+    if (pendingFailRowIdRef.current !== null && typeof pendingFailRowIdRef.current === "string") {
+      const mapped = tempIdMap.get(pendingFailRowIdRef.current);
+      if (mapped) {
+        pendingFailRowIdRef.current = mapped.id;
+        setPendingFailRowId(mapped.id);
       }
     }
-    setData(prev => {
-      if (sorted.length !== prev.length) return prev;
-      return prev.map((row, idx) => ({
-        ...row,
-        id: sorted[idx]?.id ?? row.id,
-        testCaseId: sorted[idx]?.testCaseId ?? row.testCaseId,
-        libraryTcId: sorted[idx]?.libraryTcId ?? row.libraryTcId,
-      }));
-    });
+
+    setData((prev) =>
+      prev.map((row) => {
+        if (typeof row.id !== "string") return row;
+        const mapped = tempIdMap.get(row.id);
+        if (!mapped) return row;
+        return {
+          ...row,
+          id: mapped.id,
+          testCaseId: mapped.testCaseId ?? row.testCaseId,
+          libraryTcId: mapped.libraryTcId ?? row.libraryTcId,
+        };
+      }),
+    );
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveStatus("saving");
     try {
-      const result = await saveTestCases(ticketId, data as any, null);
+      // Full sync: send all rows with isFullSync so orphaned DB rows are cleaned up
+      const allRows = data.map((r, idx) => ({
+        ...r,
+        _tempId: typeof r.id === "string" ? r.id : undefined,
+        rowOrder: idx,
+      }));
+      const result = await saveTestCases(ticketId, allRows as any, Array.from(deletedDbIds), true);
       if (result?.testCases) applyReturnedRows(result.testCases);
       toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
       setHasUnsavedChanges(false);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
-    } catch (err) {
+      setDirtyRowIds(new Set());
+      setDeletedDbIds(new Set());
+    } catch {
       toast({ variant: "destructive", title: "Failed to save to database" });
       setSaveStatus("error");
     } finally {
@@ -1093,6 +1155,17 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   const executeDelete = () => {
+    // Collect DB IDs of rows being deleted so the server removes them
+    const numericIds = rowsToDelete.filter((id) => typeof id === "number") as number[];
+    if (numericIds.length > 0) {
+      setDeletedDbIds((prev) => new Set([...prev, ...numericIds]));
+    }
+    // Remove deleted rows from dirty tracking
+    setDirtyRowIds((prev) => {
+      const next = new Set(prev);
+      rowsToDelete.forEach((id) => next.delete(id));
+      return next;
+    });
     setData((prev) =>
       prev.filter((row) => !rowsToDelete.includes(row.id as string | number)),
     );
@@ -1199,6 +1272,7 @@ export default function TestCasesExecutionProgressPage() {
       setData(prev =>
         prev.map(r => r.id === promoteRow.id ? { ...r, libraryTcId: created.id } : r)
       );
+      setDirtyRowIds(prev => new Set([...prev, promoteRow.id]));
       setHasUnsavedChanges(true);
       setPromoteRow(null);
       toast({ title: `Promoted to library successfully` });
@@ -1457,12 +1531,24 @@ export default function TestCasesExecutionProgressPage() {
       };
 
       if (consolidatedData.length > 0) {
+        // Mark existing DB rows for deletion and all imported rows as dirty
+        const oldDbIds = dataRef.current
+          .filter((r) => typeof r.id === "number")
+          .map((r) => r.id as number);
+        if (oldDbIds.length > 0) {
+          setDeletedDbIds((prev) => new Set([...prev, ...oldDbIds]));
+        }
+        const applyImport = (rows: AppExecutionTestCase[]) => {
+          setData(rows);
+          setDirtyRowIds(new Set(rows.map((r) => r.id)));
+          setHasUnsavedChanges(true);
+        };
+
         if (availableModules.length === 1) {
           consolidatedData.forEach((r) => {
             if (!r.moduleName) r.moduleName = availableModules[0].name;
           });
-          setData(consolidatedData);
-          setHasUnsavedChanges(true);
+          applyImport(consolidatedData);
           setImportSummary(summaryObj);
         } else if (availableModules.length > 1) {
           const hasMissingModules = consolidatedData.some((r) => !r.moduleName);
@@ -1471,13 +1557,11 @@ export default function TestCasesExecutionProgressPage() {
             setPendingImportSummary(summaryObj);
             setShowModuleSelectDialog(true);
           } else {
-            setData(consolidatedData);
-            setHasUnsavedChanges(true);
+            applyImport(consolidatedData);
             setImportSummary(summaryObj);
           }
         } else {
-          setData(consolidatedData);
-          setHasUnsavedChanges(true);
+          applyImport(consolidatedData);
           setImportSummary(summaryObj);
         }
       } else {
@@ -1502,6 +1586,7 @@ export default function TestCasesExecutionProgressPage() {
         moduleName: r.moduleName || selectedImportModule,
       }));
       setData(finalizedData);
+      setDirtyRowIds(new Set(finalizedData.map((r) => r.id)));
       setHasUnsavedChanges(true);
     }
     if (pendingImportSummary) setImportSummary(pendingImportSummary);
