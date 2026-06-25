@@ -304,6 +304,7 @@ interface RowProps {
   ) => void;
   onDelete: (id: string | number) => void;
   onPromote: (row: AppExecutionTestCase) => void;
+  onBlurRow: (id: string | number) => void;
   availableModules: ExecutionModule[];
   qaUsers: ExecutionUser[];
   hiddenCols: Set<string>;
@@ -318,6 +319,7 @@ const DesktopTableRow = React.memo(
     onUpdate,
     onDelete,
     onPromote,
+    onBlurRow,
     availableModules,
     qaUsers,
     hiddenCols,
@@ -326,7 +328,14 @@ const DesktopTableRow = React.memo(
     const defectIds = parseDefectIds(row.defectNumber || "");
 
     return (
-      <tr className="hover:bg-muted/10 group align-top">
+      <tr
+        className="hover:bg-muted/10 group align-top"
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            onBlurRow(row.id as string | number);
+          }
+        }}
+      >
         <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
           <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
             checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
@@ -453,6 +462,7 @@ const MobileCardRow = React.memo(
     onToggleSelect,
     onUpdate,
     onDelete,
+    onBlurRow,
     availableModules,
     qaUsers,
     hiddenCols,
@@ -460,6 +470,11 @@ const MobileCardRow = React.memo(
     return (
       <Card
         className={`p-3 space-y-3 shadow-sm relative transition-colors ${isSelected ? "bg-primary/5 border-primary/30" : ""}`}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            onBlurRow(row.id as string | number);
+          }
+        }}
       >
         <div className="absolute top-2 right-2">
           <Button
@@ -867,12 +882,16 @@ export default function TestCasesExecutionProgressPage() {
 
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
-      setDirtyRowIds((prev) => new Set([...prev, id]));
+      // Update ref immediately so blur-save and polling see it without waiting for useEffect
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id]);
+      setDirtyRowIds(dirtyRowIdsRef.current);
       if (field === "result") {
         const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
-        setData((prev) =>
-          prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row),
-        );
+        setData((prev) => {
+          const updated = prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row);
+          dataRef.current = updated;
+          return updated;
+        });
         setHasUnsavedChanges(true);
         if (value === "Failed") {
           pendingFailRowIdRef.current = id;
@@ -881,9 +900,11 @@ export default function TestCasesExecutionProgressPage() {
         }
         return;
       }
-      setData((prev) =>
-        prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
-      );
+      setData((prev) => {
+        const updated = prev.map((row) => (row.id === id ? { ...row, [field]: value } : row));
+        dataRef.current = updated;
+        return updated;
+      });
       setHasUnsavedChanges(true);
     },
     [],
@@ -959,7 +980,9 @@ export default function TestCasesExecutionProgressPage() {
         setSaveStatus("saved");
         setLastSavedAt(new Date());
         setHasUnsavedChanges(false);
+        dirtyRowIdsRef.current = new Set();
         setDirtyRowIds(new Set());
+        deletedDbIdsRef.current = new Set();
         setDeletedDbIds(new Set());
       } catch {
         setSaveStatus("error");
@@ -967,6 +990,87 @@ export default function TestCasesExecutionProgressPage() {
     }, 10000);
 
     return () => clearInterval(interval);
+  }, [ticketId]);
+
+  // Merge server rows into local state — skips dirty rows so unsaved changes aren't overwritten
+  const mergeServerData = useCallback((serverRows: AppExecutionTestCase[]) => {
+    setData((prev) => {
+      const serverMap = new Map<number, AppExecutionTestCase>();
+      for (const r of serverRows) {
+        if (typeof r.id === "number") serverMap.set(r.id, r);
+      }
+      const dirty = dirtyRowIdsRef.current;
+      const localNumericIds = new Set(
+        prev.filter((r) => typeof r.id === "number").map((r) => r.id as number)
+      );
+
+      const merged: AppExecutionTestCase[] = [];
+      for (const row of prev) {
+        if (typeof row.id === "string") {
+          merged.push(row); // unsaved local row — keep
+        } else if (dirty.has(row.id)) {
+          merged.push(row); // dirty — keep local version
+        } else {
+          const serverRow = serverMap.get(row.id as number);
+          if (serverRow) merged.push(serverRow); // clean — use server version; omit if server deleted it
+        }
+      }
+      // Add new rows from server that don't exist locally
+      for (const serverRow of serverRows) {
+        if (typeof serverRow.id === "number" && !localNumericIds.has(serverRow.id)) {
+          merged.push(serverRow);
+        }
+      }
+      // Sort by rowOrder
+      merged.sort((a, b) => {
+        const aO = typeof (a as any).rowOrder === "number" ? (a as any).rowOrder : Infinity;
+        const bO = typeof (b as any).rowOrder === "number" ? (b as any).rowOrder : Infinity;
+        return aO - bO;
+      });
+
+      dataRef.current = merged;
+      return merged;
+    });
+  }, []);
+
+  // Poll server every 8s for changes from other users
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const result = await fetchTestCases(ticketId);
+        if (result?.testCases) mergeServerData(result.testCases as AppExecutionTestCase[]);
+      } catch {
+        // silent — don't interrupt user on background poll failure
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [ticketId, mergeServerData]);
+
+  // Save a single row immediately when the user leaves it (blur)
+  const saveBlurRow = useCallback(async (id: string | number) => {
+    if (!dirtyRowIdsRef.current.has(id)) return;
+    setSaveStatus("saving");
+    try {
+      const currentData = dataRef.current;
+      const row = currentData.find((r) => r.id === id);
+      if (!row) return;
+      const rowToSave = {
+        ...row,
+        _tempId: typeof row.id === "string" ? row.id : undefined,
+        rowOrder: currentData.indexOf(row),
+      };
+      const result = await saveTestCases(ticketId, [rowToSave as any], []);
+      if (result?.testCases) applyReturnedRows(result.testCases);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((x) => x !== id));
+      setDirtyRowIds(dirtyRowIdsRef.current);
+      if (dirtyRowIdsRef.current.size === 0 && deletedDbIdsRef.current.size === 0) {
+        setHasUnsavedChanges(false);
+      }
+    } catch {
+      setSaveStatus("error");
+    }
   }, [ticketId]);
 
   const openPullDialog = async () => {
@@ -1091,26 +1195,33 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   const filteredData = useMemo(() => {
-    return data.filter((row) => {
-      if (globalSearch.trim()) {
-        const searchLower = globalSearch.toLowerCase();
-        const rowValues = Object.values(row).map((v) =>
-          String(v).toLowerCase(),
-        );
-        const matchesSearch = rowValues.some((v) => v.includes(searchLower));
-        if (!matchesSearch) return false;
-      }
-      if (moduleFilters.length > 0) {
-        if (!moduleFilters.includes(row.moduleName || "")) return false;
-      }
-      if (resultFilters.length > 0) {
-        if (!resultFilters.includes(row.result || "")) return false;
-      }
-      if (qaFilters.length > 0) {
-        if (!qaFilters.includes(row.qaPic || "")) return false;
-      }
-      return true;
-    });
+    return data
+      .filter((row) => {
+        if (globalSearch.trim()) {
+          const searchLower = globalSearch.toLowerCase();
+          const rowValues = Object.values(row).map((v) => String(v).toLowerCase());
+          if (!rowValues.some((v) => v.includes(searchLower))) return false;
+        }
+        if (moduleFilters.length > 0) {
+          if (!moduleFilters.includes(row.moduleName || "")) return false;
+        }
+        if (resultFilters.length > 0) {
+          if (!resultFilters.includes(row.result || "")) return false;
+        }
+        if (qaFilters.length > 0) {
+          if (!qaFilters.includes(row.qaPic || "")) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aid = a.testCaseId || "";
+        const bid = b.testCaseId || "";
+        // Rows without a testCaseId go to the bottom
+        if (!aid && !bid) return 0;
+        if (!aid) return 1;
+        if (!bid) return -1;
+        return aid.localeCompare(bid, undefined, { numeric: true, sensitivity: "base" });
+      });
   }, [data, globalSearch, moduleFilters, resultFilters, qaFilters]);
 
   // Summary Statistics
@@ -2047,25 +2158,29 @@ export default function TestCasesExecutionProgressPage() {
               Filter by QA PIC
             </Label>
             <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-y-auto">
-              {uniqueQA.length > 0 ? (
-                uniqueQA.map((qa) => (
-                  <button
-                    key={qa}
-                    onClick={() => toggleFilter("qa", qa)}
-                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                      qaFilters.includes(qa)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {qa}
-                  </button>
-                ))
-              ) : (
-                <span className="text-[10px] text-muted-foreground italic">
-                  No QA assigned
-                </span>
-              )}
+              {uniqueQA.map((qa) => (
+                <button
+                  key={qa}
+                  onClick={() => toggleFilter("qa", qa)}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                    qaFilters.includes(qa)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {qa}
+                </button>
+              ))}
+              <button
+                onClick={() => toggleFilter("qa", "")}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  qaFilters.includes("")
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                No QA Assigned
+              </button>
             </div>
           </div>
         </div>
@@ -2159,6 +2274,7 @@ export default function TestCasesExecutionProgressPage() {
                     onUpdate={updateCell}
                     onDelete={requestSingleDelete}
                     onPromote={openPromoteDialog}
+                    onBlurRow={saveBlurRow}
                     availableModules={availableModules}
                     qaUsers={qaUsers}
                     hiddenCols={hiddenCols}
@@ -2187,6 +2303,8 @@ export default function TestCasesExecutionProgressPage() {
               onToggleSelect={handleSelectRow}
               onUpdate={updateCell}
               onDelete={requestSingleDelete}
+              onPromote={openPromoteDialog}
+              onBlurRow={saveBlurRow}
               availableModules={availableModules}
               qaUsers={qaUsers}
               hiddenCols={hiddenCols}
