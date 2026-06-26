@@ -188,6 +188,20 @@ export interface TestCase {
   authorName?: string | null;
   aiAssisted: boolean;
   status: string;
+  /** @nullable */
+  tracker?: string | null;
+  /** @nullable */
+  scenario?: string | null;
+  /** @nullable */
+  testData?: string | null;
+  /** @nullable */
+  redmineUserStory?: string | null;
+  /** @nullable */
+  module?: string | null;
+  /** @nullable */
+  qaPic?: string | null;
+  /** @nullable */
+  comments?: string | null;
   createdAt: string;
   updatedAt: string;
   executionCount?: number;
@@ -208,6 +222,13 @@ export interface TestCaseInput {
   authorId?: number;
   aiAssisted?: boolean;
   status?: string;
+  tracker?: string;
+  scenario?: string;
+  testData?: string;
+  redmineUserStory?: string;
+  module?: string;
+  qaPic?: string;
+  comments?: string;
 }
 
 export interface TestCaseUpdate {
@@ -223,6 +244,13 @@ export interface TestCaseUpdate {
   linkedBug?: string;
   aiAssisted?: boolean;
   status?: string;
+  tracker?: string;
+  scenario?: string;
+  testData?: string;
+  redmineUserStory?: string;
+  module?: string;
+  qaPic?: string;
+  comments?: string;
 }
 
 export interface AIGenerateInput {
@@ -241,6 +269,7 @@ export interface AIGenerateInput {
   generateEdgeCases?: boolean;
   useSimilarHistorical?: boolean;
   useTemplateOnly?: boolean;
+  tracker?: string;
 }
 
 export interface AIGeneratedTestCase {
@@ -297,6 +326,8 @@ export interface Task {
   /** @nullable */
   notes?: string | null;
   isOverdue?: boolean;
+  /** @nullable */
+  tracker?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -316,6 +347,7 @@ export interface TaskInput {
   actualHours?: number;
   completionPercentage?: number;
   notes?: string;
+  tracker?: string;
 }
 
 export interface TaskUpdate {
@@ -333,6 +365,7 @@ export interface TaskUpdate {
   actualHours?: number;
   completionPercentage?: number;
   notes?: string;
+  tracker?: string;
 }
 
 export interface DashboardSummary {
