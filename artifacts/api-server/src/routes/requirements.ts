@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray, sql } from "drizzle-orm";
+import { verifyToken } from "./auth";
 import {
   db,
   requirementsTable,
@@ -243,6 +244,121 @@ router.delete("/requirements/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
+});
+
+// ─── Redmine Import (same logic as Requirements page processRedmineSync) ─────
+const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
+const PRIORITY_MAP: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
+
+function getRedmineBase() {
+  return process.env.REDMINE_URL ?? "https://redmine.bestinet.my";
+}
+
+async function redmineFetchLocal(path: string, apiKey: string) {
+  return fetch(`${getRedmineBase()}${path}`, {
+    headers: { "X-Redmine-API-Key": apiKey, "Content-Type": "application/json" },
+  });
+}
+
+async function resolveApiKeyFromToken(authHeader: string | undefined): Promise<string> {
+  if (!authHeader?.startsWith("Bearer ")) return process.env.REDMINE_API_KEY ?? "";
+  try {
+    const payload = verifyToken(authHeader.slice(7));
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId));
+    if (user?.redmineApiKey?.trim()) return user.redmineApiKey.trim();
+  } catch {}
+  return process.env.REDMINE_API_KEY ?? "";
+}
+
+async function syncRedmineTicket(
+  ticketId: string,
+  targetModule: string,
+  targetProjectId: number | undefined,
+  parentId: number | undefined,
+  trackerFilter: string | undefined,
+  apiKey: string,
+  isRoot = true,
+): Promise<number | undefined> {
+  const resp = await redmineFetchLocal(`/issues/${encodeURIComponent(ticketId)}.json?include=children,journals`, apiKey);
+  if (!resp.ok) throw new Error(`Could not fetch Redmine issue #${ticketId}`);
+  const data = await resp.json();
+  const issue = data.issue;
+  if (!issue) throw new Error(`No issue data for #${ticketId}`);
+
+  if (EXCLUDED_STATUSES.includes(issue.status?.name)) {
+    if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketId} has status "${issue.status?.name}"`);
+    return;
+  }
+  if (trackerFilter && issue.tracker?.name && issue.tracker.name !== trackerFilter) {
+    if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketId} has tracker "${issue.tracker?.name}", expected "${trackerFilter}"`);
+    return;
+  }
+
+  const fetchedId = String(issue.id);
+  const [existing] = await db.select().from(requirementsTable).where(eq(requirementsTable.redmineTicketId, fetchedId));
+
+  const mappedData: any = {
+    title: issue.subject,
+    description: issue.description ?? "",
+    priority: PRIORITY_MAP[issue.priority?.name?.toLowerCase()] ?? "normal",
+    redmineTicketId: fetchedId,
+    tracker: issue.tracker?.name ?? "Task",
+    module: targetModule,
+    projectId: targetProjectId ?? null,
+    parentId: parentId ?? null,
+  };
+
+  let savedId: number | undefined;
+  if (existing) {
+    mappedData.status = existing.status;
+    mappedData.release = existing.release ?? undefined;
+    mappedData.assigneeId = existing.assigneeId ?? undefined;
+    await db.update(requirementsTable).set(mappedData).where(eq(requirementsTable.id, existing.id));
+    savedId = existing.id;
+  } else {
+    mappedData.status = "draft";
+    const [created] = await db.insert(requirementsTable).values(mappedData).returning();
+    savedId = created.id;
+  }
+
+  if (issue.children && Array.isArray(issue.children)) {
+    for (const child of issue.children) {
+      await syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, apiKey, false);
+    }
+  }
+
+  return savedId;
+}
+
+// POST /requirements/import-redmine
+// Body: { ticketId, module, projectId, trackerFilter? }
+router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
+  const { ticketId, module, projectId, trackerFilter } = req.body;
+  if (!ticketId || !module) {
+    res.status(400).json({ error: "ticketId and module are required" });
+    return;
+  }
+
+  try {
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const savedId = await syncRedmineTicket(
+      String(ticketId),
+      module,
+      projectId ? Number(projectId) : undefined,
+      undefined,
+      trackerFilter || undefined,
+      apiKey,
+    );
+    const [req2] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, savedId!));
+    res.json({ success: true, requirement: await formatRequirement(req2) });
+  } catch (err: any) {
+    const msg: string = err?.message ?? "";
+    if (msg.startsWith("NO_RESULT:")) {
+      res.status(422).json({ error: msg.replace("NO_RESULT:", "").trim() });
+    } else {
+      res.status(500).json({ error: msg || "Failed to import from Redmine" });
+    }
+  }
 });
 
 export default router;
