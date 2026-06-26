@@ -647,8 +647,9 @@ export default function TestCases() {
     remarks: string;
     requirementId: string;
     projectId: string;
+    tracker: string;
     selectedModules: number[];
-  }>({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", selectedModules: [] });
+  }>({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [] });
   const [isCompiling, setIsCompiling] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -1010,6 +1011,7 @@ export default function TestCases() {
       remarks: "",
       requirementId: firstTC.requirementId ? String(firstTC.requirementId) : "",
       projectId: firstTC.projectId ? String(firstTC.projectId) : "",
+      tracker: "",
       selectedModules: matchedModuleIds,
     });
     setCompileStep("mode");
@@ -1064,6 +1066,7 @@ export default function TestCases() {
             title: compileNewForm.title || undefined,
             remarks: compileNewForm.remarks || undefined,
             selectedModules: selectedModuleNames.length ? selectedModuleNames.join(",") : undefined,
+            tracker: compileNewForm.tracker || undefined,
             projectId: compileNewForm.projectId ? Number(compileNewForm.projectId) : undefined,
             requirementId: compileNewForm.requirementId ? Number(compileNewForm.requirementId) : undefined,
           }),
@@ -2243,6 +2246,22 @@ export default function TestCases() {
                     {compileNewForm.selectedModules.length > 0 && (
                       <p className="text-xs text-muted-foreground">{compileNewForm.selectedModules.length} module(s) selected</p>
                     )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Tracker</Label>
+                    <SearchableSelect
+                      value={compileNewForm.tracker}
+                      onValueChange={(v) => setCompileNewForm({ ...compileNewForm, tracker: v })}
+                      options={[
+                        { value: "", label: "None" },
+                        ...(trackers as any[]).map((t: any) => ({ value: t.name, label: t.name })),
+                        ...(compileNewForm.tracker && !(trackers as any[]).some((t: any) => t.name === compileNewForm.tracker)
+                          ? [{ value: compileNewForm.tracker, label: compileNewForm.tracker }]
+                          : []),
+                      ]}
+                      placeholder="Select tracker..."
+                      searchPlaceholder="Search tracker..."
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label>Remarks</Label>
