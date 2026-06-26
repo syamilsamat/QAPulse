@@ -582,56 +582,53 @@ export default function TestCasesExecution() {
   };
 
   // ─── Redmine ticket ID lookup ──────────────────────────────────────────────
-  const runTicketLookup = async (ticketId: string) => {
-    setTicketLookupMsg(null);
-    if (!ticketId) return;
-
-    // Check for duplicate execution file first
-    const duplicate = files.find(f => f.redmineTicketId === ticketId);
-    if (duplicate) {
-      setTicketLookupMsg({ type: "error", text: `Redmine ID #${ticketId} already exists in Test Case Files (${duplicate.title || "Untitled"}).` });
-      return;
-    }
-
-    setTicketLookupLoading(true);
-    try {
-      const res = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
-
-      if (data.found && data.requirement) {
-        const req = data.requirement;
-        const matchedMod = req.module
-          ? modules.find((m: any) => m.name.trim().toLowerCase() === req.module.trim().toLowerCase())
-          : null;
-        setFileForm(prev => ({
-          ...prev,
-          requirementId: String(req.id),
-          title: req.title || prev.title,
-          projectId: req.projectId ? String(req.projectId) : prev.projectId,
-          tracker: req.tracker || prev.tracker,
-          selectedModules: matchedMod ? [matchedMod.id] : prev.selectedModules,
-        }));
-        setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
-      } else {
-        setTicketLookupMsg({ type: "warn", text: "No requirement found locally. On create, the ticket will be fetched from Redmine and saved as a requirement." });
-      }
-    } catch {
-      // silently ignore — non-critical
-    } finally {
-      setTicketLookupLoading(false);
-    }
-  };
 
   // Debounced auto-lookup when ticket ID changes
   useEffect(() => {
     const ticketId = fileForm.redmineTicketId.trim();
     if (ticketLookupTimer.current) clearTimeout(ticketLookupTimer.current);
     if (!ticketId) { setTicketLookupMsg(null); return; }
-    ticketLookupTimer.current = setTimeout(() => runTicketLookup(ticketId), 600);
+
+    ticketLookupTimer.current = setTimeout(async () => {
+      // Duplicate check
+      const duplicate = files.find(f => f.redmineTicketId === ticketId);
+      if (duplicate) {
+        setTicketLookupMsg({ type: "error", text: `Redmine ID #${ticketId} already exists in Test Case Files (${duplicate.title || "Untitled"}).` });
+        return;
+      }
+
+      setTicketLookupLoading(true);
+      try {
+        const res = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+        if (data.found && data.requirement) {
+          const req = data.requirement;
+          const matchedMod = req.module
+            ? modules.find((m: any) => m.name.trim().toLowerCase() === req.module.trim().toLowerCase())
+            : null;
+          setFileForm(prev => ({
+            ...prev,
+            requirementId: String(req.id),
+            title: req.title || prev.title,
+            projectId: req.projectId ? String(req.projectId) : prev.projectId,
+            tracker: req.tracker || prev.tracker,
+            selectedModules: matchedMod ? [matchedMod.id] : prev.selectedModules,
+          }));
+          setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
+        } else {
+          setTicketLookupMsg({ type: "warn", text: "No requirement found locally. On create, the ticket will be fetched from Redmine and saved as a requirement." });
+        }
+      } catch {
+        // silently ignore
+      } finally {
+        setTicketLookupLoading(false);
+      }
+    }, 600);
+
     return () => { if (ticketLookupTimer.current) clearTimeout(ticketLookupTimer.current); };
-  }, [fileForm.redmineTicketId, files]);
+  }, [fileForm.redmineTicketId, files, modules, token]);
 
   // ─── Excel upload ──────────────────────────────────────────────────────────
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
