@@ -15,6 +15,7 @@ export const executionFilesTable = pgTable("execution_files", {
   qaPic: text("qa_pic"),
   remarks: text("remarks"),
   selectedModules: text("selected_modules"),
+  tracker: text("tracker"),
   projectId: integer("project_id"),
   requirementId: integer("requirement_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -69,6 +70,14 @@ export const executionFileAuditTable = pgTable("execution_file_audit", {
   updatedByName: text("updated_by_name"),
   summary: text("summary").notNull(),
   tcCount: integer("tc_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// 7. Trackers Table (synced from Redmine, used as dropdown options)
+export const trackersTable = pgTable("trackers", {
+  id: serial("id").primaryKey(),
+  redmineId: integer("redmine_id").notNull().unique(),
+  name: text("name").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

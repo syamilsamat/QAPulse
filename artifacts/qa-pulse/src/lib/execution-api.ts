@@ -20,9 +20,16 @@ export interface ExecutionFile {
   qaPic?: string;
   remarks?: string;
   selectedModules?: string;
+  tracker?: string | null;
   projectId?: number | null;
   requirementId?: number | null;
   updatedAt: string;
+}
+
+export interface TrackerOption {
+  id: number;
+  redmineId: number;
+  name: string;
 }
 
 export interface ExecutionTestCase {
@@ -91,6 +98,19 @@ export const fetchExecutionFiles = async (): Promise<ExecutionFile[]> => {
   const res = await fetch("/api/execution-files", { headers: getHeaders() });
   if (!res.ok) throw new Error("Failed to fetch files");
   return res.json();
+};
+
+export const fetchTrackers = async (): Promise<TrackerOption[]> => {
+  const res = await fetch("/api/trackers", { headers: getHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+};
+
+export const syncTrackersFromRedmine = async (): Promise<TrackerOption[]> => {
+  const res = await fetch("/api/trackers/sync", { method: "POST", headers: getHeaders() });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.trackers ?? [];
 };
 
 export const fetchExecutionFile = async (

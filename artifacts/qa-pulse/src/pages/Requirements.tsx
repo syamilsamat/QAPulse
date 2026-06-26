@@ -590,9 +590,6 @@ export default function Requirements() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setProjectDialogOpen(true)} className="gap-2 w-full sm:w-auto">
-            <FolderPlus className="w-4 h-4" /> New Project
-          </Button>
           <Button variant="outline" onClick={() => setRedmineDialogOpen(true)} className="gap-2 w-full sm:w-auto">
             <Download className="w-4 h-4" /> From Redmine
           </Button>

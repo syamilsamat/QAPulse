@@ -11,6 +11,7 @@ import {
   deleteModule,
   updateModule,
   type ExecutionModule,
+  syncTrackersFromRedmine,
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -117,6 +118,7 @@ export default function ModuleAndProject() {
   const [redmineProjects, setRedmineProjects] = useState<RedmineProject[]>([]);
   const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingTrackers, setIsSyncingTrackers] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   useEffect(() => {
@@ -151,6 +153,18 @@ export default function ModuleAndProject() {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleSyncTrackers = async () => {
+    setIsSyncingTrackers(true);
+    try {
+      const synced = await syncTrackersFromRedmine();
+      toast({ title: `Synced ${synced.length} trackers from Redmine` });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Tracker sync failed", description: err.message });
+    } finally {
+      setIsSyncingTrackers(false);
     }
   };
 
@@ -966,6 +980,13 @@ export default function ModuleAndProject() {
                 {isSyncingContacts ? "Syncing..." : "Sync Redmine Contact"}
               </Button>
               <span className="text-xs text-muted-foreground">Requires a Redmine administrator API key</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" className="gap-2" onClick={handleSyncTrackers} disabled={isSyncingTrackers}>
+                <RefreshCw className={`w-4 h-4 ${isSyncingTrackers ? "animate-spin" : ""}`} />
+                {isSyncingTrackers ? "Syncing..." : "Sync Redmine Trackers"}
+              </Button>
+              <span className="text-xs text-muted-foreground">Populates the Tracker dropdown across all dialogs</span>
             </div>
 
             <Separator />
