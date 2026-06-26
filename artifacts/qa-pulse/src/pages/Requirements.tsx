@@ -1102,7 +1102,7 @@ export default function Requirements() {
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModule(""); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); }} className="w-full sm:w-auto">Cancel</Button>
+            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); }} className="w-full sm:w-auto">Cancel</Button>
             <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || redmineSelectedModules.length === 0 || !redmineSelectedProject} className="w-full sm:w-auto">
               {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Fetching…</> : "Import"}
             </Button>
