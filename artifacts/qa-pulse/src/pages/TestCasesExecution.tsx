@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -329,6 +330,17 @@ export default function TestCasesExecution() {
   const [isParsingExcel, setIsParsingExcel] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
+  // Redmine ticket ID auto-lookup state
+  const [ticketLookupLoading, setTicketLookupLoading] = useState(false);
+  const [ticketLookupMsg, setTicketLookupMsg] = useState<{ type: "info" | "warn"; text: string } | null>(null);
+  // TC copy dialog
+  const [tcCopyDialog, setTcCopyDialog] = useState<{
+    open: boolean;
+    tcs: any[];
+    pendingFileTicketId: string;
+  }>({ open: false, tcs: [], pendingFileTicketId: "" });
+  const [pendingCreatePayload, setPendingCreatePayload] = useState<any>(null);
+
   const [editFileOpen, setEditFileOpen] = useState(false);
   const [editingFile, setEditingFile] = useState<ExecutionFile | null>(null);
   const editModulesInitRef = useRef(false);
@@ -568,6 +580,40 @@ export default function TestCasesExecution() {
     setFileForm(updatedForm);
   };
 
+  // ─── Redmine ticket ID lookup ──────────────────────────────────────────────
+  const handleTicketIdBlur = async () => {
+    const ticketId = fileForm.redmineTicketId.trim();
+    setTicketLookupMsg(null);
+    if (!ticketId) return;
+
+    setTicketLookupLoading(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+
+      if (data.found && data.requirement) {
+        const req = data.requirement;
+        const updatedForm = { ...fileForm, requirementId: String(req.id) };
+        if (req.projectId) updatedForm.projectId = String(req.projectId);
+        if (req.module) {
+          const matchedMod = modules.find((m: any) => m.name.toLowerCase() === req.module.toLowerCase());
+          if (matchedMod) updatedForm.selectedModules = [matchedMod.id];
+        }
+        if (req.tracker) updatedForm.tracker = req.tracker;
+        setFileForm(updatedForm);
+        setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
+      } else {
+        setTicketLookupMsg({ type: "warn", text: "No requirement linked to this ticket ID. A new requirement will be fetched from Redmine on create." });
+      }
+    } catch {
+      // silently ignore — non-critical
+    } finally {
+      setTicketLookupLoading(false);
+    }
+  };
+
   // ─── Excel upload ──────────────────────────────────────────────────────────
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -600,20 +646,11 @@ export default function TestCasesExecution() {
   // ─── Create file ───────────────────────────────────────────────────────────
   const resetFileForm = () => {
     setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [] });
+    setTicketLookupMsg(null);
     clearExcel();
   };
 
-  const handleCreateFile = async () => {
-    if (!fileForm.redmineTicketId.trim()) return;
-    if (!fileForm.projectId) {
-      toast({ variant: "destructive", title: "Project is required" });
-      return;
-    }
-    if (fileForm.selectedModules.length === 0) {
-      toast({ variant: "destructive", title: "At least one module must be selected" });
-      return;
-    }
-
+  const doCreateFile = async (copyTcs: any[] | null) => {
     setIsCreating(true);
     try {
       const selectedModuleNames = fileForm.selectedModules
@@ -630,16 +667,40 @@ export default function TestCasesExecution() {
         requirementId: fileForm.requirementId ? Number(fileForm.requirementId) : undefined,
       });
 
-      // File created — update UI immediately so duplicate-create can't happen
       setFiles([newFile, ...files]);
       setNewFileOpen(false);
       resetFileForm();
+      setTicketLookupMsg(null);
 
-      // If Excel was parsed, import test cases separately
-      if (parsedExcelRows && parsedExcelRows.length > 0) {
+      // Determine which TCs to save
+      let rowsToSave: ExecutionTestCase[] | null = null;
+      if (copyTcs && copyTcs.length > 0) {
+        rowsToSave = copyTcs.map((tc: any, i: number) => ({
+          moduleName: tc.module || "",
+          caseId: tc.caseId || "",
+          libraryTcId: tc.id,
+          userStory: "",
+          tracker: tc.tracker || "",
+          scenario: tc.scenario || "",
+          preCondition: tc.preCondition || "",
+          caseName: tc.title || "",
+          testSteps: tc.testSteps || "",
+          testData: tc.testData || "",
+          expectedResult: tc.expectedResult || "",
+          result: "",
+          defectNumber: "",
+          comments: "",
+          qaPic: "",
+          rowOrder: i,
+        }));
+      } else if (parsedExcelRows && parsedExcelRows.length > 0) {
+        rowsToSave = parsedExcelRows;
+      }
+
+      if (rowsToSave && rowsToSave.length > 0) {
         try {
-          await saveTestCases(newFile.redmineTicketId, parsedExcelRows, []);
-          toast({ title: `File created with ${parsedExcelRows.length} imported test cases` });
+          await saveTestCases(newFile.redmineTicketId, rowsToSave, []);
+          toast({ title: `File created with ${rowsToSave.length} test case(s) imported` });
         } catch {
           toast({ variant: "destructive", title: "File created but test cases failed to import. Open the file to retry." });
         }
@@ -651,6 +712,36 @@ export default function TestCasesExecution() {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleCreateFile = async () => {
+    if (!fileForm.redmineTicketId.trim()) return;
+    if (!fileForm.projectId) {
+      toast({ variant: "destructive", title: "Project is required" });
+      return;
+    }
+    if (fileForm.selectedModules.length === 0) {
+      toast({ variant: "destructive", title: "At least one module must be selected" });
+      return;
+    }
+
+    // If requirement is linked, check for existing TCs
+    if (fileForm.requirementId) {
+      try {
+        const res = await fetch(`${getApiUrl()}/requirements/${fileForm.requirementId}/test-cases`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const tcs = await res.json();
+        if (Array.isArray(tcs) && tcs.length > 0) {
+          setTcCopyDialog({ open: true, tcs, pendingFileTicketId: fileForm.redmineTicketId });
+          return;
+        }
+      } catch {
+        // ignore — proceed with normal create
+      }
+    }
+
+    await doCreateFile(null);
   };
 
   const handleCreateQuickTask = async () => {
@@ -1134,11 +1225,27 @@ export default function TestCasesExecution() {
             {/* Redmine Ticket ID */}
             <div className="space-y-1">
               <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
-              <Input
-                placeholder="e.g. 38032"
-                value={fileForm.redmineTicketId}
-                onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
-              />
+              <div className="relative">
+                <Input
+                  placeholder="e.g. 38032"
+                  value={fileForm.redmineTicketId}
+                  onChange={e => {
+                    setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") });
+                    setTicketLookupMsg(null);
+                  }}
+                  onBlur={handleTicketIdBlur}
+                />
+                {ticketLookupLoading && (
+                  <div className="absolute right-2 top-2.5">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+              {ticketLookupMsg && (
+                <p className={`text-xs mt-1 ${ticketLookupMsg.type === "info" ? "text-green-600" : "text-yellow-600"}`}>
+                  {ticketLookupMsg.text}
+                </p>
+              )}
             </div>
 
             {/* Requirement (optional) */}
@@ -1387,6 +1494,41 @@ export default function TestCasesExecution() {
             </Button>
             <Button onClick={handleSaveEditFile} disabled={!editFileForm.redmineTicketId.trim() || isSavingFile}>
               {isSavingFile ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* TC Copy Dialog */}
+      <Dialog open={tcCopyDialog.open} onOpenChange={open => !open && setTcCopyDialog(d => ({ ...d, open: false }))}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Copy Test Cases?</DialogTitle>
+            <DialogDescription>
+              {tcCopyDialog.tcs.length} test case(s) are linked to this requirement. Do you want to copy them into the new execution file?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-48 overflow-y-auto border rounded-md divide-y text-sm">
+            {tcCopyDialog.tcs.map((tc: any) => (
+              <div key={tc.id} className="px-3 py-2 flex gap-2 items-start">
+                <span className="font-mono text-xs text-muted-foreground shrink-0">{tc.caseId || `#${tc.id}`}</span>
+                <span>{tc.title}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={async () => {
+              setTcCopyDialog(d => ({ ...d, open: false }));
+              await doCreateFile(null);
+            }}>
+              No, create empty
+            </Button>
+            <Button onClick={async () => {
+              const tcs = tcCopyDialog.tcs;
+              setTcCopyDialog(d => ({ ...d, open: false }));
+              await doCreateFile(tcs);
+            }}>
+              Yes, copy {tcCopyDialog.tcs.length} TC(s)
             </Button>
           </DialogFooter>
         </DialogContent>

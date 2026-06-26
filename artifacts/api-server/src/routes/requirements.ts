@@ -131,6 +131,45 @@ router.post("/requirements", async (req, res): Promise<void> => {
   res.status(201).json(await formatRequirement(requirement));
 });
 
+// Lookup requirement by Redmine ticket ID
+router.get("/requirements/by-redmine/:ticketId", async (req, res): Promise<void> => {
+  const ticketId = req.params.ticketId;
+  const [requirement] = await db
+    .select()
+    .from(requirementsTable)
+    .where(eq(requirementsTable.redmineTicketId, ticketId));
+
+  if (!requirement) {
+    res.status(404).json({ found: false });
+    return;
+  }
+  res.json({ found: true, requirement: await formatRequirement(requirement) });
+});
+
+// Get test cases linked to a requirement
+router.get("/requirements/:id/test-cases", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const tcs = await db
+    .select()
+    .from(testCasesTable)
+    .where(eq(testCasesTable.requirementId, id));
+
+  res.json(tcs.map(tc => ({
+    id: tc.id,
+    caseId: tc.caseId,
+    title: tc.title,
+    module: tc.module,
+    scenario: tc.scenario,
+    preCondition: tc.preconditions,
+    testSteps: tc.testSteps,
+    testData: tc.testData,
+    expectedResult: tc.expectedResult,
+    tracker: tc.tracker,
+  })));
+});
+
 router.get("/requirements/:id", async (req, res): Promise<void> => {
   const params = GetRequirementParams.safeParse(req.params);
   if (!params.success) {
