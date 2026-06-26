@@ -333,6 +333,7 @@ export default function TestCasesExecution() {
   // Redmine ticket ID auto-lookup state
   const [ticketLookupLoading, setTicketLookupLoading] = useState(false);
   const [ticketLookupMsg, setTicketLookupMsg] = useState<{ type: "info" | "warn" | "error"; text: string } | null>(null);
+  const ticketLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // TC copy dialog
   const [tcCopyDialog, setTcCopyDialog] = useState<{
     open: boolean;
@@ -581,8 +582,7 @@ export default function TestCasesExecution() {
   };
 
   // ─── Redmine ticket ID lookup ──────────────────────────────────────────────
-  const handleTicketIdBlur = async () => {
-    const ticketId = fileForm.redmineTicketId.trim();
+  const runTicketLookup = async (ticketId: string) => {
     setTicketLookupMsg(null);
     if (!ticketId) return;
 
@@ -623,6 +623,15 @@ export default function TestCasesExecution() {
       setTicketLookupLoading(false);
     }
   };
+
+  // Debounced auto-lookup when ticket ID changes
+  useEffect(() => {
+    const ticketId = fileForm.redmineTicketId.trim();
+    if (ticketLookupTimer.current) clearTimeout(ticketLookupTimer.current);
+    if (!ticketId) { setTicketLookupMsg(null); return; }
+    ticketLookupTimer.current = setTimeout(() => runTicketLookup(ticketId), 600);
+    return () => { if (ticketLookupTimer.current) clearTimeout(ticketLookupTimer.current); };
+  }, [fileForm.redmineTicketId, files]);
 
   // ─── Excel upload ──────────────────────────────────────────────────────────
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1271,11 +1280,7 @@ export default function TestCasesExecution() {
                 <Input
                   placeholder="e.g. 38032"
                   value={fileForm.redmineTicketId}
-                  onChange={e => {
-                    setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") });
-                    setTicketLookupMsg(null);
-                  }}
-                  onBlur={handleTicketIdBlur}
+                  onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
                 />
                 {ticketLookupLoading && (
                   <div className="absolute right-2 top-2.5">
