@@ -174,10 +174,10 @@ export default function Requirements() {
     },
   });
 
-  const { data: redmineTrackers = [] } = useQuery<{ id: number; name: string }[]>({
-    queryKey: ["redmineTrackers"],
+  const { data: trackers = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["trackers"],
     queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/redmine/trackers`, {
+      const res = await fetch(`${getApiUrl()}/trackers`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return [];
@@ -1001,7 +1001,19 @@ export default function Requirements() {
               </div>
               <div className="space-y-1.5">
                 <Label>Tracker</Label>
-                <Input placeholder="e.g. Feature, Bug, Enhancement" value={form.tracker ?? ""} onChange={(e) => setForm({ ...form, tracker: e.target.value })} />
+                <SearchableSelect
+                  value={form.tracker ?? ""}
+                  onValueChange={(v) => setForm({ ...form, tracker: v })}
+                  options={[
+                    { value: "", label: "None" },
+                    ...trackers.map((t) => ({ value: t.name, label: t.name })),
+                    ...(form.tracker && !trackers.some((t) => t.name === form.tracker)
+                      ? [{ value: form.tracker, label: form.tracker }]
+                      : []),
+                  ]}
+                  placeholder="Select tracker..."
+                  searchPlaceholder="Search tracker..."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Priority <span className="text-destructive">*</span></Label>
@@ -1082,7 +1094,8 @@ export default function Requirements() {
               <SearchableSelect
                 value={redmineSelectedTracker}
                 onValueChange={setRedmineSelectedTracker}
-                options={redmineTrackers.map((t) => ({ value: t.name, label: t.name }))}
+                options={trackers.map((t) => ({ value: t.name, label: t.name }))}
+
                 placeholder="All trackers"
                 searchPlaceholder="Search tracker..."
               />

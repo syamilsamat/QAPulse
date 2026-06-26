@@ -17,7 +17,7 @@ import {
   useAssignTask,
   type TaskInput,
 } from "@workspace/api-client-react";
-import { fetchModules, fetchExecutionFiles } from "@/lib/execution-api";
+import { fetchModules, fetchExecutionFiles, fetchTrackers, type TrackerOption } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -482,6 +482,12 @@ export default function Tasks() {
     staleTime: 60_000,
   });
 
+  const { data: trackers = [] } = useQuery<TrackerOption[]>({
+    queryKey: ["trackers"],
+    queryFn: () => fetchTrackers(),
+    staleTime: 300_000,
+  });
+
   const availableExecutionFiles = useMemo(() => {
     // Exclude redmineIds already linked to OTHER tasks (not the one being edited)
     const linkedRedmineIds = new Set(
@@ -758,6 +764,7 @@ export default function Tasks() {
       priority: "Medium",
       assigneeIds: [],
       environmentIds: [],
+      tracker: "",
     });
     setTaskFormModules([]);
     setSelectedExecFileId("");
@@ -787,6 +794,7 @@ export default function Tasks() {
         if (execProg && execProg.total > 0) return Math.round((execProg.passed / execProg.total) * 100);
         return t.completionPercentage ?? undefined;
       })(),
+      tracker: t.tracker ?? "",
       notes: t.notes ?? undefined,
     });
     const ids = t.moduleIds
@@ -1607,6 +1615,22 @@ export default function Tasks() {
                     { value: "Low", label: "Low" },
                   ]}
                   searchPlaceholder="Search..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <SearchableSelect
+                  value={(form as any).tracker ?? ""}
+                  onValueChange={(v) => setForm({ ...form, tracker: v } as any)}
+                  options={[
+                    { value: "", label: "None" },
+                    ...trackers.map((t) => ({ value: t.name, label: t.name })),
+                    ...((form as any).tracker && !trackers.some((t) => t.name === (form as any).tracker)
+                      ? [{ value: (form as any).tracker, label: (form as any).tracker }]
+                      : []),
+                  ]}
+                  placeholder="Select tracker..."
+                  searchPlaceholder="Search tracker..."
                 />
               </div>
               <div className="space-y-1.5">

@@ -1207,6 +1207,9 @@ export default function TestCasesExecution() {
                 options={[
                   { value: "", label: "None" },
                   ...trackers.map(t => ({ value: t.name, label: t.name })),
+                  ...(fileForm.tracker && !trackers.some(t => t.name === fileForm.tracker)
+                    ? [{ value: fileForm.tracker, label: fileForm.tracker }]
+                    : []),
                 ]}
                 placeholder="Select tracker..."
                 searchPlaceholder="Search tracker..."
@@ -1361,6 +1364,9 @@ export default function TestCasesExecution() {
                 options={[
                   { value: "", label: "None" },
                   ...trackers.map(t => ({ value: t.name, label: t.name })),
+                  ...(editFileForm.tracker && !trackers.some(t => t.name === editFileForm.tracker)
+                    ? [{ value: editFileForm.tracker, label: editFileForm.tracker }]
+                    : []),
                 ]}
                 placeholder="Select tracker..."
                 searchPlaceholder="Search tracker..."
