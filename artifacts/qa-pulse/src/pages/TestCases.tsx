@@ -214,6 +214,7 @@ function AIGenerateDialog({
                         requirementId: reqId,
                         requirementTitle: req.title,
                         projectId: req.projectId ?? form.projectId,
+                        tracker: req.tracker ?? form.tracker,
                       });
                       if (req.module) {
                         setAiFormModules(req.module.split(",").map((s: string) => s.trim()).filter(Boolean));
