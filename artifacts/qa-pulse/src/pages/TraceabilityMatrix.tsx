@@ -52,9 +52,11 @@ interface TraceabilityTC {
 
 interface TraceabilityRow {
   reqId: number;
+  reqRedmineId: string | null;
   reqTitle: string;
   reqModule: string | null;
   projectId: number | null;
+  projectName: string | null;
   reqStatus: string | null;
   tcCount: number;
   passed: number;
@@ -160,6 +162,25 @@ export default function TraceabilityMatrix() {
   // Derive unique modules from current data
   const modules = Array.from(new Set(rows.map((r) => r.reqModule).filter(Boolean))) as string[];
 
+  // Group rows by project
+  const groupedByProject = rows.reduce<{ projectId: number | null; projectName: string | null; rows: TraceabilityRow[] }[]>(
+    (acc, row) => {
+      const existing = acc.find(g => g.projectId === row.projectId);
+      if (existing) { existing.rows.push(row); }
+      else { acc.push({ projectId: row.projectId, projectName: row.projectName, rows: [row] }); }
+      return acc;
+    }, []
+  );
+
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<number | null>>(new Set());
+  const toggleProject = (projectId: number | null) => {
+    setCollapsedProjects(prev => {
+      const next = new Set(prev);
+      next.has(projectId) ? next.delete(projectId) : next.add(projectId);
+      return next;
+    });
+  };
+
   const toggleExpand = (reqId: number) => {
     setExpandedReqs((prev) => {
       const next = new Set(prev);
@@ -180,19 +201,24 @@ export default function TraceabilityMatrix() {
   const handleExport = () => {
     const sheetData: any[][] = [
       [
-        "Req ID", "Requirement", "Module", "TC ID", "TC Title",
+        "Project", "Redmine ID", "Requirement", "Module", "Test Case ID", "TC Title",
         "Result", "Defect #", "Executed At",
       ],
     ];
 
-    for (const req of rows) {
+    for (const group of groupedByProject) {
+      // Project group header row
+      sheetData.push([group.projectName ?? "No Project", "", "", "", "", "", "", "", ""]);
+
+      for (const req of group.rows) {
       if (req.testCases.length === 0) {
-        sheetData.push([req.reqId, req.reqTitle, req.reqModule ?? "", "", "", "No TCs", "", ""]);
+        sheetData.push(["", req.reqRedmineId ?? req.reqId, req.reqTitle, req.reqModule ?? "", "", "", "No TCs", "", ""]);
       } else {
         for (const tc of req.testCases) {
           const latest = tc.results[tc.results.length - 1];
           sheetData.push([
-            req.reqId,
+            "",
+            req.reqRedmineId ?? req.reqId,
             req.reqTitle,
             req.reqModule ?? "",
             tc.tcCaseId ?? tc.tcId,
@@ -203,7 +229,8 @@ export default function TraceabilityMatrix() {
           ]);
         }
       }
-    }
+      } // end group.rows loop
+    } // end groupedByProject loop
 
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
@@ -220,7 +247,7 @@ export default function TraceabilityMatrix() {
     }
 
     // Color result cells
-    const resultCol = 5; // column F (0-indexed)
+    const resultCol = 6; // column G (0-indexed) — after adding Project column
     for (let r = 1; r <= sheetData.length - 1; r++) {
       const cellRef = XLSX.utils.encode_cell({ r, c: resultCol });
       if (!ws[cellRef]) continue;
@@ -233,7 +260,7 @@ export default function TraceabilityMatrix() {
     }
 
     ws["!cols"] = [
-      { wch: 8 }, { wch: 40 }, { wch: 20 }, { wch: 12 }, { wch: 40 },
+      { wch: 25 }, { wch: 12 }, { wch: 40 }, { wch: 20 }, { wch: 16 }, { wch: 40 },
       { wch: 12 }, { wch: 14 }, { wch: 20 },
     ];
 
@@ -382,84 +409,106 @@ export default function TraceabilityMatrix() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((req) => (
-                <Fragment key={req.reqId}>
+              {groupedByProject.map((group) => (
+                <Fragment key={group.projectId ?? "no-project"}>
+                  {/* Project group header */}
                   <TableRow
-                    key={req.reqId}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => req.tcCount > 0 && toggleExpand(req.reqId)}
+                    className="bg-muted/40 cursor-pointer hover:bg-muted/60"
+                    onClick={() => toggleProject(group.projectId)}
                   >
-                    <TableCell>
-                      {req.tcCount > 0 ? (
-                        expandedReqs.has(req.reqId) ? (
-                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                        )
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground font-mono">REQ-{req.reqId}</span>
-                        <span className="font-medium text-sm">{req.reqTitle}</span>
-                        {req.overallStatus === "no-tcs" && (
-                          <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{req.reqModule ?? "—"}</TableCell>
-                    <TableCell className="text-center font-medium">{req.tcCount}</TableCell>
-                    <TableCell className="text-center text-green-600 font-medium">{req.passed}</TableCell>
-                    <TableCell className="text-center text-red-600 font-medium">{req.failed}</TableCell>
-                    <TableCell className="text-center text-orange-600 font-medium">{req.blocked}</TableCell>
-                    <TableCell className="text-center text-gray-500 font-medium">{req.notRun}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Progress value={req.coveragePct} className="h-2 flex-1" />
-                        <span className="text-xs text-muted-foreground w-8 text-right">
-                          {req.coveragePct}%
+                    <TableCell colSpan={10}>
+                      <div className="flex items-center gap-2 font-semibold text-sm">
+                        {collapsedProjects.has(group.projectId)
+                          ? <ChevronRight className="w-4 h-4" />
+                          : <ChevronDown className="w-4 h-4" />}
+                        {group.projectName ?? "No Project"}
+                        <span className="text-xs font-normal text-muted-foreground ml-1">
+                          ({group.rows.length} requirement{group.rows.length !== 1 ? "s" : ""})
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <StatusBadge status={req.overallStatus} />
-                    </TableCell>
                   </TableRow>
 
-                  {/* Expanded TC rows */}
-                  {expandedReqs.has(req.reqId) &&
-                    req.testCases.map((tc) => {
-                      const latest = tc.results[tc.results.length - 1];
-                      return (
-                        <TableRow key={`tc-${tc.tcId}`} className="bg-muted/20">
-                          <TableCell />
-                          <TableCell colSpan={2} className="pl-8">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono text-muted-foreground">
-                                {tc.tcCaseId ?? `#${tc.tcId}`}
-                              </span>
-                              <span className="text-sm">{tc.tcTitle ?? "Untitled TC"}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell />
-                          <TableCell colSpan={4} className="text-sm text-muted-foreground">
-                            {latest?.defectNumber && (
-                              <span className="text-xs font-mono text-red-600">
-                                Defect: {latest.defectNumber}
-                              </span>
+                  {/* Requirement rows */}
+                  {!collapsedProjects.has(group.projectId) && group.rows.map((req) => (
+                    <Fragment key={req.reqId}>
+                      <TableRow
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => req.tcCount > 0 && toggleExpand(req.reqId)}
+                      >
+                        <TableCell>
+                          {req.tcCount > 0 ? (
+                            expandedReqs.has(req.reqId) ? (
+                              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            )
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground font-mono">#{req.reqRedmineId ?? req.reqId}</span>
+                            <span className="font-medium text-sm">{req.reqTitle}</span>
+                            {req.overallStatus === "no-tcs" && (
+                              <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
                             )}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {latest?.executedAt
-                              ? format(new Date(latest.executedAt), "dd MMM yyyy")
-                              : "—"}
-                          </TableCell>
-                          <TableCell>
-                            <TcResultBadge result={latest?.result ?? null} />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{req.reqModule ?? "—"}</TableCell>
+                        <TableCell className="text-center font-medium">{req.tcCount}</TableCell>
+                        <TableCell className="text-center text-green-600 font-medium">{req.passed}</TableCell>
+                        <TableCell className="text-center text-red-600 font-medium">{req.failed}</TableCell>
+                        <TableCell className="text-center text-orange-600 font-medium">{req.blocked}</TableCell>
+                        <TableCell className="text-center text-gray-500 font-medium">{req.notRun}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Progress value={req.coveragePct} className="h-2 flex-1" />
+                            <span className="text-xs text-muted-foreground w-8 text-right">
+                              {req.coveragePct}%
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge status={req.overallStatus} />
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded TC rows */}
+                      {expandedReqs.has(req.reqId) &&
+                        req.testCases.map((tc) => {
+                          const latest = tc.results[tc.results.length - 1];
+                          return (
+                            <TableRow key={`tc-${tc.tcId}`} className="bg-muted/20">
+                              <TableCell />
+                              <TableCell colSpan={2} className="pl-8">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-mono text-muted-foreground">
+                                    {tc.tcCaseId ?? `#${tc.tcId}`}
+                                  </span>
+                                  <span className="text-sm">{tc.tcTitle ?? "Untitled TC"}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell />
+                              <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                                {latest?.defectNumber && (
+                                  <span className="text-xs font-mono text-red-600">
+                                    Defect: {latest.defectNumber}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {latest?.executedAt
+                                  ? format(new Date(latest.executedAt), "dd MMM yyyy")
+                                  : "—"}
+                              </TableCell>
+                              <TableCell>
+                                <TcResultBadge result={latest?.result ?? null} />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </Fragment>
+                  ))}
                 </Fragment>
               ))}
             </TableBody>
