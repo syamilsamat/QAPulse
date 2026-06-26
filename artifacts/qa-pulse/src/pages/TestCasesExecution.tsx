@@ -590,6 +590,7 @@ export default function TestCasesExecution() {
     if (!ticketId) { setTicketLookupMsg(null); return; }
 
     ticketLookupTimer.current = setTimeout(async () => {
+      if (!newFileOpen) return;
       // Duplicate check
       const duplicate = files.find(f => f.redmineTicketId === ticketId);
       if (duplicate) {
@@ -628,7 +629,7 @@ export default function TestCasesExecution() {
     }, 600);
 
     return () => { if (ticketLookupTimer.current) clearTimeout(ticketLookupTimer.current); };
-  }, [fileForm.redmineTicketId, files, modules, token]);
+  }, [fileForm.redmineTicketId, files, modules, token, newFileOpen]);
 
   // ─── Excel upload ──────────────────────────────────────────────────────────
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
