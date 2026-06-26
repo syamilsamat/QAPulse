@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import ExcelJS from "exceljs";
+import * as XLSX from "xlsx-js-style";
 import {
   listTasks,
   getListTasksQueryKey,
@@ -174,33 +174,32 @@ async function exportTasksToExcel(tasks: any[], allEvents: any[] = []) {
     };
   });
 
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Tasks");
-
   const headers = Object.keys(rows[0] || {});
-  worksheet.columns = headers.map((header) => ({
-    header,
-    key: header,
-    width: header === "Event Details" || header === "Task Name" ? 35 : 20,
-  }));
-
-  const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  headerRow.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF1F4E78" },
+  const headerStyle = {
+    font: { bold: true, color: { rgb: "FFFFFF" } },
+    fill: { patternType: "solid", fgColor: { rgb: "1F4E78" } },
+    alignment: { vertical: "top", wrapText: true },
   };
 
-  if (rows.length > 0) {
-    rows.forEach((row) => {
-      const addedRow = worksheet.addRow(row);
-      // Enable text wrapping for multiline event details
-      addedRow.alignment = { vertical: "top", wrapText: true };
-    });
-  }
+  const wsData = [
+    headers.map((h) => ({ v: h, s: headerStyle })),
+    ...rows.map((row) =>
+      headers.map((h) => ({
+        v: (row as any)[h] ?? "",
+        s: { alignment: { vertical: "top", wrapText: true } },
+      }))
+    ),
+  ];
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws["!cols"] = headers.map((h) => ({
+    wch: h === "Event Details" || h === "Task Name" ? 40 : 22,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+
+  const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
