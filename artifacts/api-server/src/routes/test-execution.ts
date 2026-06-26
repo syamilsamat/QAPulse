@@ -779,8 +779,8 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     }
 
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const tracker = (issueType || typeLabel).replace(/\s+/g, "");
-    const proj = (projectName || "").replace(/\s+/g, "");
+    const tracker = (issueType || typeLabel).replace(/[^a-zA-Z0-9]/g, "");
+    const proj = (projectName || "").replace(/[^a-zA-Z0-9]/g, "");
     const filename = proj
       ? `${date}.${proj}_${tracker}_${ticketId}.xlsx`
       : `${date}.${tracker}_${ticketId}.xlsx`;
