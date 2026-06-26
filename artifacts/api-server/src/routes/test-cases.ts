@@ -193,6 +193,7 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
     generateNegative,
     generateEdgeCases,
     useTemplateOnly,
+    tracker: selectedTracker,
   } = parsed.data;
 
   let existingContext = "";
@@ -228,6 +229,7 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
 
   const systemInstruction = `You are an expert QA engine. ${countInstruction}
     CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
+    If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
     Return ONLY a valid JSON object matching this structure:
     {
       "testCases": [{
@@ -245,7 +247,7 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
       }]
     }`;
 
-  const userPrompt = `Requirement Hierarchy & Descriptions:\n${requirementDescription || "N/A"}\n\nModule: ${featureModule || "N/A"}\nFocus Scenarios: ${caseTypes.join(", ")}\nNotes: ${additionalNotes || "None"} ${existingContext}`;
+  const userPrompt = `Requirement Hierarchy & Descriptions:\n${requirementDescription || "N/A"}\n\nModule: ${featureModule || "N/A"}\nTracker: ${selectedTracker || "N/A"}\nFocus Scenarios: ${caseTypes.join(", ")}\nNotes: ${additionalNotes || "None"} ${existingContext}`;
 
   const fallbackObject = { testCases: [] };
   let finalRawText = "";

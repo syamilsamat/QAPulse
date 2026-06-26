@@ -1335,6 +1335,20 @@ components:
           type: boolean
         status:
           type: string
+        tracker:
+          type: ["string", "null"]
+        scenario:
+          type: ["string", "null"]
+        testData:
+          type: ["string", "null"]
+        redmineUserStory:
+          type: ["string", "null"]
+        module:
+          type: ["string", "null"]
+        qaPic:
+          type: ["string", "null"]
+        comments:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
@@ -1372,6 +1386,20 @@ components:
           type: boolean
         status:
           type: string
+        tracker:
+          type: string
+        scenario:
+          type: string
+        testData:
+          type: string
+        redmineUserStory:
+          type: string
+        module:
+          type: string
+        qaPic:
+          type: string
+        comments:
+          type: string
 
     TestCaseUpdate:
       type: object
@@ -1399,6 +1427,20 @@ components:
         aiAssisted:
           type: boolean
         status:
+          type: string
+        tracker:
+          type: string
+        scenario:
+          type: string
+        testData:
+          type: string
+        redmineUserStory:
+          type: string
+        module:
+          type: string
+        qaPic:
+          type: string
+        comments:
           type: string
 
     # AI Generation
@@ -1436,6 +1478,8 @@ components:
           type: boolean
         useTemplateOnly:
           type: boolean
+        tracker:
+          type: string
 
     AIGeneratedTestCase:
       type: object

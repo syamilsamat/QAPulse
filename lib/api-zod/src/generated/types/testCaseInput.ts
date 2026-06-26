@@ -21,4 +21,11 @@ export interface TestCaseInput {
   authorId?: number;
   aiAssisted?: boolean;
   status?: string;
+  tracker?: string;
+  scenario?: string;
+  testData?: string;
+  redmineUserStory?: string;
+  module?: string;
+  qaPic?: string;
+  comments?: string;
 }
