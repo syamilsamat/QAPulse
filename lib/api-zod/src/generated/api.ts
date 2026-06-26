@@ -631,6 +631,7 @@ export const ListTasksResponseItem = zod.object({
   completionPercentage: zod.number().nullish(),
   notes: zod.string().nullish(),
   isOverdue: zod.boolean().optional(),
+  tracker: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -660,6 +661,7 @@ export const CreateTaskBody = zod.object({
   actualHours: zod.number().optional(),
   completionPercentage: zod.number().optional(),
   notes: zod.string().optional(),
+  tracker: zod.string().optional(),
 });
 
 export const CreateTaskResponse = zod.void();
@@ -695,6 +697,7 @@ export const ReleaseTaskResponse = zod.object({
   completionPercentage: zod.number().nullish(),
   notes: zod.string().nullish(),
   isOverdue: zod.boolean().optional(),
+  tracker: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -734,6 +737,7 @@ export const AssignTaskResponse = zod.object({
   completionPercentage: zod.number().nullish(),
   notes: zod.string().nullish(),
   isOverdue: zod.boolean().optional(),
+  tracker: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -769,6 +773,7 @@ export const GetTaskResponse = zod.object({
   completionPercentage: zod.number().nullish(),
   notes: zod.string().nullish(),
   isOverdue: zod.boolean().optional(),
+  tracker: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -800,6 +805,7 @@ export const UpdateTaskBody = zod.object({
   actualHours: zod.number().optional(),
   completionPercentage: zod.number().optional(),
   notes: zod.string().optional(),
+  tracker: zod.string().optional(),
 });
 
 export const UpdateTaskResponse = zod.object({
@@ -826,6 +832,7 @@ export const UpdateTaskResponse = zod.object({
   completionPercentage: zod.number().nullish(),
   notes: zod.string().nullish(),
   isOverdue: zod.boolean().optional(),
+  tracker: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

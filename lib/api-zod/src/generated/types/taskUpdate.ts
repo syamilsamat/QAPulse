@@ -21,4 +21,5 @@ export interface TaskUpdate {
   actualHours?: number;
   completionPercentage?: number;
   notes?: string;
+  tracker?: string;
 }

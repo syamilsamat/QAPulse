@@ -1006,13 +1006,15 @@ export default function TestCases() {
     // Pre-populate redmine ticket ID from selected TCs — use shared value if all agree, else first TC
     const distinctRedmineIds = [...new Set(selectedTCs.map((tc: any) => tc.redmineUserStory).filter(Boolean))] as string[];
     const prefilledTicketId = (distinctRedmineIds[0] ?? "").replace(/\D/g, "");
+    const distinctTrackers = [...new Set(selectedTCs.map((tc: any) => tc.tracker).filter(Boolean))] as string[];
+    const prefilledTracker = distinctTrackers.length === 1 ? distinctTrackers[0] : (firstTC.tracker ?? "");
     setCompileNewForm({
       redmineTicketId: prefilledTicketId,
       title: "",
       remarks: "",
       requirementId: firstTC.requirementId ? String(firstTC.requirementId) : "",
       projectId: firstTC.projectId ? String(firstTC.projectId) : "",
-      tracker: "",
+      tracker: prefilledTracker,
       selectedModules: matchedModuleIds,
     });
     setCompileStep("mode");
@@ -1151,10 +1153,16 @@ export default function TestCases() {
     else createMutation.mutate({ data: { ...submitData, aiAssisted: false, authorId: user?.id } as any });
   };
 
-  const handleAISuccess = (aiTestCases: any[], formData: any) => {
-    const promises = aiTestCases.map((tc) =>
-      createMutation.mutateAsync({
-        data: {
+  const handleAISuccess = async (aiTestCases: any[], formData: any) => {
+    const token = localStorage.getItem("qa_pulse_token");
+    const saves = aiTestCases.map((tc) =>
+      fetch(`${getApiUrl()}/test-cases`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
           title: tc.title,
           redmineUserStory: tc.redmineUserStory,
           tracker: formData?.tracker || tc.tracker,
@@ -1172,13 +1180,12 @@ export default function TestCases() {
           projectId: formData?.projectId,
           module: formData?.module,
           authorId: formData?.authorId || user?.id,
-        } as any,
+        }),
       }),
     );
-    Promise.all(promises).then(() => {
-      queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-      toast({ title: `${aiTestCases.length} AI cases saved` });
-    });
+    await Promise.all(saves);
+    await queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
+    toast({ title: `${aiTestCases.length} AI test cases saved` });
   };
 
   const tcTableRow = (tc: any) => {
@@ -2199,6 +2206,7 @@ export default function TestCases() {
                           ...compileNewForm,
                           requirementId: v,
                           projectId: req?.projectId ? String(req.projectId) : compileNewForm.projectId,
+                          tracker: req?.tracker ?? compileNewForm.tracker,
                           selectedModules: matchedMod ? [matchedMod.id] : compileNewForm.selectedModules,
                         });
                       }}
