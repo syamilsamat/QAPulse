@@ -605,7 +605,7 @@ export default function TestCasesExecution() {
         setFileForm(updatedForm);
         setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
       } else {
-        setTicketLookupMsg({ type: "warn", text: "No requirement linked to this ticket ID. A new requirement will be fetched from Redmine on create." });
+        setTicketLookupMsg({ type: "warn", text: "No requirement found locally. On create, the ticket will be fetched from Redmine and saved as a requirement." });
       }
     } catch {
       // silently ignore — non-critical
@@ -657,6 +657,37 @@ export default function TestCasesExecution() {
         .map(id => modules.find(m => m.id === id)?.name)
         .filter(Boolean).join(",");
 
+      let resolvedRequirementId = fileForm.requirementId ? Number(fileForm.requirementId) : undefined;
+
+      // If no requirement linked, fetch from Redmine and save
+      if (!resolvedRequirementId && fileForm.redmineTicketId) {
+        try {
+          const importRes = await fetch(`${getApiUrl()}/requirements/import-redmine`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              ticketId: fileForm.redmineTicketId.trim(),
+              module: selectedModuleNames || "",
+              projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
+              trackerFilter: fileForm.tracker || undefined,
+            }),
+          });
+          if (importRes.ok) {
+            const importData = await importRes.json();
+            if (importData.requirement?.id) {
+              resolvedRequirementId = importData.requirement.id;
+              // Update form so UI reflects the linked requirement
+              setFileForm(f => ({ ...f, requirementId: String(importData.requirement.id) }));
+            }
+          }
+        } catch {
+          // Non-fatal — continue without requirement link
+        }
+      }
+
       const newFile = await createExecutionFile({
         redmineTicketId: fileForm.redmineTicketId.trim(),
         title: fileForm.title || undefined,
@@ -664,7 +695,7 @@ export default function TestCasesExecution() {
         selectedModules: selectedModuleNames || undefined,
         tracker: fileForm.tracker || undefined,
         projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
-        requirementId: fileForm.requirementId ? Number(fileForm.requirementId) : undefined,
+        requirementId: resolvedRequirementId,
       });
 
       setFiles([newFile, ...files]);
@@ -725,7 +756,7 @@ export default function TestCasesExecution() {
       return;
     }
 
-    // If requirement is linked, check for existing TCs
+    // If requirement already linked locally, check for existing TCs first
     if (fileForm.requirementId) {
       try {
         const res = await fetch(`${getApiUrl()}/requirements/${fileForm.requirementId}/test-cases`, {
@@ -737,10 +768,11 @@ export default function TestCasesExecution() {
           return;
         }
       } catch {
-        // ignore — proceed with normal create
+        // ignore — proceed
       }
     }
 
+    // No local requirement — doCreateFile will fetch from Redmine, then proceed
     await doCreateFile(null);
   };
 
