@@ -32,6 +32,7 @@ router.get("/traceability", async (req, res): Promise<void> => {
         r.status              AS req_status,
         tc.id                 AS tc_id,
         tc.case_id            AS tc_case_id,
+        etc.test_case_id      AS etc_case_id,
         tc.title              AS tc_title,
         etc.result      AS result,
         etc.defect_number AS defect_number,
@@ -60,6 +61,7 @@ router.get("/traceability", async (req, res): Promise<void> => {
         testCases: {
           tcId: number;
           tcCaseId: string | null;
+          etcCaseId: string | null;
           tcTitle: string | null;
           results: { result: string | null; defectNumber: string | null; executedAt: string | null }[];
         }[];
@@ -85,7 +87,7 @@ router.get("/traceability", async (req, res): Promise<void> => {
 
       let tc = req.testCases.find((t) => t.tcId === row.tc_id);
       if (!tc) {
-        tc = { tcId: row.tc_id, tcCaseId: row.tc_case_id, tcTitle: row.tc_title, results: [] };
+        tc = { tcId: row.tc_id, tcCaseId: row.tc_case_id, etcCaseId: row.etc_case_id ?? null, tcTitle: row.tc_title, results: [] };
         req.testCases.push(tc);
       }
 
@@ -137,7 +139,10 @@ router.get("/traceability", async (req, res): Promise<void> => {
         notRun,
         coveragePct,
         overallStatus,
-        testCases: req.testCases,
+        testCases: req.testCases.map(tc => ({
+          ...tc,
+          displayCaseId: tc.etcCaseId ?? tc.tcCaseId ?? `#${tc.tcId}`,
+        })),
       };
     });
 
