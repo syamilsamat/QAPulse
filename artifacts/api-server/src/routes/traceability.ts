@@ -32,15 +32,22 @@ router.get("/traceability", async (req, res): Promise<void> => {
         r.status              AS req_status,
         tc.id                 AS tc_id,
         tc.case_id            AS tc_case_id,
-        etc.test_case_id      AS etc_case_id,
+        latest_etc.etc_case_id,
         tc.title              AS tc_title,
-        etc.result      AS result,
-        etc.defect_number AS defect_number,
-        etc.executed_at   AS executed_at
+        latest_etc.result,
+        latest_etc.defect_number,
+        latest_etc.executed_at
       FROM requirements r
       LEFT JOIN projects p         ON p.id = r.project_id
       LEFT JOIN test_cases tc      ON tc.requirement_id = r.id
-      LEFT JOIN execution_test_cases etc ON etc.library_tc_id = tc.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(e.test_case_id, e.case_id) AS etc_case_id,
+               e.result, e.defect_number, e.executed_at
+        FROM execution_test_cases e
+        WHERE e.library_tc_id = tc.id
+        ORDER BY e.id DESC
+        LIMIT 1
+      ) latest_etc ON true
       ${whereClause}
       ORDER BY r.id, tc.id
       `,
