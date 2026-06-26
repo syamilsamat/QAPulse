@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -383,7 +383,7 @@ export default function TraceabilityMatrix() {
             </TableHeader>
             <TableBody>
               {rows.map((req) => (
-                <tbody key={req.reqId}>
+                <Fragment key={req.reqId}>
                   <TableRow
                     key={req.reqId}
                     className="cursor-pointer hover:bg-muted/50"
@@ -460,7 +460,7 @@ export default function TraceabilityMatrix() {
                         </TableRow>
                       );
                     })}
-                </tbody>
+                </Fragment>
               ))}
             </TableBody>
           </Table>
