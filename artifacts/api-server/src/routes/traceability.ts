@@ -7,7 +7,7 @@ router.get("/traceability", async (req, res): Promise<void> => {
   try {
     const { projectId, module, status } = req.query;
 
-    let whereClause = "WHERE 1=1";
+    let whereClause = "WHERE r.parent_id IS NULL";
     const params: any[] = [];
     let idx = 1;
 
