@@ -46,6 +46,8 @@ interface TcResult {
 interface TraceabilityTC {
   tcId: number;
   tcCaseId: string | null;
+  etcCaseId: string | null;
+  displayCaseId: string;
   tcTitle: string | null;
   results: TcResult[];
 }
@@ -221,7 +223,7 @@ export default function TraceabilityMatrix() {
             req.reqRedmineId ?? req.reqId,
             req.reqTitle,
             req.reqModule ?? "",
-            tc.tcCaseId ?? tc.tcId,
+            tc.displayCaseId,
             tc.tcTitle ?? "",
             latest?.result ?? "Not Run",
             latest?.defectNumber ?? "",
@@ -483,7 +485,7 @@ export default function TraceabilityMatrix() {
                               <TableCell colSpan={2} className="pl-8">
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-mono text-muted-foreground">
-                                    {tc.tcCaseId ?? `#${tc.tcId}`}
+                                    {tc.displayCaseId}
                                   </span>
                                   <span className="text-sm">{tc.tcTitle ?? "Untitled TC"}</span>
                                 </div>
