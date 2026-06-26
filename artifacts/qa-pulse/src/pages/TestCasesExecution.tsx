@@ -68,11 +68,13 @@ import {
   deleteExecutionFile,
   fetchModules,
   fetchProjects,
+  fetchTrackers,
   saveTestCases,
   type ExecutionFile,
   type ExecutionModule,
   type ExecutionProject,
   type ExecutionTestCase,
+  type TrackerOption,
 } from "@/lib/execution-api";
 
 // ─── Excel column mappings (same as progress page) ───────────────────────────
@@ -310,6 +312,8 @@ export default function TestCasesExecution() {
     });
   };
 
+  const [trackers, setTrackers] = useState<TrackerOption[]>([]);
+
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [fileForm, setFileForm] = useState({
     redmineTicketId: "",
@@ -317,6 +321,7 @@ export default function TestCasesExecution() {
     remarks: "",
     requirementId: "",
     projectId: "",
+    tracker: "",
     selectedModules: [] as number[],
   });
   const [parsedExcelRows, setParsedExcelRows] = useState<ExecutionTestCase[] | null>(null);
@@ -333,6 +338,7 @@ export default function TestCasesExecution() {
     remarks: "",
     requirementId: "",
     projectId: "",
+    tracker: "",
     selectedModules: [] as number[],
   });
   const [isSavingFile, setIsSavingFile] = useState(false);
@@ -349,6 +355,7 @@ export default function TestCasesExecution() {
       remarks: f.remarks || "",
       requirementId: f.requirementId ? String(f.requirementId) : "",
       projectId: f.projectId ? String(f.projectId) : "",
+      tracker: f.tracker || "",
       selectedModules: [],
     });
     setEditFileOpen(true);
@@ -387,6 +394,7 @@ export default function TestCasesExecution() {
           projectId: editFileForm.projectId ? Number(editFileForm.projectId) : null,
           requirementId: editFileForm.requirementId ? Number(editFileForm.requirementId) : null,
           selectedModules: selectedModuleNames || null,
+          tracker: editFileForm.tracker || null,
         }),
       });
       if (!res.ok) {
@@ -437,15 +445,17 @@ export default function TestCasesExecution() {
       fetchExecutionFiles(),
       fetchModules(),
       fetchProjects(),
+      fetchTrackers(),
       fetch("/api/execution-progress", { headers: getHeaders() }).then(r => r.ok ? r.json() : {}),
       fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
       fetch("/api/requirements", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
       fetch("/api/users", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([filesData, modulesData, projectsData, progressData, tasksData, reqsData, usersData]) => {
+      .then(([filesData, modulesData, projectsData, trackersData, progressData, tasksData, reqsData, usersData]) => {
         setFiles(filesData);
         setModules(modulesData);
         setProjects(projectsData || []);
+        setTrackers(trackersData || []);
         setRequirements(reqsData || []);
         setProgress(progressData || {});
         setUsers(usersData || []);
@@ -589,7 +599,7 @@ export default function TestCasesExecution() {
 
   // ─── Create file ───────────────────────────────────────────────────────────
   const resetFileForm = () => {
-    setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", selectedModules: [] });
+    setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [] });
     clearExcel();
   };
 
@@ -615,23 +625,27 @@ export default function TestCasesExecution() {
         title: fileForm.title || undefined,
         remarks: fileForm.remarks || undefined,
         selectedModules: selectedModuleNames || undefined,
+        tracker: fileForm.tracker || undefined,
         projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
         requirementId: fileForm.requirementId ? Number(fileForm.requirementId) : undefined,
       });
 
-      // If Excel was parsed, immediately save the test cases
-      if (parsedExcelRows && parsedExcelRows.length > 0) {
-        await saveTestCases(newFile.redmineTicketId, parsedExcelRows, null);
-      }
-
+      // File created — update UI immediately so duplicate-create can't happen
       setFiles([newFile, ...files]);
       setNewFileOpen(false);
       resetFileForm();
-      toast({
-        title: parsedExcelRows && parsedExcelRows.length > 0
-          ? `File created with ${parsedExcelRows.length} imported test cases`
-          : "Test Case File created",
-      });
+
+      // If Excel was parsed, import test cases separately
+      if (parsedExcelRows && parsedExcelRows.length > 0) {
+        try {
+          await saveTestCases(newFile.redmineTicketId, parsedExcelRows, []);
+          toast({ title: `File created with ${parsedExcelRows.length} imported test cases` });
+        } catch {
+          toast({ variant: "destructive", title: "File created but test cases failed to import. Open the file to retry." });
+        }
+      } else {
+        toast({ title: "Test Case File created" });
+      }
     } catch {
       toast({ variant: "destructive", title: "Failed to create file. Ticket ID might already exist." });
     } finally {
@@ -1184,6 +1198,21 @@ export default function TestCasesExecution() {
               )}
             </div>
 
+            {/* Tracker */}
+            <div className="space-y-1">
+              <Label>Tracker</Label>
+              <SearchableSelect
+                value={fileForm.tracker}
+                onValueChange={v => setFileForm({ ...fileForm, tracker: v })}
+                options={[
+                  { value: "", label: "None" },
+                  ...trackers.map(t => ({ value: t.name, label: t.name })),
+                ]}
+                placeholder="Select tracker..."
+                searchPlaceholder="Search tracker..."
+              />
+            </div>
+
             {/* Remarks */}
             <div className="space-y-1">
               <Label>Remarks</Label>
@@ -1323,6 +1352,19 @@ export default function TestCasesExecution() {
               {editFileForm.selectedModules.length > 0 && (
                 <p className="text-xs text-muted-foreground">{editFileForm.selectedModules.length} module(s) selected</p>
               )}
+            </div>
+            <div className="space-y-1">
+              <Label>Tracker</Label>
+              <SearchableSelect
+                value={editFileForm.tracker}
+                onValueChange={v => setEditFileForm(f => ({ ...f, tracker: v }))}
+                options={[
+                  { value: "", label: "None" },
+                  ...trackers.map(t => ({ value: t.name, label: t.name })),
+                ]}
+                placeholder="Select tracker..."
+                searchPlaceholder="Search tracker..."
+              />
             </div>
             <div className="space-y-1">
               <Label>Remarks</Label>

@@ -51,9 +51,11 @@ import {
   fetchModules,
   fetchUsers,
   fetchExecutionFiles,
+  fetchTrackers,
   type ExecutionTestCase,
   type ExecutionModule,
   type ExecutionUser,
+  type TrackerOption,
 } from "@/lib/execution-api";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
@@ -306,6 +308,7 @@ interface RowProps {
   onPromote: (row: AppExecutionTestCase) => void;
   onBlurRow: (id: string | number) => void;
   availableModules: ExecutionModule[];
+  availableTrackers: TrackerOption[];
   qaUsers: ExecutionUser[];
   hiddenCols: Set<string>;
 }
@@ -321,6 +324,7 @@ const DesktopTableRow = React.memo(
     onPromote,
     onBlurRow,
     availableModules,
+    availableTrackers,
     qaUsers,
     hiddenCols,
   }: RowProps) => {
@@ -359,7 +363,13 @@ const DesktopTableRow = React.memo(
         )}
         {!hide("tracker") && (
           <td className="border border-border p-0 relative align-top">
-            <TableAutoTextarea className={tableInputClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)} />
+            <select className={tableSelectClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}>
+              <option value="">Select...</option>
+              {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                <option value={row.tracker}>{row.tracker}</option>
+              )}
+            </select>
           </td>
         )}
         {!hide("scenario") && (
@@ -464,6 +474,7 @@ const MobileCardRow = React.memo(
     onDelete,
     onBlurRow,
     availableModules,
+    availableTrackers,
     qaUsers,
     hiddenCols,
   }: RowProps) => {
@@ -570,13 +581,17 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Tracker
             </Label>
-            <TableAutoTextarea
-              className="min-h-[40px] text-xs md:text-xs p-2"
+            <select
+              className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
               value={row.tracker || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "tracker", e.target.value)
-              }
-            />
+              onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}
+            >
+              <option value="">Select...</option>
+              {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                <option value={row.tracker}>{row.tracker}</option>
+              )}
+            </select>
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
@@ -731,9 +746,8 @@ export default function TestCasesExecutionProgressPage() {
   const { user: currentUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [availableModules, setAvailableModules] = useState<ExecutionModule[]>(
-    [],
-  );
+  const [availableModules, setAvailableModules] = useState<ExecutionModule[]>([]);
+  const [availableTrackers, setAvailableTrackers] = useState<TrackerOption[]>([]);
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
 
@@ -812,9 +826,11 @@ export default function TestCasesExecutionProgressPage() {
       fetchModules(),
       fetchUsers(),
       fetchExecutionFiles(),
+      fetchTrackers(),
       fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([result, allModules, users, files, allTasks]) => {
+      .then(([result, allModules, users, files, trackersData, allTasks]) => {
+        setAvailableTrackers(trackersData || []);
         const testCases = result?.testCases || [];
         const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
         const selectedModuleNames = file?.selectedModules
@@ -2276,6 +2292,7 @@ export default function TestCasesExecutionProgressPage() {
                     onPromote={openPromoteDialog}
                     onBlurRow={saveBlurRow}
                     availableModules={availableModules}
+                    availableTrackers={availableTrackers}
                     qaUsers={qaUsers}
                     hiddenCols={hiddenCols}
                   />
@@ -2306,6 +2323,7 @@ export default function TestCasesExecutionProgressPage() {
               onPromote={openPromoteDialog}
               onBlurRow={saveBlurRow}
               availableModules={availableModules}
+              availableTrackers={availableTrackers}
               qaUsers={qaUsers}
               hiddenCols={hiddenCols}
             />

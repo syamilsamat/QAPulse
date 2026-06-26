@@ -670,6 +670,16 @@ export default function TestCases() {
     },
   });
 
+  const { data: trackers = [] } = useQuery({
+    queryKey: ["trackers"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/trackers`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 300_000,
+  });
+
   const projectsMap = useMemo(
     () => Object.fromEntries(projects.map((p) => [p.id, p.name])),
     [projects],
@@ -1909,12 +1919,18 @@ export default function TestCases() {
               </div>
               <div className="space-y-1.5">
                 <Label>Tracker</Label>
-                <Input
-                  placeholder="e.g. QA Defect, User Story"
+                <SearchableSelect
                   value={form.tracker ?? ""}
-                  onChange={(e) =>
-                    setForm({ ...form, tracker: e.target.value })
-                  }
+                  onValueChange={(v) => setForm({ ...form, tracker: v })}
+                  options={[
+                    { value: "", label: "None" },
+                    ...(trackers as any[]).map((t: any) => ({ value: t.name, label: t.name })),
+                    ...(form.tracker && !(trackers as any[]).some((t: any) => t.name === form.tracker)
+                      ? [{ value: form.tracker, label: form.tracker }]
+                      : []),
+                  ]}
+                  placeholder="Select tracker..."
+                  searchPlaceholder="Search tracker..."
                 />
               </div>
               <div className="space-y-1.5">

@@ -8,6 +8,7 @@ import {
   executionTcHistoryTable,
   executionSummariesTable,
   executionFileAuditTable,
+  trackersTable,
   usersTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
@@ -169,9 +170,48 @@ router.get("/execution-progress", async (_req, res): Promise<void> => {
   }
 });
 
+// ─── Trackers (synced from Redmine) ──────────────────────────────────────────
+
+router.get("/trackers", async (_req, res): Promise<void> => {
+  try {
+    const trackers = await db.select().from(trackersTable).orderBy(trackersTable.name);
+    res.json(trackers);
+  } catch {
+    res.status(500).json({ error: "Failed to fetch trackers" });
+  }
+});
+
+router.post("/trackers/sync", async (req, res): Promise<void> => {
+  try {
+    const apiKey = (req.headers["x-redmine-user-key"] as string | undefined) || process.env.REDMINE_API_KEY || "";
+    const redmineUrl = process.env.REDMINE_URL || "https://redmine.bestinet.my";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) headers["X-Redmine-API-Key"] = apiKey;
+
+    const response = await fetch(`${redmineUrl}/trackers.json`, { headers });
+    if (!response.ok) throw new Error(`Redmine returned ${response.status}`);
+    const data = await response.json();
+    const redmineTrackers: { id: number; name: string }[] = data.trackers ?? [];
+
+    for (const t of redmineTrackers) {
+      await db
+        .insert(trackersTable)
+        .values({ redmineId: t.id, name: t.name })
+        .onConflictDoUpdate({ target: trackersTable.redmineId, set: { name: t.name } });
+    }
+
+    const stored = await db.select().from(trackersTable).orderBy(trackersTable.name);
+    res.json({ synced: redmineTrackers.length, trackers: stored });
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to sync trackers: ${err.message}` });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.post("/execution-files", async (req, res): Promise<void> => {
   try {
-    const { redmineTicketId, title, qaPic, remarks, selectedModules, projectId, requirementId } = req.body;
+    const { redmineTicketId, title, qaPic, remarks, selectedModules, tracker, projectId, requirementId } = req.body;
     if (!redmineTicketId || !redmineTicketId.trim()) {
       res.status(400).json({ error: "Redmine Ticket ID is required" });
       return;
@@ -184,6 +224,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
         qaPic: qaPic || null,
         remarks: remarks || null,
         selectedModules: selectedModules || null,
+        tracker: tracker || null,
         projectId: projectId ? Number(projectId) : null,
         requirementId: requirementId ? Number(requirementId) : null,
       })
@@ -212,6 +253,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       qaPic: file.qaPic,
       remarks: file.remarks,
       selectedModules: file.selectedModules,
+      tracker: file.tracker,
       projectId: file.projectId,
       requirementId: file.requirementId,
       createdAt: file.createdAt,
@@ -235,12 +277,13 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    const { selectedModules, title, redmineTicketId, remarks, projectId, requirementId } = req.body;
+    const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId } = req.body;
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (selectedModules !== undefined) patch.selectedModules = selectedModules || null;
     if (title !== undefined) patch.title = title || null;
     if (redmineTicketId !== undefined) patch.redmineTicketId = String(redmineTicketId).trim();
     if (remarks !== undefined) patch.remarks = remarks || null;
+    if (tracker !== undefined) patch.tracker = tracker || null;
     if (projectId !== undefined) patch.projectId = projectId ? Number(projectId) : null;
     if (requirementId !== undefined) patch.requirementId = requirementId ? Number(requirementId) : null;
 
@@ -260,6 +303,9 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       qaPic: updated.qaPic,
       remarks: updated.remarks,
       selectedModules: updated.selectedModules,
+      tracker: updated.tracker,
+      projectId: updated.projectId,
+      requirementId: updated.requirementId,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     });
