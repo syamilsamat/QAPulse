@@ -383,7 +383,7 @@ export default function TraceabilityMatrix() {
             </TableHeader>
             <TableBody>
               {rows.map((req) => (
-                <>
+                <tbody key={req.reqId}>
                   <TableRow
                     key={req.reqId}
                     className="cursor-pointer hover:bg-muted/50"
@@ -460,7 +460,7 @@ export default function TraceabilityMatrix() {
                         </TableRow>
                       );
                     })}
-                </>
+                </tbody>
               ))}
             </TableBody>
           </Table>
