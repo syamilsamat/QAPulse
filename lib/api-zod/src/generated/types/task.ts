@@ -42,6 +42,8 @@ export interface Task {
   /** @nullable */
   notes?: string | null;
   isOverdue?: boolean;
+  /** @nullable */
+  tracker?: string | null;
   createdAt: string;
   updatedAt: string;
 }

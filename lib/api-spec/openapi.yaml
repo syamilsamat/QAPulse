@@ -1562,6 +1562,8 @@ components:
           type: ["string", "null"]
         isOverdue:
           type: boolean
+        tracker:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
@@ -1599,6 +1601,8 @@ components:
           type: integer
         notes:
           type: string
+        tracker:
+          type: string
 
     TaskUpdate:
       type: object
@@ -1630,6 +1634,8 @@ components:
         completionPercentage:
           type: integer
         notes:
+          type: string
+        tracker:
           type: string
 
     # Dashboard
