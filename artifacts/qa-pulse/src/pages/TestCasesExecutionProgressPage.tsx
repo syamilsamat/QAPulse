@@ -344,7 +344,6 @@ const DesktopTableRow = React.memo(
           <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
             checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
         </td>
-        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">{index + 1}</td>
         <td className="border border-border p-0 relative align-top">
           <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
             <option value="">Select...</option>
@@ -2260,7 +2259,6 @@ export default function TestCasesExecutionProgressPage() {
                       checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
                       onChange={(e) => handleSelectAll(e.target.checked)} />
                   </th>
-                  <th className="border border-border w-10 p-2 text-center">#</th>
                   <th className="border border-border w-48 p-2 text-left">Module Name</th>
                   {!hiddenCols.has("testCaseId") && <th className="border border-border w-48 p-2 text-left">Test Case ID</th>}
                   {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}

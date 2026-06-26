@@ -23,18 +23,21 @@ router.get("/traceability", async (req, res): Promise<void> => {
     const { rows } = await pool.query(
       `
       SELECT
-        r.id            AS req_id,
-        r.title         AS req_title,
-        r.module        AS req_module,
-        r.project_id    AS project_id,
-        r.status        AS req_status,
-        tc.id           AS tc_id,
-        tc.case_id      AS tc_case_id,
-        tc.title        AS tc_title,
+        r.id                  AS req_id,
+        r.redmine_ticket_id   AS req_redmine_id,
+        r.title               AS req_title,
+        r.module              AS req_module,
+        r.project_id          AS project_id,
+        p.name                AS project_name,
+        r.status              AS req_status,
+        tc.id                 AS tc_id,
+        tc.case_id            AS tc_case_id,
+        tc.title              AS tc_title,
         etc.result      AS result,
         etc.defect_number AS defect_number,
         etc.executed_at   AS executed_at
       FROM requirements r
+      LEFT JOIN projects p         ON p.id = r.project_id
       LEFT JOIN test_cases tc      ON tc.requirement_id = r.id
       LEFT JOIN execution_test_cases etc ON etc.library_tc_id = tc.id
       ${whereClause}
@@ -48,9 +51,11 @@ router.get("/traceability", async (req, res): Promise<void> => {
       number,
       {
         reqId: number;
+        reqRedmineId: string | null;
         reqTitle: string;
         reqModule: string | null;
         projectId: number | null;
+        projectName: string | null;
         reqStatus: string | null;
         testCases: {
           tcId: number;
@@ -65,9 +70,11 @@ router.get("/traceability", async (req, res): Promise<void> => {
       if (!reqMap.has(row.req_id)) {
         reqMap.set(row.req_id, {
           reqId: row.req_id,
+          reqRedmineId: row.req_redmine_id ?? null,
           reqTitle: row.req_title,
           reqModule: row.req_module,
           projectId: row.project_id,
+          projectName: row.project_name ?? null,
           reqStatus: row.req_status,
           testCases: [],
         });
@@ -117,9 +124,11 @@ router.get("/traceability", async (req, res): Promise<void> => {
 
       return {
         reqId: req.reqId,
+        reqRedmineId: req.reqRedmineId,
         reqTitle: req.reqTitle,
         reqModule: req.reqModule,
         projectId: req.projectId,
+        projectName: req.projectName,
         reqStatus: req.reqStatus,
         tcCount,
         passed,
