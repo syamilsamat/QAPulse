@@ -271,7 +271,7 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
 export default function TestCasesExecution() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState("");
