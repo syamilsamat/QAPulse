@@ -16,6 +16,7 @@ import redmineRouter from "./redmine";
 import testExecutionRouter from "./test-execution";
 import contactsRouter from "./contacts";
 import rolesRouter from "./roles";
+import traceabilityRouter from "./traceability";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use(redmineRouter);
 router.use(testExecutionRouter);
 router.use(contactsRouter);
 router.use(rolesRouter);
+router.use(traceabilityRouter);
 
 export default router;

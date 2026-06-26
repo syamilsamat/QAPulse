@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield } from 'lucide-react';
+import { Columns3Cog, Shield, GitMerge } from 'lucide-react';
 
 import {
   HoverPulse,
@@ -331,6 +331,14 @@ const NAV_ITEMS: NavItem[] = [
     subItems: [
       { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
     ],
+  },
+  {
+    href: "/traceability",
+    label: "Traceability",
+    icon: GitMerge,
+    activeColor: "text-cyan-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:traceability",
   },
   {
     href: "/tasks",
