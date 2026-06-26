@@ -334,6 +334,10 @@ export default function TestCasesExecution() {
   const [ticketLookupLoading, setTicketLookupLoading] = useState(false);
   const [ticketLookupMsg, setTicketLookupMsg] = useState<{ type: "info" | "warn" | "error"; text: string } | null>(null);
   const ticketLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modulesRef = useRef(modules);
+  const tokenRef = useRef(token);
+  useEffect(() => { modulesRef.current = modules; }, [modules]);
+  useEffect(() => { tokenRef.current = token; }, [token]);
   // TC copy dialog
   const [tcCopyDialog, setTcCopyDialog] = useState<{
     open: boolean;
@@ -600,14 +604,16 @@ export default function TestCasesExecution() {
 
       setTicketLookupLoading(true);
       try {
+        const currentToken = tokenRef.current;
         const res = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: currentToken ? { Authorization: `Bearer ${currentToken}` } : {},
         });
         const data = await res.json();
         if (data.found && data.requirement) {
           const req = data.requirement;
+          const currentModules = modulesRef.current;
           const matchedMod = req.module
-            ? modules.find((m: any) => m.name.trim().toLowerCase() === req.module.trim().toLowerCase())
+            ? currentModules.find((m: any) => m.name.trim().toLowerCase() === req.module.trim().toLowerCase())
             : null;
           setFileForm(prev => ({
             ...prev,
@@ -629,7 +635,7 @@ export default function TestCasesExecution() {
     }, 600);
 
     return () => { if (ticketLookupTimer.current) clearTimeout(ticketLookupTimer.current); };
-  }, [fileForm.redmineTicketId, files, modules, token, newFileOpen]);
+  }, [fileForm.redmineTicketId, files, newFileOpen]);
 
   // ─── Excel upload ──────────────────────────────────────────────────────────
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
