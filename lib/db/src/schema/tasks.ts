@@ -24,6 +24,7 @@ export const tasksTable = pgTable("tasks", {
   estimatedHours: real("estimated_hours"),
   actualHours: real("actual_hours"),
   completionPercentage: integer("completion_percentage").default(0),
+  tracker: text("tracker"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

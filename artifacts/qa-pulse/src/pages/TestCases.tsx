@@ -104,15 +104,17 @@ function AIGenerateDialog({
   projects,
   modules,
   users,
+  trackers,
   onSuccess,
 }: any) {
   const { user: currentUser } = useAuth();
   const [form, setForm] = useState<
-    Partial<AIGenerateInput & { projectId?: number; authorId?: number }>
+    Partial<AIGenerateInput & { projectId?: number; authorId?: number; tracker?: string }>
   >({
     generatePositive: true,
     generateNegative: false,
     generateEdgeCases: false,
+    tracker: "",
   });
   const [aiFormModules, setAiFormModules] = useState<string[]>([]);
   const [availableReqs, setAvailableReqs] = useState<any[]>([]);
@@ -168,6 +170,7 @@ function AIGenerateDialog({
       generatePositive: true,
       generateNegative: false,
       generateEdgeCases: false,
+      tracker: "",
     });
     onClose();
   };
@@ -397,6 +400,23 @@ function AIGenerateDialog({
                   searchPlaceholder="Search user..."
                 />
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Tracker</Label>
+              <SearchableSelect
+                value={form.tracker ?? ""}
+                onValueChange={(v) => setForm({ ...form, tracker: v })}
+                options={[
+                  { value: "", label: "None" },
+                  ...(trackers ?? []).map((t: any) => ({ value: t.name, label: t.name })),
+                  ...(form.tracker && !(trackers ?? []).some((t: any) => t.name === form.tracker)
+                    ? [{ value: form.tracker, label: form.tracker }]
+                    : []),
+                ]}
+                placeholder="Select tracker..."
+                searchPlaceholder="Search tracker..."
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -1133,7 +1153,7 @@ export default function TestCases() {
         data: {
           title: tc.title,
           redmineUserStory: tc.redmineUserStory,
-          tracker: tc.tracker,
+          tracker: formData?.tracker || tc.tracker,
           scenario: tc.scenario,
           preconditions: tc.preconditions,
           testSteps: tc.testSteps,
@@ -1838,6 +1858,7 @@ export default function TestCases() {
         projects={projects}
         modules={modules}
         users={users}
+        trackers={trackers}
         onSuccess={handleAISuccess}
       />
 
