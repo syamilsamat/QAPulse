@@ -596,12 +596,15 @@ export default function TestCasesExecution() {
       if (data.found && data.requirement) {
         const req = data.requirement;
         const updatedForm = { ...fileForm, requirementId: String(req.id) };
+        if (req.title) updatedForm.title = req.title;
         if (req.projectId) updatedForm.projectId = String(req.projectId);
+        if (req.tracker) updatedForm.tracker = req.tracker;
         if (req.module) {
-          const matchedMod = modules.find((m: any) => m.name.toLowerCase() === req.module.toLowerCase());
+          const matchedMod = modules.find((m: any) =>
+            m.name.trim().toLowerCase() === req.module.trim().toLowerCase()
+          );
           if (matchedMod) updatedForm.selectedModules = [matchedMod.id];
         }
-        if (req.tracker) updatedForm.tracker = req.tracker;
         setFileForm(updatedForm);
         setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
       } else {
