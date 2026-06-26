@@ -17,6 +17,7 @@ const DEFAULT_ROLES = [
 export const ALL_NAV_KEYS = [
   "nav:requirements",
   "nav:test-cases",
+  "nav:traceability",
   "nav:tasks",
   "nav:ai-hub",
   "nav:report",
@@ -30,8 +31,8 @@ export const ALL_NAV_KEYS = [
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin: ALL_NAV_KEYS,
-  qa_lead: ["nav:requirements", "nav:test-cases", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
-  qa_member: ["nav:requirements", "nav:test-cases", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts"],
+  qa_lead: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
+  qa_member: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts"],
   pmo: [],
 };
 

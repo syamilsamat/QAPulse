@@ -27,6 +27,7 @@ import TestCasesExecution from "@/pages/TestCasesExecution";
 import TestCasesExecutionProgressPage from "@/pages/TestCasesExecutionProgressPage";
 import ModuleAndProject from "@/pages/ModuleAndProject";
 import Roles from "@/pages/Roles";
+import TraceabilityMatrix from "@/pages/TraceabilityMatrix";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -126,6 +127,13 @@ function Router() {
       <Route path="/requirements">
         <ProtectedRoute
           component={Requirements}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      <Route path="/traceability">
+        <ProtectedRoute
+          component={TraceabilityMatrix}
           roles={["qa_member", "qa_lead", "admin"]}
         />
       </Route>
