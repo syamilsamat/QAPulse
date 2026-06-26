@@ -332,7 +332,7 @@ export default function TestCasesExecution() {
 
   // Redmine ticket ID auto-lookup state
   const [ticketLookupLoading, setTicketLookupLoading] = useState(false);
-  const [ticketLookupMsg, setTicketLookupMsg] = useState<{ type: "info" | "warn"; text: string } | null>(null);
+  const [ticketLookupMsg, setTicketLookupMsg] = useState<{ type: "info" | "warn" | "error"; text: string } | null>(null);
   // TC copy dialog
   const [tcCopyDialog, setTcCopyDialog] = useState<{
     open: boolean;
@@ -586,6 +586,13 @@ export default function TestCasesExecution() {
     setTicketLookupMsg(null);
     if (!ticketId) return;
 
+    // Check for duplicate execution file first
+    const duplicate = files.find(f => f.redmineTicketId === ticketId);
+    if (duplicate) {
+      setTicketLookupMsg({ type: "error", text: `Redmine ID #${ticketId} already exists in Test Case Files (${duplicate.title || "Untitled"}).` });
+      return;
+    }
+
     setTicketLookupLoading(true);
     try {
       const res = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, {
@@ -595,17 +602,17 @@ export default function TestCasesExecution() {
 
       if (data.found && data.requirement) {
         const req = data.requirement;
-        const updatedForm = { ...fileForm, requirementId: String(req.id) };
-        if (req.title) updatedForm.title = req.title;
-        if (req.projectId) updatedForm.projectId = String(req.projectId);
-        if (req.tracker) updatedForm.tracker = req.tracker;
-        if (req.module) {
-          const matchedMod = modules.find((m: any) =>
-            m.name.trim().toLowerCase() === req.module.trim().toLowerCase()
-          );
-          if (matchedMod) updatedForm.selectedModules = [matchedMod.id];
-        }
-        setFileForm(updatedForm);
+        const matchedMod = req.module
+          ? modules.find((m: any) => m.name.trim().toLowerCase() === req.module.trim().toLowerCase())
+          : null;
+        setFileForm(prev => ({
+          ...prev,
+          requirementId: String(req.id),
+          title: req.title || prev.title,
+          projectId: req.projectId ? String(req.projectId) : prev.projectId,
+          tracker: req.tracker || prev.tracker,
+          selectedModules: matchedMod ? [matchedMod.id] : prev.selectedModules,
+        }));
         setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
       } else {
         setTicketLookupMsg({ type: "warn", text: "No requirement found locally. On create, the ticket will be fetched from Redmine and saved as a requirement." });
@@ -863,7 +870,7 @@ export default function TestCasesExecution() {
 
   const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
 
-  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0;
+  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -1277,7 +1284,7 @@ export default function TestCasesExecution() {
                 )}
               </div>
               {ticketLookupMsg && (
-                <p className={`text-xs mt-1 ${ticketLookupMsg.type === "info" ? "text-green-600" : "text-yellow-600"}`}>
+                <p className={`text-xs mt-1 ${ticketLookupMsg.type === "info" ? "text-green-600" : ticketLookupMsg.type === "error" ? "text-red-600" : "text-yellow-600"}`}>
                   {ticketLookupMsg.text}
                 </p>
               )}
