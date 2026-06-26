@@ -38,6 +38,20 @@ export interface TestCase {
   authorName?: string | null;
   aiAssisted: boolean;
   status: string;
+  /** @nullable */
+  tracker?: string | null;
+  /** @nullable */
+  scenario?: string | null;
+  /** @nullable */
+  testData?: string | null;
+  /** @nullable */
+  redmineUserStory?: string | null;
+  /** @nullable */
+  module?: string | null;
+  /** @nullable */
+  qaPic?: string | null;
+  /** @nullable */
+  comments?: string | null;
   createdAt: string;
   updatedAt: string;
 }

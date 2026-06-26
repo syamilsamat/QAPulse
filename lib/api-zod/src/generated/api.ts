@@ -573,6 +573,7 @@ export const GenerateTestCasesWithAIBody = zod.object({
   generateEdgeCases: zod.boolean().optional(),
   useSimilarHistorical: zod.boolean().optional(),
   useTemplateOnly: zod.boolean().optional(),
+  tracker: zod.string().optional(),
 });
 
 export const GenerateTestCasesWithAIResponse = zod.object({
