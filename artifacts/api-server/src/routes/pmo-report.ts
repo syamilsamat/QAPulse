@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, ilike } from "drizzle-orm";
 import { execSync } from "child_process";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 
@@ -63,7 +63,16 @@ import {
   executionFilesTable,
   executionTestCasesTable,
   executionFileAuditTable,
+  documentRegisterTable,
+  projectsTable,
 } from "@workspace/db";
+
+function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
+  const t = (tracker ?? "").toLowerCase();
+  if (t.includes("uat")) return "UAT";
+  if (t.includes("sit")) return "SIT";
+  return "CR";
+}
 
 let mysql2: any = null;
 try {
@@ -1580,6 +1589,33 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       // CR006: AI-generated CAPA items
       const capaItems = await runCapaAI(String(redmineId), testCases, allDefects.length > 0 ? allDefects : undefined);
 
+      // Document register — look up Ref No by project + module + tracker
+      let refNo: string | undefined;
+      try {
+        const [proj] = execFile?.projectId
+          ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, execFile.projectId))
+          : [];
+        const moduleName = proj?.name ?? projectName ?? "";
+        const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
+        const [regEntry] = await db
+          .select()
+          .from(documentRegisterTable)
+          .where(
+            and(
+              ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
+              ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
+              eq(documentRegisterTable.tracker, tracker),
+            )
+          )
+          .limit(1);
+        if (regEntry) {
+          refNo = regEntry.refNo;
+          console.log(`[send-verdict] refNo=${refNo} (project=${projectName} module=${moduleName} tracker=${tracker})`);
+        }
+      } catch (err) {
+        console.warn("[send-verdict] document register lookup failed:", err);
+      }
+
       const xlsxBuffer = await buildTestCaseExcel(testCases, {
         redmineId: String(redmineId),
         issueType: typeLabel,
@@ -1588,6 +1624,7 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
         activeDefects,
         allDefects: allDefects.length > 0 ? allDefects : undefined,
         capaItems: capaItems.length > 0 ? capaItems : undefined,
+        refNo,
         auditEntries: auditRows.map((a: any) => ({
           summary: a.summary,
           updatedByName: a.updatedByName ?? null,
