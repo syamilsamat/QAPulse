@@ -295,7 +295,7 @@ export default function TestCasesExecution() {
 
   const DEFAULT_QUICK_FORM = {
     name: "", redmineId: "", status: "new", priority: "Medium",
-    projectId: "",
+    projectId: "", tracker: "",
     assigneeIds: [] as number[], environmentIds: [] as number[],
     startDate: "", dueDate: "", actualStartDate: "", actualEndDate: "",
     estimatedHours: "", actualHours: "", completionPercentage: "", notes: "",
@@ -828,6 +828,7 @@ export default function TestCasesExecution() {
           estimatedHours: quickTaskForm.estimatedHours ? Number(quickTaskForm.estimatedHours) : undefined,
           actualHours: quickTaskForm.actualHours ? Number(quickTaskForm.actualHours) : undefined,
           completionPercentage: quickTaskForm.completionPercentage ? Number(quickTaskForm.completionPercentage) : undefined,
+          tracker: quickTaskForm.tracker || undefined,
           notes: quickTaskForm.notes || undefined,
         }),
       });
@@ -978,7 +979,7 @@ export default function TestCasesExecution() {
                           className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
                           onClick={e => {
                             e.stopPropagation();
-                            setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "" });
+                            setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "", tracker: f.tracker || "" });
                             const preSelectedIds = f.selectedModules
                               ? f.selectedModules.split(",").map((s: string) => s.trim().toLowerCase())
                                   .flatMap((name: string) => modules.filter(m => m.name.trim().toLowerCase() === name).map(m => m.id))
@@ -1123,6 +1124,22 @@ export default function TestCasesExecution() {
                     { value: "Low", label: "Low" },
                   ]}
                   searchPlaceholder="Search..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <SearchableSelect
+                  value={quickTaskForm.tracker}
+                  onValueChange={v => setQuickTaskForm({ ...quickTaskForm, tracker: v })}
+                  options={[
+                    { value: "", label: "None" },
+                    ...trackers.map(t => ({ value: t.name, label: t.name })),
+                    ...(quickTaskForm.tracker && !trackers.some(t => t.name === quickTaskForm.tracker)
+                      ? [{ value: quickTaskForm.tracker, label: quickTaskForm.tracker }]
+                      : []),
+                  ]}
+                  placeholder="Select tracker..."
+                  searchPlaceholder="Search tracker..."
                 />
               </div>
               <div className="space-y-1.5">
