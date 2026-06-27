@@ -1655,7 +1655,7 @@ export async function fetchActiveDefectsForIssue(issueId: string): Promise<any[]
 // Fetches ALL QA Defects under a parent (all statuses, including closed) for Pareto AI.
 // Uses MySQL if available (no status filter), else Redmine API with status_id=*.
 export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<{ id: number; subject: string; status: string; category?: string; dueDate: string | null; closedOn: string | null }>> {
-  // Try MySQL first — pull all QA Defect children with no status filter
+  // Try MySQL first — same query as reportFromMySQL but without the status_id !== 11 filter
   if (mysql2) {
     const cfg = {
       host: process.env.REDMINE_DB_HOST ?? "10.10.4.130",
@@ -1669,24 +1669,27 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
     try {
       conn = await mysql2.createConnection(cfg);
       const [rows] = (await conn.query(
-        `SELECT i.id, i.subject, i.due_date, i.closed_on, s.name AS status, c.name AS category
+        `SELECT i.id, i.subject, i.due_date, i.closed_on,
+                s.name AS status, t.name AS tracker, c.name AS category
          FROM issues i
-         LEFT JOIN issue_statuses s ON s.id = i.status_id
-         LEFT JOIN trackers t       ON t.id = i.tracker_id
-         LEFT JOIN issue_categories c ON c.id = i.category_id
-         WHERE i.parent_id = ? AND LOWER(t.name) LIKE '%qa defect%'
+         LEFT JOIN issue_statuses s    ON s.id = i.status_id
+         LEFT JOIN trackers t          ON t.id = i.tracker_id
+         LEFT JOIN issue_categories c  ON c.id = i.category_id
+         WHERE i.parent_id = ?
          ORDER BY i.id`,
         [issueId],
       )) as [any[], any];
-      const result = (rows as any[]).map((r) => ({
-        id: r.id, subject: r.subject ?? "", status: r.status ?? "", category: r.category ?? "",
-        dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
-        closedOn: r.closed_on ? new Date(r.closed_on).toISOString().slice(0, 10) : null,
-      }));
+      const result = (rows as any[])
+        .filter((r) => isDefectTracker(r.tracker ?? ""))
+        .map((r) => ({
+          id: r.id, subject: r.subject ?? "", status: r.status ?? "", category: r.category ?? "",
+          dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
+          closedOn: r.closed_on ? new Date(r.closed_on).toISOString().slice(0, 10) : null,
+        }));
       console.log(`[fetchAllQaDefectsForIssue] MySQL returned ${result.length} QA defects for issue ${issueId}`);
       return result;
-    } catch {
-      // fall through to API
+    } catch (err) {
+      console.warn(`[fetchAllQaDefectsForIssue] MySQL failed, falling back to API:`, err);
     } finally {
       if (conn) await conn.end().catch(() => {});
     }
