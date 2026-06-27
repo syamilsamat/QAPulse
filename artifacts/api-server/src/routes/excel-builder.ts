@@ -7,14 +7,16 @@ export async function runCapaAI(ticketId: string, testCases: any[]): Promise<Cap
     console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length}`);
     if (failures.length === 0) return [];
 
-    const tcList = failures.map(tc =>
-      `- [${tc.testCaseId ?? "?"}] ${tc.caseName ?? "Unnamed"} | Module: ${tc.moduleName ?? "?"} | Result: ${tc.result} | Defect: ${tc.defectNumber ?? "none"} | Actual: ${tc.actualResult ?? ""}`
+    // Cap at 10 failures to keep prompt short; shorten each entry
+    const capped = failures.slice(0, 10);
+    const tcList = capped.map(tc =>
+      `[${tc.testCaseId ?? "?"}] ${(tc.caseName ?? "Unnamed").slice(0, 80)} | ${tc.moduleName ?? "?"} | ${tc.result}`
     ).join("\n");
 
-    const systemPrompt = `You are a senior QA engineer writing a CAPA report. Given failed/blocked test cases, produce CAPA items.
-Return ONLY this JSON: { "items": [{ "sl": 1, "analysisPoint": "string", "rootCause": "string", "correctiveAction": "string", "preventiveAction": "string" }] }
-Rules: group similar failures (max 8 items), be concise (max 2 sentences per field).`;
-    const userPrompt = `Ticket: #${ticketId}\n\nFailed/Blocked Test Cases:\n${tcList}\n\nReturn ONLY JSON.`;
+    const systemPrompt = `You are a QA engineer writing a CAPA report. Group similar failures into max 5 CAPA items.
+Return ONLY valid JSON (no markdown): { "items": [{ "sl": 1, "analysisPoint": "...", "rootCause": "...", "correctiveAction": "...", "preventiveAction": "..." }] }
+Keep each field under 20 words.`;
+    const userPrompt = `Ticket: #${ticketId}\nFailed TCs:\n${tcList}`;
 
     let content = "";
     try {
@@ -23,7 +25,12 @@ Rules: group similar failures (max 8 items), be concise (max 2 sentences per fie
       const resp = await genai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: userPrompt,
-        config: { systemInstruction: systemPrompt, maxOutputTokens: 2048, responseMimeType: "application/json" },
+        config: {
+          systemInstruction: systemPrompt,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       });
       content = resp.text ?? "";
       console.log(`[runCapaAI] Gemini response length=${content.length}`);
