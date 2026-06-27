@@ -1,13 +1,10 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { TEST_CASE_TEMPLATE_B64 } from "./test-case-template-data";
-import { GoogleGenAI } from "@google/genai";
-
-const _genai = new GoogleGenAI({});
-
 export async function runCapaAI(ticketId: string, testCases: any[]): Promise<CapaAiItem[]> {
   try {
     const failures = testCases.filter(tc => ["failed", "blocked"].includes((tc.result ?? "").toLowerCase()));
+    console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length}`);
     if (failures.length === 0) return [];
 
     const tcList = failures.map(tc =>
@@ -21,13 +18,17 @@ Rules: group similar failures (max 8 items), be concise (max 2 sentences per fie
 
     let content = "";
     try {
-      const resp = await _genai.models.generateContent({
+      const { GoogleGenAI } = await import("@google/genai");
+      const genai = new GoogleGenAI({});
+      const resp = await genai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: userPrompt,
         config: { systemInstruction: systemPrompt, maxOutputTokens: 2048, responseMimeType: "application/json" },
       });
       content = resp.text ?? "";
-    } catch {
+      console.log(`[runCapaAI] Gemini response length=${content.length}`);
+    } catch (geminiErr) {
+      console.warn("[runCapaAI] Gemini failed, trying OpenRouter:", geminiErr);
       const key = process.env.OPENROUTER_API_KEY;
       if (key) {
         const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -37,13 +38,16 @@ Rules: group similar failures (max 8 items), be concise (max 2 sentences per fie
         });
         const d = await resp.json();
         content = d.choices?.[0]?.message?.content ?? "";
+        console.log(`[runCapaAI] OpenRouter response length=${content.length}`);
       }
     }
 
     const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
     const parsed = JSON.parse(cleaned);
+    console.log(`[runCapaAI] parsed items=${parsed?.items?.length ?? 0}`);
     return Array.isArray(parsed?.items) ? parsed.items : [];
-  } catch {
+  } catch (err) {
+    console.error("[runCapaAI] error:", err);
     return [];
   }
 }
@@ -246,10 +250,9 @@ function buildTestCaseExcelFallback(
   // CAPA
   const capaHeaders = ["Sl #", "Analysis Points Observed", "Corrective Action Identified", "Preventive Action Identified", "Planned Closure Date", "Actual Closure Date"];
   const baseCapaRows = buildCapaRows(testCases, activeDefects);
-  const capaData = baseCapaRows.map((r, i) => {
-    const ai = capaItems?.[i];
-    return [r.sl, ai?.analysisPoint ?? r.analysisPoint, ai?.correctiveAction ?? "", ai?.preventiveAction ?? "", r.plannedDate, ""];
-  });
+  const capaData = capaItems && capaItems.length > 0
+    ? capaItems.map((ai, i) => [ai.sl ?? i + 1, ai.analysisPoint ?? "", ai.correctiveAction ?? "", ai.preventiveAction ?? "", "", ""])
+    : baseCapaRows.map(r => [r.sl, r.analysisPoint, "", "", r.plannedDate, ""]);
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([capaHeaders, ...capaData]), "CAPA");
 
   return XlsxSheetJS.write(wb, { type: "buffer", bookType: "xlsx" });
@@ -394,15 +397,25 @@ export async function buildTestCaseExcel(
     const capaSheet = wb.sheet("CAPA");
     if (capaSheet) {
       const capaRows = buildCapaRows(testCases, activeDefects);
-      capaRows.forEach(({ sl, analysisPoint, plannedDate }, i) => {
-        const row = 4 + i;
-        const ai = capaItems?.[i];
-        capaSheet.cell(`B${row}`).value(sl);
-        capaSheet.cell(`C${row}`).value(ai?.analysisPoint ?? analysisPoint);
-        if (ai?.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
-        if (ai?.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
-        if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
-      });
+      console.log(`[excel-builder] CAPA rows=${capaRows.length} capaItems=${capaItems?.length ?? 0}`);
+      if (capaItems && capaItems.length > 0) {
+        // AI mode: use AI items directly — each item is one CAPA row
+        capaItems.forEach((ai, i) => {
+          const row = 4 + i;
+          capaSheet.cell(`B${row}`).value(ai.sl ?? i + 1);
+          capaSheet.cell(`C${row}`).value(ai.analysisPoint ?? "");
+          if (ai.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
+          if (ai.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
+        });
+      } else {
+        // Fallback: existing logic without AI
+        capaRows.forEach(({ sl, analysisPoint, plannedDate }, i) => {
+          const row = 4 + i;
+          capaSheet.cell(`B${row}`).value(sl);
+          capaSheet.cell(`C${row}`).value(analysisPoint);
+          if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
+        });
+      }
     }
 
     const out = await wb.outputAsync();
