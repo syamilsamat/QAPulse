@@ -75,6 +75,15 @@ export interface AuditEntry {
   tcCount?: number;
 }
 
+export interface CapaAiItem {
+  sl: number;
+  analysisPoint: string;
+  rootCause?: string;
+  correctiveAction?: string;
+  preventiveAction?: string;
+  plannedDate?: string;
+}
+
 export interface ExcelBuildOptions {
   // Doc Info + sheet rename
   redmineId?: string;
@@ -85,6 +94,8 @@ export interface ExcelBuildOptions {
   activeDefects?: DefectForExcel[];
   // CR003: audit trail for Doc Info change history rows
   auditEntries?: AuditEntry[];
+  // CR006: AI-generated CAPA items
+  capaItems?: CapaAiItem[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -145,7 +156,7 @@ function buildTestCaseExcelFallback(
 ): Buffer | null {
   if (!XlsxSheetJS) return null;
 
-  const { redmineId, issueType, issueSubject, senderName, activeDefects = [] } = options;
+  const { redmineId, issueType, issueSubject, senderName, activeDefects = [], capaItems } = options;
   const wb = XlsxSheetJS.utils.book_new();
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -188,7 +199,11 @@ function buildTestCaseExcelFallback(
 
   // CAPA
   const capaHeaders = ["Sl #", "Analysis Points Observed", "Corrective Action Identified", "Preventive Action Identified", "Planned Closure Date", "Actual Closure Date"];
-  const capaData = buildCapaRows(testCases, activeDefects).map((r) => [r.sl, r.analysisPoint, "", "", r.plannedDate, ""]);
+  const baseCapaRows = buildCapaRows(testCases, activeDefects);
+  const capaData = baseCapaRows.map((r, i) => {
+    const ai = capaItems?.[i];
+    return [r.sl, ai?.analysisPoint ?? r.analysisPoint, ai?.correctiveAction ?? "", ai?.preventiveAction ?? "", r.plannedDate, ""];
+  });
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([capaHeaders, ...capaData]), "CAPA");
 
   return XlsxSheetJS.write(wb, { type: "buffer", bookType: "xlsx" });
@@ -217,7 +232,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -335,8 +350,11 @@ export async function buildTestCaseExcel(
       const capaRows = buildCapaRows(testCases, activeDefects);
       capaRows.forEach(({ sl, analysisPoint, plannedDate }, i) => {
         const row = 4 + i;
+        const ai = capaItems?.[i];
         capaSheet.cell(`B${row}`).value(sl);
-        capaSheet.cell(`C${row}`).value(analysisPoint);
+        capaSheet.cell(`C${row}`).value(ai?.analysisPoint ?? analysisPoint);
+        if (ai?.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
+        if (ai?.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
         if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
       });
     }
