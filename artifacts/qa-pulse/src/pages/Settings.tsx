@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
-  RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, X,
+  RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, XIcon,
 } from "lucide-react";
 
 interface DocRegEntry {
@@ -650,7 +650,7 @@ export default function Settings() {
                   <Check className="w-3.5 h-3.5" /> {isSavingDocReg ? "Saving..." : "Save"}
                 </Button>
                 <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => { setShowDocRegForm(false); setDocRegForm(emptyDocReg); setEditingDocRegId(null); }}>
-                  <X className="w-3.5 h-3.5" /> Cancel
+                  <XIcon className="w-3.5 h-3.5" /> Cancel
                 </Button>
               </div>
             </div>
