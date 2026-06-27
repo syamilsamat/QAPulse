@@ -17,6 +17,7 @@ import testExecutionRouter from "./test-execution";
 import contactsRouter from "./contacts";
 import rolesRouter from "./roles";
 import traceabilityRouter from "./traceability";
+import documentRegisterRouter from "./document-register";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(testExecutionRouter);
 router.use(contactsRouter);
 router.use(rolesRouter);
 router.use(traceabilityRouter);
+router.use(documentRegisterRouter);
 
 export default router;

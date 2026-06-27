@@ -73,6 +73,16 @@ export const executionFileAuditTable = pgTable("execution_file_audit", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// 6. Document Register (Project + Module → Ref No for Excel G4)
+export const documentRegisterTable = pgTable("document_register", {
+  id: serial("id").primaryKey(),
+  projectName: text("project_name").notNull(),
+  moduleName: text("module_name").notNull(),
+  tracker: text("tracker").notNull().default("CR"), // "CR" | "SIT" | "UAT"
+  refNo: text("ref_no").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // 7. Trackers Table (synced from Redmine, used as dropdown options)
 export const trackersTable = pgTable("trackers", {
   id: serial("id").primaryKey(),

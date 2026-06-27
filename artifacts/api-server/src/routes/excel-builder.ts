@@ -274,6 +274,8 @@ export interface ExcelBuildOptions {
   capaItems?: CapaAiItem[];
   // All QA defects (all statuses) for Pareto AI — passed from send-verdict to avoid a second Redmine API call
   allDefects?: DefectForExcel[];
+  // Document register ref no e.g. "BSB-QA-FWCMS-153-CRD-V1.0"
+  refNo?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -334,14 +336,14 @@ function buildTestCaseExcelFallback(
 ): Buffer | null {
   if (!XlsxSheetJS) return null;
 
-  const { redmineId, issueType, issueSubject, senderName, activeDefects = [], capaItems } = options;
+  const { redmineId, issueType, issueSubject, senderName, activeDefects = [], capaItems, refNo } = options;
   const wb = XlsxSheetJS.utils.book_new();
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
   // Doc Info
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([
     ["Project:", `${issueType ?? "Issue"} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`],
-    ["Ref No:", `QA-${redmineId}`],
+    ["Ref No:", refNo ?? `QA-${redmineId}`],
     ["Date:", today],
   ]), "Doc Info");
 
@@ -409,7 +411,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -419,7 +421,7 @@ export async function buildTestCaseExcel(
     if (docSheet) {
       if (redmineId) {
         docSheet.cell("D5").value(`${issueType ?? "Issue"} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`);
-        docSheet.cell("G4").value(`Ref. No.: QA-${redmineId}`);
+        docSheet.cell("G4").value(`Ref. No.: ${refNo ?? `QA-${redmineId}`}`);
       }
       const entries: AuditEntry[] = auditEntries && auditEntries.length > 0
         ? auditEntries
