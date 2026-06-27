@@ -911,4 +911,43 @@ router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
   }
 });
 
+// ==========================================
+// NL SEARCH — TC LIBRARY
+// ==========================================
+router.post("/ai/search-tcs", async (req, res): Promise<void> => {
+  try {
+    const { query, testCases } = req.body as {
+      query: string;
+      testCases: { id: number; title: string; scenario?: string; module?: string; tracker?: string }[];
+    };
+
+    if (!query?.trim() || !Array.isArray(testCases) || testCases.length === 0) {
+      res.status(400).json({ error: "query and testCases are required" });
+      return;
+    }
+
+    const tcList = testCases
+      .map((tc) => `${tc.id}|${tc.title}|${tc.scenario ?? ""}|${tc.module ?? ""}|${tc.tracker ?? ""}`)
+      .join("\n");
+
+    const systemPrompt = `You are a QA test case search engine. Given a natural language query and a list of test cases, return the IDs of matching test cases ranked by relevance.
+Return ONLY this JSON structure (no explanation, no markdown):
+{ "ids": [123, 456, 789] }
+Rules:
+- Include only test cases that are relevant to the query
+- Rank by relevance (most relevant first)
+- If nothing matches, return { "ids": [] }
+- Each line in the test case list is: id|title|scenario|module|tracker`;
+
+    const userPrompt = `Query: "${query.trim()}"\n\nTest cases:\n${tcList}\n\nReturn matching TC IDs as JSON.`;
+
+    const content = await executeAiTask(systemPrompt, userPrompt, 1024);
+    const parsed = safeParseJSON(content, { ids: [] });
+    res.json({ ids: Array.isArray(parsed?.ids) ? parsed.ids.map(Number) : [] });
+  } catch (error) {
+    console.error("NL TC Search Error:", error);
+    res.json({ ids: [] });
+  }
+});
+
 export default router;

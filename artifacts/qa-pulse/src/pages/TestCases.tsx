@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -612,6 +612,10 @@ export default function TestCases() {
   const searchString = useSearch();
 
   const [search, setSearch] = useState("");
+  const [nlMode, setNlMode] = useState(false);
+  const [nlLoading, setNlLoading] = useState(false);
+  const [nlResultIds, setNlResultIds] = useState<number[] | null>(null);
+  const nlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filterProject, setFilterProject] = useState("all");
   const [filterModule, setFilterModule] = useState("all");
   const [filterAI, setFilterAI] = useState("all");
@@ -711,6 +715,57 @@ export default function TestCases() {
     setCurrentPage(1);
   }, [search, filterProject, filterModule, filterAI, filterRequirement, sortBy, groupByModule]);
 
+  const isNlQuery = useCallback((q: string) => {
+    if (q.length < 15) return false;
+    const words = q.trim().split(/\s+/);
+    if (words.length < 3) return false;
+    const nlStarters = ["find", "show", "list", "test", "verify", "check", "search", "get", "what", "which", "all", "any"];
+    if (nlStarters.some(w => words[0].toLowerCase() === w)) return true;
+    return words.length >= 4;
+  }, []);
+
+  useEffect(() => {
+    if (nlDebounceRef.current) clearTimeout(nlDebounceRef.current);
+    if (!search.trim() || !isNlQuery(search)) {
+      setNlMode(false);
+      setNlResultIds(null);
+      setNlLoading(false);
+      return;
+    }
+    setNlMode(true);
+    setNlLoading(true);
+    nlDebounceRef.current = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem("qa_pulse_token");
+        const payload = {
+          query: search,
+          testCases: (testCases as any[]).map(tc => ({
+            id: tc.id,
+            title: tc.title,
+            scenario: tc.scenario,
+            module: tc.module,
+            tracker: tc.tracker,
+          })),
+        };
+        const res = await fetch("/api/ai/search-tcs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setNlResultIds(Array.isArray(data.ids) ? data.ids : null);
+        } else {
+          setNlResultIds(null);
+        }
+      } catch {
+        setNlResultIds(null);
+      } finally {
+        setNlLoading(false);
+      }
+    }, 700);
+  }, [search, testCases, isNlQuery]);
+
   useEffect(() => {
     try { localStorage.setItem("tc_view_mode", viewMode); } catch {}
   }, [viewMode]);
@@ -755,6 +810,22 @@ export default function TestCases() {
   });
 
   const filtered = useMemo(() => {
+    // NL mode: filter by AI-returned IDs, preserve AI ranking order
+    if (nlMode && nlResultIds !== null && !nlLoading) {
+      const idSet = new Set(nlResultIds);
+      const base = (testCases as any[]).filter((t: any) => {
+        if (!idSet.has(t.id)) return false;
+        if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
+        if (filterModule !== "all" && (t.module ?? "") !== filterModule) return false;
+        if (filterRequirement !== "all" && String(t.requirementId) !== filterRequirement) return false;
+        if (filterAI === "ai" && !t.aiAssisted) return false;
+        if (filterAI === "manual" && t.aiAssisted) return false;
+        return true;
+      });
+      // Sort by AI ranking
+      return base.sort((a: any, b: any) => nlResultIds.indexOf(a.id) - nlResultIds.indexOf(b.id));
+    }
+
     let result = testCases.filter((t: any) => {
       if (filterProject !== "all" && String(t.projectId) !== filterProject)
         return false;
@@ -764,7 +835,7 @@ export default function TestCases() {
         return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
-      if (search) {
+      if (search && !nlMode) {
         const query = search.toLowerCase();
         const matchTitle = t.title?.toLowerCase().includes(query);
         const matchStory = t.redmineUserStory?.toLowerCase().includes(query);
@@ -805,7 +876,7 @@ export default function TestCases() {
     });
 
     return result;
-  }, [testCases, search, filterProject, filterModule, filterRequirement, filterAI, sortBy]);
+  }, [testCases, search, filterProject, filterModule, filterRequirement, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTestCases = filtered.slice(
@@ -1381,14 +1452,34 @@ export default function TestCases() {
         <CardHeader className="pb-4">
           <div className="flex flex-col gap-3">
             <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              {nlLoading
+                ? <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-500 animate-spin" />
+                : nlMode
+                  ? <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-500" />
+                  : <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              }
               <Input
-                placeholder="Search case name, story, tracker..."
+                placeholder="Search by name, or ask in plain English..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 w-full"
+                className={`pl-9 w-full ${nlMode ? "border-purple-400 ring-1 ring-purple-300" : ""}`}
               />
+              {search && (
+                <button onClick={() => { setSearch(""); setNlMode(false); setNlResultIds(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+            {nlMode && (
+              <div className="flex items-center gap-2 -mt-1">
+                {nlLoading
+                  ? <span className="text-xs text-purple-500 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> AI searching...</span>
+                  : nlResultIds !== null
+                    ? <span className="text-xs text-purple-600 flex items-center gap-1"><Sparkles className="w-3 h-3" /> AI found {nlResultIds.length} result{nlResultIds.length !== 1 ? "s" : ""}</span>
+                    : <span className="text-xs text-muted-foreground">AI search active</span>
+                }
+              </div>
+            )}
             <div className="flex flex-wrap gap-2 w-full items-center">
               <SearchableSelect
                 value={sortBy}
