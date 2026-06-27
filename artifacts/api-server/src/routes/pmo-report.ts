@@ -1678,11 +1678,13 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
          ORDER BY i.id`,
         [issueId],
       )) as [any[], any];
-      return (rows as any[]).map((r) => ({
+      const result = (rows as any[]).map((r) => ({
         id: r.id, subject: r.subject ?? "", status: r.status ?? "", category: r.category ?? "",
         dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
         closedOn: r.closed_on ? new Date(r.closed_on).toISOString().slice(0, 10) : null,
       }));
+      console.log(`[fetchAllQaDefectsForIssue] MySQL returned ${result.length} QA defects for issue ${issueId}`);
+      return result;
     } catch {
       // fall through to API
     } finally {
@@ -1690,20 +1692,26 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
     }
   }
 
-  // Redmine API fallback
+  // Redmine API fallback — fetch open and closed separately since status_id=* may not be supported
   const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
   const apiKey = process.env.REDMINE_API_KEY ?? "";
   if (!baseUrl || !apiKey) return [];
   try {
-    const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 12000);
-    const r = await fetch(`${baseUrl}/issues.json?parent_id=${issueId}&status_id=*&limit=100`, {
-      headers: { "X-Redmine-API-Key": apiKey, Accept: "application/json" },
-      signal: ctrl.signal,
-    });
-    if (!r.ok) return [];
-    const data: any = await r.json();
-    return ((data?.issues ?? []) as any[])
+    const headers = { "X-Redmine-API-Key": apiKey, Accept: "application/json" };
+    const fetchIssues = async (statusId: string) => {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 12000);
+      const r = await fetch(`${baseUrl}/issues.json?parent_id=${issueId}&status_id=${statusId}&limit=100`, { headers, signal: ctrl.signal });
+      if (!r.ok) return [];
+      const data: any = await r.json();
+      return (data?.issues ?? []) as any[];
+    };
+    const [open, closed] = await Promise.all([fetchIssues("open"), fetchIssues("closed")]);
+    const all = [...open, ...closed];
+    const seen = new Set<number>();
+    const deduped = all.filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+    console.log(`[fetchAllQaDefectsForIssue] API open=${open.length} closed=${closed.length} total=${deduped.length}`);
+    return deduped
       .filter((i: any) => (i.tracker?.name ?? "").toLowerCase().includes("qa defect"))
       .map((i: any) => ({
         id: i.id, subject: i.subject ?? "", status: i.status?.name ?? "", category: i.category?.name ?? "",
