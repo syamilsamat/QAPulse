@@ -4,7 +4,7 @@ import { db, documentRegisterTable } from "@workspace/db";
 
 const router = Router();
 
-router.get("/api/document-register", async (_req, res) => {
+router.get("/document-register", async (_req, res) => {
   try {
     const rows = await db.select().from(documentRegisterTable).orderBy(documentRegisterTable.projectName);
     res.json(rows);
@@ -13,7 +13,7 @@ router.get("/api/document-register", async (_req, res) => {
   }
 });
 
-router.post("/api/document-register", async (req, res): Promise<void> => {
+router.post("/document-register", async (req, res): Promise<void> => {
   try {
     const { projectName, moduleName, tracker, refNo } = req.body;
     if (!projectName || !moduleName || !refNo) {
@@ -32,7 +32,7 @@ router.post("/api/document-register", async (req, res): Promise<void> => {
   }
 });
 
-router.put("/api/document-register/:id", async (req, res): Promise<void> => {
+router.put("/document-register/:id", async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id);
     const { projectName, moduleName, tracker, refNo } = req.body;
@@ -50,7 +50,7 @@ router.put("/api/document-register/:id", async (req, res): Promise<void> => {
   }
 });
 
-router.delete("/api/document-register/:id", async (req, res) => {
+router.delete("/document-register/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await db.delete(documentRegisterTable).where(eq(documentRegisterTable.id, id));
