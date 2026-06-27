@@ -139,6 +139,7 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
         qaPic: f.qaPic,
         remarks: f.remarks,
         selectedModules: f.selectedModules,
+        tracker: f.tracker,
         projectId: f.projectId,
         requirementId: f.requirementId,
         createdAt: f.createdAt,
