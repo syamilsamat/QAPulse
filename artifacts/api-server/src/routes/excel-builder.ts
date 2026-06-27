@@ -1,22 +1,60 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { TEST_CASE_TEMPLATE_B64 } from "./test-case-template-data";
+async function fetchQaDefectsForCapa(parentId: string): Promise<Array<{ id: number; subject: string; status: string; dueDate: string | null; closedOn: string | null }>> {
+  const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
+  const apiKey = process.env.REDMINE_API_KEY ?? "";
+  if (!baseUrl || !apiKey) return [];
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 10000);
+    const r = await fetch(`${baseUrl}/issues.json?parent_id=${parentId}&status_id=*&limit=100`, {
+      headers: { "X-Redmine-API-Key": apiKey, Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!r.ok) return [];
+    const data: any = await r.json();
+    const issues: any[] = data?.issues ?? [];
+    return issues
+      .filter(i => (i.tracker?.name ?? "").toLowerCase().includes("qa defect"))
+      .map(i => ({
+        id: i.id,
+        subject: i.subject ?? "",
+        status: i.status?.name ?? "",
+        dueDate: i.due_date ?? null,
+        closedOn: i.closed_on ?? null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export async function runCapaAI(ticketId: string, testCases: any[]): Promise<CapaAiItem[]> {
   try {
     const failures = testCases.filter(tc => ["failed", "blocked"].includes((tc.result ?? "").toLowerCase()));
-    console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length}`);
-    if (failures.length === 0) return [];
+    const qaDefects = await fetchQaDefectsForCapa(ticketId);
+    console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length} qaDefects=${qaDefects.length}`);
+    if (failures.length === 0 && qaDefects.length === 0) return [];
 
-    // Cap at 10 failures to keep prompt short; shorten each entry
+    // Cap at 10 failures; shorten each entry
     const capped = failures.slice(0, 10);
-    const tcList = capped.map(tc =>
-      `[${tc.testCaseId ?? "?"}] ${(tc.caseName ?? "Unnamed").slice(0, 80)} | ${tc.moduleName ?? "?"} | ${tc.result}`
-    ).join("\n");
+    const tcList = capped.length > 0
+      ? `Failed/Blocked TCs:\n` + capped.map(tc =>
+          `[${tc.testCaseId ?? "?"}] ${(tc.caseName ?? "Unnamed").slice(0, 80)} | ${tc.moduleName ?? "?"} | ${tc.result}`
+        ).join("\n")
+      : "";
 
-    const systemPrompt = `You are a QA engineer writing a CAPA report. Group similar failures into max 5 CAPA items.
-Return ONLY valid JSON (no markdown): { "items": [{ "sl": 1, "analysisPoint": "...", "rootCause": "...", "correctiveAction": "...", "preventiveAction": "..." }] }
-Keep each field under 20 words.`;
-    const userPrompt = `Ticket: #${ticketId}\nFailed TCs:\n${tcList}`;
+    const defectList = qaDefects.length > 0
+      ? `\nQA Defects (all statuses):\n` + qaDefects.map(d =>
+          `[#${d.id}] ${d.subject.slice(0, 80)} | Status: ${d.status} | Due: ${d.dueDate ?? "none"} | Closed: ${d.closedOn ?? "open"}`
+        ).join("\n")
+      : "";
+
+    const systemPrompt = `You are a QA engineer writing a CAPA report. Analyse the failed test cases and QA defects provided.
+Group related issues into max 5 CAPA items. For each item provide: analysisPoint (what area failed), rootCause, correctiveAction, preventiveAction, plannedDate (ISO date from defect due_date if available), actualClosureDate (ISO date from defect closed_on if available).
+Return ONLY valid JSON: { "items": [{ "sl": 1, "analysisPoint": "...", "rootCause": "...", "correctiveAction": "...", "preventiveAction": "...", "plannedDate": "YYYY-MM-DD or null", "actualClosureDate": "YYYY-MM-DD or null" }] }
+Keep each text field under 20 words.`;
+    const userPrompt = `Ticket: #${ticketId}\n${tcList}${defectList}`;
 
     let content = "";
     try {
@@ -139,6 +177,7 @@ export interface CapaAiItem {
   correctiveAction?: string;
   preventiveAction?: string;
   plannedDate?: string;
+  actualClosureDate?: string;
 }
 
 export interface ExcelBuildOptions {
@@ -258,7 +297,7 @@ function buildTestCaseExcelFallback(
   const capaHeaders = ["Sl #", "Analysis Points Observed", "Corrective Action Identified", "Preventive Action Identified", "Planned Closure Date", "Actual Closure Date"];
   const baseCapaRows = buildCapaRows(testCases, activeDefects);
   const capaData = capaItems && capaItems.length > 0
-    ? capaItems.map((ai, i) => [ai.sl ?? i + 1, ai.analysisPoint ?? "", ai.correctiveAction ?? "", ai.preventiveAction ?? "", "", ""])
+    ? capaItems.map((ai, i) => [ai.sl ?? i + 1, ai.analysisPoint ?? "", ai.correctiveAction ?? "", ai.preventiveAction ?? "", ai.plannedDate ?? "", ai.actualClosureDate ?? ""])
     : baseCapaRows.map(r => [r.sl, r.analysisPoint, "", "", r.plannedDate, ""]);
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([capaHeaders, ...capaData]), "CAPA");
 
@@ -413,6 +452,8 @@ export async function buildTestCaseExcel(
           capaSheet.cell(`C${row}`).value(ai.analysisPoint ?? "");
           if (ai.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
           if (ai.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
+          if (ai.plannedDate) capaSheet.cell(`F${row}`).value(ai.plannedDate);
+          if (ai.actualClosureDate) capaSheet.cell(`G${row}`).value(ai.actualClosureDate);
         });
       } else {
         // Fallback: existing logic without AI
