@@ -12,6 +12,8 @@ import {
   updateModule,
   type ExecutionModule,
   syncTrackersFromRedmine,
+  fetchTrackers,
+  type TrackerOption,
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -126,7 +128,8 @@ export default function ModuleAndProject() {
   // DOCUMENT REGISTER STATE
   // =========================
   const [docRegEntries, setDocRegEntries] = useState<DocRegEntry[]>([]);
-  const emptyDocReg = { projectName: "", moduleName: "", tracker: "CR", refNo: "" };
+  const [docRegTrackers, setDocRegTrackers] = useState<TrackerOption[]>([]);
+  const emptyDocReg = { projectName: "", moduleName: "", tracker: "", refNo: "" };
   const [docRegForm, setDocRegForm] = useState(emptyDocReg);
   const [editingDocRegId, setEditingDocRegId] = useState<number | null>(null);
   const [showDocRegForm, setShowDocRegForm] = useState(false);
@@ -136,6 +139,9 @@ export default function ModuleAndProject() {
     fetch(`${getApiUrl()}/document-register`)
       .then((r) => r.json())
       .then((data) => setDocRegEntries(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetchTrackers()
+      .then((data) => setDocRegTrackers(data))
       .catch(() => {});
   }, []);
 
@@ -1282,12 +1288,26 @@ export default function ModuleAndProject() {
                 <div className="border rounded-md p-4 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Project Name</Label>
-                      <Input placeholder="e.g. FWCMS" value={docRegForm.projectName} onChange={(e) => setDocRegForm((f) => ({ ...f, projectName: e.target.value }))} />
+                      <Label className="text-xs">Project</Label>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        value={docRegForm.projectName}
+                        onChange={(e) => setDocRegForm((f) => ({ ...f, projectName: e.target.value }))}
+                      >
+                        <option value="">Select project...</option>
+                        {projects.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      </select>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">Module</Label>
-                      <Input placeholder="e.g. General" value={docRegForm.moduleName} onChange={(e) => setDocRegForm((f) => ({ ...f, moduleName: e.target.value }))} />
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        value={docRegForm.moduleName}
+                        onChange={(e) => setDocRegForm((f) => ({ ...f, moduleName: e.target.value }))}
+                      >
+                        <option value="">Select module...</option>
+                        {modules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                      </select>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">Tracker</Label>
@@ -1296,7 +1316,8 @@ export default function ModuleAndProject() {
                         value={docRegForm.tracker}
                         onChange={(e) => setDocRegForm((f) => ({ ...f, tracker: e.target.value }))}
                       >
-                        <option value="CR">CR</option>
+                        <option value="">Select tracker...</option>
+                        {docRegTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
                         <option value="SIT">SIT</option>
                         <option value="UAT">UAT</option>
                       </select>
