@@ -1695,33 +1695,47 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
     }
   }
 
-  // Redmine API fallback — fetch open and closed separately since status_id=* may not be supported
+  // Redmine API fallback — QA Defects may be nested under sub-tasks of the parent,
+  // so we fetch two levels deep (direct children + their children) to find all defects.
   const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
   const apiKey = process.env.REDMINE_API_KEY ?? "";
   if (!baseUrl || !apiKey) return [];
   try {
     const headers = { "X-Redmine-API-Key": apiKey, Accept: "application/json" };
-    const fetchIssues = async (statusId: string) => {
+
+    const fetchChildren = async (parentId: string | number, statusId: string): Promise<any[]> => {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 12000);
-      const r = await fetch(`${baseUrl}/issues.json?parent_id=${issueId}&status_id=${statusId}&limit=100`, { headers, signal: ctrl.signal });
+      const r = await fetch(`${baseUrl}/issues.json?parent_id=${parentId}&status_id=${statusId}&limit=100`, { headers, signal: ctrl.signal });
       if (!r.ok) return [];
       const data: any = await r.json();
       return (data?.issues ?? []) as any[];
     };
-    const [open, closed] = await Promise.all([fetchIssues("open"), fetchIssues("closed")]);
-    const all = [...open, ...closed];
-    const seen = new Set<number>();
-    const deduped = all.filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
-    console.log(`[fetchAllQaDefectsForIssue] API open=${open.length} closed=${closed.length} total=${deduped.length}`);
-    return deduped
-      .filter((i: any) => (i.tracker?.name ?? "").toLowerCase().includes("qa defect"))
+
+    // Level 1: direct children (open + closed)
+    const [l1Open, l1Closed] = await Promise.all([fetchChildren(issueId, "open"), fetchChildren(issueId, "closed")]);
+    const l1All = [...l1Open, ...l1Closed];
+    const seen = new Set<number>(l1All.map(i => i.id));
+
+    // Level 2: children of non-QA-Defect direct children (the containers)
+    const containers = l1All.filter(i => !isDefectTracker(i.tracker?.name ?? ""));
+    const l2Results = await Promise.all(
+      containers.map(c => Promise.all([fetchChildren(c.id, "open"), fetchChildren(c.id, "closed")]).then(([o, cl]) => [...o, ...cl]))
+    );
+    const l2All = l2Results.flat().filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+
+    const allIssues = [...l1All, ...l2All];
+    console.log(`[fetchAllQaDefectsForIssue] API l1=${l1All.length} l2=${l2All.length} total=${allIssues.length}`);
+
+    return allIssues
+      .filter((i: any) => isDefectTracker(i.tracker?.name ?? ""))
       .map((i: any) => ({
         id: i.id, subject: i.subject ?? "", status: i.status?.name ?? "", category: i.category?.name ?? "",
         dueDate: i.due_date ?? null,
         closedOn: i.closed_on ?? null,
       }));
-  } catch {
+  } catch (err) {
+    console.warn(`[fetchAllQaDefectsForIssue] API failed:`, err);
     return [];
   }
 }
