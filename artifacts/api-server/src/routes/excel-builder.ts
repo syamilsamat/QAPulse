@@ -29,11 +29,13 @@ async function fetchQaDefectsForCapa(parentId: string): Promise<Array<{ id: numb
   }
 }
 
-export async function runCapaAI(ticketId: string, testCases: any[]): Promise<CapaAiItem[]> {
+export async function runCapaAI(ticketId: string, testCases: any[], prefetchedDefects?: Array<{ id: number; subject: string; status: string; dueDate: string | null; closedOn: string | null }>): Promise<CapaAiItem[]> {
   try {
     const failures = testCases.filter(tc => ["failed", "blocked"].includes((tc.result ?? "").toLowerCase()));
-    const qaDefects = await fetchQaDefectsForCapa(ticketId);
-    console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length} qaDefects=${qaDefects.length}`);
+    const qaDefects = prefetchedDefects && prefetchedDefects.length > 0
+      ? prefetchedDefects
+      : await fetchQaDefectsForCapa(ticketId);
+    console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length} qaDefects=${qaDefects.length} (source: ${prefetchedDefects?.length ? "prefetched" : "api"})`);
     if (failures.length === 0 && qaDefects.length === 0) return [];
 
     // Cap at 10 failures; shorten each entry
@@ -109,9 +111,11 @@ const PARETO_CATEGORIES = [
   "Others",
 ];
 
-export async function runParetoAI(parentId: string): Promise<Array<{ name: string; count: number }>> {
+export async function runParetoAI(parentId: string, prefetchedDefects?: Array<{ id: number; subject: string }>): Promise<Array<{ name: string; count: number }>> {
   try {
-    const defects = await fetchQaDefectsForCapa(parentId);
+    const defects = prefetchedDefects && prefetchedDefects.length > 0
+      ? prefetchedDefects
+      : await fetchQaDefectsForCapa(parentId);
     if (defects.length === 0) return [];
 
     const systemPrompt = `You are a QA analyst. Classify each defect subject into exactly one of these categories: ${PARETO_CATEGORIES.join(", ")}.
@@ -127,7 +131,7 @@ Return ONLY valid JSON: { "classifications": [{ "id": <number>, "category": "<ca
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
-          maxOutputTokens: 512,
+          maxOutputTokens: 2048,
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 0 },
         },
@@ -144,7 +148,7 @@ Return ONLY valid JSON: { "classifications": [{ "id": <number>, "category": "<ca
           body: JSON.stringify({
             model: "meta-llama/llama-3.2-3b-instruct:free",
             messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-            max_tokens: 512,
+            max_tokens: 2048,
             response_format: { type: "json_object" },
           }),
         });
@@ -268,6 +272,8 @@ export interface ExcelBuildOptions {
   auditEntries?: AuditEntry[];
   // CR006: AI-generated CAPA items
   capaItems?: CapaAiItem[];
+  // All QA defects (all statuses) for Pareto AI — passed from send-verdict to avoid a second Redmine API call
+  allDefects?: DefectForExcel[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -403,7 +409,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -503,11 +509,12 @@ export async function buildTestCaseExcel(
         paSheet.cell(`C${33 + i}`).value("");
         paSheet.cell(`D${33 + i}`).value(null);
       }
-      // AI categorisation: fetch ALL QA Defects (all statuses) and classify via Gemini → OpenRouter → fallback
+      // AI categorisation: use pre-fetched allDefects (all statuses) passed from send-verdict,
+      // or fall back to a fresh Redmine fetch via runParetoAI.
       let paretoCategories: Array<{ name: string; count: number }> = [];
       if (redmineId) {
-        paretoCategories = await runParetoAI(redmineId);
-        console.log(`[buildTestCaseExcel] Pareto AI categories=${paretoCategories.length}`);
+        paretoCategories = await runParetoAI(redmineId, allDefects);
+        console.log(`[buildTestCaseExcel] Pareto AI categories=${paretoCategories.length} (source: ${allDefects?.length ? "prefetched" : "api"})`);
       }
       // Fallback to Redmine category/status grouping if AI returned nothing
       if (paretoCategories.length === 0 && activeDefects.length > 0) {
