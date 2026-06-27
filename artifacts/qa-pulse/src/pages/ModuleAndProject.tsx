@@ -148,6 +148,7 @@ export default function ModuleAndProject() {
       const method = editingDocRegId ? "PUT" : "POST";
       const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(docRegForm) });
       const saved = await r.json();
+      if (!r.ok) throw new Error(saved?.error ?? `HTTP ${r.status}`);
       if (editingDocRegId) {
         setDocRegEntries((prev) => prev.map((e) => (e.id === editingDocRegId ? saved : e)));
       } else {
@@ -157,8 +158,8 @@ export default function ModuleAndProject() {
       setEditingDocRegId(null);
       setShowDocRegForm(false);
       toast({ title: "Document register saved" });
-    } catch {
-      toast({ variant: "destructive", title: "Failed to save entry" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Failed to save entry", description: err?.message ?? String(err) });
     } finally {
       setIsSavingDocReg(false);
     }
