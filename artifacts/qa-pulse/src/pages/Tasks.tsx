@@ -1528,6 +1528,7 @@ export default function Tasks() {
                     redmineId: file.redmineTicketId,
                     ...(file.projectId ? { projectId: file.projectId } : {}),
                     ...(file.requirementId ? { requirementId: file.requirementId } : {}),
+                    ...(file.tracker ? { tracker: file.tracker } : {}),
                   }));
                   if (file.selectedModules) {
                     const storedNames = file.selectedModules
