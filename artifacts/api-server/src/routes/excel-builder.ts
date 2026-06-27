@@ -97,6 +97,82 @@ Keep each text field under 20 words.`;
   }
 }
 
+const PARETO_CATEGORIES = [
+  "UI / UX",
+  "Business Logic",
+  "Data Validation",
+  "Integration / API",
+  "Performance",
+  "Security",
+  "Missing Functionality",
+  "Configuration / Environment",
+  "Others",
+];
+
+export async function runParetoAI(parentId: string): Promise<Array<{ name: string; count: number }>> {
+  try {
+    const defects = await fetchQaDefectsForCapa(parentId);
+    if (defects.length === 0) return [];
+
+    const systemPrompt = `You are a QA analyst. Classify each defect subject into exactly one of these categories: ${PARETO_CATEGORIES.join(", ")}.
+Return ONLY valid JSON: { "classifications": [{ "id": <number>, "category": "<category>" }] }`;
+    const userPrompt = `Defects:\n` + defects.map(d => `[${d.id}] ${d.subject}`).join("\n");
+
+    let content = "";
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const genai = new GoogleGenAI({});
+      const resp = await genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          maxOutputTokens: 512,
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      });
+      content = resp.text ?? "";
+      console.log(`[runParetoAI] Gemini response length=${content.length}`);
+    } catch (geminiErr) {
+      console.warn("[runParetoAI] Gemini failed, trying OpenRouter:", geminiErr);
+      const key = process.env.OPENROUTER_API_KEY;
+      if (key) {
+        const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "meta-llama/llama-3.2-3b-instruct:free",
+            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+            max_tokens: 512,
+            response_format: { type: "json_object" },
+          }),
+        });
+        const d = await resp.json();
+        content = d.choices?.[0]?.message?.content ?? "";
+        console.log(`[runParetoAI] OpenRouter response length=${content.length}`);
+      }
+    }
+
+    if (!content) return [];
+    const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const classifications: Array<{ id: number; category: string }> = parsed?.classifications ?? [];
+
+    const map = new Map<string, number>();
+    for (const c of classifications) {
+      const cat = PARETO_CATEGORIES.includes(c.category) ? c.category : "Others";
+      map.set(cat, (map.get(cat) ?? 0) + 1);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  } catch (err) {
+    console.error("[runParetoAI] error:", err);
+    return [];
+  }
+}
+
 let XlsxPopulate: any = null;
 try {
   XlsxPopulate = require("xlsx-populate");
@@ -427,13 +503,21 @@ export async function buildTestCaseExcel(
         paSheet.cell(`C${33 + i}`).value("");
         paSheet.cell(`D${33 + i}`).value(null);
       }
-      if (activeDefects.length > 0) {
-        const categories = buildParetoCategories(activeDefects).slice(0, 15);
-        categories.forEach(({ name, count }, i) => {
-          paSheet.cell(`C${33 + i}`).value(name);
-          paSheet.cell(`D${33 + i}`).value(count);
-        });
+      // AI categorisation: fetch ALL QA Defects (all statuses) and classify via Gemini → OpenRouter → fallback
+      let paretoCategories: Array<{ name: string; count: number }> = [];
+      if (redmineId) {
+        paretoCategories = await runParetoAI(redmineId);
+        console.log(`[buildTestCaseExcel] Pareto AI categories=${paretoCategories.length}`);
       }
+      // Fallback to Redmine category/status grouping if AI returned nothing
+      if (paretoCategories.length === 0 && activeDefects.length > 0) {
+        paretoCategories = buildParetoCategories(activeDefects);
+        console.log(`[buildTestCaseExcel] Pareto fallback categories=${paretoCategories.length}`);
+      }
+      paretoCategories.slice(0, 15).forEach(({ name, count }, i) => {
+        paSheet.cell(`C${33 + i}`).value(name);
+        paSheet.cell(`D${33 + i}`).value(count);
+      });
     }
 
     // ── CAPA ───────────────────────────────────────────────────────────────────
