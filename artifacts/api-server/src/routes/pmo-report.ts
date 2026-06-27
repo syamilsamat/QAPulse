@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { eq } from "drizzle-orm";
 import { execSync } from "child_process";
-import { buildTestCaseExcel, trackerCode } from "./excel-builder";
+import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 
 let nodemailer: any = null;
 try {
@@ -1574,12 +1574,16 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
             .catch(() => [] as any[])
         : [];
 
+      // CR006: AI-generated CAPA items
+      const capaItems = await runCapaAI(String(redmineId), testCases);
+
       const xlsxBuffer = await buildTestCaseExcel(testCases, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",
         senderName: senderName ?? undefined,
         activeDefects,
+        capaItems: capaItems.length > 0 ? capaItems : undefined,
         auditEntries: auditRows.map((a: any) => ({
           summary: a.summary,
           updatedByName: a.updatedByName ?? null,

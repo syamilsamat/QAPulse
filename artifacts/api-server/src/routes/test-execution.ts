@@ -12,55 +12,8 @@ import {
   usersTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
-import { buildTestCaseExcel, trackerCode, type CapaAiItem } from "./excel-builder";
+import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./pmo-report";
-import { GoogleGenAI } from "@google/genai";
-
-const genai = new GoogleGenAI({});
-
-async function runCapaAI(ticketId: string, testCases: any[]): Promise<CapaAiItem[]> {
-  try {
-    const failures = testCases.filter(tc => ["failed", "blocked"].includes((tc.result ?? "").toLowerCase()));
-    if (failures.length === 0) return [];
-
-    const tcList = failures.map(tc =>
-      `- [${tc.testCaseId ?? "?"}] ${tc.caseName ?? "Unnamed"} | Module: ${tc.moduleName ?? "?"} | Result: ${tc.result} | Defect: ${tc.defectNumber ?? "none"} | Actual: ${tc.actualResult ?? ""}`
-    ).join("\n");
-
-    const systemPrompt = `You are a senior QA engineer writing a CAPA report. Given failed/blocked test cases, produce CAPA items.
-Return ONLY this JSON: { "items": [{ "sl": 1, "analysisPoint": "string", "rootCause": "string", "correctiveAction": "string", "preventiveAction": "string" }] }
-Rules: group similar failures (max 8 items), be concise (max 2 sentences per field).`;
-    const userPrompt = `Ticket: #${ticketId}\n\nFailed/Blocked Test Cases:\n${tcList}\n\nReturn ONLY JSON.`;
-
-    let content = "";
-    try {
-      const resp = await genai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: userPrompt,
-        config: { systemInstruction: systemPrompt, maxOutputTokens: 2048, responseMimeType: "application/json" },
-      });
-      content = resp.text ?? "";
-    } catch {
-      // OpenRouter fallback
-      const key = process.env.OPENROUTER_API_KEY;
-      if (key) {
-        const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "meta-llama/llama-3.2-3b-instruct:free", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 2048, response_format: { type: "json_object" } }),
-        });
-        const d = await resp.json();
-        content = d.choices?.[0]?.message?.content ?? "";
-      }
-    }
-
-    const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    return Array.isArray(parsed?.items) ? parsed.items : [];
-  } catch {
-    return [];
-  }
-}
 
 const router: IRouter = Router();
 
