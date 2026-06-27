@@ -814,6 +814,37 @@ export default function TestCasesExecutionProgressPage() {
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
   const [showColPicker, setShowColPicker] = useState(false);
 
+  // CAPA Intelligence
+  const [capaOpen, setCapaOpen] = useState(false);
+  const [capaLoading, setCapaLoading] = useState(false);
+  const [capaResult, setCapaResult] = useState<{ summary: string; items: any[] } | null>(null);
+
+  const handleCapaAnalysis = async () => {
+    setCapaOpen(true);
+    setCapaLoading(true);
+    setCapaResult(null);
+    try {
+      const res = await fetch("/api/ai/capa-analysis", {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          ticketId,
+          testCases: data.map(tc => ({
+            testCaseId: tc.testCaseId,
+            caseName: tc.caseName,
+            moduleName: tc.moduleName,
+            result: tc.result,
+            defectNumber: tc.defectNumber,
+            actualResult: tc.actualResult,
+            comments: tc.comments,
+          })),
+        }),
+      });
+      if (res.ok) setCapaResult(await res.json());
+    } catch {}
+    finally { setCapaLoading(false); }
+  };
+
   const getHeaders = () => {
     const token = localStorage.getItem("qa_pulse_token");
     return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -1759,6 +1790,76 @@ export default function TestCasesExecutionProgressPage() {
         parentIssueId={ticketId ?? null}
       />
 
+      {/* CAPA Intelligence Dialog */}
+      <Dialog open={capaOpen} onOpenChange={setCapaOpen}>
+        <DialogContent className="max-w-3xl w-[96vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-500" /> CAPA Intelligence
+            </DialogTitle>
+          </DialogHeader>
+          {capaLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+              <p className="text-sm text-muted-foreground">Analysing failure patterns...</p>
+            </div>
+          ) : capaResult ? (
+            <div className="space-y-4">
+              {capaResult.items.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">{capaResult.summary || "No failed or blocked test cases found."}</p>
+              ) : (
+                <>
+                  {capaResult.summary && (
+                    <div className="rounded-lg bg-purple-50 border border-purple-200 p-3 text-sm text-purple-800">
+                      <span className="font-semibold">Summary: </span>{capaResult.summary}
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {capaResult.items.map((item: any, i: number) => (
+                      <div key={i} className="border rounded-lg p-4 space-y-2 text-sm">
+                        <div className="flex items-center gap-2 font-semibold text-base">
+                          <span className="bg-purple-100 text-purple-700 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0">{item.sl ?? i + 1}</span>
+                          {item.analysisPoint}
+                          {item.module && <span className="ml-auto text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{item.module}</span>}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-red-600 uppercase">Root Cause</p>
+                            <p className="text-xs text-muted-foreground">{item.rootCause}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-amber-600 uppercase">Corrective Action</p>
+                            <p className="text-xs text-muted-foreground">{item.correctiveAction}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-green-600 uppercase">Preventive Action</p>
+                            <p className="text-xs text-muted-foreground">{item.preventiveAction}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter className="gap-2 mt-2">
+            {capaResult && capaResult.items.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => {
+                const text = capaResult.items.map((item: any, i: number) =>
+                  `${i + 1}. ${item.analysisPoint}\n   Root Cause: ${item.rootCause}\n   Corrective: ${item.correctiveAction}\n   Preventive: ${item.preventiveAction}`
+                ).join("\n\n");
+                navigator.clipboard.writeText(`Summary: ${capaResult.summary}\n\n${text}`);
+              }}>
+                Copy All
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setCapaOpen(false)}>Close</Button>
+            {capaResult && <Button size="sm" onClick={handleCapaAnalysis} variant="secondary" className="gap-2"><Sparkles className="w-3.5 h-3.5" /> Re-analyse</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -2010,6 +2111,14 @@ export default function TestCasesExecutionProgressPage() {
           >
             {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {isDownloading ? "Downloading..." : "Download"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCapaAnalysis}
+            className="flex-1 lg:flex-none gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+          >
+            <Sparkles className="w-4 h-4" /> CAPA AI
           </Button>
           <Button
             variant="outline"

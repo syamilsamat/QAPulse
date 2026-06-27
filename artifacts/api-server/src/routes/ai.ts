@@ -912,6 +912,70 @@ router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
 });
 
 // ==========================================
+// CAPA INTELLIGENCE
+// ==========================================
+router.post("/ai/capa-analysis", async (req, res): Promise<void> => {
+  const fallback = { items: [], summary: "Analysis unavailable." };
+  try {
+    const { ticketId, testCases } = req.body as {
+      ticketId: string;
+      testCases: { testCaseId?: string; caseName?: string; moduleName?: string; result?: string; defectNumber?: string; actualResult?: string; comments?: string }[];
+    };
+
+    if (!Array.isArray(testCases) || testCases.length === 0) {
+      res.status(400).json({ error: "testCases array is required" });
+      return;
+    }
+
+    const failures = testCases.filter(tc =>
+      ["failed", "blocked"].includes((tc.result ?? "").toLowerCase())
+    );
+
+    if (failures.length === 0) {
+      res.json({ items: [], summary: "No failed or blocked test cases to analyse." });
+      return;
+    }
+
+    const tcList = failures.map(tc =>
+      `- [${tc.testCaseId ?? "?"}] ${tc.caseName ?? "Unnamed"} | Module: ${tc.moduleName ?? "?"} | Result: ${tc.result} | Defect: ${tc.defectNumber ?? "none"} | Actual: ${tc.actualResult ?? ""} | Notes: ${tc.comments ?? ""}`
+    ).join("\n");
+
+    const systemPrompt = `You are a senior QA engineer writing a CAPA (Corrective and Preventive Action) report.
+Given a list of failed/blocked test cases from a software test cycle, identify patterns and produce CAPA items.
+Return ONLY this JSON structure:
+{
+  "summary": "1-2 sentence overall summary of failure patterns",
+  "items": [
+    {
+      "sl": 1,
+      "analysisPoint": "What went wrong — brief defect description",
+      "rootCause": "Underlying reason the defect occurred",
+      "correctiveAction": "Immediate fix to address this specific defect",
+      "preventiveAction": "Process or code change to prevent recurrence",
+      "module": "affected module name"
+    }
+  ]
+}
+Rules:
+- Group similar failures into one CAPA item where sensible (max 8 items)
+- Be concise — each field max 2 sentences
+- Focus on actionable corrective/preventive steps, not generic advice`;
+
+    const userPrompt = `Ticket: #${ticketId ?? "N/A"}\n\nFailed/Blocked Test Cases:\n${tcList}\n\nGenerate CAPA analysis. Return ONLY JSON.`;
+
+    const content = await executeAiTask(systemPrompt, userPrompt, 4096);
+    const parsed = safeParseJSON(content, fallback);
+    res.json({
+      summary: parsed?.summary ?? "",
+      items: Array.isArray(parsed?.items) ? parsed.items : [],
+    });
+  } catch (error) {
+    console.error("CAPA Analysis Error:", error);
+    res.json(fallback);
+  }
+});
+
+// ==========================================
 // NL SEARCH — TC LIBRARY
 // ==========================================
 router.post("/ai/search-tcs", async (req, res): Promise<void> => {
