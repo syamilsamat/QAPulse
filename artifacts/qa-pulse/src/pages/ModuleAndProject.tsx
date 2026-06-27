@@ -12,8 +12,7 @@ import {
   updateModule,
   type ExecutionModule,
   syncTrackersFromRedmine,
-  fetchTrackers,
-  type TrackerOption,
+
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -128,7 +127,6 @@ export default function ModuleAndProject() {
   // DOCUMENT REGISTER STATE
   // =========================
   const [docRegEntries, setDocRegEntries] = useState<DocRegEntry[]>([]);
-  const [docRegTrackers, setDocRegTrackers] = useState<TrackerOption[]>([]);
   const emptyDocReg = { projectName: "", moduleName: "", tracker: "", refNo: "" };
   const [docRegForm, setDocRegForm] = useState(emptyDocReg);
   const [editingDocRegId, setEditingDocRegId] = useState<number | null>(null);
@@ -139,9 +137,6 @@ export default function ModuleAndProject() {
     fetch(`${getApiUrl()}/document-register`)
       .then((r) => r.json())
       .then((data) => setDocRegEntries(Array.isArray(data) ? data : []))
-      .catch(() => {});
-    fetchTrackers()
-      .then((data) => setDocRegTrackers(data))
       .catch(() => {});
   }, []);
 
@@ -1317,7 +1312,7 @@ export default function ModuleAndProject() {
                         onChange={(e) => setDocRegForm((f) => ({ ...f, tracker: e.target.value }))}
                       >
                         <option value="">Select tracker...</option>
-                        {docRegTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                        <option value="CR">CR</option>
                         <option value="SIT">SIT</option>
                         <option value="UAT">UAT</option>
                       </select>
