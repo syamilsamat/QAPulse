@@ -2788,12 +2788,12 @@ export default function TestCasesExecutionProgressPage() {
                                 <div className="p-4 bg-muted/10 border-b border-muted">
                                   <div className="text-sm space-y-4">
 
-                                    {/* Case ID */}
+                                    {/* Case */}
                                     <div>
-                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
                                       {mode === "edit"
-                                        ? <input className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.caseId || ""} onChange={e => updateCell(row.id as string | number, "caseId", e.target.value)} placeholder="e.g. TC-001" />
-                                        : <p className="font-mono text-sm text-primary font-medium">{row.caseId || "—"}</p>
+                                        ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.caseName || ""} fieldName="Case Name" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "caseName", val)} />
+                                        : <p className="text-sm">{row.caseName || "—"}</p>
                                       }
                                     </div>
 
@@ -3005,10 +3005,10 @@ export default function TestCasesExecutionProgressPage() {
                               return (
                                 <div className="px-3 py-3 bg-muted/5 border-t border-muted">
                                   <div className="text-sm space-y-3">
-                                    {/* Case ID */}
+                                    {/* Case */}
                                     <div>
                                       <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
-                                      <p className="font-mono text-xs text-primary font-medium">{row.caseId || "—"}</p>
+                                      <p className="text-xs">{row.caseName || "—"}</p>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
