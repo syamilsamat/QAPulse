@@ -10,8 +10,10 @@ import {
   executionFileAuditTable,
   trackersTable,
   usersTable,
+  requirementsTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
+import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./pmo-report";
 
@@ -374,7 +376,7 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
 router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> => {
   try {
     const { ticketId } = req.params;
-    const { newTicketId, newTitle, resetResults = true, copyQaPic = true } = req.body;
+    const { newTicketId, newTitle, resetResults = true, copyQaPic = true, module: targetModule, projectId: targetProjectId, trackerFilter } = req.body;
 
     if (!newTicketId?.trim()) {
       res.status(400).json({ error: "New Ticket ID is required" });
@@ -391,27 +393,63 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
     const sourceTcs = await db.select().from(executionTestCasesTable)
       .where(eq(executionTestCasesTable.executionFileId, sourceFile.id));
 
+    // Check if new ticket already exists locally as a requirement
+    const [existingReq] = await db.select().from(requirementsTable)
+      .where(eq((requirementsTable).redmineTicketId, newTicketId.trim()))
+      .catch(() => [undefined]);
+
+    let requirementId: number | undefined = existingReq?.id;
+    let resolvedTitle = newTitle?.trim() || existingReq?.title || sourceFile.title;
+    let resolvedProjectId = targetProjectId ? Number(targetProjectId) : (existingReq?.projectId ?? sourceFile.projectId);
+    let resolvedTracker = trackerFilter || existingReq?.tracker || sourceFile.tracker;
+    let resolvedModules = targetModule || existingReq?.module || sourceFile.selectedModules;
+
+    // If not found locally and module+projectId provided, sync from Redmine
+    if (!existingReq && targetModule && targetProjectId) {
+      try {
+        const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+        const savedId = await syncRedmineTicket(
+          newTicketId.trim(),
+          targetModule,
+          Number(targetProjectId),
+          undefined,
+          trackerFilter || undefined,
+          apiKey,
+        );
+        requirementId = savedId;
+        // Re-fetch to get the synced title
+        const [synced] = await db.select().from(requirementsTable).where(eq((requirementsTable).id, savedId!)).catch(() => [undefined]);
+        if (synced) {
+          resolvedTitle = newTitle?.trim() || synced.title || sourceFile.title;
+          resolvedTracker = synced.tracker || resolvedTracker;
+        }
+      } catch (syncErr: any) {
+        // Non-fatal: continue with clone even if Redmine sync fails
+        console.warn("[clone] Redmine sync failed:", syncErr?.message);
+      }
+    }
+
     const [newFile] = await db.insert(executionFilesTable).values({
       redmineTicketId: newTicketId.trim(),
-      title: newTitle?.trim() || sourceFile.title,
+      title: resolvedTitle,
       qaPic: sourceFile.qaPic,
       remarks: sourceFile.remarks,
-      selectedModules: sourceFile.selectedModules,
-      tracker: sourceFile.tracker,
-      projectId: sourceFile.projectId,
-      requirementId: sourceFile.requirementId,
+      selectedModules: typeof resolvedModules === "string" ? resolvedModules : (targetModule || sourceFile.selectedModules),
+      tracker: resolvedTracker,
+      projectId: resolvedProjectId ?? null,
+      requirementId: requirementId ?? null,
     }).returning();
 
     if (sourceTcs.length > 0) {
       await db.insert(executionTestCasesTable).values(
         sourceTcs.map(tc => ({
           executionFileId: newFile.id,
-          moduleName: tc.moduleName,
+          moduleName: targetModule || tc.moduleName,
           caseId: tc.caseId,
           testCaseId: tc.testCaseId,
           libraryTcId: tc.libraryTcId,
           userStory: tc.userStory,
-          tracker: (tc as any).tracker,
+          tracker: trackerFilter || (tc as any).tracker,
           scenario: tc.scenario,
           preCondition: tc.preCondition,
           caseName: tc.caseName,
@@ -420,7 +458,6 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
           expectedResult: tc.expectedResult,
           rowOrder: tc.rowOrder,
           qaPic: copyQaPic ? tc.qaPic : null,
-          // reset execution fields
           result: resetResults ? null : tc.result,
           executedAt: resetResults ? null : tc.executedAt,
           actualResult: resetResults ? null : tc.actualResult,

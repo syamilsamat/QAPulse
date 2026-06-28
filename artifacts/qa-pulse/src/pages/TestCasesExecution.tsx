@@ -465,7 +465,7 @@ export default function TestCasesExecution() {
   // Clone state
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneSourceFile, setCloneSourceFile] = useState<ExecutionFile | null>(null);
-  const [cloneForm, setCloneForm] = useState({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true });
+  const [cloneForm, setCloneForm] = useState({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
   const [cloneTicketMsg, setCloneTicketMsg] = useState<{ type: "info" | "warn" | "error"; text: string } | null>(null);
   const [cloneTicketLoading, setCloneTicketLoading] = useState(false);
   const cloneTicketTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -531,10 +531,36 @@ export default function TestCasesExecution() {
         const r = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, { headers: getHeaders() });
         const d = await r.json();
         if (d.found && d.requirement) {
-          setCloneForm(f => ({ ...f, newTitle: f.newTitle || d.requirement.title || "" }));
-          setCloneTicketMsg({ type: "info", text: `Found: "${d.requirement.title}"` });
+          const req = d.requirement;
+          setCloneForm(f => ({
+            ...f,
+            newTitle: f.newTitle || req.title || "",
+            projectId: req.projectId ? String(req.projectId) : f.projectId,
+            module: req.module || f.module,
+            trackerFilter: req.tracker || f.trackerFilter,
+          }));
+          setCloneTicketMsg({ type: "info", text: `Found: "${req.title}"` });
         } else {
-          setCloneTicketMsg({ type: "warn", text: "Not found locally — enter a title manually or leave blank to reuse source title" });
+          // Try Redmine directly for title + tracker only
+          try {
+            const rr = await fetch(`${getApiUrl()}/pmo/redmine/${ticketId}`, { headers: getHeaders() });
+            if (rr.ok) {
+              const rd = await rr.json();
+              const subject = rd.issue?.subject || rd.subject || "";
+              const tracker = rd.issue?.tracker?.name || rd.tracker?.name || "";
+              setCloneForm(f => ({
+                ...f,
+                newTitle: f.newTitle || subject || "",
+                trackerFilter: tracker || f.trackerFilter,
+                // Project and Module intentionally NOT auto-filled from Redmine
+              }));
+              setCloneTicketMsg({ type: "warn", text: `Not in local requirements — fetched from Redmine. Select Project & Module below.` });
+            } else {
+              setCloneTicketMsg({ type: "warn", text: "Ticket not found. Fill title, Project, Module, and Tracker manually." });
+            }
+          } catch {
+            setCloneTicketMsg({ type: "warn", text: "Not found locally — enter details manually or leave blank to reuse source." });
+          }
         }
       } catch { setCloneTicketMsg(null); }
       finally { setCloneTicketLoading(false); }
@@ -554,6 +580,9 @@ export default function TestCasesExecution() {
           newTitle: cloneForm.newTitle.trim() || undefined,
           resetResults: cloneForm.resetResults,
           copyQaPic: cloneForm.copyQaPic,
+          module: cloneForm.module || undefined,
+          projectId: cloneForm.projectId ? Number(cloneForm.projectId) : undefined,
+          trackerFilter: cloneForm.trackerFilter || undefined,
         }),
       });
       if (!r.ok) {
@@ -565,7 +594,7 @@ export default function TestCasesExecution() {
       toast({ title: `Cloned successfully — ${newFile.tcCount} test cases copied` });
       setCloneOpen(false);
       setCloneSourceFile(null);
-      setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true });
+      setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
       setCloneTicketMsg(null);
       const refreshed = await fetchExecutionFiles();
       setFiles(refreshed);
@@ -1193,7 +1222,7 @@ export default function TestCasesExecution() {
                           onClick={e => {
                             e.stopPropagation();
                             setCloneSourceFile(f);
-                            setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true });
+                            setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
                             setCloneTicketMsg(null);
                             setCloneOpen(true);
                           }}>
@@ -1808,7 +1837,44 @@ export default function TestCasesExecution() {
             </div>
             <div className="space-y-1.5">
               <Label>New Title <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input placeholder="Auto-filled from Redmine..." value={cloneForm.newTitle} onChange={e => setCloneForm(f => ({ ...f, newTitle: e.target.value }))} />
+              <Input placeholder="Auto-filled from Redmine or source..." value={cloneForm.newTitle} onChange={e => setCloneForm(f => ({ ...f, newTitle: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Project <span className="text-destructive">*</span></Label>
+                <SearchableSelect
+                  value={cloneForm.projectId}
+                  onValueChange={v => setCloneForm(f => ({ ...f, projectId: v }))}
+                  placeholder="Select project..."
+                  options={projects.map(p => ({ value: String(p.id), label: p.name }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <SearchableSelect
+                  value={cloneForm.trackerFilter}
+                  onValueChange={v => setCloneForm(f => ({ ...f, trackerFilter: v }))}
+                  placeholder="Any tracker"
+                  options={[
+                    { value: "", label: "Any tracker" },
+                    ...trackers.map(t => ({ value: t.name, label: t.name })),
+                    ...(cloneForm.trackerFilter && !trackers.some(t => t.name === cloneForm.trackerFilter)
+                      ? [{ value: cloneForm.trackerFilter, label: cloneForm.trackerFilter }] : []),
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Module</Label>
+              <SearchableSelect
+                value={cloneForm.module}
+                onValueChange={v => setCloneForm(f => ({ ...f, module: v }))}
+                placeholder="Select module (optional)..."
+                options={[
+                  { value: "", label: "Same as source" },
+                  ...modules.map(m => ({ value: m.name, label: m.name })),
+                ]}
+              />
             </div>
             <div className="space-y-2 pt-1 border-t">
               <label className="flex items-center gap-3 cursor-pointer">
