@@ -302,20 +302,23 @@ const RESULT_PILLS = [
   { value: "Not Executed", bg: "transparent", border: "#B4B2A9", color: "#5F5E5A" },
 ];
 
-function ResultPills({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function ResultPills({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
   return (
     <div className="flex flex-wrap gap-1 p-1">
       {RESULT_PILLS.map(p => (
         <button
           key={p.value}
           type="button"
-          onClick={() => onChange(p.value)}
+          disabled={disabled}
+          onClick={() => !disabled && onChange(p.value)}
           style={{
             background: value === p.value ? p.bg : "transparent",
             border: `1.5px solid ${value === p.value ? p.border : "var(--border)"}`,
             color: value === p.value ? p.color : "var(--muted-foreground)",
             borderRadius: 20, padding: "2px 10px",
-            fontSize: 11, fontWeight: value === p.value ? 500 : 400, cursor: "pointer",
+            fontSize: 11, fontWeight: value === p.value ? 500 : 400,
+            cursor: disabled ? "default" : "pointer",
+            opacity: disabled ? 0.6 : 1,
           }}
         >
           {p.value}
@@ -465,7 +468,7 @@ const DesktopTableRow = React.memo(
           }
         </td>
         <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
-          <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} />
+          <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
         </td>
         {!hide("executedAt") && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
@@ -607,7 +610,7 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Result
             </Label>
-            <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} />
+            <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
           </div>
         </div>
 
