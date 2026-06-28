@@ -559,7 +559,7 @@ const DesktopTableRow = React.memo(
           }
         </td>
         <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
-          {canEdit ? (
+          {canEdit && !isQaMember ? (
             <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
           ) : (
             <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
@@ -748,7 +748,7 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Result
             </Label>
-            {canEdit ? (
+            {canEdit && !isQaMember ? (
               <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
             ) : (
               <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
@@ -2711,7 +2711,7 @@ export default function TestCasesExecutionProgressPage() {
                                   <div className="space-y-5">
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-bold text-muted-foreground uppercase">Result</Label>
-                                      {canEdit ? (
+                                      {canEdit && !isQaMember ? (
                                         <div className="flex flex-wrap gap-2">
                                           {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
                                             <button
@@ -2844,7 +2844,7 @@ export default function TestCasesExecutionProgressPage() {
                                 <div className="border-t border-border/50 pt-4 space-y-4">
                                   <div className="space-y-2">
                                     <Label className="text-[10px] font-bold text-muted-foreground uppercase">Result</Label>
-                                    {canEdit ? (
+                                    {canEdit && !isQaMember ? (
                                       <div className="flex flex-wrap gap-2">
                                         {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
                                           <button
