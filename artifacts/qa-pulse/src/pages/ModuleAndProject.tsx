@@ -12,6 +12,7 @@ import {
   updateModule,
   type ExecutionModule,
   syncTrackersFromRedmine,
+
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -72,6 +73,8 @@ import {
   Users,
   UserPlus,
   Mail,
+  BookOpen,
+  Pencil,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -105,12 +108,74 @@ interface ContactRow {
   redmineId?: number | null;
 }
 
+interface DocRegEntry {
+  id: number;
+  projectName: string;
+  moduleName: string;
+  tracker: string;
+  refNo: string;
+}
+
 export default function ModuleAndProject() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isLeadOrAdmin = user?.role === "admin" || user?.role === "qa_lead";
   const itemsPerPage = 10;
   const qc = useQueryClient();
+
+  // =========================
+  // DOCUMENT REGISTER STATE
+  // =========================
+  const [docRegEntries, setDocRegEntries] = useState<DocRegEntry[]>([]);
+  const emptyDocReg = { projectName: "", moduleName: "", tracker: "", refNo: "" };
+  const [docRegForm, setDocRegForm] = useState(emptyDocReg);
+  const [editingDocRegId, setEditingDocRegId] = useState<number | null>(null);
+  const [showDocRegForm, setShowDocRegForm] = useState(false);
+  const [isSavingDocReg, setIsSavingDocReg] = useState(false);
+
+  useEffect(() => {
+    fetch(`${getApiUrl()}/document-register`)
+      .then((r) => r.json())
+      .then((data) => setDocRegEntries(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
+  const handleSaveDocReg = async () => {
+    if (!docRegForm.projectName || !docRegForm.moduleName || !docRegForm.refNo) return;
+    setIsSavingDocReg(true);
+    try {
+      const url = editingDocRegId ? `${getApiUrl()}/document-register/${editingDocRegId}` : `${getApiUrl()}/document-register`;
+      const method = editingDocRegId ? "PUT" : "POST";
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(docRegForm) });
+      const saved = await r.json();
+      if (!r.ok) throw new Error(saved?.error ?? `HTTP ${r.status}`);
+      if (editingDocRegId) {
+        setDocRegEntries((prev) => prev.map((e) => (e.id === editingDocRegId ? saved : e)));
+      } else {
+        setDocRegEntries((prev) => [...prev, saved]);
+      }
+      setDocRegForm(emptyDocReg);
+      setEditingDocRegId(null);
+      setShowDocRegForm(false);
+      toast({ title: "Document register saved" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Failed to save entry", description: err?.message ?? String(err) });
+    } finally {
+      setIsSavingDocReg(false);
+    }
+  };
+
+  const handleDeleteDocReg = async (id: number) => {
+    await fetch(`${getApiUrl()}/document-register/${id}`, { method: "DELETE" }).catch(() => {});
+    setDocRegEntries((prev) => prev.filter((e) => e.id !== id));
+    toast({ title: "Entry deleted" });
+  };
+
+  const handleEditDocReg = (entry: DocRegEntry) => {
+    setDocRegForm({ projectName: entry.projectName, moduleName: entry.moduleName, tracker: entry.tracker, refNo: entry.refNo });
+    setEditingDocRegId(entry.id);
+    setShowDocRegForm(true);
+  };
 
   // =========================
   // REDMINE INTEGRATION STATE
@@ -571,6 +636,9 @@ export default function ModuleAndProject() {
               <Users className="w-4 h-4" /> Team Members
             </TabsTrigger>
           )}
+          <TabsTrigger value="doc-register" className="gap-2">
+            <BookOpen className="w-4 h-4" /> Document Register
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="projects">
@@ -1166,6 +1234,112 @@ export default function ModuleAndProject() {
             </Card>
           </TabsContent>
         )}
+
+        <TabsContent value="doc-register">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BookOpen className="w-4 h-4" /> Document Register
+              </CardTitle>
+              <CardDescription>Map Project + Module + Tracker to a Ref No for Excel generation (Doc Info sheet).</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {docRegEntries.length > 0 && (
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium">Project</th>
+                        <th className="text-left px-3 py-2 font-medium">Module</th>
+                        <th className="text-left px-3 py-2 font-medium">Tracker</th>
+                        <th className="text-left px-3 py-2 font-medium">Ref No</th>
+                        <th className="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {docRegEntries.map((e) => (
+                        <tr key={e.id} className="border-t">
+                          <td className="px-3 py-2">{e.projectName}</td>
+                          <td className="px-3 py-2">{e.moduleName}</td>
+                          <td className="px-3 py-2">{e.tracker}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{e.refNo}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex gap-1 justify-end">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEditDocReg(e)}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => handleDeleteDocReg(e.id)}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {showDocRegForm ? (
+                <div className="border rounded-md p-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Project</Label>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        value={docRegForm.projectName}
+                        onChange={(e) => setDocRegForm((f) => ({ ...f, projectName: e.target.value }))}
+                      >
+                        <option value="">Select project...</option>
+                        {projects.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Module</Label>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        value={docRegForm.moduleName}
+                        onChange={(e) => setDocRegForm((f) => ({ ...f, moduleName: e.target.value }))}
+                      >
+                        <option value="">Select module...</option>
+                        {modules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Tracker</Label>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        value={docRegForm.tracker}
+                        onChange={(e) => setDocRegForm((f) => ({ ...f, tracker: e.target.value }))}
+                      >
+                        <option value="">Select tracker...</option>
+                        <option value="CR">CR</option>
+                        <option value="SIT">SIT</option>
+                        <option value="UAT">UAT</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Ref No</Label>
+                      <Input placeholder="e.g. BSB-QA-FWCMS-153-CRD-V1.0" value={docRegForm.refNo} onChange={(e) => setDocRegForm((f) => ({ ...f, refNo: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="gap-1.5" onClick={handleSaveDocReg} disabled={isSavingDocReg}>
+                      <Check className="w-3.5 h-3.5" /> {isSavingDocReg ? "Saving..." : "Save"}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => { setShowDocRegForm(false); setDocRegForm(emptyDocReg); setEditingDocRegId(null); }}>
+                      <X className="w-3.5 h-3.5" /> Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button size="sm" variant="outline" className="gap-2" onClick={() => setShowDocRegForm(true)}>
+                  <Plus className="w-3.5 h-3.5" /> Add Entry
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
       </Tabs>
 

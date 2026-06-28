@@ -10,9 +10,11 @@ import {
   executionFileAuditTable,
   trackersTable,
   usersTable,
+  requirementsTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
-import { buildTestCaseExcel, trackerCode } from "./excel-builder";
+import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
+import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./pmo-report";
 
 const router: IRouter = Router();
@@ -364,6 +366,122 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
     res.status(204).send();
   } catch {
     res.status(500).json({ error: "Failed to delete execution file" });
+  }
+});
+
+/* ────────────────────────────────
+   CLONE EXECUTION FILE
+   ──────────────────────────────── */
+
+router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> => {
+  try {
+    const { ticketId } = req.params;
+    const { newTicketId, newTitle, resetResults = true, copyQaPic = true, module: targetModule, projectId: targetProjectId, trackerFilter } = req.body;
+
+    if (!newTicketId?.trim()) {
+      res.status(400).json({ error: "New Ticket ID is required" });
+      return;
+    }
+
+    const [sourceFile] = await db.select().from(executionFilesTable)
+      .where(eq(executionFilesTable.redmineTicketId, ticketId));
+    if (!sourceFile) {
+      res.status(404).json({ error: "Source execution file not found" });
+      return;
+    }
+
+    const sourceTcs = await db.select().from(executionTestCasesTable)
+      .where(eq(executionTestCasesTable.executionFileId, sourceFile.id));
+
+    // Check if new ticket already exists locally as a requirement
+    const [existingReq] = await db.select().from(requirementsTable)
+      .where(eq((requirementsTable).redmineTicketId, newTicketId.trim()))
+      .catch(() => [undefined]);
+
+    let requirementId: number | undefined = existingReq?.id;
+    let resolvedTitle = newTitle?.trim() || existingReq?.title || sourceFile.title;
+    let resolvedProjectId = targetProjectId ? Number(targetProjectId) : (existingReq?.projectId ?? sourceFile.projectId);
+    let resolvedTracker = trackerFilter || existingReq?.tracker || sourceFile.tracker;
+    let resolvedModules = targetModule || existingReq?.module || sourceFile.selectedModules;
+
+    // If not found locally and module+projectId provided, sync from Redmine
+    if (!existingReq && targetModule && targetProjectId) {
+      try {
+        const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+        const savedId = await syncRedmineTicket(
+          newTicketId.trim(),
+          targetModule,
+          Number(targetProjectId),
+          undefined,
+          trackerFilter || undefined,
+          apiKey,
+        );
+        requirementId = savedId;
+        // Re-fetch to get the synced title
+        const [synced] = await db.select().from(requirementsTable).where(eq((requirementsTable).id, savedId!)).catch(() => [undefined]);
+        if (synced) {
+          resolvedTitle = newTitle?.trim() || synced.title || sourceFile.title;
+          resolvedTracker = synced.tracker || resolvedTracker;
+        }
+      } catch (syncErr: any) {
+        // Non-fatal: continue with clone even if Redmine sync fails
+        console.warn("[clone] Redmine sync failed:", syncErr?.message);
+      }
+    }
+
+    const [newFile] = await db.insert(executionFilesTable).values({
+      redmineTicketId: newTicketId.trim(),
+      title: resolvedTitle,
+      qaPic: sourceFile.qaPic,
+      remarks: sourceFile.remarks,
+      selectedModules: typeof resolvedModules === "string" ? resolvedModules : (targetModule || sourceFile.selectedModules),
+      tracker: resolvedTracker,
+      projectId: resolvedProjectId ?? null,
+      requirementId: requirementId ?? null,
+    }).returning();
+
+    if (sourceTcs.length > 0) {
+      await db.insert(executionTestCasesTable).values(
+        sourceTcs.map(tc => ({
+          executionFileId: newFile.id,
+          moduleName: targetModule || tc.moduleName,
+          caseId: tc.caseId,
+          testCaseId: tc.testCaseId,
+          libraryTcId: tc.libraryTcId,
+          userStory: tc.userStory,
+          tracker: trackerFilter || (tc as any).tracker,
+          scenario: tc.scenario,
+          preCondition: tc.preCondition,
+          caseName: tc.caseName,
+          testSteps: tc.testSteps,
+          testData: tc.testData,
+          expectedResult: tc.expectedResult,
+          rowOrder: tc.rowOrder,
+          qaPic: copyQaPic ? tc.qaPic : null,
+          result: resetResults ? null : tc.result,
+          executedAt: resetResults ? null : tc.executedAt,
+          actualResult: resetResults ? null : tc.actualResult,
+          defectNumber: null,
+          defectScreenshots: null,
+          comments: resetResults ? null : tc.comments,
+        }))
+      );
+    }
+
+    res.status(201).json({
+      id: newFile.id,
+      redmineTicketId: newFile.redmineTicketId,
+      title: newFile.title,
+      clonedFrom: ticketId,
+      tcCount: sourceTcs.length,
+    });
+  } catch (err: any) {
+    if (err?.code === "23505" || err?.message?.includes("unique")) {
+      res.status(409).json({ error: `An execution file for ticket #${req.body.newTicketId} already exists` });
+      return;
+    }
+    console.error("[clone-execution-file]", err);
+    res.status(500).json({ error: "Failed to clone execution file" });
   }
 });
 
@@ -806,12 +924,17 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       : [];
 
     const typeLabel = issueType || "Issue";
+
+    // CR006: AI-generated CAPA items
+    const capaItems = await runCapaAI(ticketId, testCases);
+
     const buffer = await buildTestCaseExcel(testCases, {
       redmineId: ticketId,
       issueType: typeLabel,
       issueSubject: issueSubject || file?.title || "",
       senderName: senderName || undefined,
       activeDefects,
+      capaItems: capaItems.length > 0 ? capaItems : undefined,
       auditEntries: auditRows.map((a: any) => ({
         summary: a.summary,
         updatedByName: a.updatedByName ?? null,

@@ -260,7 +260,7 @@ async function redmineFetchLocal(path: string, apiKey: string) {
   });
 }
 
-async function resolveApiKeyFromToken(authHeader: string | undefined): Promise<string> {
+export async function resolveApiKeyFromToken(authHeader: string | undefined): Promise<string> {
   if (!authHeader?.startsWith("Bearer ")) return process.env.REDMINE_API_KEY ?? "";
   try {
     const payload = verifyToken(authHeader.slice(7));
@@ -270,7 +270,7 @@ async function resolveApiKeyFromToken(authHeader: string | undefined): Promise<s
   return process.env.REDMINE_API_KEY ?? "";
 }
 
-async function syncRedmineTicket(
+export async function syncRedmineTicket(
   ticketId: string,
   targetModule: string,
   targetProjectId: number | undefined,

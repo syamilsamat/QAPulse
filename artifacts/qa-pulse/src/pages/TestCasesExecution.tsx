@@ -39,6 +39,13 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Plus,
@@ -56,6 +63,9 @@ import {
   X as XIcon,
   Settings2,
   Send,
+  Copy,
+  Clock,
+  MoreHorizontal,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -245,23 +255,31 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
     return <span className="text-xs text-muted-foreground italic">No data</span>;
   }
   const { total, passed, failed, blocked, inProgress, notExecuted } = data;
-  const pct = (n: number) => `${Math.round((n / total) * 100)}%`;
+  const pct = (n: number) => Math.round((n / total) * 100);
+  const executedPct = pct(passed + failed + blocked + inProgress);
+  const pctStr = (n: number) => `${pct(n)}%`;
+  const pctColor = executedPct === 100
+    ? (failed === 0 && blocked === 0 ? "text-green-600" : "text-orange-600")
+    : executedPct > 0 ? "text-blue-600" : "text-muted-foreground";
   return (
-    <div className="space-y-1 min-w-[140px]">
-      <div className="flex h-2 rounded-full overflow-hidden w-full bg-muted">
-        {passed > 0 && <div className="bg-green-500" style={{ width: pct(passed) }} title={`Passed: ${passed}`} />}
-        {failed > 0 && <div className="bg-red-500" style={{ width: pct(failed) }} title={`Failed: ${failed}`} />}
-        {blocked > 0 && <div className="bg-orange-400" style={{ width: pct(blocked) }} title={`Blocked: ${blocked}`} />}
-        {inProgress > 0 && <div className="bg-blue-400" style={{ width: pct(inProgress) }} title={`In Progress: ${inProgress}`} />}
-        {notExecuted > 0 && <div className="bg-muted-foreground/20" style={{ width: pct(notExecuted) }} title={`Not Executed: ${notExecuted}`} />}
+    <div className="space-y-1 min-w-[160px]">
+      <div className="flex items-center gap-2">
+        <div className="flex h-2 rounded-full overflow-hidden flex-1 bg-muted">
+          {passed > 0 && <div className="bg-green-500" style={{ width: pctStr(passed) }} title={`Passed: ${passed}`} />}
+          {failed > 0 && <div className="bg-red-500" style={{ width: pctStr(failed) }} title={`Failed: ${failed}`} />}
+          {blocked > 0 && <div className="bg-orange-400" style={{ width: pctStr(blocked) }} title={`Blocked: ${blocked}`} />}
+          {inProgress > 0 && <div className="bg-blue-400" style={{ width: pctStr(inProgress) }} title={`In Progress: ${inProgress}`} />}
+          {notExecuted > 0 && <div className="bg-muted-foreground/20" style={{ width: pctStr(notExecuted) }} title={`Not Executed: ${notExecuted}`} />}
+        </div>
+        <span className={`text-xs font-bold w-9 text-right ${pctColor}`}>{executedPct}%</span>
       </div>
-      <div className="flex gap-1.5 flex-wrap">
-        {passed > 0 && <span className="text-[10px] text-green-700 font-medium">{passed}P</span>}
-        {failed > 0 && <span className="text-[10px] text-red-700 font-medium">{failed}F</span>}
-        {blocked > 0 && <span className="text-[10px] text-orange-600 font-medium">{blocked}B</span>}
-        {inProgress > 0 && <span className="text-[10px] text-blue-600 font-medium">{inProgress}IP</span>}
-        {notExecuted > 0 && <span className="text-[10px] text-muted-foreground">{notExecuted}NE</span>}
-        <span className="text-[10px] text-muted-foreground ml-auto">{total} total</span>
+      <div className="flex gap-2 flex-wrap text-[10px]">
+        {passed > 0 && <span className="text-green-700 font-medium">{passed} Pass</span>}
+        {failed > 0 && <span className="text-red-700 font-medium">{failed} Fail</span>}
+        {blocked > 0 && <span className="text-orange-600 font-medium">{blocked} Block</span>}
+        {inProgress > 0 && <span className="text-blue-600 font-medium">{inProgress} IP</span>}
+        {notExecuted > 0 && <span className="text-muted-foreground">{notExecuted} NE</span>}
+        <span className="text-muted-foreground ml-auto">{total} total</span>
       </div>
     </div>
   );
@@ -452,6 +470,19 @@ export default function TestCasesExecution() {
   const [filesToDelete, setFilesToDelete] = useState<number[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Clone state
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSourceFile, setCloneSourceFile] = useState<ExecutionFile | null>(null);
+  const [cloneForm, setCloneForm] = useState({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+  const [cloneTicketMsg, setCloneTicketMsg] = useState<{ type: "info" | "warn" | "error"; text: string } | null>(null);
+  const [cloneTicketLoading, setCloneTicketLoading] = useState(false);
+  const cloneTicketTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isCloning, setIsCloning] = useState(false);
+
+  // Quick result filter
+  type ResultFilter = "all" | "completed" | "has_failures" | "in_progress" | "not_started";
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
+
   const getHeaders = () => {
     const token = localStorage.getItem("qa_pulse_token");
     return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -488,6 +519,98 @@ export default function TestCasesExecution() {
       .catch(() => toast({ variant: "destructive", title: "Failed to load data" }))
       .finally(() => setIsLoading(false));
   }, [toast]);
+
+  // Clone ticket ID lookup — same logic as New File dialog
+  useEffect(() => {
+    if (!cloneOpen) return;
+    const ticketId = cloneForm.newTicketId.trim();
+    if (!ticketId) { setCloneTicketMsg(null); return; }
+    if (cloneTicketTimer.current) clearTimeout(cloneTicketTimer.current);
+
+    const duplicate = files.find(f => f.redmineTicketId === ticketId);
+    if (duplicate) {
+      setCloneTicketMsg({ type: "error", text: `#${ticketId} already exists (${duplicate.title || "Untitled"})` });
+      return;
+    }
+
+    cloneTicketTimer.current = setTimeout(async () => {
+      setCloneTicketLoading(true);
+      try {
+        const r = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, { headers: getHeaders() });
+        const d = await r.json();
+        if (d.found && d.requirement) {
+          const req = d.requirement;
+          setCloneForm(f => ({
+            ...f,
+            newTitle: f.newTitle || req.title || "",
+            projectId: req.projectId ? String(req.projectId) : f.projectId,
+            module: req.module || f.module,
+            trackerFilter: req.tracker || f.trackerFilter,
+          }));
+          setCloneTicketMsg({ type: "info", text: `Found: "${req.title}"` });
+        } else {
+          // Try Redmine directly for title + tracker only
+          try {
+            const rr = await fetch(`${getApiUrl()}/pmo/redmine/${ticketId}`, { headers: getHeaders() });
+            if (rr.ok) {
+              const rd = await rr.json();
+              const subject = rd.issue?.subject || rd.subject || "";
+              const tracker = rd.issue?.tracker?.name || rd.tracker?.name || "";
+              setCloneForm(f => ({
+                ...f,
+                newTitle: f.newTitle || subject || "",
+                trackerFilter: tracker || f.trackerFilter,
+                // Project and Module intentionally NOT auto-filled from Redmine
+              }));
+              setCloneTicketMsg({ type: "warn", text: `Not in local requirements — fetched from Redmine. Select Project & Module below.` });
+            } else {
+              setCloneTicketMsg({ type: "warn", text: "Ticket not found. Fill title, Project, Module, and Tracker manually." });
+            }
+          } catch {
+            setCloneTicketMsg({ type: "warn", text: "Not found locally — enter details manually or leave blank to reuse source." });
+          }
+        }
+      } catch { setCloneTicketMsg(null); }
+      finally { setCloneTicketLoading(false); }
+    }, 600);
+    return () => { if (cloneTicketTimer.current) clearTimeout(cloneTicketTimer.current); };
+  }, [cloneForm.newTicketId, cloneOpen]);
+
+  const handleClone = async () => {
+    if (!cloneSourceFile || !cloneForm.newTicketId.trim()) return;
+    setIsCloning(true);
+    try {
+      const r = await fetch(`/api/execution-files/${cloneSourceFile.redmineTicketId}/clone`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          newTicketId: cloneForm.newTicketId.trim(),
+          newTitle: cloneForm.newTitle.trim() || undefined,
+          resetResults: cloneForm.resetResults,
+          copyQaPic: cloneForm.copyQaPic,
+          module: cloneForm.module || undefined,
+          projectId: cloneForm.projectId ? Number(cloneForm.projectId) : undefined,
+          trackerFilter: cloneForm.trackerFilter || undefined,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.json();
+        toast({ variant: "destructive", title: err.error || "Clone failed" });
+        return;
+      }
+      const newFile = await r.json();
+      toast({ title: `Cloned successfully — ${newFile.tcCount} test cases copied` });
+      setCloneOpen(false);
+      setCloneSourceFile(null);
+      setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+      setCloneTicketMsg(null);
+      const refreshed = await fetchExecutionFiles();
+      setFiles(refreshed);
+      setLocation(`/test-cases/execution/${newFile.redmineTicketId}`);
+    } catch {
+      toast({ variant: "destructive", title: "Clone failed" });
+    } finally { setIsCloning(false); }
+  };
 
   const getTaskForFile = (f: ExecutionFile) =>
     tasks.find(t => t.redmineId === f.redmineTicketId);
@@ -542,14 +665,33 @@ export default function TestCasesExecution() {
     return sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
   };
 
+  const isStale = (f: ExecutionFile) => {
+    const prog = progress[f.redmineTicketId];
+    if (!prog || prog.total === 0) return false;
+    const executed = prog.passed + prog.failed + prog.blocked + prog.inProgress;
+    if (executed === prog.total) return false; // completed — not stale
+    const daysSince = (Date.now() - new Date(f.updatedAt).getTime()) / 86400000;
+    return daysSince > 3;
+  };
+
   const filteredFiles = useMemo(() => {
     const q = search.toLowerCase();
-    return files.filter(f =>
-      f.redmineTicketId.includes(search) ||
-      f.title?.toLowerCase().includes(q) ||
-      false
-    );
-  }, [files, search]);
+    return files.filter(f => {
+      if (!(f.redmineTicketId.includes(search) || f.title?.toLowerCase().includes(q))) return false;
+      const prog = progress[f.redmineTicketId];
+      if (resultFilter === "completed") {
+        return !!prog && prog.total > 0 && (prog.passed + prog.failed + prog.blocked + prog.inProgress) === prog.total;
+      }
+      if (resultFilter === "has_failures") return !!prog && (prog.failed > 0 || prog.blocked > 0);
+      if (resultFilter === "in_progress") {
+        return !!prog && prog.total > 0 &&
+          (prog.passed + prog.failed + prog.blocked + prog.inProgress) > 0 &&
+          (prog.passed + prog.failed + prog.blocked + prog.inProgress) < prog.total;
+      }
+      if (resultFilter === "not_started") return !prog || prog.total === 0 || (prog.passed + prog.failed + prog.blocked + prog.inProgress) === 0;
+      return true;
+    });
+  }, [files, search, progress, resultFilter]);
 
   const sortedFiles = useMemo(() => {
     return [...filteredFiles].sort((a, b) => {
@@ -879,11 +1021,21 @@ export default function TestCasesExecution() {
     }
   };
 
+  // Overall summary across all files — must be before early return (Rules of Hooks)
+  const overallStats = useMemo(() => {
+    let total = 0, passed = 0, failed = 0, blocked = 0, inProgress = 0;
+    Object.values(progress).forEach(p => {
+      total += p.total; passed += p.passed; failed += p.failed;
+      blocked += p.blocked; inProgress += p.inProgress;
+    });
+    const executed = passed + failed + blocked + inProgress;
+    return { total, passed, failed, blocked, inProgress, executed, pct: total > 0 ? Math.round((executed / total) * 100) : 0 };
+  }, [progress]);
+
   if (isLoading)
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
   const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
-
   const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
 
   return (
@@ -900,20 +1052,59 @@ export default function TestCasesExecution() {
         </Button>
       </div>
 
+      {/* Overall summary banner */}
+      {overallStats.total > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {[
+            { label: "Total TCs", value: overallStats.total, color: "text-foreground" },
+            { label: "Passed", value: overallStats.passed, color: "text-green-600" },
+            { label: "Failed", value: overallStats.failed, color: "text-red-600" },
+            { label: "Blocked", value: overallStats.blocked, color: "text-orange-600" },
+            { label: "Executed %", value: `${overallStats.pct}%`, color: overallStats.pct === 100 ? "text-green-600" : "text-primary" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-card border border-border rounded-lg px-4 py-3 text-center">
+              <div className={`text-2xl font-bold ${color}`}>{value}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-            <CardTitle className="text-lg flex items-center gap-4">
-              Test Case Files
-              {selectedFiles.length > 0 && (
-                <Button variant="destructive" size="sm" className="h-8" onClick={() => confirmDelete(selectedFiles)}>
-                  <Trash2 className="w-4 h-4 mr-2" /> Delete Selected ({selectedFiles.length})
-                </Button>
-              )}
-            </CardTitle>
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search ticket, title..." className="pl-8 h-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <CardTitle className="text-lg flex items-center gap-4">
+                Test Case Files
+                {selectedFiles.length > 0 && (
+                  <Button variant="destructive" size="sm" className="h-8" onClick={() => confirmDelete(selectedFiles)}>
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete Selected ({selectedFiles.length})
+                  </Button>
+                )}
+              </CardTitle>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input placeholder="Search ticket, title..." className="pl-8 h-9" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+            </div>
+            {/* Quick result filter */}
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                { key: "all", label: "All Files" },
+                { key: "in_progress", label: "In Progress" },
+                { key: "has_failures", label: "Has Failures" },
+                { key: "completed", label: "Completed" },
+                { key: "not_started", label: "Not Started" },
+              ] as { key: ResultFilter; label: string }[]).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setResultFilter(opt.key)}
+                  className={`text-xs px-3 py-1 rounded-full border transition-colors ${resultFilter === opt.key ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground hover:bg-muted border-border"}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
         </CardHeader>
@@ -993,22 +1184,30 @@ export default function TestCasesExecution() {
                       )}
                     </TableCell>
                     <TableCell className="border-r border-border text-muted-foreground text-sm">
-                      {format(new Date(f.updatedAt), "dd MMM yyyy, HH:mm")}
+                      <div className="flex items-center gap-1.5">
+                        {format(new Date(f.updatedAt), "dd MMM yyyy, HH:mm")}
+                        {isStale(f) && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 font-medium whitespace-nowrap">
+                            <Clock className="w-2.5 h-2.5" /> Stale
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end items-center gap-1">
+                        <Button variant="ghost" size="sm" title="Open Execution Sheet"
+                          className="text-blue-600 hover:text-blue-800"
+                          onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
                         {task && isFullyExecuted(prog) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Send Verdict Now"
+                          <Button variant="ghost" size="sm" title="Send Verdict Now"
                             className="text-green-600 hover:text-green-800 hover:bg-green-50"
                             onClick={e => {
                               e.stopPropagation();
                               setVerdictFile(f);
                               setSendVerdictOpen(true);
-                            }}
-                          >
+                            }}>
                             <Send className="w-4 h-4" />
                           </Button>
                         )}
@@ -1017,21 +1216,38 @@ export default function TestCasesExecution() {
                           onClick={() => setLocation(`/test-cases/execution-details/${f.redmineTicketId}`)}>
                           <BarChart2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" title="Edit File Info"
-                          className="text-amber-600 hover:text-amber-800 hover:bg-amber-50"
-                          onClick={() => openEditFile(f)}>
-                          <Settings2 className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" title="Open Execution Sheet"
-                          className="text-blue-600 hover:text-blue-800"
-                          onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm"
-                          onClick={() => confirmDelete([f.id])}
-                          className="text-red-600 hover:text-red-800 hover:bg-red-50">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" title="More actions"
+                              className="text-muted-foreground hover:text-primary">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => openEditFile(f)}
+                              className="text-amber-600 focus:text-amber-700">
+                              <Settings2 className="w-4 h-4 mr-2" /> Edit file info
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={e => {
+                                e.stopPropagation();
+                                setCloneSourceFile(f);
+                                setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+                                setCloneTicketMsg(null);
+                                setCloneOpen(true);
+                              }}
+                              className="text-teal-600 focus:text-teal-700">
+                              <Copy className="w-4 h-4 mr-2" /> Clone execution file
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => confirmDelete([f.id])}
+                              className="text-red-600 focus:text-red-700">
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1597,6 +1813,105 @@ export default function TestCasesExecution() {
               await doCreateFile(tcs);
             }}>
               Yes, copy {tcCopyDialog.tcs.length} TC(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clone Dialog */}
+      <Dialog open={cloneOpen} onOpenChange={o => { if (!o) { setCloneOpen(false); setCloneSourceFile(null); setCloneTicketMsg(null); } }}>
+        <DialogContent className="sm:max-w-[480px] w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Copy className="w-4 h-4" /> Clone Execution File</DialogTitle>
+            {cloneSourceFile && (
+              <DialogDescription className="text-xs pt-1">
+                Cloning from <span className="font-semibold text-foreground">#{cloneSourceFile.redmineTicketId}</span>
+                {cloneSourceFile.title ? ` — ${cloneSourceFile.title}` : ""}
+                {progress[cloneSourceFile.redmineTicketId] && (
+                  <span className="ml-1 text-muted-foreground">· {progress[cloneSourceFile.redmineTicketId].total} test cases</span>
+                )}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>New Ticket ID <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                <Input
+                  placeholder="e.g. 38099"
+                  value={cloneForm.newTicketId}
+                  onChange={e => setCloneForm(f => ({ ...f, newTicketId: e.target.value }))}
+                />
+                {cloneTicketLoading && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+              </div>
+              {cloneTicketMsg && (
+                <p className={`text-xs ${cloneTicketMsg.type === "error" ? "text-destructive" : cloneTicketMsg.type === "warn" ? "text-amber-600" : "text-muted-foreground"}`}>
+                  {cloneTicketMsg.text}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>New Title <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input placeholder="Auto-filled from Redmine or source..." value={cloneForm.newTitle} onChange={e => setCloneForm(f => ({ ...f, newTitle: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Project <span className="text-destructive">*</span></Label>
+                <SearchableSelect
+                  value={cloneForm.projectId}
+                  onValueChange={v => setCloneForm(f => ({ ...f, projectId: v }))}
+                  placeholder="Select project..."
+                  options={projects.map(p => ({ value: String(p.id), label: p.name }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <SearchableSelect
+                  value={cloneForm.trackerFilter}
+                  onValueChange={v => setCloneForm(f => ({ ...f, trackerFilter: v }))}
+                  placeholder="Any tracker"
+                  options={[
+                    { value: "", label: "Any tracker" },
+                    ...trackers.map(t => ({ value: t.name, label: t.name })),
+                    ...(cloneForm.trackerFilter && !trackers.some(t => t.name === cloneForm.trackerFilter)
+                      ? [{ value: cloneForm.trackerFilter, label: cloneForm.trackerFilter }] : []),
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Module</Label>
+              <SearchableSelect
+                value={cloneForm.module}
+                onValueChange={v => setCloneForm(f => ({ ...f, module: v }))}
+                placeholder="Select module (optional)..."
+                options={[
+                  { value: "", label: "Same as source" },
+                  ...modules.map(m => ({ value: m.name, label: m.name })),
+                ]}
+              />
+            </div>
+            <div className="space-y-2 pt-1 border-t">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" className="w-4 h-4 rounded" checked={cloneForm.resetResults} onChange={e => setCloneForm(f => ({ ...f, resetResults: e.target.checked }))} />
+                <div>
+                  <p className="text-sm font-medium">Reset results</p>
+                  <p className="text-xs text-muted-foreground">Clear Result, Executed At, Actual Result — start fresh</p>
+                </div>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" className="w-4 h-4 rounded" checked={cloneForm.copyQaPic} onChange={e => setCloneForm(f => ({ ...f, copyQaPic: e.target.checked }))} />
+                <div>
+                  <p className="text-sm font-medium">Copy QA PIC assignments</p>
+                  <p className="text-xs text-muted-foreground">Keep who's assigned to each test case</p>
+                </div>
+              </label>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCloneOpen(false)} disabled={isCloning}>Cancel</Button>
+            <Button onClick={handleClone} disabled={!cloneForm.newTicketId.trim() || isCloning} className="gap-2">
+              {isCloning ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloning...</> : <><Copy className="w-4 h-4" /> Clone</>}
             </Button>
           </DialogFooter>
         </DialogContent>

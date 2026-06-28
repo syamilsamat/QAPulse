@@ -1,8 +1,8 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, ilike } from "drizzle-orm";
 import { execSync } from "child_process";
-import { buildTestCaseExcel, trackerCode } from "./excel-builder";
+import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 
 let nodemailer: any = null;
 try {
@@ -63,7 +63,16 @@ import {
   executionFilesTable,
   executionTestCasesTable,
   executionFileAuditTable,
+  documentRegisterTable,
+  projectsTable,
 } from "@workspace/db";
+
+function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
+  const t = (tracker ?? "").toLowerCase();
+  if (t.includes("uat")) return "UAT";
+  if (t.includes("sit")) return "SIT";
+  return "CR";
+}
 
 let mysql2: any = null;
 try {
@@ -1564,6 +1573,9 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       const activeDefects = await fetchActiveDefectsForIssue(String(redmineId));
       console.log(`[send-verdict] activeDefects count=${activeDefects.length}`);
 
+      const allDefects = await fetchAllQaDefectsForIssue(String(redmineId));
+      console.log(`[send-verdict] allDefects count=${allDefects.length}`);
+
       // CR003: fetch audit entries for Doc Info
       const auditRows = execFile
         ? await db
@@ -1574,12 +1586,45 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
             .catch(() => [] as any[])
         : [];
 
+      // CR006: AI-generated CAPA items
+      const capaItems = await runCapaAI(String(redmineId), testCases, allDefects.length > 0 ? allDefects : undefined);
+
+      // Document register — look up Ref No by project + module + tracker
+      let refNo: string | undefined;
+      try {
+        const [proj] = execFile?.projectId
+          ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, execFile.projectId))
+          : [];
+        const moduleName = proj?.name ?? projectName ?? "";
+        const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
+        const [regEntry] = await db
+          .select()
+          .from(documentRegisterTable)
+          .where(
+            and(
+              ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
+              ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
+              eq(documentRegisterTable.tracker, tracker),
+            )
+          )
+          .limit(1);
+        if (regEntry) {
+          refNo = regEntry.refNo;
+          console.log(`[send-verdict] refNo=${refNo} (project=${projectName} module=${moduleName} tracker=${tracker})`);
+        }
+      } catch (err) {
+        console.warn("[send-verdict] document register lookup failed:", err);
+      }
+
       const xlsxBuffer = await buildTestCaseExcel(testCases, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",
         senderName: senderName ?? undefined,
         activeDefects,
+        allDefects: allDefects.length > 0 ? allDefects : undefined,
+        capaItems: capaItems.length > 0 ? capaItems : undefined,
+        refNo,
         auditEntries: auditRows.map((a: any) => ({
           summary: a.summary,
           updatedByName: a.updatedByName ?? null,
@@ -1640,6 +1685,94 @@ export async function fetchActiveDefectsForIssue(issueId: string): Promise<any[]
     if (!data) data = await reportFromRedmineAPI(issueId);
     return (data?.activeDefects as any[]) ?? [];
   } catch {
+    return [];
+  }
+}
+
+// Fetches ALL QA Defects under a parent (all statuses, including closed) for Pareto AI.
+// Uses MySQL if available (no status filter), else Redmine API with status_id=*.
+export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<{ id: number; subject: string; status: string; category?: string; dueDate: string | null; closedOn: string | null }>> {
+  // Try MySQL first — same query as reportFromMySQL but without the status_id !== 11 filter
+  if (mysql2) {
+    const cfg = {
+      host: process.env.REDMINE_DB_HOST ?? "10.10.4.130",
+      port: parseInt(process.env.REDMINE_DB_PORT ?? "3306"),
+      user: process.env.REDMINE_DB_USER ?? "bestqa",
+      password: process.env.REDMINE_DB_PASSWORD ?? "",
+      database: process.env.REDMINE_DB_NAME ?? "redmine",
+      connectTimeout: 8000,
+    };
+    let conn: any = null;
+    try {
+      conn = await mysql2.createConnection(cfg);
+      const [rows] = (await conn.query(
+        `SELECT i.id, i.subject, i.due_date, i.closed_on,
+                s.name AS status, t.name AS tracker, c.name AS category
+         FROM issues i
+         LEFT JOIN issue_statuses s    ON s.id = i.status_id
+         LEFT JOIN trackers t          ON t.id = i.tracker_id
+         LEFT JOIN issue_categories c  ON c.id = i.category_id
+         WHERE i.parent_id = ?
+         ORDER BY i.id`,
+        [issueId],
+      )) as [any[], any];
+      const result = (rows as any[])
+        .filter((r) => isDefectTracker(r.tracker ?? ""))
+        .map((r) => ({
+          id: r.id, subject: r.subject ?? "", status: r.status ?? "", category: r.category ?? "",
+          dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
+          closedOn: r.closed_on ? new Date(r.closed_on).toISOString().slice(0, 10) : null,
+        }));
+      console.log(`[fetchAllQaDefectsForIssue] MySQL returned ${result.length} QA defects for issue ${issueId}`);
+      return result;
+    } catch (err) {
+      console.warn(`[fetchAllQaDefectsForIssue] MySQL failed, falling back to API:`, err);
+    } finally {
+      if (conn) await conn.end().catch(() => {});
+    }
+  }
+
+  // Redmine API fallback — QA Defects may be nested under sub-tasks of the parent,
+  // so we fetch two levels deep (direct children + their children) to find all defects.
+  const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
+  const apiKey = process.env.REDMINE_API_KEY ?? "";
+  if (!baseUrl || !apiKey) return [];
+  try {
+    const headers = { "X-Redmine-API-Key": apiKey, Accept: "application/json" };
+
+    const fetchChildren = async (parentId: string | number, statusId: string): Promise<any[]> => {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 12000);
+      const r = await fetch(`${baseUrl}/issues.json?parent_id=${parentId}&status_id=${statusId}&limit=100`, { headers, signal: ctrl.signal });
+      if (!r.ok) return [];
+      const data: any = await r.json();
+      return (data?.issues ?? []) as any[];
+    };
+
+    // Level 1: direct children (open + closed)
+    const [l1Open, l1Closed] = await Promise.all([fetchChildren(issueId, "open"), fetchChildren(issueId, "closed")]);
+    const l1All = [...l1Open, ...l1Closed];
+    const seen = new Set<number>(l1All.map(i => i.id));
+
+    // Level 2: children of non-QA-Defect direct children (the containers)
+    const containers = l1All.filter(i => !isDefectTracker(i.tracker?.name ?? ""));
+    const l2Results = await Promise.all(
+      containers.map(c => Promise.all([fetchChildren(c.id, "open"), fetchChildren(c.id, "closed")]).then(([o, cl]) => [...o, ...cl]))
+    );
+    const l2All = l2Results.flat().filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+
+    const allIssues = [...l1All, ...l2All];
+    console.log(`[fetchAllQaDefectsForIssue] API l1=${l1All.length} l2=${l2All.length} total=${allIssues.length}`);
+
+    return allIssues
+      .filter((i: any) => isDefectTracker(i.tracker?.name ?? ""))
+      .map((i: any) => ({
+        id: i.id, subject: i.subject ?? "", status: i.status?.name ?? "", category: i.category?.name ?? "",
+        dueDate: i.due_date ?? null,
+        closedOn: i.closed_on ?? null,
+      }));
+  } catch (err) {
+    console.warn(`[fetchAllQaDefectsForIssue] API failed:`, err);
     return [];
   }
 }

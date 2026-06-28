@@ -14,8 +14,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
-  RefreshCw, Bug, Save,
+  RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, XIcon,
 } from "lucide-react";
+
+interface DocRegEntry {
+  id: number;
+  projectName: string;
+  moduleName: string;
+  tracker: string;
+  refNo: string;
+}
 
 interface RedmineProject {
   id: number;
@@ -68,6 +76,14 @@ export default function Settings() {
   const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+
+  // Document Register
+  const [docRegEntries, setDocRegEntries] = useState<DocRegEntry[]>([]);
+  const emptyDocReg = { projectName: "", moduleName: "", tracker: "CR", refNo: "" };
+  const [docRegForm, setDocRegForm] = useState(emptyDocReg);
+  const [editingDocRegId, setEditingDocRegId] = useState<number | null>(null);
+  const [showDocRegForm, setShowDocRegForm] = useState(false);
+  const [isSavingDocReg, setIsSavingDocReg] = useState(false);
 
   const updateMutation = useUpdateUser({
     mutation: {
@@ -155,6 +171,48 @@ export default function Settings() {
       })
       .catch(() => {});
   }, [isLeadOrAdmin]);
+
+  useEffect(() => {
+    fetch("/api/document-register")
+      .then((r) => r.json())
+      .then((data) => setDocRegEntries(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
+  const handleSaveDocReg = async () => {
+    if (!docRegForm.projectName || !docRegForm.moduleName || !docRegForm.refNo) return;
+    setIsSavingDocReg(true);
+    try {
+      const url = editingDocRegId ? `/api/document-register/${editingDocRegId}` : "/api/document-register";
+      const method = editingDocRegId ? "PUT" : "POST";
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(docRegForm) });
+      const saved = await r.json();
+      if (editingDocRegId) {
+        setDocRegEntries((prev) => prev.map((e) => (e.id === editingDocRegId ? saved : e)));
+      } else {
+        setDocRegEntries((prev) => [...prev, saved]);
+      }
+      setDocRegForm(emptyDocReg);
+      setEditingDocRegId(null);
+      setShowDocRegForm(false);
+      toast({ title: "Document register saved" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to save entry" });
+    } finally {
+      setIsSavingDocReg(false);
+    }
+  };
+
+  const handleDeleteDocReg = async (id: number) => {
+    await fetch(`/api/document-register/${id}`, { method: "DELETE" }).catch(() => {});
+    setDocRegEntries((prev) => prev.filter((e) => e.id !== id));
+  };
+
+  const handleEditDocReg = (entry: DocRegEntry) => {
+    setDocRegForm({ projectName: entry.projectName, moduleName: entry.moduleName, tracker: entry.tracker, refNo: entry.refNo });
+    setEditingDocRegId(entry.id);
+    setShowDocRegForm(true);
+  };
 
   const [isSavingRedmineKey, setIsSavingRedmineKey] = useState(false);
 

@@ -373,6 +373,41 @@ const TableAutoTextarea = ({
   );
 };
 
+// --- RESULT PILLS ---
+const RESULT_PILLS = [
+  { value: "Passed",       bg: "#E1F5EE", border: "#9FE1CB", color: "#085041" },
+  { value: "Failed",       bg: "#FCEBEB", border: "#F7C1C1", color: "#791F1F" },
+  { value: "Blocked",      bg: "#FAEEDA", border: "#FAC775", color: "#633806" },
+  { value: "In Progress",  bg: "#E6F1FB", border: "#B5D4F4", color: "#0C447C" },
+  { value: "Not Executed", bg: "transparent", border: "#B4B2A9", color: "#5F5E5A" },
+];
+
+function ResultPills({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <div className="flex flex-wrap gap-1 p-1">
+      {RESULT_PILLS.map(p => (
+        <button
+          key={p.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange(p.value)}
+          style={{
+            background: value === p.value ? p.bg : "transparent",
+            border: `1.5px solid ${value === p.value ? p.border : "var(--border)"}`,
+            color: value === p.value ? p.color : "var(--muted-foreground)",
+            borderRadius: 20, padding: "2px 10px",
+            fontSize: 11, fontWeight: value === p.value ? 500 : 400,
+            cursor: disabled ? "default" : "pointer",
+            opacity: disabled ? 0.6 : 1,
+          }}
+        >
+          {p.value}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // --- MEMOIZED ROW COMPONENTS FOR PERFORMANCE ---
 interface RowProps {
   row: AppExecutionTestCase;
@@ -392,6 +427,8 @@ interface RowProps {
   qaUsers: ExecutionUser[];
   hiddenCols: Set<string>;
   currentUser: { id: number; name: string; role: string } | null;
+  mode: "execute" | "edit";
+  isDirty: boolean;
 }
 
 const DesktopTableRow = React.memo(
@@ -409,9 +446,16 @@ const DesktopTableRow = React.memo(
     qaUsers,
     hiddenCols,
     currentUser,
+    mode,
+    isDirty,
   }: RowProps) => {
     const hide = (col: string) => hiddenCols.has(col);
     const defectIds = parseDefectIds(row.defectNumber || "");
+    const readOnly = mode === "execute";
+
+    const roCell = (value: string | undefined) => (
+      <span className="text-xs text-foreground whitespace-pre-wrap">{value || <span className="italic opacity-40">—</span>}</span>
+    );
 
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
@@ -421,79 +465,109 @@ const DesktopTableRow = React.memo(
     return (
       <tr
         className={`hover:bg-muted/10 group align-top ${isQaMember && !canEdit ? "opacity-60" : ""}`}
+        style={{ borderLeft: isDirty ? "3px solid #378ADD" : "3px solid transparent" }}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             onBlurRow(row.id as string | number);
           }
         }}
       >
-        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
-          <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-            checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
-            <option value="">Select...</option>
-            {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
-          </select>
-        </td>
+        {!readOnly && (
+          <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-card py-2 sticky left-0 z-20">
+            <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+              checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
+          </td>
+        )}
+        {!readOnly && (
+          <td className="border border-border p-0 align-top sticky left-10 z-20 bg-card">
+            <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
+              <option value="">Select...</option>
+              {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </td>
+        )}
         {!hide("testCaseId") && (
-          <td className="border border-border px-2 py-2 align-top">
+          <td
+            className="border border-border px-2 py-2 align-top sticky bg-card z-20"
+            style={{ left: readOnly ? 0 : "14.5rem" }}
+          >
             <span className="text-xs text-muted-foreground font-mono select-all">{row.testCaseId || "—"}</span>
           </td>
         )}
         {!hide("userStory") && (
           <td className="border border-border p-0 relative align-top">
-            <TableAutoTextarea className={tableInputClass} value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.userStory)}</div>
+              : <TableAutoTextarea className={tableInputClass} value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            }
           </td>
         )}
         {!hide("tracker") && (
           <td className="border border-border p-0 relative align-top">
-            <select className={tableSelectClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}>
-              <option value="">Select...</option>
-              {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-              {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
-                <option value={row.tracker}>{row.tracker}</option>
-              )}
-            </select>
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.tracker)}</div>
+              : <select className={tableSelectClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}>
+                  <option value="">Select...</option>
+                  {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                    <option value={row.tracker}>{row.tracker}</option>
+                  )}
+                </select>
+            }
           </td>
         )}
         {!hide("scenario") && (
           <td className="border border-border p-0 relative align-top">
-            <CopilotTextarea className={tableInputClass} value={row.scenario || ""} fieldName="Scenario" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.scenario)}</div>
+              : <CopilotTextarea className={tableInputClass} value={row.scenario || ""} fieldName="Scenario" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+            }
           </td>
         )}
         {!hide("preCondition") && (
           <td className="border border-border p-0 relative align-top">
-            <TableAutoTextarea className={tableInputClass} value={row.preCondition || ""} onChange={(e) => onUpdate(row.id as string, "preCondition", e.target.value)} />
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.preCondition)}</div>
+              : <TableAutoTextarea className={tableInputClass} value={row.preCondition || ""} onChange={(e) => onUpdate(row.id as string, "preCondition", e.target.value)} />
+            }
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea className={tableInputClass} value={row.caseName || ""} fieldName="Case Name" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
+          {readOnly
+            ? <div className="px-2 py-2">{roCell(row.caseName)}</div>
+            : <CopilotTextarea className={tableInputClass} value={row.caseName || ""} fieldName="Case Name" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
+          }
         </td>
         <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+          {readOnly
+            ? <div className="px-2 py-2">{roCell(row.testSteps)}</div>
+            : <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+          }
         </td>
         {!hide("testData") && (
           <td className="border border-border p-0 relative align-top">
-            <TableAutoTextarea className={tableInputClass} value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.testData)}</div>
+              : <TableAutoTextarea className={tableInputClass} value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            }
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
-          <CopilotTextarea className={tableInputClass} value={row.expectedResult || ""} fieldName="Expected Results" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
+          {readOnly
+            ? <div className="px-2 py-2">{roCell(row.expectedResult)}</div>
+            : <CopilotTextarea className={tableInputClass} value={row.expectedResult || ""} fieldName="Expected Results" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
+          }
         </td>
         <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
           {canEdit ? (
-            <select className={`${tableSelectClass} font-bold`} value={row.result || ""} onChange={(e) => onUpdate(row.id as string, "result", e.target.value)}>
-              {RESULT_OPTIONS.map((r) => <option key={r} value={r}>{r || "Select..."}</option>)}
-            </select>
+            <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
           ) : (
             <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
           )}
         </td>
         {!hide("executedAt") && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
-            {row.executedAt ? new Date(row.executedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+            {row.executedAt ? format(new Date(row.executedAt), "dd MMM HH:mm") : "—"}
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
@@ -559,29 +633,31 @@ const DesktopTableRow = React.memo(
             </select>
           )}
         </td>
-        <td className="border border-border p-0 text-center align-top pt-2">
-          <div className="flex flex-col items-center gap-1">
-            {!row.libraryTcId && (
+        {!readOnly && (
+          <td className="border border-border p-0 text-center align-top pt-2">
+            <div className="flex flex-col items-center gap-1">
+              {!row.libraryTcId && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Promote to Library"
+                  className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                  onClick={() => onPromote(row)}
+                >
+                  <Library className="w-4 h-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
-                title="Promote to Library"
-                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
-                onClick={() => onPromote(row)}
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                onClick={() => onDelete(row.id as string | number)}
               >
-                <Library className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" />
               </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-              onClick={() => onDelete(row.id as string | number)}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
-        </td>
+            </div>
+          </td>
+        )}
       </tr>
     );
   },
@@ -601,7 +677,10 @@ const MobileCardRow = React.memo(
     qaUsers,
     hiddenCols,
     currentUser,
+    mode,
+    isDirty,
   }: RowProps) => {
+    const readOnly = mode === "execute";
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
@@ -610,22 +689,25 @@ const MobileCardRow = React.memo(
     return (
       <Card
         className={`p-3 space-y-3 shadow-sm relative transition-colors ${isSelected ? "bg-primary/5 border-primary/30" : ""}`}
+        style={{ borderLeft: isDirty ? "3px solid #378ADD" : undefined }}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             onBlurRow(row.id as string | number);
           }
         }}
       >
-        <div className="absolute top-2 right-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive h-8 w-8"
-            onClick={() => onDelete(row.id as string | number)}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="absolute top-2 right-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive h-8 w-8"
+              onClick={() => onDelete(row.id as string | number)}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mb-1">
           <input
@@ -667,19 +749,7 @@ const MobileCardRow = React.memo(
               Result
             </Label>
             {canEdit ? (
-              <select
-                className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
-                value={row.result || ""}
-                onChange={(e) =>
-                  onUpdate(row.id as string, "result", e.target.value)
-                }
-              >
-                {RESULT_OPTIONS.map((r) => (
-                  <option key={r} value={r}>
-                    {r || "Pending"}
-                  </option>
-                ))}
-              </select>
+              <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
             ) : (
               <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
                 {row.result || "—"}
@@ -701,13 +771,10 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Redmine Ticket ID
             </Label>
-            <TableAutoTextarea
-              className="min-h-[60px] text-xs md:text-xs p-2"
-              value={row.userStory || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "userStory", e.target.value)
-              }
-            />
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.userStory || "—"}</p>
+              : <TableAutoTextarea className="min-h-[60px] text-xs md:text-xs p-2" value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            }
           </div>
         </div>
 
@@ -716,98 +783,78 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Tracker
             </Label>
-            <select
-              className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-              value={row.tracker || ""}
-              onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}
-            >
-              <option value="">Select...</option>
-              {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-              {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
-                <option value={row.tracker}>{row.tracker}</option>
-              )}
-            </select>
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.tracker || "—"}</p>
+              : <select
+                  className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                  value={row.tracker || ""}
+                  onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                    <option value={row.tracker}>{row.tracker}</option>
+                  )}
+                </select>
+            }
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Test Data
             </Label>
-            <TableAutoTextarea
-              className="min-h-[40px] text-xs md:text-xs p-2"
-              value={row.testData || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "testData", e.target.value)
-              }
-            />
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.testData || "—"}</p>
+              : <TableAutoTextarea className="min-h-[40px] text-xs md:text-xs p-2" value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            }
           </div>
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Scenario <Sparkles className="w-3 h-3 text-primary" />
+            Scenario {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.scenario}
-              fieldName="Scenario"
-              minHeight="60px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "scenario", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.scenario || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.scenario} fieldName="Scenario" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+              </div>
+          }
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Case <Sparkles className="w-3 h-3 text-primary" />
+            Case {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.caseName}
-              fieldName="Case Name"
-              minHeight="60px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "caseName", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.caseName || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.caseName} fieldName="Case Name" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
+              </div>
+          }
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Steps <Sparkles className="w-3 h-3 text-primary" />
+            Steps {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.testSteps}
-              fieldName="Test Steps"
-              minHeight="80px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "testSteps", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.testSteps || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+              </div>
+          }
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Expected Result <Sparkles className="w-3 h-3 text-primary" />
+            Expected Result {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.expectedResult}
-              fieldName="Expected Result"
-              minHeight="60px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "expectedResult", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.expectedResult || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.expectedResult} fieldName="Expected Result" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
+              </div>
+          }
         </div>
 
         <div className="grid grid-cols-2 gap-3 pt-2 border-t mt-2">
@@ -889,7 +936,7 @@ const MobileCardRow = React.memo(
 
         <div className="space-y-1 pt-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Additional/Comments/Issues
+            QA Notes
           </Label>
           {canEdit ? (
             <TableAutoTextarea
@@ -984,6 +1031,7 @@ export default function TestCasesExecutionProgressPage() {
   const [moduleFilters, setModuleFilters] = useState<string[]>([]);
   const [resultFilters, setResultFilters] = useState<string[]>([]);
   const [qaFilters, setQaFilters] = useState<string[]>([]);
+  const hasSetDefaultQaFilter = useRef(false);
 
   // Defect creation modal
   const [defectModalOpen, setDefectModalOpen] = useState(false);
@@ -992,6 +1040,9 @@ export default function TestCasesExecutionProgressPage() {
 
   // Linked task warning
   const [linkedTask, setLinkedTask] = useState<{ name: string; status: string; type?: string; projectName?: string | null } | null | undefined>(undefined);
+
+  // Execute / Edit mode — always defaults to "execute" on file open
+  const [mode, setMode] = useState<"execute" | "edit">("execute");
 
   // Column visibility
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
@@ -1153,6 +1204,9 @@ export default function TestCasesExecutionProgressPage() {
                 return existing.join(", ");
               })(),
               actualResult: result.actualResult,
+              comments: result.actualResult
+                ? [row.comments, `Actual Result(#${result.redmineIssueId}): ${result.actualResult}`].filter(Boolean).join("\n\n")
+                : row.comments,
               defectScreenshots: result.screenshots,
             }
           : row,
@@ -1220,6 +1274,16 @@ export default function TestCasesExecutionProgressPage() {
 
     return () => clearInterval(interval);
   }, [ticketId]);
+
+  // Default QA filter: only for qa_member — show own rows + unassigned; other roles see everything
+  useEffect(() => {
+    if (!hasSetDefaultQaFilter.current && currentUser?.name) {
+      hasSetDefaultQaFilter.current = true;
+      if (currentUser.role === "qa_member") {
+        setQaFilters([currentUser.name, ""]);
+      }
+    }
+  }, [currentUser]);
 
   // Merge server rows into local state — skips dirty rows so unsaved changes aren't overwritten
   const mergeServerData = useCallback((serverRows: AppExecutionTestCase[]) => {
@@ -1971,6 +2035,12 @@ export default function TestCasesExecutionProgressPage() {
         testCaseId={defectRow?.testCaseId ?? undefined}
         expectedResult={defectRow?.expectedResult ?? undefined}
         parentIssueId={ticketId ?? null}
+        onSkip={() => {
+          setDefectModalOpen(false);
+          pendingFailRowIdRef.current = null;
+          setPendingFailRowId(null);
+          // Result stays "Failed" — user will log defect later
+        }}
       />
 
       {/* CAPA Intelligence Dialog */}
@@ -2252,18 +2322,34 @@ export default function TestCasesExecutionProgressPage() {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {selectedRows.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center">
+          {mode === "edit" && selectedRows.length > 0 && (
             <Button
               variant="destructive"
               size="sm"
               onClick={() => confirmDeleteMulti(selectedRows)}
               className="flex-1 lg:flex-none gap-2"
             >
-              <Trash2 className="w-4 h-4" /> Delete Selected (
-              {selectedRows.length})
+              <Trash2 className="w-4 h-4" /> Delete Selected ({selectedRows.length})
             </Button>
           )}
+
+          {/* Mode toggle */}
+          <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium">
+            <button
+              onClick={() => setMode("execute")}
+              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+            >
+              Execute
+            </button>
+            <button
+              onClick={() => setMode("edit")}
+              className={`px-3 py-1.5 transition-colors ${mode === "edit" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+            >
+              Edit test cases
+            </button>
+          </div>
+
           <input
             type="file"
             accept=".xlsx, .xls"
@@ -2271,67 +2357,58 @@ export default function TestCasesExecutionProgressPage() {
             ref={fileInputRef}
             onChange={handleImportExcel}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
-            className="flex-1 lg:flex-none gap-2"
-          >
-            {isImporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4" />
+
+          {/* Utilities */}
+          <div className="flex gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="gap-2"
+            >
+              {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              Import
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadExcel}
+              disabled={isDownloading}
+              className="gap-2"
+            >
+              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {isDownloading ? "Downloading..." : "Download"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCapaAnalysis}
+              className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+            >
+              <Sparkles className="w-4 h-4" /> CAPA AI
+            </Button>
+          </div>
+
+          <div className="w-px h-6 bg-border hidden lg:block" />
+
+          {/* Mode-gated + primary */}
+          <div className="flex gap-1.5">
+            {mode === "edit" && (
+              <Button variant="outline" size="sm" onClick={openPullDialog} className="gap-2">
+                <FileSpreadsheet className="w-4 h-4" /> Pull from Library
+              </Button>
             )}
-            Import
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownloadExcel}
-            disabled={isDownloading}
-            className="flex-1 lg:flex-none gap-2"
-          >
-            {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {isDownloading ? "Downloading..." : "Download"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCapaAnalysis}
-            className="flex-1 lg:flex-none gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
-          >
-            <Sparkles className="w-4 h-4" /> CAPA AI
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={openPullDialog}
-            className="flex-1 lg:flex-none gap-2"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Pull from Library
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleAddRow}
-            className="flex-1 lg:flex-none gap-2"
-          >
-            <Plus className="w-4 h-4" /> Add Row
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving}
-            size="sm"
-            className="w-full lg:w-auto gap-2"
-          >
-            {isSaving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}{" "}
-            Save
-          </Button>
+            {mode === "edit" && (
+              <Button variant="secondary" size="sm" onClick={handleAddRow} className="gap-2">
+                <Plus className="w-4 h-4" /> Add Row
+              </Button>
+            )}
+            <Button onClick={handleSave} disabled={isSaving} size="sm" className="gap-2">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -2358,6 +2435,14 @@ export default function TestCasesExecutionProgressPage() {
         <div className="shrink-0 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>No linked task found for Ticket #{ticketId}. Create a task in the Tasks page first to track this execution properly.</span>
+        </div>
+      )}
+
+      {/* EDIT MODE WARNING BANNER */}
+      {mode === "edit" && (
+        <div className="shrink-0 flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-3 py-2 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>You're editing the execution copy. Changes won't update the library TC.</span>
         </div>
       )}
 
@@ -2504,7 +2589,7 @@ export default function TestCasesExecutionProgressPage() {
               { key: "preCondition", label: "Pre Condition" },
               { key: "testData", label: "Test Data" },
               { key: "executedAt", label: "Executed At" },
-              { key: "comments", label: "Comments" },
+              { key: "comments", label: "QA Notes" },
             ].map(col => (
               <label key={col.key} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
                 <input type="checkbox" className="rounded border-gray-300 w-3 h-3"

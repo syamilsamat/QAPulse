@@ -1,6 +1,181 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { TEST_CASE_TEMPLATE_B64 } from "./test-case-template-data";
+async function fetchQaDefectsForCapa(parentId: string): Promise<Array<{ id: number; subject: string; status: string; dueDate: string | null; closedOn: string | null }>> {
+  const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
+  const apiKey = process.env.REDMINE_API_KEY ?? "";
+  if (!baseUrl || !apiKey) return [];
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 10000);
+    const r = await fetch(`${baseUrl}/issues.json?parent_id=${parentId}&status_id=*&limit=100`, {
+      headers: { "X-Redmine-API-Key": apiKey, Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!r.ok) return [];
+    const data: any = await r.json();
+    const issues: any[] = data?.issues ?? [];
+    return issues
+      .filter(i => (i.tracker?.name ?? "").toLowerCase().includes("qa defect"))
+      .map(i => ({
+        id: i.id,
+        subject: i.subject ?? "",
+        status: i.status?.name ?? "",
+        dueDate: i.due_date ?? null,
+        closedOn: i.closed_on ?? null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export async function runCapaAI(ticketId: string, testCases: any[], prefetchedDefects?: Array<{ id: number; subject: string; status: string; dueDate: string | null; closedOn: string | null }>): Promise<CapaAiItem[]> {
+  try {
+    const failures = testCases.filter(tc => ["failed", "blocked"].includes((tc.result ?? "").toLowerCase()));
+    const qaDefects = prefetchedDefects && prefetchedDefects.length > 0
+      ? prefetchedDefects
+      : await fetchQaDefectsForCapa(ticketId);
+    console.log(`[runCapaAI] ticket=${ticketId} total=${testCases.length} failures=${failures.length} qaDefects=${qaDefects.length} (source: ${prefetchedDefects?.length ? "prefetched" : "api"})`);
+    if (failures.length === 0 && qaDefects.length === 0) return [];
+
+    // Cap at 10 failures; shorten each entry
+    const capped = failures.slice(0, 10);
+    const tcList = capped.length > 0
+      ? `Failed/Blocked TCs:\n` + capped.map(tc =>
+          `[${tc.testCaseId ?? "?"}] ${(tc.caseName ?? "Unnamed").slice(0, 80)} | ${tc.moduleName ?? "?"} | ${tc.result}`
+        ).join("\n")
+      : "";
+
+    const defectList = qaDefects.length > 0
+      ? `\nQA Defects (all statuses):\n` + qaDefects.map(d =>
+          `[#${d.id}] ${d.subject.slice(0, 80)} | Status: ${d.status} | Due: ${d.dueDate ?? "none"} | Closed: ${d.closedOn ?? "open"}`
+        ).join("\n")
+      : "";
+
+    const systemPrompt = `You are a QA engineer writing a CAPA report. Analyse the failed test cases and QA defects provided.
+Group related issues into max 5 CAPA items. For each item provide: analysisPoint (what area failed), rootCause, correctiveAction, preventiveAction, plannedDate (ISO date from defect due_date if available), actualClosureDate (ISO date from defect closed_on if available).
+Return ONLY valid JSON: { "items": [{ "sl": 1, "analysisPoint": "...", "rootCause": "...", "correctiveAction": "...", "preventiveAction": "...", "plannedDate": "YYYY-MM-DD or null", "actualClosureDate": "YYYY-MM-DD or null" }] }
+Keep each text field under 20 words.`;
+    const userPrompt = `Ticket: #${ticketId}\n${tcList}${defectList}`;
+
+    let content = "";
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const genai = new GoogleGenAI({});
+      const resp = await genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      });
+      content = resp.text ?? "";
+      console.log(`[runCapaAI] Gemini response length=${content.length}`);
+    } catch (geminiErr) {
+      console.warn("[runCapaAI] Gemini failed, trying OpenRouter:", geminiErr);
+      const key = process.env.OPENROUTER_API_KEY;
+      if (key) {
+        const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "meta-llama/llama-3.2-3b-instruct:free", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 2048, response_format: { type: "json_object" } }),
+        });
+        const d = await resp.json();
+        content = d.choices?.[0]?.message?.content ?? "";
+        console.log(`[runCapaAI] OpenRouter response length=${content.length}`);
+      }
+    }
+
+    const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    console.log(`[runCapaAI] parsed items=${parsed?.items?.length ?? 0}`);
+    return Array.isArray(parsed?.items) ? parsed.items : [];
+  } catch (err) {
+    console.error("[runCapaAI] error:", err);
+    return [];
+  }
+}
+
+const PARETO_CATEGORIES = [
+  "UI / UX",
+  "Business Logic",
+  "Data Validation",
+  "Integration / API",
+  "Performance",
+  "Security",
+  "Missing Functionality",
+  "Configuration / Environment",
+  "Others",
+];
+
+export async function runParetoAI(parentId: string, prefetchedDefects?: Array<{ id: number; subject: string }>): Promise<Array<{ name: string; count: number }>> {
+  try {
+    const defects = prefetchedDefects && prefetchedDefects.length > 0
+      ? prefetchedDefects
+      : await fetchQaDefectsForCapa(parentId);
+    if (defects.length === 0) return [];
+
+    const systemPrompt = `You are a QA analyst. Classify each defect subject into exactly one of these categories: ${PARETO_CATEGORIES.join(", ")}.
+Return ONLY valid JSON: { "classifications": [{ "id": <number>, "category": "<category>" }] }`;
+    const userPrompt = `Defects:\n` + defects.map(d => `[${d.id}] ${d.subject}`).join("\n");
+
+    let content = "";
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const genai = new GoogleGenAI({});
+      const resp = await genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      });
+      content = resp.text ?? "";
+      console.log(`[runParetoAI] Gemini response length=${content.length}`);
+    } catch (geminiErr) {
+      console.warn("[runParetoAI] Gemini failed, trying OpenRouter:", geminiErr);
+      const key = process.env.OPENROUTER_API_KEY;
+      if (key) {
+        const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "meta-llama/llama-3.2-3b-instruct:free",
+            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+            max_tokens: 2048,
+            response_format: { type: "json_object" },
+          }),
+        });
+        const d = await resp.json();
+        content = d.choices?.[0]?.message?.content ?? "";
+        console.log(`[runParetoAI] OpenRouter response length=${content.length}`);
+      }
+    }
+
+    if (!content) return [];
+    const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const classifications: Array<{ id: number; category: string }> = parsed?.classifications ?? [];
+
+    const map = new Map<string, number>();
+    for (const c of classifications) {
+      const cat = PARETO_CATEGORIES.includes(c.category) ? c.category : "Others";
+      map.set(cat, (map.get(cat) ?? 0) + 1);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  } catch (err) {
+    console.error("[runParetoAI] error:", err);
+    return [];
+  }
+}
 
 let XlsxPopulate: any = null;
 try {
@@ -75,6 +250,16 @@ export interface AuditEntry {
   tcCount?: number;
 }
 
+export interface CapaAiItem {
+  sl: number;
+  analysisPoint: string;
+  rootCause?: string;
+  correctiveAction?: string;
+  preventiveAction?: string;
+  plannedDate?: string;
+  actualClosureDate?: string;
+}
+
 export interface ExcelBuildOptions {
   // Doc Info + sheet rename
   redmineId?: string;
@@ -85,6 +270,12 @@ export interface ExcelBuildOptions {
   activeDefects?: DefectForExcel[];
   // CR003: audit trail for Doc Info change history rows
   auditEntries?: AuditEntry[];
+  // CR006: AI-generated CAPA items
+  capaItems?: CapaAiItem[];
+  // All QA defects (all statuses) for Pareto AI — passed from send-verdict to avoid a second Redmine API call
+  allDefects?: DefectForExcel[];
+  // Document register ref no e.g. "BSB-QA-FWCMS-153-CRD-V1.0"
+  refNo?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -145,14 +336,14 @@ function buildTestCaseExcelFallback(
 ): Buffer | null {
   if (!XlsxSheetJS) return null;
 
-  const { redmineId, issueType, issueSubject, senderName, activeDefects = [] } = options;
+  const { redmineId, issueType, issueSubject, senderName, activeDefects = [], capaItems, refNo } = options;
   const wb = XlsxSheetJS.utils.book_new();
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
   // Doc Info
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([
     ["Project:", `${issueType ?? "Issue"} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`],
-    ["Ref No:", `QA-${redmineId}`],
+    ["Ref No:", refNo ?? `QA-${redmineId}`],
     ["Date:", today],
   ]), "Doc Info");
 
@@ -188,7 +379,10 @@ function buildTestCaseExcelFallback(
 
   // CAPA
   const capaHeaders = ["Sl #", "Analysis Points Observed", "Corrective Action Identified", "Preventive Action Identified", "Planned Closure Date", "Actual Closure Date"];
-  const capaData = buildCapaRows(testCases, activeDefects).map((r) => [r.sl, r.analysisPoint, "", "", r.plannedDate, ""]);
+  const baseCapaRows = buildCapaRows(testCases, activeDefects);
+  const capaData = capaItems && capaItems.length > 0
+    ? capaItems.map((ai, i) => [ai.sl ?? i + 1, ai.analysisPoint ?? "", ai.correctiveAction ?? "", ai.preventiveAction ?? "", ai.plannedDate ?? "", ai.actualClosureDate ?? ""])
+    : baseCapaRows.map(r => [r.sl, r.analysisPoint, "", "", r.plannedDate, ""]);
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([capaHeaders, ...capaData]), "CAPA");
 
   return XlsxSheetJS.write(wb, { type: "buffer", bookType: "xlsx" });
@@ -217,7 +411,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -227,7 +421,7 @@ export async function buildTestCaseExcel(
     if (docSheet) {
       if (redmineId) {
         docSheet.cell("D5").value(`${issueType ?? "Issue"} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`);
-        docSheet.cell("G4").value(`Ref. No.: QA-${redmineId}`);
+        docSheet.cell("G4").value(`Ref. No.: ${refNo ?? `QA-${redmineId}`}`);
       }
       const entries: AuditEntry[] = auditEntries && auditEntries.length > 0
         ? auditEntries
@@ -317,13 +511,22 @@ export async function buildTestCaseExcel(
         paSheet.cell(`C${33 + i}`).value("");
         paSheet.cell(`D${33 + i}`).value(null);
       }
-      if (activeDefects.length > 0) {
-        const categories = buildParetoCategories(activeDefects).slice(0, 15);
-        categories.forEach(({ name, count }, i) => {
-          paSheet.cell(`C${33 + i}`).value(name);
-          paSheet.cell(`D${33 + i}`).value(count);
-        });
+      // AI categorisation: use pre-fetched allDefects (all statuses) passed from send-verdict,
+      // or fall back to a fresh Redmine fetch via runParetoAI.
+      let paretoCategories: Array<{ name: string; count: number }> = [];
+      if (redmineId) {
+        paretoCategories = await runParetoAI(redmineId, allDefects);
+        console.log(`[buildTestCaseExcel] Pareto AI categories=${paretoCategories.length} (source: ${allDefects?.length ? "prefetched" : "api"})`);
       }
+      // Fallback to Redmine category/status grouping if AI returned nothing
+      if (paretoCategories.length === 0 && activeDefects.length > 0) {
+        paretoCategories = buildParetoCategories(activeDefects);
+        console.log(`[buildTestCaseExcel] Pareto fallback categories=${paretoCategories.length}`);
+      }
+      paretoCategories.slice(0, 15).forEach(({ name, count }, i) => {
+        paSheet.cell(`C${33 + i}`).value(name);
+        paSheet.cell(`D${33 + i}`).value(count);
+      });
     }
 
     // ── CAPA ───────────────────────────────────────────────────────────────────
@@ -333,12 +536,27 @@ export async function buildTestCaseExcel(
     const capaSheet = wb.sheet("CAPA");
     if (capaSheet) {
       const capaRows = buildCapaRows(testCases, activeDefects);
-      capaRows.forEach(({ sl, analysisPoint, plannedDate }, i) => {
-        const row = 4 + i;
-        capaSheet.cell(`B${row}`).value(sl);
-        capaSheet.cell(`C${row}`).value(analysisPoint);
-        if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
-      });
+      console.log(`[excel-builder] CAPA rows=${capaRows.length} capaItems=${capaItems?.length ?? 0}`);
+      if (capaItems && capaItems.length > 0) {
+        // AI mode: use AI items directly — each item is one CAPA row
+        capaItems.forEach((ai, i) => {
+          const row = 4 + i;
+          capaSheet.cell(`B${row}`).value(ai.sl ?? i + 1);
+          capaSheet.cell(`C${row}`).value(ai.analysisPoint ?? "");
+          if (ai.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
+          if (ai.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
+          if (ai.plannedDate) capaSheet.cell(`F${row}`).value(ai.plannedDate);
+          if (ai.actualClosureDate) capaSheet.cell(`G${row}`).value(ai.actualClosureDate);
+        });
+      } else {
+        // Fallback: existing logic without AI
+        capaRows.forEach(({ sl, analysisPoint, plannedDate }, i) => {
+          const row = 4 + i;
+          capaSheet.cell(`B${row}`).value(sl);
+          capaSheet.cell(`C${row}`).value(analysisPoint);
+          if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
+        });
+      }
     }
 
     const out = await wb.outputAsync();
