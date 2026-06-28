@@ -2810,9 +2810,9 @@ export default function TestCasesExecutionProgressPage() {
                                         }
                                       </div>
                                       <div>
-                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
                                         {mode === "edit"
-                                          ? <Textarea className="min-h-[40px] text-sm" value={row.scenario || ""} onChange={e => updateCell(row.id as string | number, "scenario", e.target.value)} />
+                                          ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.scenario || ""} fieldName="Scenario" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "scenario", val)} />
                                           : <p className="text-sm whitespace-pre-wrap">{row.scenario || "—"}</p>
                                         }
                                       </div>
@@ -2821,16 +2821,16 @@ export default function TestCasesExecutionProgressPage() {
                                     {/* Row 2: Pre-Condition | Test Data */}
                                     <div className="grid grid-cols-2 gap-4">
                                       <div>
-                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
                                         {mode === "edit"
-                                          ? <Textarea className="min-h-[40px] text-sm" value={row.preCondition || ""} onChange={e => updateCell(row.id as string | number, "preCondition", e.target.value)} />
+                                          ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.preCondition || ""} fieldName="Pre-Condition" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "preCondition", val)} />
                                           : <p className="text-sm whitespace-pre-wrap">{row.preCondition || "—"}</p>
                                         }
                                       </div>
                                       <div>
-                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
                                         {mode === "edit"
-                                          ? <Textarea className="min-h-[40px] text-sm" value={row.testData || ""} onChange={e => updateCell(row.id as string | number, "testData", e.target.value)} />
+                                          ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.testData || ""} fieldName="Test Data" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "testData", val)} />
                                           : <p className="text-sm whitespace-pre-wrap">{row.testData || "—"}</p>
                                         }
                                       </div>
@@ -2839,16 +2839,16 @@ export default function TestCasesExecutionProgressPage() {
                                     {/* Steps table — bordered only here */}
                                     <div className="border border-border rounded-md overflow-hidden">
                                       <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                        <div className={headCls}>Test Step</div>
-                                        <div className={headCls}>Expected Result</div>
+                                        <div className={headCls}>Test Step {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                        <div className={headCls}>Expected Result {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
                                       </div>
                                       {mode === "edit" ? (
                                         <div className={`grid grid-cols-2 ${dividerX}`}>
                                           <div className="p-3">
-                                            <Textarea className="min-h-[80px] text-sm" value={row.testSteps || ""} onChange={e => updateCell(row.id as string | number, "testSteps", e.target.value)} />
+                                            <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} />
                                           </div>
                                           <div className="p-3">
-                                            <Textarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} onChange={e => updateCell(row.id as string | number, "expectedResult", e.target.value)} />
+                                            <CopilotTextarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} fieldName="Expected Result" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "expectedResult", val)} />
                                           </div>
                                         </div>
                                       ) : (
