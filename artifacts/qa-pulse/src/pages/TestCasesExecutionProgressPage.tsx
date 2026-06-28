@@ -41,6 +41,8 @@ import {
   Library,
   ChevronDown,
   ChevronRight,
+  LayoutList,
+  Table2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -1043,6 +1045,13 @@ export default function TestCasesExecutionProgressPage() {
 
   // Execute / Edit mode — always defaults to "execute" on file open
   const [mode, setMode] = useState<"execute" | "edit">("execute");
+
+  // View layout preference — read from localStorage per user
+  const [viewLayout, setViewLayout] = useState<"tree" | "spreadsheet">(() => {
+    const userId = currentUser?.id;
+    if (!userId) return "tree";
+    return (localStorage.getItem(`qa_pulse_exec_view_${userId}`) as "tree" | "spreadsheet") ?? "tree";
+  });
 
   // Column visibility
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
@@ -2350,6 +2359,32 @@ export default function TestCasesExecutionProgressPage() {
             </button>
           </div>
 
+          {/* View layout toggle */}
+          <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium" title="Switch view layout">
+            <button
+              onClick={() => {
+                const next = "tree";
+                setViewLayout(next);
+                if (currentUser?.id) localStorage.setItem(`qa_pulse_exec_view_${currentUser.id}`, next);
+              }}
+              className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${viewLayout === "tree" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+              title="Tree view"
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                const next = "spreadsheet";
+                setViewLayout(next);
+                if (currentUser?.id) localStorage.setItem(`qa_pulse_exec_view_${currentUser.id}`, next);
+              }}
+              className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${viewLayout === "spreadsheet" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+              title="Spreadsheet view"
+            >
+              <Table2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <input
             type="file"
             accept=".xlsx, .xls"
@@ -2609,7 +2644,76 @@ export default function TestCasesExecutionProgressPage() {
       </div>
 
       {/* DESKTOP TREE VIEW */}
-      <Card className="hidden lg:block flex-1 overflow-y-auto border rounded-md shadow-sm min-h-[450px]">
+      {viewLayout === "spreadsheet" && (
+        <Card className="hidden lg:flex flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]">
+          {filteredData.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8">
+              <Search className="w-10 h-10 mb-4 opacity-20" />
+              <p>No test cases match your current filters.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto bg-card">
+              <table className="w-full text-sm border-collapse min-w-[2840px]">
+                <thead className="sticky top-0 z-30 bg-muted shadow-sm">
+                  <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {mode === "edit" && (
+                      <th className="border border-border w-10 p-2 text-center sticky left-0 z-40 bg-muted">
+                        <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                          checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
+                          onChange={(e) => handleSelectAll(e.target.checked)} />
+                      </th>
+                    )}
+                    {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-40 bg-muted">Module</th>}
+                    {!hiddenCols.has("testCaseId") && (
+                      <th className="border border-border w-48 p-2 text-left sticky bg-muted z-30" style={{ left: mode === "edit" ? "14.5rem" : 0 }}>
+                        Test Case ID
+                      </th>
+                    )}
+                    {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
+                    {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
+                    {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
+                    {!hiddenCols.has("preCondition") && <th className="border border-border w-48 p-2 text-left">Pre Condition</th>}
+                    <th className="border border-border w-64 p-2 text-left">Case <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    <th className="border border-border w-64 p-2 text-left">Steps <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    {!hiddenCols.has("testData") && <th className="border border-border w-48 p-2 text-left">Test Data</th>}
+                    <th className="border border-border w-64 p-2 text-left">Expected Result <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
+                    {!hiddenCols.has("executedAt") && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
+                    <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
+                    {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">QA Notes</th>}
+                    <th className="border border-border w-48 p-2 text-left">QA PIC</th>
+                    {mode === "edit" && <th className="border border-border w-10 p-2"></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((row, index) => (
+                    <DesktopTableRow
+                      key={row.id as string}
+                      row={row}
+                      index={index}
+                      isSelected={selectedRows.includes(row.id as string | number)}
+                      onToggleSelect={handleSelectRow}
+                      isDirty={dirtyRowIds.has(row.id as string | number)}
+                      onUpdate={updateCell}
+                      onBlurRow={handleBlurRow}
+                      onDelete={requestSingleDelete}
+                      onPromote={openPromoteDialog}
+                      availableModules={availableModules}
+                      availableTrackers={availableTrackers}
+                      qaUsers={qaUsers}
+                      mode={mode}
+                      hiddenCols={hiddenCols}
+                      currentUser={currentUser}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card className={`${viewLayout === "tree" ? "hidden lg:block" : "hidden"} flex-1 overflow-y-auto border rounded-md shadow-sm min-h-[450px]`}>
         {filteredData.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground p-8 h-full">
             <Search className="w-10 h-10 mb-4 opacity-20" />
@@ -2783,7 +2887,7 @@ export default function TestCasesExecutionProgressPage() {
         )}
       </Card>
 
-      {/* MOBILE TREE VIEW */}
+      {/* MOBILE VIEW (always card-based) */}
       <div className="lg:hidden flex-1 flex flex-col overflow-y-auto min-h-[450px] pb-4">
         {filteredData.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground p-8 border border-dashed rounded-lg">
