@@ -1101,11 +1101,13 @@ export default function TestCasesExecutionProgressPage() {
     return () => clearInterval(interval);
   }, [ticketId]);
 
-  // Default QA filter: current user + unassigned — applied once after login info is ready
+  // Default QA filter: only for qa_member — show own rows + unassigned; other roles see everything
   useEffect(() => {
     if (!hasSetDefaultQaFilter.current && currentUser?.name) {
       hasSetDefaultQaFilter.current = true;
-      setQaFilters([currentUser.name, ""]);
+      if (currentUser.role === "qa_member") {
+        setQaFilters([currentUser.name, ""]);
+      }
     }
   }, [currentUser]);
 
