@@ -2788,6 +2788,15 @@ export default function TestCasesExecutionProgressPage() {
                                 <div className="p-4 bg-muted/10 border-b border-muted">
                                   <div className="text-sm space-y-4">
 
+                                    {/* Case ID */}
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case ID</div>
+                                      {mode === "edit"
+                                        ? <input className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.caseId || ""} onChange={e => updateCell(row.id as string | number, "caseId", e.target.value)} placeholder="e.g. TC-001" />
+                                        : <p className="font-mono text-sm text-primary font-medium">{row.caseId || "—"}</p>
+                                      }
+                                    </div>
+
                                     {/* Row 1: Module | Scenario */}
                                     <div className="grid grid-cols-2 gap-4">
                                       <div>
@@ -2996,6 +3005,11 @@ export default function TestCasesExecutionProgressPage() {
                               return (
                                 <div className="px-3 py-3 bg-muted/5 border-t border-muted">
                                   <div className="text-sm space-y-3">
+                                    {/* Case ID */}
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case ID</div>
+                                      <p className="font-mono text-xs text-primary font-medium">{row.caseId || "—"}</p>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-3">
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div><p className="text-xs whitespace-pre-wrap">{row.scenario || "—"}</p></div>
