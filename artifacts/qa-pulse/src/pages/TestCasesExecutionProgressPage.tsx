@@ -505,20 +505,20 @@ const DesktopTableRow = React.memo(
             {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
           </select>
         </td>
-        <td className="border border-border p-0 text-center align-top pt-2">
-          <div className="flex flex-col items-center gap-1">
-            {!readOnly && !row.libraryTcId && (
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Promote to Library"
-                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
-                onClick={() => onPromote(row)}
-              >
-                <Library className="w-4 h-4" />
-              </Button>
-            )}
-            {!readOnly && (
+        {!readOnly && (
+          <td className="border border-border p-0 text-center align-top pt-2">
+            <div className="flex flex-col items-center gap-1">
+              {!row.libraryTcId && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Promote to Library"
+                  className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                  onClick={() => onPromote(row)}
+                >
+                  <Library className="w-4 h-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -527,9 +527,9 @@ const DesktopTableRow = React.memo(
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
-            )}
-          </div>
-        </td>
+            </div>
+          </td>
+        )}
       </tr>
     );
   },
@@ -2484,7 +2484,7 @@ export default function TestCasesExecutionProgressPage() {
                   <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
                   {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">Comments</th>}
                   <th className="border border-border w-48 p-2 text-left">QA PIC</th>
-                  <th className="border border-border w-10 p-2"></th>
+                  {mode === "edit" && <th className="border border-border w-10 p-2"></th>}
                 </tr>
               </thead>
               <tbody>
