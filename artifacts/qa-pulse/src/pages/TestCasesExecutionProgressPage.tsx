@@ -2443,7 +2443,7 @@ export default function TestCasesExecutionProgressPage() {
         ) : (
           <div className="flex-1 overflow-auto bg-card">
             <table className="w-full text-sm border-collapse min-w-[2840px]">
-              <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
+              <thead className="sticky top-0 z-30 bg-muted shadow-sm">
                 <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   {mode === "edit" && (
                     <th className="border border-border w-10 p-2 text-center sticky left-0 z-40 bg-muted">
