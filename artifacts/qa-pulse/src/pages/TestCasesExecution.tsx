@@ -534,7 +534,7 @@ export default function TestCasesExecution() {
           setCloneForm(f => ({ ...f, newTitle: f.newTitle || d.requirement.title || "" }));
           setCloneTicketMsg({ type: "info", text: `Found: "${d.requirement.title}"` });
         } else {
-          setCloneTicketMsg({ type: "warn", text: "Not found locally — will be fetched from Redmine on clone" });
+          setCloneTicketMsg({ type: "warn", text: "Not found locally — enter a title manually or leave blank to reuse source title" });
         }
       } catch { setCloneTicketMsg(null); }
       finally { setCloneTicketLoading(false); }
