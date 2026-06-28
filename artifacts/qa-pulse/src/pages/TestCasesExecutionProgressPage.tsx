@@ -631,13 +631,10 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Redmine Ticket ID
             </Label>
-            <TableAutoTextarea
-              className="min-h-[60px] text-xs md:text-xs p-2"
-              value={row.userStory || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "userStory", e.target.value)
-              }
-            />
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.userStory || "—"}</p>
+              : <TableAutoTextarea className="min-h-[60px] text-xs md:text-xs p-2" value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            }
           </div>
         </div>
 
@@ -646,98 +643,78 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Tracker
             </Label>
-            <select
-              className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-              value={row.tracker || ""}
-              onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}
-            >
-              <option value="">Select...</option>
-              {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-              {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
-                <option value={row.tracker}>{row.tracker}</option>
-              )}
-            </select>
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.tracker || "—"}</p>
+              : <select
+                  className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                  value={row.tracker || ""}
+                  onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                    <option value={row.tracker}>{row.tracker}</option>
+                  )}
+                </select>
+            }
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Test Data
             </Label>
-            <TableAutoTextarea
-              className="min-h-[40px] text-xs md:text-xs p-2"
-              value={row.testData || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "testData", e.target.value)
-              }
-            />
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.testData || "—"}</p>
+              : <TableAutoTextarea className="min-h-[40px] text-xs md:text-xs p-2" value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            }
           </div>
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Scenario <Sparkles className="w-3 h-3 text-primary" />
+            Scenario {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.scenario}
-              fieldName="Scenario"
-              minHeight="60px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "scenario", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.scenario || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.scenario} fieldName="Scenario" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+              </div>
+          }
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Case <Sparkles className="w-3 h-3 text-primary" />
+            Case {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.caseName}
-              fieldName="Case Name"
-              minHeight="60px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "caseName", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.caseName || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.caseName} fieldName="Case Name" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
+              </div>
+          }
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Steps <Sparkles className="w-3 h-3 text-primary" />
+            Steps {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.testSteps}
-              fieldName="Test Steps"
-              minHeight="80px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "testSteps", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.testSteps || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+              </div>
+          }
         </div>
 
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Expected Result <Sparkles className="w-3 h-3 text-primary" />
+            Expected Result {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
-          <div className="border border-input rounded-md focus-within:ring-1">
-            <CopilotTextarea
-              className="text-xs p-2 bg-transparent"
-              value={row.expectedResult}
-              fieldName="Expected Result"
-              minHeight="60px"
-              onChange={(val: string) =>
-                onUpdate(row.id as string, "expectedResult", val)
-              }
-            />
-          </div>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.expectedResult || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.expectedResult} fieldName="Expected Result" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
+              </div>
+          }
         </div>
 
         <div className="grid grid-cols-2 gap-3 pt-2 border-t mt-2">
@@ -2156,7 +2133,7 @@ export default function TestCasesExecutionProgressPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          {selectedRows.length > 0 && (
+          {mode === "edit" && selectedRows.length > 0 && (
             <Button
               variant="destructive"
               size="sm"
