@@ -159,7 +159,7 @@ export default function DefectCreationModal({
 
   const buildDescription = () => {
     let desc = "";
-    if (defectDescription.trim()) desc += `**Description:**\n${defectDescription.trim()}\n\n`;
+    if (defectDescription.trim()) desc += `${defectDescription.trim()}\n\n`;
     if (expectedResultValue.trim()) desc += `**Expected Result:**\n${expectedResultValue.trim()}\n\n`;
     if (actualResult) desc += `**Actual Result:**\n${actualResult}\n\n`;
     if (testCaseId) desc += `**Test Case ID:** ${testCaseId}`;
