@@ -2695,7 +2695,7 @@ export default function TestCasesExecutionProgressPage() {
                       onToggleSelect={handleSelectRow}
                       isDirty={dirtyRowIds.has(row.id as string | number)}
                       onUpdate={updateCell}
-                      onBlurRow={handleBlurRow}
+                      onBlurRow={saveBlurRow}
                       onDelete={requestSingleDelete}
                       onPromote={openPromoteDialog}
                       availableModules={availableModules}
