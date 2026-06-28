@@ -769,7 +769,7 @@ const MobileCardRow = React.memo(
 
         <div className="space-y-1 pt-1">
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-            Additional/Comments/Issues
+            QA Notes
           </Label>
           <TableAutoTextarea
             className="min-h-[40px] text-xs md:text-xs p-2"
@@ -1021,6 +1021,9 @@ export default function TestCasesExecutionProgressPage() {
                 return existing.join(", ");
               })(),
               actualResult: result.actualResult,
+              comments: result.actualResult
+                ? `Actual Result: ${result.actualResult}`
+                : row.comments,
               defectScreenshots: result.screenshots,
             }
           : row,
@@ -2403,7 +2406,7 @@ export default function TestCasesExecutionProgressPage() {
               { key: "preCondition", label: "Pre Condition" },
               { key: "testData", label: "Test Data" },
               { key: "executedAt", label: "Executed At" },
-              { key: "comments", label: "Comments" },
+              { key: "comments", label: "QA Notes" },
             ].map(col => (
               <label key={col.key} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
                 <input type="checkbox" className="rounded border-gray-300 w-3 h-3"
@@ -2472,7 +2475,7 @@ export default function TestCasesExecutionProgressPage() {
                   <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
                   {!hiddenCols.has("executedAt") && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
                   <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
-                  {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">Comments</th>}
+                  {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">QA Notes</th>}
                   <th className="border border-border w-48 p-2 text-left">QA PIC</th>
                   {mode === "edit" && <th className="border border-border w-10 p-2"></th>}
                 </tr>
