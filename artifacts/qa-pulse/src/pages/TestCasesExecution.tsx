@@ -39,6 +39,13 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Plus,
@@ -58,6 +65,7 @@ import {
   Send,
   Copy,
   Clock,
+  MoreHorizontal,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -1186,19 +1194,20 @@ export default function TestCasesExecution() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end items-center gap-1">
+                        <Button variant="ghost" size="sm" title="Open Execution Sheet"
+                          className="text-blue-600 hover:text-blue-800"
+                          onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
                         {task && isFullyExecuted(prog) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Send Verdict Now"
+                          <Button variant="ghost" size="sm" title="Send Verdict Now"
                             className="text-green-600 hover:text-green-800 hover:bg-green-50"
                             onClick={e => {
                               e.stopPropagation();
                               setVerdictFile(f);
                               setSendVerdictOpen(true);
-                            }}
-                          >
+                            }}>
                             <Send className="w-4 h-4" />
                           </Button>
                         )}
@@ -1207,32 +1216,38 @@ export default function TestCasesExecution() {
                           onClick={() => setLocation(`/test-cases/execution-details/${f.redmineTicketId}`)}>
                           <BarChart2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" title="Edit File Info"
-                          className="text-amber-600 hover:text-amber-800 hover:bg-amber-50"
-                          onClick={() => openEditFile(f)}>
-                          <Settings2 className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" title="Open Execution Sheet"
-                          className="text-blue-600 hover:text-blue-800"
-                          onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" title="Clone Execution File"
-                          className="text-teal-600 hover:text-teal-800 hover:bg-teal-50"
-                          onClick={e => {
-                            e.stopPropagation();
-                            setCloneSourceFile(f);
-                            setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
-                            setCloneTicketMsg(null);
-                            setCloneOpen(true);
-                          }}>
-                          <Copy className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm"
-                          onClick={() => confirmDelete([f.id])}
-                          className="text-red-600 hover:text-red-800 hover:bg-red-50">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" title="More actions"
+                              className="text-muted-foreground hover:text-primary">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => openEditFile(f)}
+                              className="text-amber-600 focus:text-amber-700">
+                              <Settings2 className="w-4 h-4 mr-2" /> Edit file info
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={e => {
+                                e.stopPropagation();
+                                setCloneSourceFile(f);
+                                setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+                                setCloneTicketMsg(null);
+                                setCloneOpen(true);
+                              }}
+                              className="text-teal-600 focus:text-teal-700">
+                              <Copy className="w-4 h-4 mr-2" /> Clone execution file
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => confirmDelete([f.id])}
+                              className="text-red-600 focus:text-red-700">
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
