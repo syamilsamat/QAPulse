@@ -1022,7 +1022,7 @@ export default function TestCasesExecutionProgressPage() {
               })(),
               actualResult: result.actualResult,
               comments: result.actualResult
-                ? `Actual Result: ${result.actualResult}`
+                ? [row.comments, `Actual Result: ${result.actualResult}`].filter(Boolean).join("\n\n")
                 : row.comments,
               defectScreenshots: result.screenshots,
             }
