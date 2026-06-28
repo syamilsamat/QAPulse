@@ -44,6 +44,7 @@ interface Props {
   testCaseId?: string;
   expectedResult?: string;
   parentIssueId?: string | number | null;
+  onSkip?: () => void;
 }
 
 export default function DefectCreationModal({
@@ -55,6 +56,7 @@ export default function DefectCreationModal({
   testCaseId,
   expectedResult,
   parentIssueId,
+  onSkip,
 }: Props) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -493,6 +495,11 @@ export default function DefectCreationModal({
           <Button variant="ghost" onClick={handleClose} disabled={isSubmitting}>
             Cancel
           </Button>
+          {onSkip && (
+            <Button variant="outline" onClick={onSkip} disabled={isSubmitting}>
+              Skip for now
+            </Button>
+          )}
           <Button onClick={handleSubmit} disabled={isSubmitting} className="gap-2">
             {isSubmitting ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
