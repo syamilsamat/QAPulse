@@ -311,6 +311,7 @@ interface RowProps {
   availableTrackers: TrackerOption[];
   qaUsers: ExecutionUser[];
   hiddenCols: Set<string>;
+  currentUser: { id: number; name: string; role: string } | null;
 }
 
 const DesktopTableRow = React.memo(
@@ -327,13 +328,19 @@ const DesktopTableRow = React.memo(
     availableTrackers,
     qaUsers,
     hiddenCols,
+    currentUser,
   }: RowProps) => {
     const hide = (col: string) => hiddenCols.has(col);
     const defectIds = parseDefectIds(row.defectNumber || "");
 
+    const isQaMember = currentUser?.role === "qa_member";
+    const isAssignedToMe = row.qaPic === currentUser?.name;
+    const isUnassigned = !row.qaPic;
+    const canEdit = !isQaMember || isAssignedToMe;
+
     return (
       <tr
-        className="hover:bg-muted/10 group align-top"
+        className={`hover:bg-muted/10 group align-top ${isQaMember && !canEdit ? "opacity-60" : ""}`}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             onBlurRow(row.id as string | number);
@@ -396,9 +403,13 @@ const DesktopTableRow = React.memo(
           <CopilotTextarea className={tableInputClass} value={row.expectedResult || ""} fieldName="Expected Results" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
         </td>
         <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
-          <select className={`${tableSelectClass} font-bold`} value={row.result || ""} onChange={(e) => onUpdate(row.id as string, "result", e.target.value)}>
-            {RESULT_OPTIONS.map((r) => <option key={r} value={r}>{r || "Select..."}</option>)}
-          </select>
+          {canEdit ? (
+            <select className={`${tableSelectClass} font-bold`} value={row.result || ""} onChange={(e) => onUpdate(row.id as string, "result", e.target.value)}>
+              {RESULT_OPTIONS.map((r) => <option key={r} value={r}>{r || "Select..."}</option>)}
+            </select>
+          ) : (
+            <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
+          )}
         </td>
         {!hide("executedAt") && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
@@ -417,23 +428,56 @@ const DesktopTableRow = React.memo(
               ))}
             </div>
           )}
-          <TableAutoTextarea
-            className={`h-full w-full text-xs md:text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 resize-none block ${defectIds.length > 0 ? "min-h-[36px]" : "min-h-[80px]"}`}
-            value={row.defectNumber || ""}
-            onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)}
-            placeholder={defectIds.length > 0 ? "" : "e.g. 38032, 38033"}
-          />
+          {canEdit ? (
+            <TableAutoTextarea
+              className={`h-full w-full text-xs md:text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 resize-none block ${defectIds.length > 0 ? "min-h-[36px]" : "min-h-[80px]"}`}
+              value={row.defectNumber || ""}
+              onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)}
+              placeholder={defectIds.length > 0 ? "" : "e.g. 38032, 38033"}
+            />
+          ) : (
+            <span className="px-2 py-2 text-xs block min-h-[36px]">{row.defectNumber || "—"}</span>
+          )}
         </td>
         {!hide("comments") && (
           <td className="border border-border p-0 relative align-top">
-            <TableAutoTextarea className={tableInputClass} value={row.comments || ""} onChange={(e) => onUpdate(row.id as string, "comments", e.target.value)} />
+            {canEdit ? (
+              <TableAutoTextarea className={tableInputClass} value={row.comments || ""} onChange={(e) => onUpdate(row.id as string, "comments", e.target.value)} />
+            ) : (
+              <span className="px-2 py-2 text-xs block">{row.comments || "—"}</span>
+            )}
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
-          <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
-            <option value="">Select QA PIC...</option>
-            {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-          </select>
+          {isQaMember ? (
+            isAssignedToMe ? (
+              <div className="flex items-center gap-1 px-2 py-2">
+                <span className="text-xs font-medium truncate">{currentUser?.name}</span>
+                <button
+                  className="text-[10px] text-muted-foreground underline hover:text-destructive whitespace-nowrap"
+                  onClick={() => onUpdate(row.id as string, "qaPic", "")}
+                >
+                  Unassign
+                </button>
+              </div>
+            ) : isUnassigned ? (
+              <div className="px-2 py-2">
+                <button
+                  className="text-xs px-2 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition whitespace-nowrap"
+                  onClick={() => onUpdate(row.id as string, "qaPic", currentUser?.name || "")}
+                >
+                  + Assign to me
+                </button>
+              </div>
+            ) : (
+              <span className="px-2 py-2 text-xs text-muted-foreground block">{row.qaPic}</span>
+            )
+          ) : (
+            <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
+              <option value="">Select QA PIC...</option>
+              {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+            </select>
+          )}
         </td>
         <td className="border border-border p-0 text-center align-top pt-2">
           <div className="flex flex-col items-center gap-1">
@@ -476,7 +520,13 @@ const MobileCardRow = React.memo(
     availableTrackers,
     qaUsers,
     hiddenCols,
+    currentUser,
   }: RowProps) => {
+    const isQaMember = currentUser?.role === "qa_member";
+    const isAssignedToMe = row.qaPic === currentUser?.name;
+    const isUnassigned = !row.qaPic;
+    const canEdit = !isQaMember || isAssignedToMe;
+
     return (
       <Card
         className={`p-3 space-y-3 shadow-sm relative transition-colors ${isSelected ? "bg-primary/5 border-primary/30" : ""}`}
@@ -536,19 +586,25 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Result
             </Label>
-            <select
-              className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
-              value={row.result || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "result", e.target.value)
-              }
-            >
-              {RESULT_OPTIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r || "Pending"}
-                </option>
-              ))}
-            </select>
+            {canEdit ? (
+              <select
+                className={`flex min-h-[40px] w-full rounded-md border px-2 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-1 transition-colors ${getResultColorClass(row.result)}`}
+                value={row.result || ""}
+                onChange={(e) =>
+                  onUpdate(row.id as string, "result", e.target.value)
+                }
+              >
+                {RESULT_OPTIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r || "Pending"}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
+                {row.result || "—"}
+              </div>
+            )}
           </div>
         </div>
 
@@ -690,33 +746,64 @@ const MobileCardRow = React.memo(
                 ))}
               </div>
             )}
-            <TableAutoTextarea
-              className="min-h-[40px] text-xs md:text-xs p-2"
-              value={row.defectNumber || ""}
-              placeholder="e.g. 38032, 38033"
-              onChange={(e) =>
-                onUpdate(row.id as string, "defectNumber", e.target.value)
-              }
-            />
+            {canEdit ? (
+              <TableAutoTextarea
+                className="min-h-[40px] text-xs md:text-xs p-2"
+                value={row.defectNumber || ""}
+                placeholder="e.g. 38032, 38033"
+                onChange={(e) =>
+                  onUpdate(row.id as string, "defectNumber", e.target.value)
+                }
+              />
+            ) : (
+              <div className="min-h-[40px] flex items-center px-2 text-xs text-muted-foreground border border-input rounded-md bg-muted/10">
+                {row.defectNumber || "—"}
+              </div>
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               QA PIC
             </Label>
-            <select
-              className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-              value={row.qaPic || ""}
-              onChange={(e) =>
-                onUpdate(row.id as string, "qaPic", e.target.value)
-              }
-            >
-              <option value="">Select QA PIC...</option>
-              {qaUsers.map((u) => (
-                <option key={u.id} value={u.name}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
+            {isQaMember ? (
+              isAssignedToMe ? (
+                <div className="flex min-h-[40px] items-center gap-2 px-2 border border-input rounded-md">
+                  <span className="text-xs font-medium">{currentUser?.name}</span>
+                  <button
+                    className="text-[10px] text-muted-foreground underline hover:text-destructive"
+                    onClick={() => onUpdate(row.id as string, "qaPic", "")}
+                  >
+                    Unassign
+                  </button>
+                </div>
+              ) : isUnassigned ? (
+                <button
+                  className="flex min-h-[40px] w-full items-center justify-center rounded-md border border-primary text-primary text-xs hover:bg-primary/10 transition"
+                  onClick={() => onUpdate(row.id as string, "qaPic", currentUser?.name || "")}
+                >
+                  + Assign to me
+                </button>
+              ) : (
+                <div className="flex min-h-[40px] items-center px-2 border border-input rounded-md bg-muted/10">
+                  <span className="text-xs text-muted-foreground">{row.qaPic}</span>
+                </div>
+              )
+            ) : (
+              <select
+                className="flex min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                value={row.qaPic || ""}
+                onChange={(e) =>
+                  onUpdate(row.id as string, "qaPic", e.target.value)
+                }
+              >
+                <option value="">Select QA PIC...</option>
+                {qaUsers.map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
@@ -724,13 +811,19 @@ const MobileCardRow = React.memo(
           <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
             Additional/Comments/Issues
           </Label>
-          <TableAutoTextarea
-            className="min-h-[40px] text-xs md:text-xs p-2"
-            value={row.comments || ""}
-            onChange={(e) =>
-              onUpdate(row.id as string, "comments", e.target.value)
-            }
-          />
+          {canEdit ? (
+            <TableAutoTextarea
+              className="min-h-[40px] text-xs md:text-xs p-2"
+              value={row.comments || ""}
+              onChange={(e) =>
+                onUpdate(row.id as string, "comments", e.target.value)
+              }
+            />
+          ) : (
+            <div className="min-h-[40px] flex items-center px-2 text-xs text-muted-foreground border border-input rounded-md bg-muted/10">
+              {row.comments || "—"}
+            </div>
+          )}
         </div>
       </Card>
     );
@@ -2402,6 +2495,7 @@ export default function TestCasesExecutionProgressPage() {
                     availableTrackers={availableTrackers}
                     qaUsers={qaUsers}
                     hiddenCols={hiddenCols}
+                    currentUser={currentUser}
                   />
                 ))}
               </tbody>
@@ -2433,6 +2527,7 @@ export default function TestCasesExecutionProgressPage() {
               availableTrackers={availableTrackers}
               qaUsers={qaUsers}
               hiddenCols={hiddenCols}
+              currentUser={currentUser}
             />
           ))
         )}
