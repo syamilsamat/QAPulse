@@ -308,6 +308,7 @@ function ResultPills({ value, onChange }: { value: string; onChange: (v: string)
       {RESULT_PILLS.map(p => (
         <button
           key={p.value}
+          type="button"
           onClick={() => onChange(p.value)}
           style={{
             background: value === p.value ? p.bg : "transparent",
@@ -859,6 +860,7 @@ export default function TestCasesExecutionProgressPage() {
   const [moduleFilters, setModuleFilters] = useState<string[]>([]);
   const [resultFilters, setResultFilters] = useState<string[]>([]);
   const [qaFilters, setQaFilters] = useState<string[]>([]);
+  const hasSetDefaultQaFilter = useRef(false);
 
   // Defect creation modal
   const [defectModalOpen, setDefectModalOpen] = useState(false);
@@ -1098,6 +1100,14 @@ export default function TestCasesExecutionProgressPage() {
 
     return () => clearInterval(interval);
   }, [ticketId]);
+
+  // Default QA filter: current user + unassigned — applied once after login info is ready
+  useEffect(() => {
+    if (!hasSetDefaultQaFilter.current && currentUser?.name) {
+      hasSetDefaultQaFilter.current = true;
+      setQaFilters([currentUser.name, ""]);
+    }
+  }, [currentUser]);
 
   // Merge server rows into local state — skips dirty rows so unsaved changes aren't overwritten
   const mergeServerData = useCallback((serverRows: AppExecutionTestCase[]) => {
