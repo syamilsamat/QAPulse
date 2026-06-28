@@ -507,7 +507,7 @@ const DesktopTableRow = React.memo(
         </td>
         <td className="border border-border p-0 text-center align-top pt-2">
           <div className="flex flex-col items-center gap-1">
-            {!row.libraryTcId && (
+            {!readOnly && !row.libraryTcId && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -518,14 +518,16 @@ const DesktopTableRow = React.memo(
                 <Library className="w-4 h-4" />
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-              onClick={() => onDelete(row.id as string | number)}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                onClick={() => onDelete(row.id as string | number)}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         </td>
       </tr>
@@ -560,16 +562,18 @@ const MobileCardRow = React.memo(
           }
         }}
       >
-        <div className="absolute top-2 right-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive h-8 w-8"
-            onClick={() => onDelete(row.id as string | number)}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="absolute top-2 right-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive h-8 w-8"
+              onClick={() => onDelete(row.id as string | number)}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mb-1">
           <input
