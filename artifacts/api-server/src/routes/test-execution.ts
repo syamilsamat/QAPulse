@@ -368,6 +368,87 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
 });
 
 /* ────────────────────────────────
+   CLONE EXECUTION FILE
+   ──────────────────────────────── */
+
+router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> => {
+  try {
+    const { ticketId } = req.params;
+    const { newTicketId, newTitle, resetResults = true, copyQaPic = true } = req.body;
+
+    if (!newTicketId?.trim()) {
+      res.status(400).json({ error: "New Ticket ID is required" });
+      return;
+    }
+
+    const [sourceFile] = await db.select().from(executionFilesTable)
+      .where(eq(executionFilesTable.redmineTicketId, ticketId));
+    if (!sourceFile) {
+      res.status(404).json({ error: "Source execution file not found" });
+      return;
+    }
+
+    const sourceTcs = await db.select().from(executionTestCasesTable)
+      .where(eq(executionTestCasesTable.executionFileId, sourceFile.id));
+
+    const [newFile] = await db.insert(executionFilesTable).values({
+      redmineTicketId: newTicketId.trim(),
+      title: newTitle?.trim() || sourceFile.title,
+      qaPic: sourceFile.qaPic,
+      remarks: sourceFile.remarks,
+      selectedModules: sourceFile.selectedModules,
+      tracker: sourceFile.tracker,
+      projectId: sourceFile.projectId,
+      requirementId: sourceFile.requirementId,
+    }).returning();
+
+    if (sourceTcs.length > 0) {
+      await db.insert(executionTestCasesTable).values(
+        sourceTcs.map(tc => ({
+          executionFileId: newFile.id,
+          moduleName: tc.moduleName,
+          caseId: tc.caseId,
+          testCaseId: tc.testCaseId,
+          libraryTcId: tc.libraryTcId,
+          userStory: tc.userStory,
+          tracker: (tc as any).tracker,
+          scenario: tc.scenario,
+          preCondition: tc.preCondition,
+          caseName: tc.caseName,
+          testSteps: tc.testSteps,
+          testData: tc.testData,
+          expectedResult: tc.expectedResult,
+          rowOrder: tc.rowOrder,
+          qaPic: copyQaPic ? tc.qaPic : null,
+          // reset execution fields
+          result: resetResults ? null : tc.result,
+          executedAt: resetResults ? null : tc.executedAt,
+          actualResult: resetResults ? null : tc.actualResult,
+          defectNumber: null,
+          defectScreenshots: null,
+          comments: resetResults ? null : tc.comments,
+        }))
+      );
+    }
+
+    res.status(201).json({
+      id: newFile.id,
+      redmineTicketId: newFile.redmineTicketId,
+      title: newFile.title,
+      clonedFrom: ticketId,
+      tcCount: sourceTcs.length,
+    });
+  } catch (err: any) {
+    if (err?.code === "23505" || err?.message?.includes("unique")) {
+      res.status(409).json({ error: `An execution file for ticket #${req.body.newTicketId} already exists` });
+      return;
+    }
+    console.error("[clone-execution-file]", err);
+    res.status(500).json({ error: "Failed to clone execution file" });
+  }
+});
+
+/* ────────────────────────────────
    EXECUTION SUMMARIES (by Redmine ticket ID)
    ──────────────────────────────── */
 
