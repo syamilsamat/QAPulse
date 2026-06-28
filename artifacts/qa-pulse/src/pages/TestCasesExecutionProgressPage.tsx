@@ -385,21 +385,25 @@ const DesktopTableRow = React.memo(
           }
         }}
       >
-        <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
-          <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-            checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
-        </td>
-        <td className="border border-border p-0 relative align-top">
-          {readOnly
-            ? <div className="px-2 py-2">{roCell(row.moduleName)}</div>
-            : <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
-                <option value="">Select...</option>
-                {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
-              </select>
-          }
-        </td>
+        {!readOnly && (
+          <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-muted/5 py-2">
+            <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+              checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
+          </td>
+        )}
+        {!readOnly && (
+          <td className="border border-border p-0 relative align-top">
+            <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
+              <option value="">Select...</option>
+              {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </td>
+        )}
         {!hide("testCaseId") && (
-          <td className="border border-border px-2 py-2 align-top">
+          <td
+            className="border border-border px-2 py-2 align-top sticky bg-card z-10"
+            style={{ left: readOnly ? 0 : "14.5rem" }}
+          >
             <span className="text-xs text-muted-foreground font-mono select-all">{row.testCaseId || "—"}</span>
           </td>
         )}
@@ -472,7 +476,7 @@ const DesktopTableRow = React.memo(
         </td>
         {!hide("executedAt") && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
-            {row.executedAt ? new Date(row.executedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+            {row.executedAt ? format(new Date(row.executedAt), "dd MMM HH:mm") : "—"}
           </td>
         )}
         <td className="border border-border p-0 relative align-top">
@@ -2441,13 +2445,22 @@ export default function TestCasesExecutionProgressPage() {
             <table className="w-full text-sm border-collapse min-w-[2840px]">
               <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
                 <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <th className="border border-border w-10 p-2 text-center">
-                    <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-                      checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
-                      onChange={(e) => handleSelectAll(e.target.checked)} />
-                  </th>
-                  <th className="border border-border w-48 p-2 text-left">Module Name</th>
-                  {!hiddenCols.has("testCaseId") && <th className="border border-border w-48 p-2 text-left">Test Case ID</th>}
+                  {mode === "edit" && (
+                    <th className="border border-border w-10 p-2 text-center">
+                      <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                        checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
+                        onChange={(e) => handleSelectAll(e.target.checked)} />
+                    </th>
+                  )}
+                  {mode === "edit" && <th className="border border-border w-48 p-2 text-left">Module Name</th>}
+                  {!hiddenCols.has("testCaseId") && (
+                    <th
+                      className="border border-border w-48 p-2 text-left sticky bg-muted/90 z-30"
+                      style={{ left: mode === "edit" ? "14.5rem" : 0 }}
+                    >
+                      Test Case ID
+                    </th>
+                  )}
                   {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
                   {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
                   {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
