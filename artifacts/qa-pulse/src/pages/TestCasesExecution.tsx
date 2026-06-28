@@ -978,14 +978,7 @@ export default function TestCasesExecution() {
     }
   };
 
-  if (isLoading)
-    return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>;
-
-  const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
-
-  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
-
-  // Overall summary across all files
+  // Overall summary across all files — must be before early return (Rules of Hooks)
   const overallStats = useMemo(() => {
     let total = 0, passed = 0, failed = 0, blocked = 0, inProgress = 0;
     Object.values(progress).forEach(p => {
@@ -995,6 +988,12 @@ export default function TestCasesExecution() {
     const executed = passed + failed + blocked + inProgress;
     return { total, passed, failed, blocked, inProgress, executed, pct: total > 0 ? Math.round((executed / total) * 100) : 0 };
   }, [progress]);
+
+  if (isLoading)
+    return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+
+  const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
+  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
