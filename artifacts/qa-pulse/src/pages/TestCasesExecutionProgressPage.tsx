@@ -39,7 +39,10 @@ import {
   Users,
   ExternalLink,
   Library,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -68,7 +71,84 @@ const RESULT_OPTIONS = [
   "",
 ];
 
+const RESULT_PILL_ACTIVE: Record<string, string> = {
+  Passed: "bg-green-100 text-green-700 border-green-300",
+  Failed: "bg-red-100 text-red-700 border-red-300",
+  Blocked: "bg-orange-100 text-orange-700 border-orange-300",
+  "In Progress": "bg-blue-100 text-blue-700 border-blue-300",
+  "Not Executed": "bg-slate-100 text-slate-600 border-slate-300",
+};
+
 export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
+
+type ModuleProgress = { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number };
+
+function getModuleProgress(rows: AppExecutionTestCase[]): ModuleProgress {
+  const p: ModuleProgress = { total: rows.length, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
+  for (const r of rows) {
+    const res = (r.result || "").toLowerCase();
+    if (res === "passed") p.passed++;
+    else if (res === "failed") p.failed++;
+    else if (res === "blocked") p.blocked++;
+    else if (res === "in progress") p.inProgress++;
+    else p.notExecuted++;
+  }
+  return p;
+}
+
+function groupByModule(rows: AppExecutionTestCase[]) {
+  const map = new Map<string, AppExecutionTestCase[]>();
+  for (const row of rows) {
+    const key = row.moduleName?.trim() || "(No Module)";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(row);
+  }
+  return Array.from(map.entries()).map(([name, rows]) => ({ name, rows }));
+}
+
+function MiniProgressBar({ data }: { data: ModuleProgress }) {
+  if (!data || data.total === 0) return <span className="text-xs text-muted-foreground italic">No cases</span>;
+  const pct = (n: number) => `${Math.round((n / data.total) * 100)}%`;
+  return (
+    <div className="flex items-center gap-2 flex-1">
+      <div className="flex h-2 rounded-full overflow-hidden flex-1 bg-muted min-w-[80px]">
+        {data.passed > 0 && <div className="bg-green-500" style={{ width: pct(data.passed) }} />}
+        {data.failed > 0 && <div className="bg-red-500" style={{ width: pct(data.failed) }} />}
+        {data.blocked > 0 && <div className="bg-orange-400" style={{ width: pct(data.blocked) }} />}
+        {data.inProgress > 0 && <div className="bg-blue-400" style={{ width: pct(data.inProgress) }} />}
+        {data.notExecuted > 0 && <div className="bg-muted-foreground/20" style={{ width: pct(data.notExecuted) }} />}
+      </div>
+      <div className="flex gap-1.5 text-[10px] whitespace-nowrap">
+        {data.passed > 0 && <span className="text-green-700 font-medium">{data.passed}P</span>}
+        {data.failed > 0 && <span className="text-red-700 font-medium">{data.failed}F</span>}
+        {data.blocked > 0 && <span className="text-orange-600 font-medium">{data.blocked}B</span>}
+        {data.inProgress > 0 && <span className="text-blue-600 font-medium">{data.inProgress}IP</span>}
+        {data.notExecuted > 0 && <span className="text-muted-foreground">{data.notExecuted}NE</span>}
+      </div>
+    </div>
+  );
+}
+
+function DetailItem({ label, value, isCode, highlight }: { label: string; value?: string | null; isCode?: boolean; highlight?: boolean }) {
+  if (!value) return (
+    <div>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">{label}</p>
+      <p className="text-xs text-muted-foreground italic">—</p>
+    </div>
+  );
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">{label}</p>
+      {isCode ? (
+        <pre className="text-xs bg-muted/50 rounded p-2 whitespace-pre-wrap font-mono leading-relaxed">{value}</pre>
+      ) : highlight ? (
+        <p className="text-xs bg-primary/5 border border-primary/20 rounded p-2 leading-relaxed">{value}</p>
+      ) : (
+        <p className="text-xs text-foreground leading-relaxed">{value}</p>
+      )}
+    </div>
+  );
+}
 
 const COLUMN_MAPPINGS: Record<string, string[]> = {
   testCaseId: ["case id", "test case id", "tc id", "id"],
@@ -888,6 +968,16 @@ export default function TestCasesExecutionProgressPage() {
   const [promoteForm, setPromoteForm] = useState({ requirementId: "", projectId: "", module: "" });
   const [promoteRequirements, setPromoteRequirements] = useState<any[]>([]);
   const [isPromoting, setIsPromoting] = useState(false);
+
+  // Tree mode state
+  const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
+  const [expandedTcId, setExpandedTcId] = useState<string | number | null>(null);
+
+  const toggleModule = (name: string) =>
+    setExpandedModules(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s; });
+
+  const toggleTc = (id: string | number) =>
+    setExpandedTcId(prev => (prev === id ? null : id));
 
   // Search & Filtering State
   const [globalSearch, setGlobalSearch] = useState("");
@@ -2433,111 +2523,284 @@ export default function TestCasesExecutionProgressPage() {
         )}
       </div>
 
-      {/* DESKTOP SPREADSHEET VIEW */}
-      <Card className="hidden lg:flex flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]">
+      {/* DESKTOP TREE VIEW */}
+      <Card className="hidden lg:block flex-1 overflow-y-auto border rounded-md shadow-sm min-h-[450px]">
         {filteredData.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8">
+          <div className="flex flex-col items-center justify-center text-muted-foreground p-8 h-full">
             <Search className="w-10 h-10 mb-4 opacity-20" />
             <p>No test cases match your current filters and search criteria.</p>
-            <Button
-              variant="link"
-              onClick={() => {
-                setGlobalSearch("");
-                setModuleFilters([]);
-                setResultFilters([]);
-                setQaFilters([]);
-              }}
-            >
+            <Button variant="link" onClick={() => { setGlobalSearch(""); setModuleFilters([]); setResultFilters([]); setQaFilters([]); }}>
               Clear all filters
             </Button>
           </div>
         ) : (
-          <div className="flex-1 overflow-auto bg-card">
-            <table className="w-full text-sm border-collapse min-w-[2840px]">
-              <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
-                <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <th className="border border-border w-10 p-2 text-center">
-                    <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-                      checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
-                      onChange={(e) => handleSelectAll(e.target.checked)} />
-                  </th>
-                  <th className="border border-border w-48 p-2 text-left">Module Name</th>
-                  {!hiddenCols.has("testCaseId") && <th className="border border-border w-48 p-2 text-left">Test Case ID</th>}
-                  {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
-                  {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
-                  {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
-                  {!hiddenCols.has("preCondition") && <th className="border border-border w-48 p-2 text-left">Pre Condition</th>}
-                  <th className="border border-border w-64 p-2 text-left">Case <Sparkles className="w-3 h-3 inline text-primary" /></th>
-                  <th className="border border-border w-64 p-2 text-left">Steps <Sparkles className="w-3 h-3 inline text-primary" /></th>
-                  {!hiddenCols.has("testData") && <th className="border border-border w-48 p-2 text-left">Test Data</th>}
-                  <th className="border border-border w-64 p-2 text-left">Expected Result <Sparkles className="w-3 h-3 inline text-primary" /></th>
-                  <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
-                  {!hiddenCols.has("executedAt") && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
-                  <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
-                  {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">Comments</th>}
-                  <th className="border border-border w-48 p-2 text-left">QA PIC</th>
-                  <th className="border border-border w-10 p-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredData.map((row, index) => (
-                  <DesktopTableRow
-                    key={row.id as string}
-                    row={row}
-                    index={index}
-                    isSelected={selectedRows.includes(row.id as string | number)}
-                    onToggleSelect={handleSelectRow}
-                    onUpdate={updateCell}
-                    onDelete={requestSingleDelete}
-                    onPromote={openPromoteDialog}
-                    onBlurRow={saveBlurRow}
-                    availableModules={availableModules}
-                    availableTrackers={availableTrackers}
-                    qaUsers={qaUsers}
-                    hiddenCols={hiddenCols}
-                    currentUser={currentUser}
-                  />
-                ))}
-              </tbody>
-            </table>
+          <div className="divide-y divide-border">
+            {groupByModule(filteredData).map(({ name: moduleName, rows: moduleRows }) => {
+              const isModuleOpen = expandedModules.has(moduleName);
+              const prog = getModuleProgress(moduleRows);
+              return (
+                <React.Fragment key={moduleName}>
+                  {/* Module header */}
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 bg-muted/50 cursor-pointer select-none hover:bg-muted/80 transition-colors"
+                    onClick={() => toggleModule(moduleName)}
+                  >
+                    {isModuleOpen ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
+                    <span className="font-semibold text-sm">📁 {moduleName}</span>
+                    <Badge variant="secondary" className="text-xs shrink-0">{moduleRows.length} case{moduleRows.length !== 1 ? "s" : ""}</Badge>
+                    <MiniProgressBar data={prog} />
+                  </div>
+
+                  {/* TC rows */}
+                  {isModuleOpen && (
+                    <div className="divide-y divide-border/50">
+                      {moduleRows.map(row => {
+                        const isTcOpen = expandedTcId === row.id;
+                        const isQaMember = currentUser?.role === "qa_member";
+                        const isAssignedToMe = row.qaPic === currentUser?.name;
+                        const isUnassigned = !row.qaPic;
+                        const canEdit = !isQaMember || isAssignedToMe;
+                        return (
+                          <React.Fragment key={row.id as string}>
+                            {/* TC summary row */}
+                            <div
+                              className={`flex items-center gap-3 px-6 py-2.5 cursor-pointer hover:bg-muted/30 transition-colors ${isTcOpen ? "bg-muted/20 border-l-2 border-primary" : "border-l-2 border-transparent"} ${isQaMember && !canEdit ? "opacity-60" : ""}`}
+                              onClick={() => toggleTc(row.id as string | number)}
+                            >
+                              <div onClick={e => e.stopPropagation()}>
+                                <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                                  checked={selectedRows.includes(row.id as string | number)}
+                                  onChange={e => handleSelectRow(row.id as string | number, e.target.checked)} />
+                              </div>
+                              {isTcOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
+                              <span className="font-mono text-xs text-primary font-medium w-28 shrink-0">{row.caseId || row.testCaseId || "—"}</span>
+                              <span className="text-sm flex-1 truncate text-foreground">{row.caseName || "Untitled"}</span>
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                {row.result || "Not Executed"}
+                              </span>
+                            </div>
+
+                            {/* Expanded detail panel */}
+                            {isTcOpen && (
+                              <div className="bg-muted/10 border-b border-muted shadow-inner">
+                                <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
+                                  {/* LEFT — what to test (read-only) */}
+                                  <div className="space-y-5">
+                                    <DetailItem label="Scenario" value={row.scenario} />
+                                    <DetailItem label="Pre-condition" value={row.preCondition} />
+                                    <DetailItem label="Test Steps" value={row.testSteps} isCode />
+                                    <DetailItem label="Expected Result" value={row.expectedResult} highlight />
+                                    <DetailItem label="Test Data" value={row.testData} />
+                                  </div>
+                                  {/* RIGHT — execution tracking (editable) */}
+                                  <div className="space-y-5">
+                                    <div className="space-y-2">
+                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Result</Label>
+                                      {canEdit ? (
+                                        <div className="flex flex-wrap gap-2">
+                                          {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                            <button
+                                              key={status}
+                                              onClick={() => updateCell(row.id as string | number, "result", status)}
+                                              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}
+                                            >
+                                              {status}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                          {row.result || "Not Executed"}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">QA PIC</Label>
+                                      {isQaMember ? (
+                                        isAssignedToMe ? (
+                                          <div className="flex items-center gap-2 text-sm">
+                                            <span className="font-medium">{currentUser?.name}</span>
+                                            <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                          </div>
+                                        ) : isUnassigned ? (
+                                          <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
+                                            + Assign to me
+                                          </button>
+                                        ) : (
+                                          <span className="text-sm text-muted-foreground">{row.qaPic}</span>
+                                        )
+                                      ) : (
+                                        <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                          <option value="">Select QA PIC...</option>
+                                          {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                        </select>
+                                      )}
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Defect #</Label>
+                                      {canEdit ? (
+                                        <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
+                                      ) : (
+                                        <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
+                                      )}
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Comments</Label>
+                                      {canEdit ? (
+                                        <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
+                                      ) : (
+                                        <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
         )}
       </Card>
 
-      {/* MOBILE CARD VIEW */}
-      <div className="lg:hidden flex-1 flex flex-col gap-3 overflow-y-auto min-h-[450px] pb-4">
+      {/* MOBILE TREE VIEW */}
+      <div className="lg:hidden flex-1 flex flex-col overflow-y-auto min-h-[450px] pb-4">
         {filteredData.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground p-8 border border-dashed rounded-lg">
             <Search className="w-8 h-8 mb-4 opacity-20" />
             <p className="text-center text-sm">No test cases match filters.</p>
           </div>
         ) : (
-          filteredData.map((row, index) => (
-            <MobileCardRow
-              key={row.id as string}
-              row={row}
-              index={index}
-              isSelected={selectedRows.includes(row.id as string | number)}
-              onToggleSelect={handleSelectRow}
-              onUpdate={updateCell}
-              onDelete={requestSingleDelete}
-              onPromote={openPromoteDialog}
-              onBlurRow={saveBlurRow}
-              availableModules={availableModules}
-              availableTrackers={availableTrackers}
-              qaUsers={qaUsers}
-              hiddenCols={hiddenCols}
-              currentUser={currentUser}
-            />
-          ))
+          <div className="space-y-2">
+            {groupByModule(filteredData).map(({ name: moduleName, rows: moduleRows }) => {
+              const isModuleOpen = expandedModules.has(moduleName);
+              const prog = getModuleProgress(moduleRows);
+              return (
+                <div key={moduleName} className="border rounded-lg overflow-hidden">
+                  {/* Module header */}
+                  <div
+                    className="flex items-center gap-2 px-4 py-3 bg-muted/50 cursor-pointer select-none"
+                    onClick={() => toggleModule(moduleName)}
+                  >
+                    {isModuleOpen ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
+                    <span className="font-semibold text-sm flex-1 truncate">📁 {moduleName}</span>
+                    <Badge variant="secondary" className="text-xs shrink-0">{moduleRows.length} case{moduleRows.length !== 1 ? "s" : ""}</Badge>
+                  </div>
+                  {isModuleOpen && <div className="px-4 pb-2 bg-muted/30"><MiniProgressBar data={prog} /></div>}
+
+                  {/* TC list */}
+                  {isModuleOpen && (
+                    <div className="divide-y divide-border/50">
+                      {moduleRows.map(row => {
+                        const isTcOpen = expandedTcId === row.id;
+                        const isQaMember = currentUser?.role === "qa_member";
+                        const isAssignedToMe = row.qaPic === currentUser?.name;
+                        const isUnassigned = !row.qaPic;
+                        const canEdit = !isQaMember || isAssignedToMe;
+                        return (
+                          <React.Fragment key={row.id as string}>
+                            {/* TC summary row */}
+                            <div
+                              className={`flex items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${isTcOpen ? "bg-muted/20 border-l-2 border-primary" : "border-l-2 border-transparent hover:bg-muted/10"} ${isQaMember && !canEdit ? "opacity-60" : ""}`}
+                              onClick={() => toggleTc(row.id as string | number)}
+                            >
+                              {isTcOpen ? <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />}
+                              <span className="font-mono text-xs text-primary font-medium w-20 shrink-0">{row.caseId || row.testCaseId || "—"}</span>
+                              <span className="text-sm flex-1 truncate">{row.caseName || "Untitled"}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                {row.result || "Not Executed"}
+                              </span>
+                            </div>
+
+                            {/* Expanded detail panel */}
+                            {isTcOpen && (
+                              <div className="bg-muted/5 border-t border-muted px-4 py-5 space-y-5">
+                                <DetailItem label="Scenario" value={row.scenario} />
+                                <DetailItem label="Pre-condition" value={row.preCondition} />
+                                <DetailItem label="Test Steps" value={row.testSteps} isCode />
+                                <DetailItem label="Expected Result" value={row.expectedResult} highlight />
+                                <DetailItem label="Test Data" value={row.testData} />
+
+                                <div className="border-t border-border/50 pt-4 space-y-4">
+                                  <div className="space-y-2">
+                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Result</Label>
+                                    {canEdit ? (
+                                      <div className="flex flex-wrap gap-2">
+                                        {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                          <button
+                                            key={status}
+                                            onClick={() => updateCell(row.id as string | number, "result", status)}
+                                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}
+                                          >
+                                            {status}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                        {row.result || "Not Executed"}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">QA PIC</Label>
+                                    {isQaMember ? (
+                                      isAssignedToMe ? (
+                                        <div className="flex items-center gap-2 text-sm">
+                                          <span className="font-medium">{currentUser?.name}</span>
+                                          <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                        </div>
+                                      ) : isUnassigned ? (
+                                        <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
+                                          + Assign to me
+                                        </button>
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground">{row.qaPic}</span>
+                                      )
+                                    ) : (
+                                      <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                        <option value="">Select QA PIC...</option>
+                                        {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                      </select>
+                                    )}
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Defect #</Label>
+                                    {canEdit ? (
+                                      <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
+                                    )}
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Comments</Label>
+                                    {canEdit ? (
+                                      <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
-        <Button
-          variant="secondary"
-          className="w-full py-6 border-dashed"
-          onClick={handleAddRow}
-        >
-          <Plus className="w-5 h-5 mr-2" /> Add Another Row
-        </Button>
       </div>
 
       {/* PULL FROM TEST CASES LIBRARY DIALOG */}
