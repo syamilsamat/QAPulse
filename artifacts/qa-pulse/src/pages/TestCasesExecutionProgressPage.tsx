@@ -2790,7 +2790,7 @@ export default function TestCasesExecutionProgressPage() {
 
                                     {/* Case ID */}
                                     <div>
-                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case ID</div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
                                       {mode === "edit"
                                         ? <input className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.caseId || ""} onChange={e => updateCell(row.id as string | number, "caseId", e.target.value)} placeholder="e.g. TC-001" />
                                         : <p className="font-mono text-sm text-primary font-medium">{row.caseId || "—"}</p>
@@ -3007,7 +3007,7 @@ export default function TestCasesExecutionProgressPage() {
                                   <div className="text-sm space-y-3">
                                     {/* Case ID */}
                                     <div>
-                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case ID</div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
                                       <p className="font-mono text-xs text-primary font-medium">{row.caseId || "—"}</p>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
