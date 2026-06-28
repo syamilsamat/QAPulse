@@ -2786,11 +2786,11 @@ export default function TestCasesExecutionProgressPage() {
                               const borderB = "border-b border-border";
                               return (
                                 <div className="p-4 bg-muted/10 border-b border-muted">
-                                  <div className="border border-border rounded-md overflow-hidden text-sm">
+                                  <div className="text-sm space-y-4">
 
                                     {/* Row 1: Module | Scenario */}
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className="p-3">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div>
                                         {mode === "edit"
                                           ? <select className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
@@ -2800,7 +2800,7 @@ export default function TestCasesExecutionProgressPage() {
                                           : <p className="text-sm">{row.moduleName || "—"}</p>
                                         }
                                       </div>
-                                      <div className="p-3">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div>
                                         {mode === "edit"
                                           ? <Textarea className="min-h-[40px] text-sm" value={row.scenario || ""} onChange={e => updateCell(row.id as string | number, "scenario", e.target.value)} />
@@ -2810,15 +2810,15 @@ export default function TestCasesExecutionProgressPage() {
                                     </div>
 
                                     {/* Row 2: Pre-Condition | Test Data */}
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className="p-3">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div>
                                         {mode === "edit"
                                           ? <Textarea className="min-h-[40px] text-sm" value={row.preCondition || ""} onChange={e => updateCell(row.id as string | number, "preCondition", e.target.value)} />
                                           : <p className="text-sm whitespace-pre-wrap">{row.preCondition || "—"}</p>
                                         }
                                       </div>
-                                      <div className="p-3">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div>
                                         {mode === "edit"
                                           ? <Textarea className="min-h-[40px] text-sm" value={row.testData || ""} onChange={e => updateCell(row.id as string | number, "testData", e.target.value)} />
@@ -2827,34 +2827,34 @@ export default function TestCasesExecutionProgressPage() {
                                       </div>
                                     </div>
 
-                                    {/* Steps table header */}
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className={headCls}>Test Step</div>
-                                      <div className={headCls}>Expected Result</div>
+                                    {/* Steps table — bordered only here */}
+                                    <div className="border border-border rounded-md overflow-hidden">
+                                      <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
+                                        <div className={headCls}>Test Step</div>
+                                        <div className={headCls}>Expected Result</div>
+                                      </div>
+                                      {mode === "edit" ? (
+                                        <div className={`grid grid-cols-2 ${dividerX}`}>
+                                          <div className="p-3">
+                                            <Textarea className="min-h-[80px] text-sm" value={row.testSteps || ""} onChange={e => updateCell(row.id as string | number, "testSteps", e.target.value)} />
+                                          </div>
+                                          <div className="p-3">
+                                            <Textarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} onChange={e => updateCell(row.id as string | number, "expectedResult", e.target.value)} />
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        displaySteps.map((step, i) => (
+                                          <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                                            <div className={cellCls}>{step || "—"}</div>
+                                            <div className={cellCls}>{getExpected(i) || ""}</div>
+                                          </div>
+                                        ))
+                                      )}
                                     </div>
 
-                                    {/* Steps rows */}
-                                    {mode === "edit" ? (
-                                      <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                        <div className="p-3">
-                                          <Textarea className="min-h-[80px] text-sm" value={row.testSteps || ""} onChange={e => updateCell(row.id as string | number, "testSteps", e.target.value)} />
-                                        </div>
-                                        <div className="p-3">
-                                          <Textarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} onChange={e => updateCell(row.id as string | number, "expectedResult", e.target.value)} />
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      displaySteps.map((step, i) => (
-                                        <div key={i} className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                          <div className={cellCls}>{step || "—"}</div>
-                                          <div className={cellCls}>{getExpected(i) || ""}</div>
-                                        </div>
-                                      ))
-                                    )}
-
                                     {/* Result | QA PIC */}
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className="p-3">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
                                         {canEdit && !isQaMember ? (
                                           <div className="flex flex-wrap gap-1.5">
@@ -2871,7 +2871,7 @@ export default function TestCasesExecutionProgressPage() {
                                           </span>
                                         )}
                                       </div>
-                                      <div className="p-3">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
                                         {isQaMember ? (
                                           isAssignedToMe ? (
@@ -2896,8 +2896,8 @@ export default function TestCasesExecutionProgressPage() {
                                     </div>
 
                                     {/* Redmine Defect ID | QA Notes */}
-                                    <div className={`grid grid-cols-2 ${dividerX}`}>
-                                      <div className="p-3">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Redmine Defect ID</div>
                                         {canEdit ? (
                                           <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
@@ -2905,7 +2905,7 @@ export default function TestCasesExecutionProgressPage() {
                                           <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
                                         )}
                                       </div>
-                                      <div className="p-3">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA Notes</div>
                                         {canEdit ? (
                                           <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
@@ -2995,27 +2995,30 @@ export default function TestCasesExecutionProgressPage() {
                               const borderB = "border-b border-border";
                               return (
                                 <div className="px-3 py-3 bg-muted/5 border-t border-muted">
-                                  <div className="border border-border rounded-md overflow-hidden text-sm">
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className="p-2"><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
-                                      <div className="p-2"><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div><p className="text-xs whitespace-pre-wrap">{row.scenario || "—"}</p></div>
+                                  <div className="text-sm space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div><p className="text-xs whitespace-pre-wrap">{row.scenario || "—"}</p></div>
                                     </div>
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className="p-2"><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div><p className="text-xs whitespace-pre-wrap">{row.preCondition || "—"}</p></div>
-                                      <div className="p-2"><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div><p className="text-xs whitespace-pre-wrap">{row.testData || "—"}</p></div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div><p className="text-xs whitespace-pre-wrap">{row.preCondition || "—"}</p></div>
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div><p className="text-xs whitespace-pre-wrap">{row.testData || "—"}</p></div>
                                     </div>
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB} bg-muted/50`}>
-                                      <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Test Step</div>
-                                      <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Expected Result</div>
-                                    </div>
-                                    {displaySteps.map((step, i) => (
-                                      <div key={i} className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                        <div className="p-2 text-xs whitespace-pre-wrap">{step || "—"}</div>
-                                        <div className="p-2 text-xs whitespace-pre-wrap">{getExpected(i) || ""}</div>
+                                    {/* Steps table — bordered only here */}
+                                    <div className="border border-border rounded-md overflow-hidden">
+                                      <div className={`grid grid-cols-2 ${dividerX} ${borderB} bg-muted/50`}>
+                                        <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Test Step</div>
+                                        <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Expected Result</div>
                                       </div>
-                                    ))}
-                                    <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
-                                      <div className="p-2">
+                                      {displaySteps.map((step, i) => (
+                                        <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                                          <div className="p-2 text-xs whitespace-pre-wrap">{step || "—"}</div>
+                                          <div className="p-2 text-xs whitespace-pre-wrap">{getExpected(i) || ""}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Result</div>
                                         {canEdit && !isQaMember ? (
                                           <div className="flex flex-wrap gap-1">
@@ -3032,7 +3035,7 @@ export default function TestCasesExecutionProgressPage() {
                                           </span>
                                         )}
                                       </div>
-                                      <div className="p-2">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA PIC</div>
                                         {isQaMember ? (
                                           isAssignedToMe ? (
@@ -3053,12 +3056,12 @@ export default function TestCasesExecutionProgressPage() {
                                         )}
                                       </div>
                                     </div>
-                                    <div className={`grid grid-cols-2 ${dividerX}`}>
-                                      <div className="p-2">
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Redmine Defect ID</div>
                                         {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.defectNumber || ""} placeholder="e.g. 38032" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.defectNumber || "—"}</p>}
                                       </div>
-                                      <div className="p-2">
+                                      <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA Notes</div>
                                         {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.comments || "—"}</p>}
                                       </div>
