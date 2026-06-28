@@ -392,7 +392,7 @@ const DesktopTableRow = React.memo(
           </td>
         )}
         {!readOnly && (
-          <td className="border border-border p-0 relative align-top sticky left-10 z-10 bg-card">
+          <td className="border border-border p-0 align-top sticky left-10 z-10 bg-card">
             <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
               <option value="">Select...</option>
               {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
@@ -2446,16 +2446,16 @@ export default function TestCasesExecutionProgressPage() {
               <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
                 <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   {mode === "edit" && (
-                    <th className="border border-border w-10 p-2 text-center sticky left-0 z-30 bg-muted/90">
+                    <th className="border border-border w-10 p-2 text-center sticky left-0 z-30 bg-muted">
                       <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
                         checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
                         onChange={(e) => handleSelectAll(e.target.checked)} />
                     </th>
                   )}
-                  {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-30 bg-muted/90">Module Name</th>}
+                  {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-30 bg-muted">Module Name</th>}
                   {!hiddenCols.has("testCaseId") && (
                     <th
-                      className="border border-border w-48 p-2 text-left sticky bg-muted/90 z-30"
+                      className="border border-border w-48 p-2 text-left sticky bg-muted z-30"
                       style={{ left: mode === "edit" ? "14.5rem" : 0 }}
                     >
                       Test Case ID
