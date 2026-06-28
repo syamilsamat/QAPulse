@@ -386,13 +386,13 @@ const DesktopTableRow = React.memo(
         }}
       >
         {!readOnly && (
-          <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-card py-2 sticky left-0 z-10">
+          <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-card py-2 sticky left-0 z-20">
             <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
               checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
           </td>
         )}
         {!readOnly && (
-          <td className="border border-border p-0 align-top sticky left-10 z-10 bg-card">
+          <td className="border border-border p-0 align-top sticky left-10 z-20 bg-card">
             <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
               <option value="">Select...</option>
               {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
@@ -401,7 +401,7 @@ const DesktopTableRow = React.memo(
         )}
         {!hide("testCaseId") && (
           <td
-            className="border border-border px-2 py-2 align-top sticky bg-card z-10"
+            className="border border-border px-2 py-2 align-top sticky bg-card z-20"
             style={{ left: readOnly ? 0 : "14.5rem" }}
           >
             <span className="text-xs text-muted-foreground font-mono select-all">{row.testCaseId || "—"}</span>
@@ -2446,13 +2446,13 @@ export default function TestCasesExecutionProgressPage() {
               <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur shadow-sm">
                 <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   {mode === "edit" && (
-                    <th className="border border-border w-10 p-2 text-center sticky left-0 z-30 bg-muted">
+                    <th className="border border-border w-10 p-2 text-center sticky left-0 z-40 bg-muted">
                       <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
                         checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
                         onChange={(e) => handleSelectAll(e.target.checked)} />
                     </th>
                   )}
-                  {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-30 bg-muted">Module Name</th>}
+                  {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-40 bg-muted">Module Name</th>}
                   {!hiddenCols.has("testCaseId") && (
                     <th
                       className="border border-border w-48 p-2 text-left sticky bg-muted z-30"
