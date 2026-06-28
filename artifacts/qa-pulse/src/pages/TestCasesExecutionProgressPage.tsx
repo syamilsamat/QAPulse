@@ -567,7 +567,7 @@ const DesktopTableRow = React.memo(
             <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
           )}
         </td>
-        {!hide("executedAt") && (
+        {!hide("executedAt") && !isQaMember && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
             {row.executedAt ? format(new Date(row.executedAt), "dd MMM HH:mm") : "—"}
           </td>
@@ -2678,7 +2678,7 @@ export default function TestCasesExecutionProgressPage() {
                     {!hiddenCols.has("testData") && <th className="border border-border w-48 p-2 text-left">Test Data</th>}
                     <th className="border border-border w-64 p-2 text-left">Expected Result <Sparkles className="w-3 h-3 inline text-primary" /></th>
                     <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
-                    {!hiddenCols.has("executedAt") && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
+                    {!hiddenCols.has("executedAt") && currentUser?.role !== "qa_member" && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
                     <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
                     {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">QA Notes</th>}
                     <th className="border border-border w-48 p-2 text-left">QA PIC</th>
