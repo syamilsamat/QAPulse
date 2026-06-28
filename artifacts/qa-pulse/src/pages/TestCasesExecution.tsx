@@ -512,23 +512,29 @@ export default function TestCasesExecution() {
       .finally(() => setIsLoading(false));
   }, [toast]);
 
-  // Clone ticket ID lookup
+  // Clone ticket ID lookup — same logic as New File dialog
   useEffect(() => {
     if (!cloneOpen) return;
-    if (!cloneForm.newTicketId.trim()) { setCloneTicketMsg(null); return; }
+    const ticketId = cloneForm.newTicketId.trim();
+    if (!ticketId) { setCloneTicketMsg(null); return; }
     if (cloneTicketTimer.current) clearTimeout(cloneTicketTimer.current);
+
+    const duplicate = files.find(f => f.redmineTicketId === ticketId);
+    if (duplicate) {
+      setCloneTicketMsg({ type: "error", text: `#${ticketId} already exists (${duplicate.title || "Untitled"})` });
+      return;
+    }
+
     cloneTicketTimer.current = setTimeout(async () => {
       setCloneTicketLoading(true);
       try {
-        const r = await fetch(`/api/redmine/ticket/${cloneForm.newTicketId.trim()}`, { headers: getHeaders() });
-        if (r.ok) {
-          const d = await r.json();
-          setCloneForm(f => ({ ...f, newTitle: d.subject || f.newTitle }));
-          setCloneTicketMsg({ type: "info", text: d.subject || "Ticket found" });
-        } else if (r.status === 404) {
-          setCloneTicketMsg({ type: "warn", text: "Ticket not found in Redmine — you can still proceed" });
+        const r = await fetch(`${getApiUrl()}/requirements/by-redmine/${ticketId}`, { headers: getHeaders() });
+        const d = await r.json();
+        if (d.found && d.requirement) {
+          setCloneForm(f => ({ ...f, newTitle: f.newTitle || d.requirement.title || "" }));
+          setCloneTicketMsg({ type: "info", text: `Found: "${d.requirement.title}"` });
         } else {
-          setCloneTicketMsg(null);
+          setCloneTicketMsg({ type: "warn", text: "Not found locally — will be fetched from Redmine on clone" });
         }
       } catch { setCloneTicketMsg(null); }
       finally { setCloneTicketLoading(false); }
