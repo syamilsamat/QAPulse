@@ -673,6 +673,8 @@ export default function TestCases() {
   const { data: testCases = [], isLoading } = useQuery({
     queryKey: getListTestCasesQueryKey(),
     queryFn: () => listTestCases(),
+    staleTime: 0,
+    refetchOnMount: true,
   });
   const { data: projects = [] } = useQuery({
     queryKey: getListProjectsQueryKey(),
