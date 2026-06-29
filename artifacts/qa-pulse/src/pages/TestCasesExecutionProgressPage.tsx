@@ -2762,8 +2762,10 @@ export default function TestCasesExecutionProgressPage() {
                                   onChange={e => handleSelectRow(row.id as string | number, e.target.checked)} />
                               </div>
                               {isTcOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
-                              <span className="font-mono text-xs text-primary font-medium w-28 shrink-0">{row.caseId || row.testCaseId || "—"}</span>
-                              <span className="text-sm flex-1 truncate text-foreground">{row.caseName || "Untitled"}</span>
+                              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
+                                <span className="text-sm truncate text-foreground">{row.caseName || "Untitled"}</span>
+                              </div>
                               <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
                                 {row.result || "Not Executed"}
                               </span>
@@ -2982,8 +2984,10 @@ export default function TestCasesExecutionProgressPage() {
                               onClick={() => toggleTc(row.id as string | number)}
                             >
                               {isTcOpen ? <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />}
-                              <span className="font-mono text-xs text-primary font-medium w-20 shrink-0">{row.caseId || row.testCaseId || "—"}</span>
-                              <span className="text-sm flex-1 truncate">{row.caseName || "Untitled"}</span>
+                              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
+                                <span className="text-sm truncate">{row.caseName || "Untitled"}</span>
+                              </div>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
                                 {row.result || "Not Executed"}
                               </span>
