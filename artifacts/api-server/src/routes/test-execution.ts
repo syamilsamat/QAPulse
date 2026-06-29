@@ -290,6 +290,54 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
     if (projectId !== undefined) patch.projectId = projectId ? Number(projectId) : null;
     if (requirementId !== undefined) patch.requirementId = requirementId ? Number(requirementId) : null;
 
+    // Auto-link requirement by Redmine ticket ID when not explicitly set
+    if (requirementId === undefined || requirementId === "" || requirementId === null) {
+      const effectiveTicketId = redmineTicketId !== undefined
+        ? String(redmineTicketId).trim()
+        : (await db.select({ redmineTicketId: executionFilesTable.redmineTicketId })
+            .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+          ).at(0)?.redmineTicketId ?? null;
+
+      if (effectiveTicketId) {
+        const [existingReq] = await db.select({ id: requirementsTable.id })
+          .from(requirementsTable)
+          .where(eq(requirementsTable.redmineTicketId, effectiveTicketId));
+
+        if (existingReq) {
+          patch.requirementId = existingReq.id;
+        } else {
+          // Try to fetch and create requirement from Redmine
+          try {
+            const effectiveProjectId = projectId !== undefined
+              ? (projectId ? Number(projectId) : null)
+              : (await db.select({ projectId: executionFilesTable.projectId })
+                  .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+                ).at(0)?.projectId ?? null;
+
+            const effectiveModules = selectedModules !== undefined
+              ? selectedModules
+              : (await db.select({ selectedModules: executionFilesTable.selectedModules })
+                  .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+                ).at(0)?.selectedModules ?? null;
+
+            const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+            const savedId = await syncRedmineTicket(
+              effectiveTicketId,
+              effectiveModules ?? undefined,
+              effectiveProjectId ?? undefined,
+              undefined,
+              tracker || undefined,
+              apiKey,
+            );
+            if (savedId) patch.requirementId = savedId;
+          } catch (syncErr: any) {
+            // Non-fatal: proceed with save even if Redmine sync fails
+            console.warn("[execution-files PATCH] Redmine requirement sync failed:", syncErr?.message);
+          }
+        }
+      }
+    }
+
     const [updated] = await db
       .update(executionFilesTable)
       .set(patch)

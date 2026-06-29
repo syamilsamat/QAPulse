@@ -497,7 +497,7 @@ export default function TestExecutionSummary() {
 
             {/* Requirement */}
             <div className="space-y-1">
-              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <Label>Requirement <span className="text-xs text-muted-foreground">(auto-linked from Redmine if blank)</span></Label>
               <SearchableSelect
                 value={editForm.requirementId}
                 onValueChange={v => {
