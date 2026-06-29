@@ -1393,7 +1393,7 @@ export default function TestCasesExecution() {
                   <PopoverContent className="w-[280px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search environments..." />
-                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden"><CommandList>
                         <CommandEmpty>No environment found.</CommandEmpty>
                         <CommandGroup>
                           {environments.map(env => (
@@ -1403,7 +1403,7 @@ export default function TestCasesExecution() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList>
+                      </CommandList></div>
                     </Command>
                   </PopoverContent>
                 </Popover>
@@ -1428,7 +1428,7 @@ export default function TestCasesExecution() {
                   <PopoverContent className="w-[300px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search QA..." />
-                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden"><CommandList>
                         <CommandEmpty>No QA found.</CommandEmpty>
                         <CommandGroup>
                           {users.filter((u: any) => u.role === "qa_member" || u.role === "qa_lead").map((u: any) => (
@@ -1441,7 +1441,7 @@ export default function TestCasesExecution() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList>
+                      </CommandList></div>
                     </Command>
                   </PopoverContent>
                 </Popover>
