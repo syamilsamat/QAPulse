@@ -66,7 +66,7 @@ export function SearchableSelect({
       <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)]" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList className="max-h-[260px] overflow-y-auto">
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (

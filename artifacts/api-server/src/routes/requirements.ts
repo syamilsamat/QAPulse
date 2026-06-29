@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray, sql } from "drizzle-orm";
 import { verifyToken } from "./auth";
+import { notifyUser } from "./_notify";
 import {
   db,
   requirementsTable,
@@ -129,6 +130,13 @@ router.post("/requirements", async (req, res): Promise<void> => {
     entityType: "requirement",
   });
 
+  // Notify assignee
+  if (requirement.assigneeId) {
+    let actorId: number | null = null;
+    try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
+    await notifyUser(requirement.assigneeId, "Requirement assigned", `"${requirement.title}" has been assigned to you.`, "requirement", "requirement", requirement.id, actorId);
+  }
+
   res.status(201).json(await formatRequirement(requirement));
 });
 
@@ -200,10 +208,18 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const [before] = await db.select({ assigneeId: requirementsTable.assigneeId }).from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
   const [requirement] = await db.update(requirementsTable).set(parsed.data).where(eq(requirementsTable.id, params.data.id)).returning();
   if (!requirement) {
     res.status(404).json({ error: "Requirement not found" });
     return;
+  }
+
+  // Notify new assignee if changed
+  if (parsed.data.assigneeId !== undefined && requirement.assigneeId && requirement.assigneeId !== before?.assigneeId) {
+    let actorId: number | null = null;
+    try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
+    await notifyUser(requirement.assigneeId, "Requirement assigned", `"${requirement.title}" has been assigned to you.`, "requirement", "requirement", requirement.id, actorId);
   }
 
   // --- CASCADE UPDATES TO CHILDREN ---

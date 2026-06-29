@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, calendarEventsTable, usersTable, notificationsTable } from "@workspace/db";
+import { db, calendarEventsTable, usersTable } from "@workspace/db";
+import { notifyUser } from "./_notify";
 import {
   ListCalendarEventsQueryParams,
   CreateCalendarEventBody,
@@ -11,17 +12,6 @@ import {
 
 const router: IRouter = Router();
 
-async function notifyUser(userId: number, title: string, message: string, type: string, entityId: number) {
-  await db.insert(notificationsTable).values({
-    userId,
-    title,
-    message,
-    type,
-    entityType: "calendar_event",
-    entityId,
-    read: false,
-  });
-}
 
 function parseTaggedUserIds(raw: string | null | undefined): number[] {
   if (!raw) return [];
@@ -98,7 +88,7 @@ router.post("/calendar/events", async (req, res): Promise<void> => {
   // Notify tagged users immediately (same pattern as task assignment)
   if (taggedUserIds?.length) {
     for (const userId of taggedUserIds) {
-      await notifyUser(userId, "You were tagged in an event", `"${event.title}" on ${event.date}`, "calendar_tag", event.id);
+      await notifyUser(userId, "You were tagged in an event", `"${event.title}" on ${event.date}`, "calendar_tag", "calendar_event", event.id);
     }
   }
 
@@ -143,7 +133,7 @@ router.patch("/calendar/events/:id", async (req, res): Promise<void> => {
   if (taggedUserIds?.length) {
     const newlyTagged = taggedUserIds.filter(id => !prevTaggedIds.includes(id));
     for (const userId of newlyTagged) {
-      await notifyUser(userId, "You were tagged in an event", `"${event.title}" on ${event.date}`, "calendar_tag", event.id);
+      await notifyUser(userId, "You were tagged in an event", `"${event.title}" on ${event.date}`, "calendar_tag", "calendar_event", event.id);
     }
   }
 

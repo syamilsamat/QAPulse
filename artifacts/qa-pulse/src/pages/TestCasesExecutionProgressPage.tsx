@@ -1053,9 +1053,21 @@ export default function TestCasesExecutionProgressPage() {
     return (localStorage.getItem(`qa_pulse_exec_view_${userId}`) as "tree" | "spreadsheet") ?? "tree";
   });
 
-  // Column visibility
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
+  // Column visibility — persisted per user in localStorage
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
+    const userId = currentUser?.id;
+    if (userId) {
+      const saved = localStorage.getItem(`qa_pulse_hidden_cols_${userId}`);
+      if (saved) try { return new Set(JSON.parse(saved)); } catch {}
+    }
+    return new Set(["tracker", "preCondition", "userStory"]);
+  });
   const [showColPicker, setShowColPicker] = useState(false);
+
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (userId) localStorage.setItem(`qa_pulse_hidden_cols_${userId}`, JSON.stringify([...hiddenCols]));
+  }, [hiddenCols, currentUser?.id]);
 
   // CAPA Intelligence
   const [capaOpen, setCapaOpen] = useState(false);

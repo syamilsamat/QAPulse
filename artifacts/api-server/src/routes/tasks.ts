@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, notificationsTable, taskEventsTable, executionModulesTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, taskEventsTable, executionModulesTable } from "@workspace/db";
+import { notifyUser } from "./_notify";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
 import {
@@ -21,18 +22,6 @@ function isOverdue(task: typeof tasksTable.$inferSelect): boolean {
   return new Date(task.dueDate) < new Date();
 }
 
-async function notifyUser(userId: number | null | undefined, title: string, message: string, type: string, entityType: string, entityId: number) {
-  if (!userId) return;
-  await db.insert(notificationsTable).values({
-    userId,
-    title,
-    message,
-    type,
-    entityType,
-    entityId,
-    read: false,
-  });
-}
 
 async function formatTask(task: typeof tasksTable.$inferSelect) {
   let assigneeNames: string[] = [];
