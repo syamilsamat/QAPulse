@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { HoverPlay } from "@/components/icons/animated";
 import {
@@ -1393,7 +1394,7 @@ export default function TestCasesExecution() {
                   <PopoverContent className="w-[280px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search environments..." />
-                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden pointer-events-auto"><CommandList>
+                      <ScrollArea className="max-h-[250px]"><CommandList className="max-h-none overflow-visible">
                         <CommandEmpty>No environment found.</CommandEmpty>
                         <CommandGroup>
                           {environments.map(env => (
@@ -1403,7 +1404,7 @@ export default function TestCasesExecution() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList></div>
+                      </CommandList></ScrollArea>
                     </Command>
                   </PopoverContent>
                 </Popover>
@@ -1428,7 +1429,7 @@ export default function TestCasesExecution() {
                   <PopoverContent className="w-[300px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search QA..." />
-                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden pointer-events-auto"><CommandList>
+                      <ScrollArea className="max-h-[250px]"><CommandList className="max-h-none overflow-visible">
                         <CommandEmpty>No QA found.</CommandEmpty>
                         <CommandGroup>
                           {users.filter((u: any) => u.role === "qa_member" || u.role === "qa_lead").map((u: any) => (
@@ -1441,7 +1442,7 @@ export default function TestCasesExecution() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList></div>
+                      </CommandList></ScrollArea>
                     </Command>
                   </PopoverContent>
                 </Popover>

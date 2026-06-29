@@ -12,6 +12,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface ContactOption {
   id: number;
@@ -84,8 +85,8 @@ export function ContactMultiSelect({
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search name or email..." />
-            <div className="max-h-52 overflow-y-auto overflow-x-hidden pointer-events-auto">
-            <CommandList>
+            <ScrollArea className="max-h-52">
+            <CommandList className="max-h-none overflow-visible">
               <CommandEmpty>No contacts found.</CommandEmpty>
               <CommandGroup>
                 {contacts.filter((c) => c.email?.trim()).map((contact) => {
@@ -112,7 +113,7 @@ export function ContactMultiSelect({
                 })}
               </CommandGroup>
             </CommandList>
-            </div>
+            </ScrollArea>
           </Command>
         </PopoverContent>
       </Popover>
