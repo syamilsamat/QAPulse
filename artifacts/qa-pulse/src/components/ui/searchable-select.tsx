@@ -15,7 +15,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface SearchableSelectOption {
   value: string;
@@ -67,7 +66,10 @@ export function SearchableSelect({
       <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)]" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <ScrollArea className="max-h-[240px]">
+          <div
+            className="max-h-[240px] overflow-y-auto overflow-x-hidden"
+            onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}
+          >
           <CommandList className="max-h-none overflow-visible">
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
@@ -94,7 +96,7 @@ export function SearchableSelect({
               ))}
             </CommandGroup>
           </CommandList>
-          </ScrollArea>
+          </div>
         </Command>
       </PopoverContent>
     </Popover>

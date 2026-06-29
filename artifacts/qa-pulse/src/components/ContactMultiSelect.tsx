@@ -12,7 +12,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface ContactOption {
   id: number;
@@ -85,7 +84,10 @@ export function ContactMultiSelect({
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search name or email..." />
-            <ScrollArea className="max-h-52">
+            <div
+              className="max-h-52 overflow-y-auto overflow-x-hidden"
+              onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}
+            >
             <CommandList className="max-h-none overflow-visible">
               <CommandEmpty>No contacts found.</CommandEmpty>
               <CommandGroup>
@@ -113,7 +115,7 @@ export function ContactMultiSelect({
                 })}
               </CommandGroup>
             </CommandList>
-            </ScrollArea>
+            </div>
           </Command>
         </PopoverContent>
       </Popover>
