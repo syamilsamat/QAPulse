@@ -63,9 +63,10 @@ export function SearchableSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)] max-h-[320px] overflow-hidden" align="start">
+      <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)]" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
+          <div className="max-h-[240px] overflow-y-auto overflow-x-hidden">
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
@@ -92,6 +93,7 @@ export function SearchableSelect({
               ))}
             </CommandGroup>
           </CommandList>
+          </div>
         </Command>
       </PopoverContent>
     </Popover>
