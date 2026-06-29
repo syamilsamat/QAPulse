@@ -50,7 +50,7 @@ async function main() {
   const libraryRows = await db
     .select({ id: testCasesTable.id, caseId: testCasesTable.caseId })
     .from(testCasesTable)
-    .where(sql`${testCasesTable.id} = ANY(${libraryIds})`);
+    .where(sql`${testCasesTable.id} = ANY(ARRAY[${sql.join(libraryIds.map(id => sql`${id}`), sql`, `)}]::integer[])`);
 
   const libraryMap = new Map(libraryRows.map(r => [r.id, r.caseId]));
 
