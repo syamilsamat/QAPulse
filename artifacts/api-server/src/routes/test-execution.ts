@@ -424,9 +424,18 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    await db
-      .delete(executionFilesTable)
+    // Look up the ticket ID before deleting so we can clean up orphaned summaries
+    const [file] = await db
+      .select({ redmineTicketId: executionFilesTable.redmineTicketId })
+      .from(executionFilesTable)
       .where(eq(executionFilesTable.id, id));
+
+    await db.delete(executionFilesTable).where(eq(executionFilesTable.id, id));
+
+    if (file?.redmineTicketId) {
+      await db.delete(executionSummariesTable).where(eq(executionSummariesTable.redmineTicketId, file.redmineTicketId));
+    }
+
     res.status(204).send();
   } catch {
     res.status(500).json({ error: "Failed to delete execution file" });
