@@ -36,7 +36,7 @@ function suppressResizeObserverErrors() {
         {
           tag: "script",
           injectTo: "head-prepend" as const,
-          children: `window.addEventListener('error',function(e){if(e.message&&e.message.indexOf('ResizeObserver')!==-1){e.stopImmediatePropagation();e.preventDefault();}},true);`,
+          children: `(function(){function _isRO(m){return typeof m==='string'&&m.indexOf('ResizeObserver')!==-1;}window.addEventListener('error',function(e){if(_isRO(e.message)){e.stopImmediatePropagation();e.preventDefault();}},true);var _fn=null;Object.defineProperty(window,'onerror',{configurable:true,get:function(){return _fn;},set:function(fn){_fn=fn?function(m,s,l,c,err){if(_isRO(m))return true;return fn.call(window,m,s,l,c,err);}:null;}});})();`,
         },
       ];
     },
