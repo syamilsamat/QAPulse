@@ -493,7 +493,7 @@ const DesktopTableRow = React.memo(
             className="border border-border px-2 py-2 align-top sticky bg-card z-20"
             style={{ left: readOnly ? 0 : "14.5rem" }}
           >
-            <span className="text-xs text-muted-foreground font-mono select-all">{row.testCaseId || "—"}</span>
+            <span className="text-xs text-muted-foreground font-mono select-all">{row.caseId || row.testCaseId || "—"}</span>
           </td>
         )}
         {!hide("userStory") && (
@@ -766,7 +766,7 @@ const MobileCardRow = React.memo(
               Test Case ID
             </Label>
             <div className="min-h-[40px] flex items-center px-2 py-1 text-xs font-mono text-muted-foreground border border-input rounded-md bg-muted/20">
-              {row.testCaseId || "—"}
+              {row.caseId || row.testCaseId || "—"}
             </div>
           </div>
           <div className="space-y-1">
