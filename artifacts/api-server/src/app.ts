@@ -66,6 +66,7 @@ app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/refresh", authLimiter);
 app.use("/api", apiLimiter);
 app.use("/api", router);
 

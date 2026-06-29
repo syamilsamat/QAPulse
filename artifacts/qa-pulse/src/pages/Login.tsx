@@ -23,6 +23,7 @@ import {
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Lock, ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 const loginSchema = z.object({
@@ -53,6 +54,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   // After login succeeds, if mustChangePassword we show this overlay
   const [pendingUser, setPendingUser] = useState<{
@@ -78,7 +80,7 @@ export default function Login() {
           if (data.user.mustChangePassword) {
             setPendingUser({ id: data.user.id, name: data.user.name });
           } else {
-            login(data.user, data.token);
+            login(data.user, data.token, (data as any).refreshToken ?? "", rememberMe);
             setLocation("/dashboard");
           }
         },
@@ -307,6 +309,16 @@ export default function Login() {
                   </FormItem>
                 )}
               />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="rememberMe"
+                  checked={rememberMe}
+                  onCheckedChange={(v) => setRememberMe(Boolean(v))}
+                />
+                <Label htmlFor="rememberMe" className="text-sm font-normal cursor-pointer">
+                  Remember me
+                </Label>
+              </div>
               <Button
                 type="submit"
                 className="w-full rounded-full bg-gradient-to-r from-black via-slate-900 to-blue-600 text-white border-0 shadow-md transition-all duration-300 hover:animate-pulse hover:shadow-[0_0_15px_rgba(37,99,235,0.4)] hover:scale-[1.02]"
