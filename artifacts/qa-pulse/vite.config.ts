@@ -26,9 +26,27 @@ if (!basePath) {
   );
 }
 
+// Inject a capture-phase error suppressor BEFORE runtimeErrorOverlay registers
+// its handler, so ResizeObserver loop errors never reach the Replit modal.
+function suppressResizeObserverErrors() {
+  return {
+    name: "suppress-resize-observer-errors",
+    transformIndexHtml() {
+      return [
+        {
+          tag: "script",
+          injectTo: "head-prepend" as const,
+          children: `window.addEventListener('error',function(e){if(e.message&&e.message.indexOf('ResizeObserver')!==-1){e.stopImmediatePropagation();e.preventDefault();}},true);`,
+        },
+      ];
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    suppressResizeObserverErrors(),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
