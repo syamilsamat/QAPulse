@@ -1112,6 +1112,7 @@ export default function TestCases() {
     const selectedTCs = testCases.filter((tc: any) => selectedIds.has(tc.id));
     const newRows = selectedTCs.map((tc: any) => ({
       moduleName: tc.module ?? "",
+      caseId: tc.caseId ?? "",
       caseName: tc.title,
       userStory: tc.redmineUserStory ?? "",
       tracker: tc.tracker ?? "",
