@@ -2,18 +2,14 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-// Diagnose non-Error unhandled rejections/errors that Replit reports as "(unknown runtime error)"
-if (import.meta.env.DEV) {
-  window.addEventListener("unhandledrejection", (e) => {
-    if (!(e.reason instanceof Error)) {
-      console.warn("[QAPulse] Non-Error unhandled rejection:", e.reason);
-    }
-  });
-  window.addEventListener("error", (e) => {
-    if (!(e.error instanceof Error)) {
-      console.warn("[QAPulse] Non-Error window error:", e.message, e.filename, e.error);
-    }
-  });
-}
+// Suppress benign "ResizeObserver loop" errors that Replit runtime-error-modal
+// treats as fatal. This is a known browser non-issue — it fires when a
+// ResizeObserver callback causes a layout change before the next frame.
+window.addEventListener("error", (e) => {
+  if (e.message?.includes("ResizeObserver loop")) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }
+});
 
 createRoot(document.getElementById("root")!).render(<App />);
