@@ -84,7 +84,7 @@ export function ContactMultiSelect({
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search name or email..." />
-            <div className="max-h-52 overflow-y-auto overflow-x-hidden">
+            <div className="max-h-52 overflow-y-auto overflow-x-hidden pointer-events-auto">
             <CommandList>
               <CommandEmpty>No contacts found.</CommandEmpty>
               <CommandGroup>
