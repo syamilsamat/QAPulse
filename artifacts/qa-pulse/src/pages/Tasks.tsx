@@ -70,6 +70,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Plus,
@@ -1684,7 +1685,7 @@ export default function Tasks() {
                   <PopoverContent className="w-[280px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search environments..." />
-                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden pointer-events-auto"><CommandList>
+                      <ScrollArea className="max-h-[250px]"><CommandList className="max-h-none overflow-visible">
                         <CommandEmpty>No environment found.</CommandEmpty>
                         <CommandGroup>
                           {environments.map((env: any) => (
@@ -1703,7 +1704,7 @@ export default function Tasks() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList></div>
+                      </CommandList></ScrollArea>
                     </Command>
                   </PopoverContent>
                 </Popover>
@@ -1742,7 +1743,7 @@ export default function Tasks() {
                   <PopoverContent className="w-[300px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search QA..." />
-                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden pointer-events-auto"><CommandList>
+                      <ScrollArea className="max-h-[250px]"><CommandList className="max-h-none overflow-visible">
                         <CommandEmpty>No QA found.</CommandEmpty>
                         <CommandGroup>
                           {users
@@ -1771,7 +1772,7 @@ export default function Tasks() {
                               </CommandItem>
                             ))}
                         </CommandGroup>
-                      </CommandList></div>
+                      </CommandList></ScrollArea>
                     </Command>
                   </PopoverContent>
                 </Popover>
@@ -2258,7 +2259,7 @@ export default function Tasks() {
                       placeholder="Search member..."
                       className="h-9"
                     />
-                    <div className="max-h-[250px] overflow-y-auto overflow-x-hidden pointer-events-auto"><CommandList>
+                    <ScrollArea className="max-h-[250px]"><CommandList className="max-h-none overflow-visible">
                       <CommandEmpty>No member found.</CommandEmpty>
                       <CommandGroup>
                         {users
@@ -2298,7 +2299,7 @@ export default function Tasks() {
                             </CommandItem>
                           ))}
                       </CommandGroup>
-                    </CommandList></div>
+                    </CommandList></ScrollArea>
                   </Command>
                 </PopoverContent>
               </Popover>

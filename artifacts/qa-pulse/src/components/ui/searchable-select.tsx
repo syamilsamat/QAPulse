@@ -15,6 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface SearchableSelectOption {
   value: string;
@@ -66,8 +67,8 @@ export function SearchableSelect({
       <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)]" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <div className="max-h-[240px] overflow-y-auto overflow-x-hidden pointer-events-auto">
-          <CommandList>
+          <ScrollArea className="max-h-[240px]">
+          <CommandList className="max-h-none overflow-visible">
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
@@ -93,7 +94,7 @@ export function SearchableSelect({
               ))}
             </CommandGroup>
           </CommandList>
-          </div>
+          </ScrollArea>
         </Command>
       </PopoverContent>
     </Popover>
