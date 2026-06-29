@@ -1549,7 +1549,8 @@ export default function TestCasesExecutionProgressPage() {
       if (
         !row.result ||
         row.result === "Not Executed" ||
-        row.result === "Pending"
+        row.result === "Pending" ||
+        row.result === "In Progress"
       ) {
         totalUnexecuted++;
       } else {
