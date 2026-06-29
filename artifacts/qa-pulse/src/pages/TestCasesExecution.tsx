@@ -256,7 +256,7 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   }
   const { total, passed, failed, blocked, inProgress, notExecuted } = data;
   const pct = (n: number) => Math.round((n / total) * 100);
-  const executedPct = pct(passed + failed + blocked + inProgress);
+  const executedPct = pct(passed + failed + blocked);
   const pctStr = (n: number) => `${pct(n)}%`;
   const pctColor = executedPct === 100
     ? (failed === 0 && blocked === 0 ? "text-green-600" : "text-orange-600")
@@ -1028,7 +1028,7 @@ export default function TestCasesExecution() {
       total += p.total; passed += p.passed; failed += p.failed;
       blocked += p.blocked; inProgress += p.inProgress;
     });
-    const executed = passed + failed + blocked + inProgress;
+    const executed = passed + failed + blocked;
     return { total, passed, failed, blocked, inProgress, executed, pct: total > 0 ? Math.round((executed / total) * 100) : 0 };
   }, [progress]);
 
