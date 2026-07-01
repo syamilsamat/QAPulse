@@ -21,7 +21,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | 📋 Planned | 2026-06-29 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
-| [CR014](#cr014--pm--functional-analyst-onboarding) | PM & Functional Analyst Onboarding | ⏳ Pending | — |
+| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ⏳ Pending | — |
 
 ---
 
@@ -188,15 +188,15 @@ Full plan: `docs/change-requests/microsoft-login-sso.md`
 
 ---
 
-### CR014 — PM & Functional Analyst Onboarding
+### CR014 — Org-wide Role Hierarchy & Project-Level Access Control
 **Status:** ⏳ Pending
 
-Expands QAPulse beyond QA into a multi-department platform, starting with Project Manager and Functional Analyst roles (role name `functional_analyst` — this org has already merged BA and SA into a single Functional Analyst title, so no separate SA role is needed later). Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Designed to cover both a single Change Request and a full new-project rollout via one shared primitive (Milestones), rather than separate machinery for each.
+Expands QAPulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO) using a static role lookup table, **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
 
 **Part 1 — Project-level access control (prerequisite)**
 - New `project_members` table (projectId + userId, no per-project sub-roles yet)
-- New `requireAuth` / `resolveProjectAccess` middleware + `canAccessProject` / `scopeToUserProjects` helpers
-- Retrofit `requirements`, `test-cases`, `tasks`, `traceability`, `projects`, `test-execution` routes to scope by membership; 404 on denied access
+- New `org-roles.ts` lookup (department/tier map) + `requireAuth` / `resolveProjectAccess` middleware (tier-aware) + `canAccessProject` / `scopeToUserProjects` helpers (unchanged, tier logic lives entirely in `resolveProjectAccess`)
+- Retrofit `requirements`, `test-cases`, `tasks`, `traceability`, `projects` routes to scope by membership; `test-execution` retrofitted per-route (not router-level, due to its SSE endpoint); 404 on denied access
 - One-time backfill grandfathering existing users into existing projects
 
 **Part 2 — Milestones (shared CR / new-project primitive)**
@@ -204,16 +204,21 @@ Expands QAPulse beyond QA into a multi-department platform, starting with Projec
 - Nullable `milestoneId` on `requirementsTable` and `tasksTable`
 - New `routes/milestones.ts` (create/list/status update, project-scoped)
 
-**Part 3 — Project Manager onboarding**
-- New `project_manager` role + `nav:pm-dashboard`
-- New `GET /dashboard/pm-summary` aggregating tasks/requirements/execution data per accessible project, grouped per milestone
-- New `PmDashboard.tsx` page
+**Part 3 — PM track (`project_manager`, `pm_lead`, `hod_pm`)**
+- All three roles share nav (`nav:pm-dashboard` + existing PM-relevant keys); tiers differ only in project-visibility scope
+- New `GET /dashboard/pm-summary` + `PmDashboard.tsx`, grouped per project → per milestone
 
-**Part 4 — Functional Analyst onboarding**
-- New `functional_analyst` role
+**Part 4 — FA track (`functional_analyst`, `fa_lead`, `hod_fa_bi`)**
 - `reviewedBy` / `reviewedAt` columns on `requirementsTable`
-- `PATCH /requirements/:id/review` — upstream requirement baseline approval (comment, activity log, assignee notification)
-- `PATCH /milestones/:id/review` — downstream UAT sign-off once a milestone's requirements pass QA, closing the loop back to the FA (notifies the milestone's creator/PM)
-- Approve/reject UI + review history panel on `Requirements.tsx` and the PM Dashboard's milestone cards
+- `PATCH /requirements/:id/review` — upstream requirement baseline approval
+- `PATCH /milestones/:id/review` — downstream UAT sign-off, closing the loop back to the FA track (notifies the milestone's creator/PM)
+- `bi`/`bi_lead` role names reserved (so `hod_fa_bi` visibility is forward-compatible) but BI itself is **not** onboarded in this CR
+
+**Part 5 — QA tier expansion (`qa_manager`, `hod_qa` — new)**
+- `qa_member`/`qa_lead` already exist; adds the two tiers above plus tiered visibility itself — **note:** `qa_lead` gains broader visibility than before (every `qa_member`'s projects, not just its own), a real behavior change for existing accounts
+
+**Part 6 — CTO (`cto`)**
+- Broadest nav (like `admin`) but no role/user-management permissions — "see everything, configure nothing"
+- Unrestricted project visibility (same `null` sentinel as `admin`)
 
 Full plan: `docs/change-requests/pm-ba-onboarding.md`
