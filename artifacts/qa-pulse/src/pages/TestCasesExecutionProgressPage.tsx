@@ -41,6 +41,8 @@ import {
   Library,
   ChevronDown,
   ChevronRight,
+  LayoutList,
+  Table2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -491,7 +493,7 @@ const DesktopTableRow = React.memo(
             className="border border-border px-2 py-2 align-top sticky bg-card z-20"
             style={{ left: readOnly ? 0 : "14.5rem" }}
           >
-            <span className="text-xs text-muted-foreground font-mono select-all">{row.testCaseId || "—"}</span>
+            <span className="text-xs text-muted-foreground font-mono select-all">{row.caseId || row.testCaseId || "—"}</span>
           </td>
         )}
         {!hide("userStory") && (
@@ -559,13 +561,13 @@ const DesktopTableRow = React.memo(
           }
         </td>
         <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
-          {canEdit ? (
+          {canEdit && !isQaMember ? (
             <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
           ) : (
             <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
           )}
         </td>
-        {!hide("executedAt") && (
+        {!hide("executedAt") && !isQaMember && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
             {row.executedAt ? format(new Date(row.executedAt), "dd MMM HH:mm") : "—"}
           </td>
@@ -748,7 +750,7 @@ const MobileCardRow = React.memo(
             <Label className="text-[10px] text-muted-foreground uppercase font-bold">
               Result
             </Label>
-            {canEdit ? (
+            {canEdit && !isQaMember ? (
               <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
             ) : (
               <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
@@ -764,7 +766,7 @@ const MobileCardRow = React.memo(
               Test Case ID
             </Label>
             <div className="min-h-[40px] flex items-center px-2 py-1 text-xs font-mono text-muted-foreground border border-input rounded-md bg-muted/20">
-              {row.testCaseId || "—"}
+              {row.caseId || row.testCaseId || "—"}
             </div>
           </div>
           <div className="space-y-1">
@@ -1044,9 +1046,28 @@ export default function TestCasesExecutionProgressPage() {
   // Execute / Edit mode — always defaults to "execute" on file open
   const [mode, setMode] = useState<"execute" | "edit">("execute");
 
-  // Column visibility
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["tracker", "preCondition", "userStory"]));
+  // View layout preference — read from localStorage per user
+  const [viewLayout, setViewLayout] = useState<"tree" | "spreadsheet">(() => {
+    const userId = currentUser?.id;
+    if (!userId) return "tree";
+    return (localStorage.getItem(`qa_pulse_exec_view_${userId}`) as "tree" | "spreadsheet") ?? "tree";
+  });
+
+  // Column visibility — persisted per user in localStorage
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
+    const userId = currentUser?.id;
+    if (userId) {
+      const saved = localStorage.getItem(`qa_pulse_hidden_cols_${userId}`);
+      if (saved) try { return new Set(JSON.parse(saved)); } catch {}
+    }
+    return new Set(["tracker", "preCondition", "userStory"]);
+  });
   const [showColPicker, setShowColPicker] = useState(false);
+
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (userId) localStorage.setItem(`qa_pulse_hidden_cols_${userId}`, JSON.stringify([...hiddenCols]));
+  }, [hiddenCols, currentUser?.id]);
 
   // CAPA Intelligence
   const [capaOpen, setCapaOpen] = useState(false);
@@ -1528,7 +1549,8 @@ export default function TestCasesExecutionProgressPage() {
       if (
         !row.result ||
         row.result === "Not Executed" ||
-        row.result === "Pending"
+        row.result === "Pending" ||
+        row.result === "In Progress"
       ) {
         totalUnexecuted++;
       } else {
@@ -2350,6 +2372,32 @@ export default function TestCasesExecutionProgressPage() {
             </button>
           </div>
 
+          {/* View layout toggle */}
+          <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium" title="Switch view layout">
+            <button
+              onClick={() => {
+                const next = "tree";
+                setViewLayout(next);
+                if (currentUser?.id) localStorage.setItem(`qa_pulse_exec_view_${currentUser.id}`, next);
+              }}
+              className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${viewLayout === "tree" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+              title="Tree view"
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                const next = "spreadsheet";
+                setViewLayout(next);
+                if (currentUser?.id) localStorage.setItem(`qa_pulse_exec_view_${currentUser.id}`, next);
+              }}
+              className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${viewLayout === "spreadsheet" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+              title="Spreadsheet view"
+            >
+              <Table2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <input
             type="file"
             accept=".xlsx, .xls"
@@ -2609,7 +2657,76 @@ export default function TestCasesExecutionProgressPage() {
       </div>
 
       {/* DESKTOP TREE VIEW */}
-      <Card className="hidden lg:block flex-1 overflow-y-auto border rounded-md shadow-sm min-h-[450px]">
+      {viewLayout === "spreadsheet" && (
+        <Card className="hidden lg:flex flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]">
+          {filteredData.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8">
+              <Search className="w-10 h-10 mb-4 opacity-20" />
+              <p>No test cases match your current filters.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto bg-card">
+              <table className="w-full text-sm border-collapse min-w-[2840px]">
+                <thead className="sticky top-0 z-30 bg-muted shadow-sm">
+                  <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {mode === "edit" && (
+                      <th className="border border-border w-10 p-2 text-center sticky left-0 z-40 bg-muted">
+                        <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                          checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
+                          onChange={(e) => handleSelectAll(e.target.checked)} />
+                      </th>
+                    )}
+                    {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-40 bg-muted">Module</th>}
+                    {!hiddenCols.has("testCaseId") && (
+                      <th className="border border-border w-48 p-2 text-left sticky bg-muted z-30" style={{ left: mode === "edit" ? "14.5rem" : 0 }}>
+                        Test Case ID
+                      </th>
+                    )}
+                    {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
+                    {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
+                    {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
+                    {!hiddenCols.has("preCondition") && <th className="border border-border w-48 p-2 text-left">Pre Condition</th>}
+                    <th className="border border-border w-64 p-2 text-left">Case <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    <th className="border border-border w-64 p-2 text-left">Steps <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    {!hiddenCols.has("testData") && <th className="border border-border w-48 p-2 text-left">Test Data</th>}
+                    <th className="border border-border w-64 p-2 text-left">Expected Result <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
+                    {!hiddenCols.has("executedAt") && currentUser?.role !== "qa_member" && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
+                    <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
+                    {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">QA Notes</th>}
+                    <th className="border border-border w-48 p-2 text-left">QA PIC</th>
+                    {mode === "edit" && <th className="border border-border w-10 p-2"></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((row, index) => (
+                    <DesktopTableRow
+                      key={row.id as string}
+                      row={row}
+                      index={index}
+                      isSelected={selectedRows.includes(row.id as string | number)}
+                      onToggleSelect={handleSelectRow}
+                      isDirty={dirtyRowIds.has(row.id as string | number)}
+                      onUpdate={updateCell}
+                      onBlurRow={saveBlurRow}
+                      onDelete={requestSingleDelete}
+                      onPromote={openPromoteDialog}
+                      availableModules={availableModules}
+                      availableTrackers={availableTrackers}
+                      qaUsers={qaUsers}
+                      mode={mode}
+                      hiddenCols={hiddenCols}
+                      currentUser={currentUser}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card className={`${viewLayout === "tree" ? "hidden lg:block" : "hidden"} flex-1 overflow-y-auto border rounded-md shadow-sm min-h-[450px]`}>
         {filteredData.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground p-8 h-full">
             <Search className="w-10 h-10 mb-4 opacity-20" />
@@ -2658,89 +2775,174 @@ export default function TestCasesExecutionProgressPage() {
                                   onChange={e => handleSelectRow(row.id as string | number, e.target.checked)} />
                               </div>
                               {isTcOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
-                              <span className="font-mono text-xs text-primary font-medium w-28 shrink-0">{row.caseId || row.testCaseId || "—"}</span>
-                              <span className="text-sm flex-1 truncate text-foreground">{row.caseName || "Untitled"}</span>
+                              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
+                                <span className="text-sm truncate text-foreground">{row.caseName || "Untitled"}</span>
+                              </div>
                               <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
                                 {row.result || "Not Executed"}
                               </span>
                             </div>
 
-                            {/* Expanded detail panel */}
-                            {isTcOpen && (
-                              <div className="bg-muted/10 border-b border-muted shadow-inner">
-                                <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
-                                  {/* LEFT — what to test (read-only) */}
-                                  <div className="space-y-5">
-                                    <DetailItem label="Scenario" value={row.scenario} />
-                                    <DetailItem label="Pre-condition" value={row.preCondition} />
-                                    <DetailItem label="Test Steps" value={row.testSteps} isCode />
-                                    <DetailItem label="Expected Result" value={row.expectedResult} highlight />
-                                    <DetailItem label="Test Data" value={row.testData} />
-                                  </div>
-                                  {/* RIGHT — execution tracking (editable) */}
-                                  <div className="space-y-5">
-                                    <div className="space-y-2">
-                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Result</Label>
-                                      {canEdit ? (
-                                        <div className="flex flex-wrap gap-2">
-                                          {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
-                                            <button
-                                              key={status}
-                                              onClick={() => updateCell(row.id as string | number, "result", status)}
-                                              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}
-                                            >
-                                              {status}
-                                            </button>
-                                          ))}
+                            {/* Expanded detail panel — document style */}
+                            {isTcOpen && (() => {
+                              const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
+                              const steps = parseLines(row.testSteps);
+                              const expectations = parseLines(row.expectedResult);
+                              const getExpected = (i: number) => {
+                                if (expectations.length === 0) return "";
+                                if (expectations.length === 1) return i === Math.max(0, steps.length - 1) ? expectations[0] : "";
+                                return expectations[i] || "";
+                              };
+                              const displaySteps = steps.length > 0 ? steps : [""];
+                              const cellCls = "p-3 text-sm text-foreground whitespace-pre-wrap";
+                              const headCls = "p-2 text-[10px] font-bold uppercase text-muted-foreground bg-muted/50";
+                              const dividerX = "divide-x divide-border";
+                              const borderB = "border-b border-border";
+                              return (
+                                <div className="p-4 bg-muted/10 border-b border-muted">
+                                  <div className="text-sm space-y-4">
+
+                                    {/* Case */}
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                      {mode === "edit"
+                                        ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.caseName || ""} fieldName="Case Name" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "caseName", val)} />
+                                        : <p className="text-sm">{row.caseName || "—"}</p>
+                                      }
+                                    </div>
+
+                                    {/* Row 1: Module | Scenario */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div>
+                                        {mode === "edit"
+                                          ? <select className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
+                                              <option value="">Select...</option>
+                                              {availableModules.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                            </select>
+                                          : <p className="text-sm">{row.moduleName || "—"}</p>
+                                        }
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                        {mode === "edit"
+                                          ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.scenario || ""} fieldName="Scenario" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "scenario", val)} />
+                                          : <p className="text-sm whitespace-pre-wrap">{row.scenario || "—"}</p>
+                                        }
+                                      </div>
+                                    </div>
+
+                                    {/* Row 2: Pre-Condition | Test Data */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                        {mode === "edit"
+                                          ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.preCondition || ""} fieldName="Pre-Condition" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "preCondition", val)} />
+                                          : <p className="text-sm whitespace-pre-wrap">{row.preCondition || "—"}</p>
+                                        }
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                        {mode === "edit"
+                                          ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.testData || ""} fieldName="Test Data" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "testData", val)} />
+                                          : <p className="text-sm whitespace-pre-wrap">{row.testData || "—"}</p>
+                                        }
+                                      </div>
+                                    </div>
+
+                                    {/* Steps table — bordered only here */}
+                                    <div className="border border-border rounded-md overflow-hidden">
+                                      <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
+                                        <div className={headCls}>Test Step {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                        <div className={headCls}>Expected Result {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                                      </div>
+                                      {mode === "edit" ? (
+                                        <div className={`grid grid-cols-2 ${dividerX}`}>
+                                          <div className="p-3">
+                                            <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} />
+                                          </div>
+                                          <div className="p-3">
+                                            <CopilotTextarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} fieldName="Expected Result" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "expectedResult", val)} />
+                                          </div>
                                         </div>
                                       ) : (
-                                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                          {row.result || "Not Executed"}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">QA PIC</Label>
-                                      {isQaMember ? (
-                                        isAssignedToMe ? (
-                                          <div className="flex items-center gap-2 text-sm">
-                                            <span className="font-medium">{currentUser?.name}</span>
-                                            <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                        displaySteps.map((step, i) => (
+                                          <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                                            <div className={cellCls}>{step || "—"}</div>
+                                            <div className={cellCls}>{getExpected(i) || ""}</div>
                                           </div>
-                                        ) : isUnassigned ? (
-                                          <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
-                                            + Assign to me
-                                          </button>
+                                        ))
+                                      )}
+                                    </div>
+
+                                    {/* Result | QA PIC */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
+                                        {canEdit && !isQaMember ? (
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                              <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                                {status}
+                                              </button>
+                                            ))}
+                                          </div>
                                         ) : (
-                                          <span className="text-sm text-muted-foreground">{row.qaPic}</span>
-                                        )
-                                      ) : (
-                                        <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
-                                          <option value="">Select QA PIC...</option>
-                                          {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                        </select>
-                                      )}
+                                          <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                            {row.result || "Not Executed"}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
+                                        {isQaMember ? (
+                                          isAssignedToMe ? (
+                                            <div className="flex items-center gap-2 text-sm">
+                                              <span className="font-medium">{currentUser?.name}</span>
+                                              <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                            </div>
+                                          ) : isUnassigned ? (
+                                            <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
+                                              + Assign to me
+                                            </button>
+                                          ) : (
+                                            <span className="text-sm text-muted-foreground">{row.qaPic}</span>
+                                          )
+                                        ) : (
+                                          <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                            <option value="">Select QA PIC...</option>
+                                            {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                          </select>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Defect #</Label>
-                                      {canEdit ? (
-                                        <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
-                                      ) : (
-                                        <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
-                                      )}
+
+                                    {/* Redmine Defect ID | QA Notes */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Redmine Defect ID</div>
+                                        {canEdit ? (
+                                          <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
+                                        ) : (
+                                          <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA Notes</div>
+                                        {canEdit ? (
+                                          <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
+                                        ) : (
+                                          <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Comments</Label>
-                                      {canEdit ? (
-                                        <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
-                                      ) : (
-                                        <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
-                                      )}
-                                    </div>
+
                                   </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </React.Fragment>
                         );
                       })}
@@ -2753,7 +2955,7 @@ export default function TestCasesExecutionProgressPage() {
         )}
       </Card>
 
-      {/* MOBILE TREE VIEW */}
+      {/* MOBILE VIEW (always card-based) */}
       <div className="lg:hidden flex-1 flex flex-col overflow-y-auto min-h-[450px] pb-4">
         {filteredData.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground p-8 border border-dashed rounded-lg">
@@ -2795,87 +2997,110 @@ export default function TestCasesExecutionProgressPage() {
                               onClick={() => toggleTc(row.id as string | number)}
                             >
                               {isTcOpen ? <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />}
-                              <span className="font-mono text-xs text-primary font-medium w-20 shrink-0">{row.caseId || row.testCaseId || "—"}</span>
-                              <span className="text-sm flex-1 truncate">{row.caseName || "Untitled"}</span>
+                              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
+                                <span className="text-sm truncate">{row.caseName || "Untitled"}</span>
+                              </div>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
                                 {row.result || "Not Executed"}
                               </span>
                             </div>
 
-                            {/* Expanded detail panel */}
-                            {isTcOpen && (
-                              <div className="bg-muted/5 border-t border-muted px-4 py-5 space-y-5">
-                                <DetailItem label="Scenario" value={row.scenario} />
-                                <DetailItem label="Pre-condition" value={row.preCondition} />
-                                <DetailItem label="Test Steps" value={row.testSteps} isCode />
-                                <DetailItem label="Expected Result" value={row.expectedResult} highlight />
-                                <DetailItem label="Test Data" value={row.testData} />
-
-                                <div className="border-t border-border/50 pt-4 space-y-4">
-                                  <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Result</Label>
-                                    {canEdit ? (
-                                      <div className="flex flex-wrap gap-2">
-                                        {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
-                                          <button
-                                            key={status}
-                                            onClick={() => updateCell(row.id as string | number, "result", status)}
-                                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}
-                                          >
-                                            {status}
-                                          </button>
-                                        ))}
+                            {/* Expanded detail panel — document style (mobile) */}
+                            {isTcOpen && (() => {
+                              const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
+                              const steps = parseLines(row.testSteps);
+                              const expectations = parseLines(row.expectedResult);
+                              const getExpected = (i: number) => {
+                                if (expectations.length === 0) return "";
+                                if (expectations.length === 1) return i === Math.max(0, steps.length - 1) ? expectations[0] : "";
+                                return expectations[i] || "";
+                              };
+                              const displaySteps = steps.length > 0 ? steps : [""];
+                              const dividerX = "divide-x divide-border";
+                              const borderB = "border-b border-border";
+                              return (
+                                <div className="px-3 py-3 bg-muted/5 border-t border-muted">
+                                  <div className="text-sm space-y-3">
+                                    {/* Case */}
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
+                                      <p className="text-xs">{row.caseName || "—"}</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div><p className="text-xs whitespace-pre-wrap">{row.scenario || "—"}</p></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div><p className="text-xs whitespace-pre-wrap">{row.preCondition || "—"}</p></div>
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div><p className="text-xs whitespace-pre-wrap">{row.testData || "—"}</p></div>
+                                    </div>
+                                    {/* Steps table — bordered only here */}
+                                    <div className="border border-border rounded-md overflow-hidden">
+                                      <div className={`grid grid-cols-2 ${dividerX} ${borderB} bg-muted/50`}>
+                                        <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Test Step</div>
+                                        <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Expected Result</div>
                                       </div>
-                                    ) : (
-                                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                        {row.result || "Not Executed"}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">QA PIC</Label>
-                                    {isQaMember ? (
-                                      isAssignedToMe ? (
-                                        <div className="flex items-center gap-2 text-sm">
-                                          <span className="font-medium">{currentUser?.name}</span>
-                                          <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                      {displaySteps.map((step, i) => (
+                                        <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                                          <div className="p-2 text-xs whitespace-pre-wrap">{step || "—"}</div>
+                                          <div className="p-2 text-xs whitespace-pre-wrap">{getExpected(i) || ""}</div>
                                         </div>
-                                      ) : isUnassigned ? (
-                                        <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
-                                          + Assign to me
-                                        </button>
-                                      ) : (
-                                        <span className="text-sm text-muted-foreground">{row.qaPic}</span>
-                                      )
-                                    ) : (
-                                      <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
-                                        <option value="">Select QA PIC...</option>
-                                        {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                      </select>
-                                    )}
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Defect #</Label>
-                                    {canEdit ? (
-                                      <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
-                                    )}
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Comments</Label>
-                                    {canEdit ? (
-                                      <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
-                                    )}
+                                      ))}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Result</div>
+                                        {canEdit && !isQaMember ? (
+                                          <div className="flex flex-wrap gap-1">
+                                            {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                              <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                                {status}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                            {row.result || "Not Executed"}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA PIC</div>
+                                        {isQaMember ? (
+                                          isAssignedToMe ? (
+                                            <div className="flex items-center gap-1 text-xs">
+                                              <span className="font-medium">{currentUser?.name}</span>
+                                              <button className="text-[10px] text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                            </div>
+                                          ) : isUnassigned ? (
+                                            <button className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>+ Assign to me</button>
+                                          ) : (
+                                            <span className="text-xs text-muted-foreground">{row.qaPic}</span>
+                                          )
+                                        ) : (
+                                          <select className="flex h-7 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                            <option value="">Select QA PIC...</option>
+                                            {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                          </select>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Redmine Defect ID</div>
+                                        {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.defectNumber || ""} placeholder="e.g. 38032" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.defectNumber || "—"}</p>}
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA Notes</div>
+                                        {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.comments || "—"}</p>}
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </React.Fragment>
                         );
                       })}

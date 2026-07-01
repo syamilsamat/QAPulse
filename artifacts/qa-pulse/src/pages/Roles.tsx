@@ -50,6 +50,7 @@ interface Role {
 const NAV_PERMISSION_ITEMS = [
   { key: "nav:requirements",   label: "Requirements" },
   { key: "nav:test-cases",     label: "Test Cases" },
+  { key: "nav:traceability",   label: "Traceability" },
   { key: "nav:tasks",          label: "Tasks" },
   { key: "nav:ai-hub",         label: "AI Hub" },
   { key: "nav:report",         label: "Report" },

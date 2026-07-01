@@ -66,7 +66,11 @@ export function SearchableSelect({
       <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)]" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <div
+            className="max-h-[240px] overflow-y-auto overflow-x-hidden"
+            onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}
+          >
+          <CommandList className="max-h-none overflow-visible">
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
@@ -92,6 +96,7 @@ export function SearchableSelect({
               ))}
             </CommandGroup>
           </CommandList>
+          </div>
         </Command>
       </PopoverContent>
     </Popover>

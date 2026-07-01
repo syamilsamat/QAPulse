@@ -777,7 +777,7 @@ export default function Requirements() {
                             )}
                             {viewMode === "compact" ? (
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium">{r.title}</span>
+                                <span className="font-medium cursor-pointer hover:text-primary hover:underline transition-colors" onClick={(e) => { e.stopPropagation(); openEdit(r); }}>{r.title}</span>
                                 {r.redmineTicketId && (
                                   <span className="text-xs text-muted-foreground">#{r.redmineTicketId}</span>
                                 )}
@@ -799,7 +799,7 @@ export default function Requirements() {
                               </div>
                             ) : (
                               <div>
-                                <p className="font-medium line-clamp-2">{r.title}</p>
+                                <p className="font-medium line-clamp-2 cursor-pointer hover:text-primary hover:underline transition-colors" onClick={(e) => { e.stopPropagation(); openEdit(r); }}>{r.title}</p>
                                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                   {r.redmineTicketId && (
                                     <a

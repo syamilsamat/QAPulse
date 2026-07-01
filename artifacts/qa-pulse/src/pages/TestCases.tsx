@@ -673,6 +673,8 @@ export default function TestCases() {
   const { data: testCases = [], isLoading } = useQuery({
     queryKey: getListTestCasesQueryKey(),
     queryFn: () => listTestCases(),
+    staleTime: 0,
+    refetchOnMount: true,
   });
   const { data: projects = [] } = useQuery({
     queryKey: getListProjectsQueryKey(),
@@ -1110,6 +1112,7 @@ export default function TestCases() {
     const selectedTCs = testCases.filter((tc: any) => selectedIds.has(tc.id));
     const newRows = selectedTCs.map((tc: any) => ({
       moduleName: tc.module ?? "",
+      caseId: tc.caseId ?? "",
       caseName: tc.title,
       userStory: tc.redmineUserStory ?? "",
       tracker: tc.tracker ?? "",

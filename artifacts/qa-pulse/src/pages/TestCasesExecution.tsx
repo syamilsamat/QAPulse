@@ -256,7 +256,7 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   }
   const { total, passed, failed, blocked, inProgress, notExecuted } = data;
   const pct = (n: number) => Math.round((n / total) * 100);
-  const executedPct = pct(passed + failed + blocked + inProgress);
+  const executedPct = pct(passed + failed + blocked);
   const pctStr = (n: number) => `${pct(n)}%`;
   const pctColor = executedPct === 100
     ? (failed === 0 && blocked === 0 ? "text-green-600" : "text-orange-600")
@@ -1028,7 +1028,7 @@ export default function TestCasesExecution() {
       total += p.total; passed += p.passed; failed += p.failed;
       blocked += p.blocked; inProgress += p.inProgress;
     });
-    const executed = passed + failed + blocked + inProgress;
+    const executed = passed + failed + blocked;
     return { total, passed, failed, blocked, inProgress, executed, pct: total > 0 ? Math.round((executed / total) * 100) : 0 };
   }, [progress]);
 
@@ -1393,7 +1393,7 @@ export default function TestCasesExecution() {
                   <PopoverContent className="w-[280px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search environments..." />
-                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden" onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}><CommandList className="max-h-none overflow-visible">
                         <CommandEmpty>No environment found.</CommandEmpty>
                         <CommandGroup>
                           {environments.map(env => (
@@ -1403,7 +1403,7 @@ export default function TestCasesExecution() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList>
+                      </CommandList></div>
                     </Command>
                   </PopoverContent>
                 </Popover>
@@ -1428,7 +1428,7 @@ export default function TestCasesExecution() {
                   <PopoverContent className="w-[300px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search QA..." />
-                      <CommandList className="max-h-[250px] overflow-y-auto pointer-events-auto">
+                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden" onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}><CommandList className="max-h-none overflow-visible">
                         <CommandEmpty>No QA found.</CommandEmpty>
                         <CommandGroup>
                           {users.filter((u: any) => u.role === "qa_member" || u.role === "qa_lead").map((u: any) => (
@@ -1441,7 +1441,7 @@ export default function TestCasesExecution() {
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      </CommandList>
+                      </CommandList></div>
                     </Command>
                   </PopoverContent>
                 </Popover>

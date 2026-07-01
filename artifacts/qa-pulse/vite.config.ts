@@ -26,9 +26,41 @@ if (!basePath) {
   );
 }
 
+// Inject a capture-phase error suppressor BEFORE runtimeErrorOverlay registers
+// its handler, so ResizeObserver loop errors never reach the Replit modal.
+function suppressResizeObserverErrors() {
+  return {
+    name: "suppress-resize-observer-errors",
+    transformIndexHtml() {
+      return [
+        {
+          tag: "script",
+          injectTo: "head-prepend" as const,
+          children: `(function(){
+  // Patch ResizeObserver to defer callbacks via rAF, preventing the
+  // "loop completed with undelivered notifications" browser error entirely.
+  var _RO = window.ResizeObserver;
+  window.ResizeObserver = function(cb){
+    return new _RO(function(entries, observer){
+      requestAnimationFrame(function(){ cb(entries, observer); });
+    });
+  };
+  window.ResizeObserver.prototype = _RO.prototype;
+  // Belt-and-suspenders: also suppress the error event if it somehow fires.
+  function _isRO(m){return typeof m==='string'&&m.indexOf('ResizeObserver')!==-1;}
+  window.addEventListener('error',function(e){if(_isRO(e.message)){e.stopImmediatePropagation();e.preventDefault();}},true);
+  var _fn=null;Object.defineProperty(window,'onerror',{configurable:true,get:function(){return _fn;},set:function(fn){_fn=fn?function(m,s,l,c,err){if(_isRO(m))return true;return fn.call(window,m,s,l,c,err);}:null;}});
+})();`,
+        },
+      ];
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    suppressResizeObserverErrors(),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),

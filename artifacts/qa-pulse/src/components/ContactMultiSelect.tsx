@@ -84,7 +84,11 @@ export function ContactMultiSelect({
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search name or email..." />
-            <CommandList className="max-h-52">
+            <div
+              className="max-h-52 overflow-y-auto overflow-x-hidden"
+              onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}
+            >
+            <CommandList className="max-h-none overflow-visible">
               <CommandEmpty>No contacts found.</CommandEmpty>
               <CommandGroup>
                 {contacts.filter((c) => c.email?.trim()).map((contact) => {
@@ -111,6 +115,7 @@ export function ContactMultiSelect({
                 })}
               </CommandGroup>
             </CommandList>
+            </div>
           </Command>
         </PopoverContent>
       </Popover>

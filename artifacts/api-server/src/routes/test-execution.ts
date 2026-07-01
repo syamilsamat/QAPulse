@@ -13,6 +13,7 @@ import {
   requirementsTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
+import { notifyUser } from "./_notify";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./pmo-report";
@@ -280,7 +281,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId } = req.body;
+    const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId, qaPic } = req.body;
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (selectedModules !== undefined) patch.selectedModules = selectedModules || null;
     if (title !== undefined) patch.title = title || null;
@@ -289,6 +290,58 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
     if (tracker !== undefined) patch.tracker = tracker || null;
     if (projectId !== undefined) patch.projectId = projectId ? Number(projectId) : null;
     if (requirementId !== undefined) patch.requirementId = requirementId ? Number(requirementId) : null;
+    if (qaPic !== undefined) patch.qaPic = qaPic || null;
+
+    // Get previous qaPic to detect changes for notification
+    const [prevFile] = await db.select({ qaPic: executionFilesTable.qaPic }).from(executionFilesTable).where(eq(executionFilesTable.id, id));
+
+    // Auto-link requirement by Redmine ticket ID when not explicitly set
+    if (requirementId === undefined || requirementId === "" || requirementId === null) {
+      const effectiveTicketId = redmineTicketId !== undefined
+        ? String(redmineTicketId).trim()
+        : (await db.select({ redmineTicketId: executionFilesTable.redmineTicketId })
+            .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+          ).at(0)?.redmineTicketId ?? null;
+
+      if (effectiveTicketId) {
+        const [existingReq] = await db.select({ id: requirementsTable.id })
+          .from(requirementsTable)
+          .where(eq(requirementsTable.redmineTicketId, effectiveTicketId));
+
+        if (existingReq) {
+          patch.requirementId = existingReq.id;
+        } else {
+          // Try to fetch and create requirement from Redmine
+          try {
+            const effectiveProjectId = projectId !== undefined
+              ? (projectId ? Number(projectId) : null)
+              : (await db.select({ projectId: executionFilesTable.projectId })
+                  .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+                ).at(0)?.projectId ?? null;
+
+            const effectiveModules = selectedModules !== undefined
+              ? selectedModules
+              : (await db.select({ selectedModules: executionFilesTable.selectedModules })
+                  .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+                ).at(0)?.selectedModules ?? null;
+
+            const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+            const savedId = await syncRedmineTicket(
+              effectiveTicketId,
+              effectiveModules ?? undefined,
+              effectiveProjectId ?? undefined,
+              undefined,
+              tracker || undefined,
+              apiKey,
+            );
+            if (savedId) patch.requirementId = savedId;
+          } catch (syncErr: any) {
+            // Non-fatal: proceed with save even if Redmine sync fails
+            console.warn("[execution-files PATCH] Redmine requirement sync failed:", syncErr?.message);
+          }
+        }
+      }
+    }
 
     const [updated] = await db
       .update(executionFilesTable)
@@ -299,6 +352,17 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(404).json({ error: "File not found" });
       return;
     }
+
+    // Notify new QA PIC if changed
+    if (updated.qaPic && updated.qaPic !== prevFile?.qaPic) {
+      let actorId: number | null = null;
+      try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
+      const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.name, updated.qaPic));
+      if (picUser) {
+        await notifyUser(picUser.id, "Assigned as QA PIC", `You have been assigned as QA PIC for execution file "${updated.title || updated.redmineTicketId}".`, "execution", "execution_file", updated.id, actorId);
+      }
+    }
+
     res.json({
       id: updated.id,
       redmineTicketId: updated.redmineTicketId,
@@ -360,9 +424,18 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    await db
-      .delete(executionFilesTable)
+    // Look up the ticket ID before deleting so we can clean up orphaned summaries
+    const [file] = await db
+      .select({ redmineTicketId: executionFilesTable.redmineTicketId })
+      .from(executionFilesTable)
       .where(eq(executionFilesTable.id, id));
+
+    await db.delete(executionFilesTable).where(eq(executionFilesTable.id, id));
+
+    if (file?.redmineTicketId) {
+      await db.delete(executionSummariesTable).where(eq(executionSummariesTable.redmineTicketId, file.redmineTicketId));
+    }
+
     res.status(204).send();
   } catch {
     res.status(500).json({ error: "Failed to delete execution file" });

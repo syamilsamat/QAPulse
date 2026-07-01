@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
   RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, XIcon,
+  LayoutList, Table2,
 } from "lucide-react";
 
 interface DocRegEntry {
@@ -51,6 +52,17 @@ export default function Settings() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Execution view preference
+  const execViewKey = user ? `qa_pulse_exec_view_${user.id}` : null;
+  const [execView, setExecView] = useState<"tree" | "spreadsheet">(() => {
+    if (!user) return "tree";
+    return (localStorage.getItem(`qa_pulse_exec_view_${user.id}`) as "tree" | "spreadsheet") ?? "tree";
+  });
+  const handleExecViewChange = (v: "tree" | "spreadsheet") => {
+    setExecView(v);
+    if (execViewKey) localStorage.setItem(execViewKey, v);
+  };
 
   // Profile
   const [name, setName] = useState(user?.name ?? "");
@@ -571,6 +583,38 @@ export default function Settings() {
           </CardContent>
         </Card>
       )}
+
+      {/* Preferences */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <LayoutList className="w-4 h-4" /> Preferences
+          </CardTitle>
+          <CardDescription>Personalise how QA Pulse looks for you</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium">Execution file view</Label>
+            <p className="text-xs text-muted-foreground mb-3">Choose how test cases are displayed inside an execution file</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleExecViewChange("tree")}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "tree" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+              >
+                <LayoutList className="w-4 h-4" />
+                Tree view
+              </button>
+              <button
+                onClick={() => handleExecViewChange("spreadsheet")}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "spreadsheet" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+              >
+                <Table2 className="w-4 h-4" />
+                Spreadsheet view
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* About */}
       <Card>
