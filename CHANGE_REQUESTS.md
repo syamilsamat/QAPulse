@@ -20,6 +20,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR010](#cr010--trigger-playwright-from-qapulse-ui) | Trigger Playwright from QAPulse UI | ⏳ Pending | — |
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | 📋 Planned | 2026-06-29 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
+| [CR013](#cr013--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | 📋 Planned | 2026-07-02 |
 
 ---
 
@@ -168,3 +169,27 @@ Addresses bottlenecks found in codebase audit:
 - Per-user rate limiting (current limiter is IP-based only, affects users on shared NAT)
 
 **Delivery order:** Job queue → DB pool → Pagination → Redis cache → Batch Redmine → Per-user rate limit
+
+---
+
+### CR013 — Per-Requirement AI Test Case Generation
+**Status:** 📋 Planned (2026-07-02)
+
+Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #23123 + #32134) are generated and saved per-requirement instead of bundled.
+
+**Current behavior (bug):** all selected requirements' descriptions are concatenated into one Gemini prompt; the response is one flat array of test cases with no link back to source requirement. On save, every generated test case is written with the same single `requirementId` (whichever requirement was picked in the "Base Requirement" dropdown), regardless of which requirement actually produced it.
+
+**Target behavior:**
+- Parallel per-requirement Gemini calls (capped concurrency via `p-limit`, already a project dependency) — one call per selected requirement, not one bundled call with self-tagging. Guarantees correct requirement linkage structurally.
+- Each requirement gets its own independent ~5–10 test case count based on its own complexity (not scaled by batch size) — e.g. 5 for #23123, 3 for #32134.
+- Preview UI groups generated cases under requirement headers ("#23123 — 5 test cases").
+- Save writes each test case with its own group's `requirementId`, fixing the mislink bug.
+- Partial-failure handling: if one requirement's generation fails (Gemini + OpenRouter both exhausted), the rest of the batch still returns (`Promise.allSettled`), with an `error` field on the failed group.
+- Test Cases list reloads/refetches after save (existing `queryClient.invalidateQueries` pattern already covers this).
+
+**Scope:**
+- `lib/api-spec/openapi.yaml` — replace singular `requirementDescription`/`requirementId` on `AIGenerateInput` with a `requirements: [{id, title, description}]` array; wrap `AIGenerateResponse` in per-requirement `results` groups; also correct `AIGeneratedTestCase` schema fields to match actual route output (drops stale `objective`/`automationCandidate`, which don't match what the route returns). Regenerate via `pnpm --filter @workspace/api-spec run codegen`.
+- `artifacts/api-server/src/routes/test-cases.ts:178-314` — extract single-generation logic into a per-requirement helper, fan out with `p-limit` + `Promise.allSettled`.
+- `artifacts/qa-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
+
+Full implementation plan drafted 2026-07-02 (not yet executed).
