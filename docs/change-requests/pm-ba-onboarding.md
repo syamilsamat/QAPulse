@@ -114,6 +114,8 @@ No FK constraints, consistent with existing `projectId` columns elsewhere. Expor
 - `requireAuth` — reads the Bearer token, calls the existing `verifyToken()` (from `routes/auth.ts`), sets `req.authUser = { id, email, role }`. Replaces scattered inline `verifyToken()` calls.
 - `resolveProjectAccess` — after `requireAuth`; computes `req.accessibleProjectIds` per the `department`/`tierRank` algorithm above (`null` = unrestricted, for `admin`/`cto`).
 
+**Caching, not a dependency on CR012.** The Lead/Manager/HOD tier computation is a join across `users`/`roles`/`project_members` that now runs on nearly every request. Rather than block this CR on **CR012** (Scalability & Performance Hardening — still 📋 Planned, and largely orthogonal anyway: its concerns are Excel/Puppeteer blocking the event loop, DB pool tuning, rate limiting, different hot paths entirely), `resolveProjectAccess` ships with a **short-TTL in-memory cache** (keyed by `userId`, a few seconds' TTL, invalidated on any `project_members` write for that user) as a cheap stopgap. When CR012 eventually builds its Redis caching layer, migrating this one query to it is a small follow-up, not a blocker now.
+
 **New helper** `artifacts/api-server/src/lib/scope.ts` (unchanged from original design — tiering is fully absorbed into `resolveProjectAccess`, not these helpers):
 - `canAccessProject(req, projectId)` — for routes that filter in-memory after `db.select()`. `projectId: null` rows are hidden from non-admins.
 - `scopeToUserProjects(req, projectIdColumn, params)` — for raw-SQL/`pool.query` routes (`traceability.ts`), returns a `WHERE project_id = ANY($n)` clause fragment (using `[-1]` as a safe empty-result sentinel rather than an empty array).
@@ -129,6 +131,8 @@ No FK constraints, consistent with existing `projectId` columns elsewhere. Expor
 **Per-route retrofit**: unchanged from the original design (one-line-per-handler, 404 on denied access, `projects.ts`'s `GET /projects` stays an unfiltered picker source).
 
 **Migration**: `pnpm --filter @workspace/db push`, plus a one-time backfill script grandfathering all current active users into all current active projects in `project_members` (run in the same deploy as middleware activation, so nobody gets locked out on day one).
+
+**Admin UI for `project_members`** — lives on the **existing** "Project & Module Config" page (`ModuleAndProject.tsx`), as a new "Members" section alongside the Document Register section already on that page, not a new page. When a project is selected/expanded: a list of current members (name, role, added date) with a remove (✕) per row, and an "Add Member" row using the existing `SearchableSelect` component (filtered to exclude already-added members) + Add button. Backed by three small new endpoints, admin/cto-only (same gating pattern as `roles.ts`'s mutating endpoints): `GET /projects/:id/members`, `POST /projects/:id/members`, `DELETE /projects/:id/members/:userId`.
 
 ## Part 2 — Milestones (shared primitive for CR and new-project work)
 
@@ -193,6 +197,7 @@ QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above 
 - Backfill `department: "qa"` / `tierRank: 10` and `20` onto the **existing** `qa_member`/`qa_lead` role rows as part of this migration — they predate the `department`/`tierRank` columns, so without this step they'd fall into the "unconfigured role" fallback (IC-only visibility) rather than actually tiering.
 - **Behavior change to flag clearly in testing**: today `qa_lead` and `qa_member` see identical (unscoped) data, since no access control exists yet. Once this CR ships, `qa_lead` becomes a genuine Lead tier — it will see every project any `qa_member` is assigned to, not just its own direct assignments. This is a real, user-visible change for existing `qa_lead` accounts, not just new roles — call it out to QA leadership before rollout.
 - `Layout.tsx`: add `"qa_manager"`, `"hod_qa"` to the same fallback arrays `qa_lead` is already in.
+- **Decision: no new "QA Leadership Dashboard" in this CR.** PM got a brand-new Dashboard because PM had zero cross-project rollup before this CR — nothing existed. QA already has `ReportDashboard.tsx` and `GET /dashboard/team` (execution stats, pass rates, defect summaries, per-member workload); once tiering lands, those same existing pages automatically show department-wide data for `qa_manager`/`hod_qa` for free, since `accessibleProjectIds` just widens. Building a parallel new page would solve a problem that mostly doesn't exist once that's accounted for.
 
 ## Part 6 — CTO onboarding (`cto`)
 
@@ -227,7 +232,7 @@ Closes a real gap: today, editing a requirement's `description` after test cases
 
 - Project membership is **all-or-nothing** per project at the IC tier (no per-project sub-roles yet — `projectRole` column is stubbed for future use but unenforced).
 - Rows with `projectId: null` are **hidden from non-admins/non-cto**.
-- `project_members` management is **admin-only** for this phase.
+- `project_members` management is **admin-only** for this phase — see the concrete UI design in Part 1 (Members section on the Project & Module Config page).
 - Access-denied returns **404**, not 403.
 - Milestone `type`/`status` are free text and unenforced — a reporting label, not a workflow state machine. PM/FA move status manually.
 - `milestoneId` on Requirements/Tasks is optional.
@@ -261,3 +266,14 @@ Closes a real gap: today, editing a requirement's `description` after test cases
 - **Task-flagging + notification fan-out check**: create a requirement with a linked Task (assigned to two users) and a linked test case; edit the requirement's `description`. Confirm the Task shows the alert banner on the Tasks page, and confirm the requirement's author, its assignee, and both Task assignees all receive a notification. Acknowledge the Task alert and confirm the Task's own `status` is unchanged (visibility only, no forced state reset).
 - **Redmine-import `createdBy` check**: import a Redmine ticket whose Redmine author's name matches an existing QAPulse user — confirm `createdBy` resolves to that QAPulse user, **not** whoever ran the import. Import a ticket whose Redmine author has no matching QAPulse user — confirm it falls back to the importer (not `null`) and a reconciliation warning is logged.
 - **Newly-scoped routers check**: as a non-admin/non-cto with no `project_members` row for Project X, confirm `pmo-report` and `document-register` endpoints touching Project X now return empty/404 instead of leaking data, and `POST /ai/analyze-requirement` for a requirement outside their accessible projects returns 404 rather than running the analysis.
+
+## Rollout sequence
+
+Order matters — this activates access control across the whole app, so getting the sequence wrong risks locking out existing users mid-deploy:
+
+1. **Schema migration** (`pnpm --filter @workspace/db push`) — all new tables/columns from every Part above. Additive and non-destructive; safe to run ahead of any code deploy since old code simply ignores columns it doesn't know about yet.
+2. **Backfill + role seeding, together, before enforcement activates**: grandfather all existing users into all existing projects (`project_members`); backfill `department`/`tierRank` onto the existing `qa_member`/`qa_lead` rows; seed the 9 new roles with their nav/tier defaults. **Must** complete before step 3 — otherwise the moment access control goes live, anyone not yet backfilled is locked out of everything.
+3. **Backend deploy** — middleware (`requireAuth`/`resolveProjectAccess`), retrofitted routes, all new endpoints (milestones, review, pm-summary, project-members admin API). This is what actually flips enforcement on.
+4. **Frontend deploy** — new pages (`PmDashboard`, `RequirementDetail`), nav entries, review UI, the Requirements revamp, Task/Test-Case alert banners. Can ship in the same release as step 3, or immediately after.
+5. **Validate** — run the Verification checklist above against staging before wide rollout.
+6. **Communicate before flipping on** — specifically warn QA leadership that `qa_lead` visibility is about to genuinely widen (every `qa_member`'s projects, not just their own). That's a real, user-visible behavior change for existing accounts, not just new roles, and shouldn't be a surprise when it lands.
