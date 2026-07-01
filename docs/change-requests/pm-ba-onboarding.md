@@ -194,6 +194,23 @@ QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above 
 - `resolveProjectAccess`: `cto` gets `accessibleProjectIds = null`, identical to `admin`'s unrestricted sentinel — project-level visibility, not object-model access.
 - `Layout.tsx`: add `"cto"` to the fallback arrays used by `ALL_NAV_KEYS`-equivalent items.
 
+## Part 7 — Requirement-change re-review flow (QA-facing)
+
+Closes a real gap: today, editing a requirement's `description` after test cases already exist against it doesn't notify anyone — QA has no way to know their existing pass/fail results were validated against an now-outdated requirement.
+
+**Schema additions** — two new columns, no new tables:
+- `testCasesTable.requirementRevisedAt timestamp` (nullable) — the source flag. Set to `now()` whenever `PATCH /requirements/:id` changes the `description` field (title/priority/milestone/etc. changes do **not** trigger this — only edits to the substance test cases were written against) on a requirement that has ≥1 linked test case (`testCasesTable.requirementId = this.id`). One `activityTable` entry is also written: "Requirement #X revised — N test case(s) flagged for review."
+- `executionTestCasesTable.reviewAcknowledgedAt timestamp` (nullable) — per-execution-instance acknowledgment. A single library test case can be compiled into multiple execution files, each tracked independently, so acknowledging in one execution file doesn't silently clear the flag in another.
+
+**Alert visibility (computed at read time, not a separate stored "flag"):** an execution test case row shows the alert when `testCase.requirementRevisedAt IS NOT NULL AND (executionTestCase.reviewAcknowledgedAt IS NULL OR executionTestCase.reviewAcknowledgedAt < testCase.requirementRevisedAt)`. This means if the requirement changes *again* after QA already acknowledged a prior revision, the alert correctly reappears. The **Test Case Library page** (`TestCases.tsx`) shows the same signal as an informational badge per test case (join through the same flag) — no action lives there, since results only exist per execution instance; the **Execution file page** (`TestCasesExecutionProgressPage.tsx`) is where the actionable "Revised" button lives, next to the existing `ResultPills` component.
+
+**"Revised" action** — clicking it on a flagged row:
+1. Sets that row's `result` to `"Not Executed"` (the existing exact string used throughout `RESULT_OPTIONS`), submitted through the **same existing** `saveTestCases()` → `POST /execution-files/:ticketId/test-cases` path every other result edit already goes through — **not a new endpoint**. This matters because that endpoint already auto-inserts into `executionTcHistoryTable` (`fromStatus`/`toStatus`/`changedBy`/`changedAt`) on every result change, which is exactly the audit trail being asked for — it already exists and needs no new mechanism, just reuse.
+2. Sets `executionTestCasesTable.reviewAcknowledgedAt = now()` for that specific row, clearing the alert for this execution instance.
+3. QA then retests normally via the existing `ResultPills` UI — each subsequent result change is, again, already logged automatically by the existing history mechanism.
+
+**Relationship to CR011 (Audit Trail Enhancement, still 📋 Planned):** CR011 separately plans to fold execution-result history into a unified `activity` table with `oldValue`/`newValue` columns. This CR does **not** wait on that — `executionTcHistoryTable` already does the job for this specific need today. If/when CR011 ships, that's a migration of *where* the audit data lives, not a prerequisite for this feature to work now.
+
 ## Defaults adopted for open design questions
 
 - Project membership is **all-or-nothing** per project at the IC tier (no per-project sub-roles yet — `projectRole` column is stubbed for future use but unenforced).
@@ -205,6 +222,8 @@ QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above 
 - **Department/tierRank are admin-configurable, but there's still no "reports-to" schema.** Lead/Manager/HOD/CTO visibility is a pure function of role-level `department`/`tierRank` values (editable via the Roles page, no deploy needed), not actual line-management data. If the org later needs "a Lead only sees *their own* reports, not every IC in the department," that requires a follow-up CR to add real per-user reporting-line data — explicitly deferred, not built here.
 - `qa_manager` (rank 30) and `hod_qa` (rank 40) are **not** guaranteed identical visibility — `hod_qa` additionally includes any project the HOD is personally a direct member of. See the algorithm note above.
 - Existing `qa_member`/`qa_lead` role rows get `department`/`tierRank` backfilled in this migration (they predate these columns) — without this, they'd silently fall back to unconfigured/IC-only behavior instead of actually tiering.
+- Only `description` edits trigger the requirement-revised flag — not title/priority/milestone/tracker/status changes. If that turns out too narrow or too broad in practice, it's a one-line change to which fields are diffed, not a schema change.
+- The re-review alert is **per execution instance**, not per library test case — acknowledging/retesting in one execution file does not clear the alert in a different execution file that also compiled the same library test case.
 
 ## Verification
 
@@ -226,3 +245,4 @@ QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above 
 - **Reject notification/permission check**: reject a requirement; confirm the author, the assignee, and the PM who created its Milestone all receive a notification (approving the same requirement instead should notify only the author + assignee, not PM). Confirm a third FA-track user (not the author or assignee) gets a 403 attempting to edit or resubmit the rejected requirement, while the author or assignee can successfully revise and move it back to `in_review`.
 - Create `cto`: confirm unrestricted project visibility but no access to role/user management endpoints.
 - Confirm `admin` and `pmo` see no behavior change beyond project scoping (post-backfill, invisible since everyone is grandfathered into all current projects).
+- **Requirement-revised re-review check**: create a requirement, attach a test case, compile it into two separate execution files, mark it "Passed" in both. Edit the requirement's `description`. Confirm both execution instances now show the re-review alert, and the Test Case Library page shows the informational badge. Click "Revised" on one execution instance — confirm its `result` resets to "Not Executed", `executionTcHistoryTable` gets a new `Passed → Not Executed` row, and **only that instance's** alert clears (the other execution file's instance still shows it). Retest and confirm the new result is logged the same way as any normal result change.
