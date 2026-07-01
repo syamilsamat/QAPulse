@@ -191,7 +191,7 @@ Full plan: `docs/change-requests/microsoft-login-sso.md`
 ### CR014 — PM & BA Onboarding
 **Status:** ⏳ Pending
 
-Expands QAPulse beyond QA into a multi-department platform, starting with Project Manager and Business Analyst roles. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping.
+Expands QAPulse beyond QA into a multi-department platform, starting with Project Manager and Business Analyst roles. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Designed to cover both a single Change Request and a full new-project rollout via one shared primitive (Milestones), rather than separate machinery for each.
 
 **Part 1 — Project-level access control (prerequisite)**
 - New `project_members` table (projectId + userId, no per-project sub-roles yet)
@@ -199,15 +199,21 @@ Expands QAPulse beyond QA into a multi-department platform, starting with Projec
 - Retrofit `requirements`, `test-cases`, `tasks`, `traceability`, `projects`, `test-execution` routes to scope by membership; 404 on denied access
 - One-time backfill grandfathering existing users into existing projects
 
-**Part 2 — Project Manager onboarding**
+**Part 2 — Milestones (shared CR / new-project primitive)**
+- New `milestones` table (projectId, name, type: cr/phase/sprint/release, status, targetDate) — a CR is a project with one milestone; a new project is a sequence of milestones
+- Nullable `milestoneId` on `requirementsTable` and `tasksTable`
+- New `routes/milestones.ts` (create/list/status update, project-scoped)
+
+**Part 3 — Project Manager onboarding**
 - New `project_manager` role + `nav:pm-dashboard`
-- New `GET /dashboard/pm-summary` aggregating tasks/requirements/execution data per accessible project
+- New `GET /dashboard/pm-summary` aggregating tasks/requirements/execution data per accessible project, grouped per milestone
 - New `PmDashboard.tsx` page
 
-**Part 3 — Business Analyst onboarding**
+**Part 4 — Business Analyst onboarding**
 - New `business_analyst` role
 - `reviewedBy` / `reviewedAt` columns on `requirementsTable`
-- New `PATCH /requirements/:id/review` — approve/reject with comment, activity log entry, assignee notification
-- Approve/reject UI + review history panel on `Requirements.tsx`
+- `PATCH /requirements/:id/review` — upstream requirement baseline approval (comment, activity log, assignee notification)
+- `PATCH /milestones/:id/review` — downstream UAT sign-off once a milestone's requirements pass QA, closing the loop back to BA (notifies the milestone's creator/PM)
+- Approve/reject UI + review history panel on `Requirements.tsx` and the PM Dashboard's milestone cards
 
 Full plan: `docs/change-requests/pm-ba-onboarding.md`
