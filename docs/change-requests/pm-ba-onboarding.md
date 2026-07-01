@@ -1,30 +1,30 @@
-# CR: Expand QAPulse beyond QA — Project Manager + Business Analyst onboarding
+# CR: Expand QAPulse beyond QA — Project Manager + Functional Analyst onboarding
 
 **Status:** Deferred — not yet started
 
 ## Context
 
-QAPulse today is a QA-only tool: 4 roles (`admin`, `qa_lead`, `qa_member`, `pmo`), and every authenticated user can read/write every project's requirements, test cases, execution files, and tasks — there is no project-level data scoping (`requirements.ts` etc. barely call `verifyToken`, and nothing checks "does this user belong to this project"). The goal is to widen QAPulse into a multi-department platform (eventually BA, SA, Developer, DevOps, PM). This first increment is scoped to **Project Manager** and **Business Analyst** only, with **project-level access control built first** as a prerequisite, and **Microsoft/Azure AD SSO kept out of scope** (tracked separately in `microsoft-login-sso.md`).
+QAPulse today is a QA-only tool: 4 roles (`admin`, `qa_lead`, `qa_member`, `pmo`), and every authenticated user can read/write every project's requirements, test cases, execution files, and tasks — there is no project-level data scoping (`requirements.ts` etc. barely call `verifyToken`, and nothing checks "does this user belong to this project"). The goal is to widen QAPulse into a multi-department platform (eventually Functional Analyst, Developer, DevOps, PM — note: BA and SA are already merged into a single "Functional Analyst" role in this org, so no separate SA role is needed later). This first increment is scoped to **Project Manager** and **Functional Analyst** only, with **project-level access control built first** as a prerequisite, and **Microsoft/Azure AD SSO kept out of scope** (tracked separately in `microsoft-login-sso.md`).
 
-The role/nav-permission system is already fully data-driven (`roles` + `role_nav_permissions` tables, admin-editable via `POST /roles` and `PUT /roles/:id/permissions`), and `projectId` columns already exist on `requirements`, `test_cases`, `tasks`, and `execution_files`. The missing piece is *enforcing* that scoping, plus two new department-facing surfaces (PM dashboard, BA requirements-review workflow).
+The role/nav-permission system is already fully data-driven (`roles` + `role_nav_permissions` tables, admin-editable via `POST /roles` and `PUT /roles/:id/permissions`), and `projectId` columns already exist on `requirements`, `test_cases`, `tasks`, and `execution_files`. The missing piece is *enforcing* that scoping, plus two new department-facing surfaces (PM dashboard, Functional Analyst requirements-review workflow).
 
 ### Workflow this needs to support
 
-The real SDLC loop QAPulse is being asked to formalize is not a straight line, it loops back through BA twice:
+The real SDLC loop QAPulse is being asked to formalize is not a straight line, it loops back through the Functional Analyst (FA) twice:
 
 ```
-PM (intake) → BA (analyze + requirement) → [approval gate] → PM (assign) → Dev (build)
+PM (intake) → FA (analyze + requirement) → [approval gate] → PM (assign) → Dev (build)
                     ↑                                                          ↓
-                    └──────────── UAT (BA verify) ←── QA (test) ←──────────────┘
+                    └──────────── UAT (FA verify) ←── QA (test) ←──────────────┘
                                         ↓
                                   PM (close out)
 ```
 
 This same loop has to serve **two different scales**:
-- **A Change Request (CR)** — a small, usually single-pass slice: PM logs a CR, BA writes 1–3 requirements against it, they get approved, Dev builds, QA tests, BA does UAT, PM closes it.
+- **A Change Request (CR)** — a small, usually single-pass slice: PM logs a CR, FA writes 1–3 requirements against it, they get approved, Dev builds, QA tests, FA does UAT, PM closes it.
 - **A brand-new project** — the identical loop, but run at BRD/FRD scale (dozens–hundreds of requirements) and sliced into multiple sequential phases/sprints, each with its own requirement set, its own QA pass, and its own UAT.
 
-Rather than build separate machinery for "CR mode" and "new project mode," both are modeled as the same primitive at different sizes: a **Milestone** — a named, time-boxed slice of work within a Project. A CR is a Project with exactly one Milestone. A new project is a Project with a sequence of Milestones (Phase 1, Phase 2, ... or Sprint 1, Sprint 2, ...). Everything downstream (requirements, tasks, PM dashboard grouping, BA review/UAT sign-off) hangs off this one primitive, so the same code path serves both cases.
+Rather than build separate machinery for "CR mode" and "new project mode," both are modeled as the same primitive at different sizes: a **Milestone** — a named, time-boxed slice of work within a Project. A CR is a Project with exactly one Milestone. A new project is a Project with a sequence of Milestones (Phase 1, Phase 2, ... or Sprint 1, Sprint 2, ...). Everything downstream (requirements, tasks, PM dashboard grouping, FA review/UAT sign-off) hangs off this one primitive, so the same code path serves both cases.
 
 ## Part 1 — Project-level access control (prerequisite)
 
@@ -83,15 +83,15 @@ No FK constraints, consistent with existing `projectId` columns elsewhere. A CR 
 - **New page** `artifacts/qa-pulse/src/pages/PmDashboard.tsx` at route `/pm-dashboard`, rendering `pm-summary` as a per-project → per-milestone card grid plus the existing `GET /dashboard/activity` feed.
 - `Layout.tsx`: add `"project_manager"` to the hardcoded `roles: string[]` fallback arrays on the relevant `NavItem` entries (this array is the sole gate when the dynamic nav-permissions fetch hasn't resolved yet), and add the new PM Dashboard nav entry.
 
-## Part 4 — Business Analyst onboarding
+## Part 4 — Functional Analyst onboarding
 
-- Seed role `business_analyst` with nav keys: `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:report`.
+- Seed role `functional_analyst` (description: "Functional Analyst" — merged BA+SA role in this org) with nav keys: `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:report`.
 - **Schema**: add `reviewedBy integer` and `reviewedAt timestamp` to `requirementsTable` (`lib/db/src/schema/requirements.ts`). No new tables for this part — status stays a free-text column, extend the frontend's status list with `in_review`/`approved`/`rejected`.
-- **New endpoint** `PATCH /requirements/:id/review` in `routes/requirements.ts`: restricted to `business_analyst`/`admin`, also passes through the project-access check; updates `status`/`reviewedBy`/`reviewedAt`, writes one row to the existing `activityTable` (`entityType: "requirement"`, `entityId`, `description` = review comment) — reusing the generic activity log instead of inventing a new comment system — and notifies the requirement's `assigneeId` via the existing `notificationsTable` insert pattern already used in `tasks.ts`. This is the **upstream** approval gate (requirement baseline sign-off, before Dev starts).
-- **New endpoint** `PATCH /milestones/:id/review` — same restricted/scoped/activity-log/notification pattern as above, but applied to a Milestone once its requirements have all passed QA: BA sets `status` to `uat_passed`/`uat_rejected` with a comment. This is the **downstream** gate (UAT — verifying delivered work matches the original requirement), closing the loop back to BA after QA. Notifies the Milestone's `createdBy` (the PM) rather than a single assignee.
+- **New endpoint** `PATCH /requirements/:id/review` in `routes/requirements.ts`: restricted to `functional_analyst`/`admin`, also passes through the project-access check; updates `status`/`reviewedBy`/`reviewedAt`, writes one row to the existing `activityTable` (`entityType: "requirement"`, `entityId`, `description` = review comment) — reusing the generic activity log instead of inventing a new comment system — and notifies the requirement's `assigneeId` via the existing `notificationsTable` insert pattern already used in `tasks.ts`. This is the **upstream** approval gate (requirement baseline sign-off, before Dev starts).
+- **New endpoint** `PATCH /milestones/:id/review` — same restricted/scoped/activity-log/notification pattern as above, but applied to a Milestone once its requirements have all passed QA: the FA sets `status` to `uat_passed`/`uat_rejected` with a comment. This is the **downstream** gate (UAT — verifying delivered work matches the original requirement), closing the loop back to the FA after QA. Notifies the Milestone's `createdBy` (the PM) rather than a single assignee.
 - **New endpoint** `GET /requirements/:id/activity` (or extend the existing dashboard activity endpoint to accept `entityType`+`entityId` filters) so both the requirement detail view and the milestone view can show a "Review History" panel.
-- `Requirements.tsx` (already BA's natural home page): add approve/reject actions + comment box, visible when `role === "business_analyst"` or `admin`. PM Dashboard's milestone cards get the same approve/reject affordance for the UAT gate.
-- `Layout.tsx`: add `"business_analyst"` to the relevant `NavItem.roles` fallback arrays.
+- `Requirements.tsx` (already the FA's natural home page): add approve/reject actions + comment box, visible when `role === "functional_analyst"` or `admin`. PM Dashboard's milestone cards get the same approve/reject affordance for the UAT gate.
+- `Layout.tsx`: add `"functional_analyst"` to the relevant `NavItem.roles` fallback arrays.
 
 ## Defaults adopted for open design questions
 
@@ -99,7 +99,7 @@ No FK constraints, consistent with existing `projectId` columns elsewhere. A CR 
 - Rows with `projectId: null` are **hidden from non-admins**.
 - `project_members` management is **admin-only** for this phase (via the existing admin Team/Roles surface — a simple members list/add-remove UI, no new page needed beyond a small admin panel addition).
 - Access-denied returns **404**, not 403.
-- Milestone `type`/`status` are free text and unenforced — a reporting label, not a workflow state machine. No automatic transitions (e.g. QA passing doesn't auto-flip status to `uat`); PM/BA move it manually. Automating that is a natural follow-up once this ships, not a blocker for v1.
+- Milestone `type`/`status` are free text and unenforced — a reporting label, not a workflow state machine. No automatic transitions (e.g. QA passing doesn't auto-flip status to `uat`); PM/FA move it manually. Automating that is a natural follow-up once this ships, not a blocker for v1.
 - `milestoneId` on Requirements/Tasks is optional — nothing forces existing or informal work into a Milestone.
 
 ## Verification
@@ -107,10 +107,10 @@ No FK constraints, consistent with existing `projectId` columns elsewhere. A CR 
 - `pnpm --filter @workspace/db push` succeeds and creates `project_members` and `milestones`; backfill script runs cleanly against a copy of current data.
 - As a non-admin `qa_member` with no `project_members` rows for Project X: `GET /requirements?projectId=X`, `GET /tasks?projectId=X`, `GET /test-cases?projectId=X` all return empty/404 instead of leaking data; same calls succeed for a project they're a member of.
 - As `admin`: all projects remain visible, unaffected by the new middleware.
-- **CR-scale flow**: create one Milestone (`type: "cr"`) on a project, attach 2 requirements to it, approve both as BA, confirm PM Dashboard shows the milestone at 100% requirements-approved with an "awaiting Dev/QA" state.
+- **CR-scale flow**: create one Milestone (`type: "cr"`) on a project, attach 2 requirements to it, approve both as the FA, confirm PM Dashboard shows the milestone at 100% requirements-approved with an "awaiting Dev/QA" state.
 - **New-project-scale flow**: create 3 sequential Milestones (`type: "phase"`) on one project with different `targetDate`s, attach separate requirement sets to each, confirm PM Dashboard lists all 3 independently with correct per-milestone rollups, and that one milestone's requirement review doesn't affect another's.
 - Confirm a requirement/task with no `milestoneId` still displays correctly and rolls up into the "Unassigned" bucket on the PM Dashboard, not silently dropped.
 - Create a user with role `project_manager`: confirm `/pm-dashboard` nav item appears, the page loads milestone-grouped data scoped to their accessible projects only, and QA-only nav items (e.g. `nav:test-cases`, `nav:ai-hub`) do **not** appear.
-- Create a user with role `business_analyst`: confirm they can open a requirement, submit an approve/reject review with a comment, the requirement's status and `reviewedBy`/`reviewedAt` update, the assignee gets a notification, and the review shows up in the requirement's activity history.
-- Confirm the BA can also submit a milestone-level UAT review (`PATCH /milestones/:id/review`) once a milestone's requirements are done, and that the milestone's creator (PM) gets notified.
+- Create a user with role `functional_analyst`: confirm they can open a requirement, submit an approve/reject review with a comment, the requirement's status and `reviewedBy`/`reviewedAt` update, the assignee gets a notification, and the review shows up in the requirement's activity history.
+- Confirm the FA can also submit a milestone-level UAT review (`PATCH /milestones/:id/review`) once a milestone's requirements are done, and that the milestone's creator (PM) gets notified.
 - Confirm existing QA roles (`qa_member`, `qa_lead`, `admin`, `pmo`) see no behavior change other than now being scoped to their `project_members` rows (post-backfill, this should be invisible since everyone is grandfathered into all current projects).

@@ -21,7 +21,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | 📋 Planned | 2026-06-29 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
-| [CR014](#cr014--pm--ba-onboarding) | PM & BA Onboarding | ⏳ Pending | — |
+| [CR014](#cr014--pm--functional-analyst-onboarding) | PM & Functional Analyst Onboarding | ⏳ Pending | — |
 
 ---
 
@@ -188,10 +188,10 @@ Full plan: `docs/change-requests/microsoft-login-sso.md`
 
 ---
 
-### CR014 — PM & BA Onboarding
+### CR014 — PM & Functional Analyst Onboarding
 **Status:** ⏳ Pending
 
-Expands QAPulse beyond QA into a multi-department platform, starting with Project Manager and Business Analyst roles. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Designed to cover both a single Change Request and a full new-project rollout via one shared primitive (Milestones), rather than separate machinery for each.
+Expands QAPulse beyond QA into a multi-department platform, starting with Project Manager and Functional Analyst roles (role name `functional_analyst` — this org has already merged BA and SA into a single Functional Analyst title, so no separate SA role is needed later). Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Designed to cover both a single Change Request and a full new-project rollout via one shared primitive (Milestones), rather than separate machinery for each.
 
 **Part 1 — Project-level access control (prerequisite)**
 - New `project_members` table (projectId + userId, no per-project sub-roles yet)
@@ -209,11 +209,11 @@ Expands QAPulse beyond QA into a multi-department platform, starting with Projec
 - New `GET /dashboard/pm-summary` aggregating tasks/requirements/execution data per accessible project, grouped per milestone
 - New `PmDashboard.tsx` page
 
-**Part 4 — Business Analyst onboarding**
-- New `business_analyst` role
+**Part 4 — Functional Analyst onboarding**
+- New `functional_analyst` role
 - `reviewedBy` / `reviewedAt` columns on `requirementsTable`
 - `PATCH /requirements/:id/review` — upstream requirement baseline approval (comment, activity log, assignee notification)
-- `PATCH /milestones/:id/review` — downstream UAT sign-off once a milestone's requirements pass QA, closing the loop back to BA (notifies the milestone's creator/PM)
+- `PATCH /milestones/:id/review` — downstream UAT sign-off once a milestone's requirements pass QA, closing the loop back to the FA (notifies the milestone's creator/PM)
 - Approve/reject UI + review history panel on `Requirements.tsx` and the PM Dashboard's milestone cards
 
 Full plan: `docs/change-requests/pm-ba-onboarding.md`
