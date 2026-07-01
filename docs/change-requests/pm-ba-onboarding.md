@@ -50,39 +50,48 @@ The org's real structure, one CTO above every department:
 - **Dev track:** out of scope — no roles, no logins.
 - **CTO:** `cto` — sits above all HODs, sees everything.
 
-**Visibility model — role-tier proxy, no new schema.** There is no "who reports to whom" data in QAPulse and this CR doesn't add one. Instead, `resolveProjectAccess` computes `accessibleProjectIds` purely from *which role tier* the user holds, using a static role → department/tier lookup in code:
+**Visibility model — configurable via the `roles` table, no new "reports-to" schema.** There is no "who reports to whom" data in QAPulse and this CR doesn't add one. Instead, two new columns go on the existing (already admin-editable) `roles` table:
 
 ```ts
-// artifacts/api-server/src/lib/org-roles.ts (new)
-export const DEPARTMENTS: Record<string, string[]> = {
-  pm:    ["project_manager", "pm_lead", "hod_pm"],
-  fa_bi: ["functional_analyst", "fa_lead", "bi", "bi_lead", "hod_fa_bi"],
-  qa:    ["qa_member", "qa_lead", "qa_manager", "hod_qa"],
-};
-export const IC_ROLE_OF: Record<string, string> = {
-  pm_lead: "project_manager",
-  fa_lead: "functional_analyst",
-  bi_lead: "bi",
-  qa_lead: "qa_member", // existing role, now gets Lead-tier visibility
-};
-export const TIER_OF = (role: string): "ic" | "lead" | "manager" | "hod" | "exec" => { /* ... */ };
+// lib/db/src/schema/roles.ts (add to existing rolesTable)
+department: text("department"),   // nullable free text: "pm" | "fa_bi" | "qa" | null (unset = no department/tiering, e.g. admin, pmo)
+tierRank:   integer("tier_rank"), // nullable: higher = more senior within the department; null = flat/no escalation
 ```
 
-- **IC tier** (`project_manager`, `functional_analyst`, `bi`, `qa_member`) — unchanged from the original design: sees only their own direct `project_members` rows.
-- **Lead tier** (`pm_lead`, `fa_lead`, `bi_lead`, `qa_lead`) — sees every project where **any user holding the IC-tier role of the same department** is a `project_members` row, **union**ed with their own direct rows. (`qa_lead` already exists — this CR is the point where it starts getting broader visibility than `qa_member`, which is a real behavior change worth calling out in Verification.)
-- **Manager tier** (`qa_manager` — QA-only, no equivalent elsewhere) — sees every project where **any user in the QA department** (any tier) is a member. In practice this computes to the same set as HOD QA's — there's no data to distinguish "Manager's teams" from "HOD's department" without real reporting lines, so they end up equivalent for now; the distinction between the two stays at the *feature/action* level (e.g. HOD gets an org-wide admin-lite panel `qa_manager` doesn't), not project visibility.
-- **HOD tier** (`hod_pm`, `hod_fa_bi`, `hod_qa`) — sees every project where any user in their **entire department** (all tiers, including BI once it exists for `hod_fa_bi`) is a member.
-- **CTO / admin** — `accessibleProjectIds = null` (the existing unrestricted sentinel) — sees every project, company-wide.
+Seeded defaults for this CR's 12 new/changed roles (admin can rename departments, add tiers, or move a role between departments later — **no code deploy needed**, same as editing nav permissions today):
 
-Implementation-wise, `resolveProjectAccess` (Part 1) branches on `TIER_OF(role)`:
+| Role | department | tierRank |
+|---|---|---|
+| `project_manager` | `pm` | 10 |
+| `pm_lead` | `pm` | 20 |
+| `hod_pm` | `pm` | 40 |
+| `functional_analyst` | `fa_bi` | 10 |
+| `fa_lead` | `fa_bi` | 20 |
+| `bi` *(reserved, not onboarded)* | `fa_bi` | 10 |
+| `bi_lead` *(reserved, not onboarded)* | `fa_bi` | 20 |
+| `hod_fa_bi` | `fa_bi` | 40 |
+| `qa_member` *(existing)* | `qa` | 10 |
+| `qa_lead` *(existing)* | `qa` | 20 |
+| `qa_manager` | `qa` | 30 |
+| `hod_qa` | `qa` | 40 |
+| `cto` | *(null — special-cased, see below)* | — |
+| `admin` | *(null — special-cased, unchanged)* | — |
+
+**`resolveProjectAccess` algorithm** (fully data-driven, reads the caller's `department`/`tierRank` from `roles` at request time):
 ```ts
-if (role === "admin" || role === "cto") req.accessibleProjectIds = null;
-else if (tier === "hod") /* SELECT project_id FROM project_members WHERE user_id IN (SELECT id FROM users WHERE role = ANY(department roles)) */
-else if (tier === "manager") /* same query, QA department roles */
-else if (tier === "lead") /* same query, but role = ANY([icRole]) UNION their own direct rows */
-else /* ic — existing: SELECT project_id FROM project_members WHERE user_id = me */
+if (role === "admin" || role === "cto") { accessibleProjectIds = null; return; } // unrestricted
+const myRole = SELECT department, tierRank FROM roles WHERE name = req.authUser.role;
+if (!myRole.department || myRole.tierRank == null) {
+  accessibleProjectIds = [own direct project_members rows]; // safe default for unconfigured/legacy roles
+} else {
+  const peerUserIds = SELECT id FROM users u JOIN roles r ON r.name = u.role
+                       WHERE r.department = myRole.department AND r.tierRank <= myRole.tierRank;
+  accessibleProjectIds = [project_members rows for peerUserIds] UNION [own direct rows];
+}
 ```
-All four branches still produce the same `number[] | null` shape `canAccessProject`/`scopeToUserProjects` already expect, so **no changes needed** to those two helpers or to any of the already-designed per-route retrofits (Part 1 stays otherwise identical to the original single-tier design).
+A role at `tierRank` N sees every project touched by anyone in the same `department` at rank ≤ N, plus their own direct assignments regardless of rank (covers the edge case of a senior person also being personally added to a project). This is one uniform rule for every tier — HOD naturally ends up seeing "the whole department" simply because it's configured as the highest rank in that department, not because of a special case. One consequence worth being explicit about: `qa_manager` (rank 30) and `hod_qa` (rank 40) are **not** guaranteed identical under this rule — `hod_qa` additionally picks up any project the HOD is *personally* a direct member of that a rank-30-and-below query wouldn't otherwise surface. In practice this rarely matters (HODs are rarely individually assigned to projects), but it's a more honest model than claiming the two tiers are always equivalent.
+
+Since the output is still the same `number[] | null` shape, **no changes needed** to `canAccessProject`/`scopeToUserProjects` or any of the already-designed per-route retrofits.
 
 ## Part 1 — Project-level access control (prerequisite)
 
@@ -97,11 +106,13 @@ export const projectMembersTable = pgTable("project_members", {
 ```
 No FK constraints, consistent with existing `projectId` columns elsewhere. Export from `schema/index.ts`.
 
-**New lookup** `artifacts/api-server/src/lib/org-roles.ts` — the `DEPARTMENTS`/`IC_ROLE_OF`/`TIER_OF` table from the section above. This is the only place department/tier structure is defined; everything else reads from it.
+**Schema addition** to the existing `lib/db/src/schema/roles.ts` (`rolesTable`): nullable `department text` and `tierRank integer` columns, per the section above. This is the only new schema for the tiering system — no separate lookup file.
+
+**Admin UI**: `Roles.tsx` and `routes/roles.ts`'s `PATCH /roles/:id` get two new editable fields — Department (text/select) and Tier Rank (number). Existing `POST /roles` also accepts them at creation. This means an admin can retier or re-department **any** role — including ones this CR seeds — without a code deploy, exactly like nav permissions today.
 
 **New middleware** `artifacts/api-server/src/middlewares/auth.ts`:
 - `requireAuth` — reads the Bearer token, calls the existing `verifyToken()` (from `routes/auth.ts`), sets `req.authUser = { id, email, role }`. Replaces scattered inline `verifyToken()` calls.
-- `resolveProjectAccess` — after `requireAuth`; computes `req.accessibleProjectIds` per the tiered model above (`null` = unrestricted, for `admin`/`cto`).
+- `resolveProjectAccess` — after `requireAuth`; computes `req.accessibleProjectIds` per the `department`/`tierRank` algorithm above (`null` = unrestricted, for `admin`/`cto`).
 
 **New helper** `artifacts/api-server/src/lib/scope.ts` (unchanged from original design — tiering is fully absorbed into `resolveProjectAccess`, not these helpers):
 - `canAccessProject(req, projectId)` — for routes that filter in-memory after `db.select()`. `projectId: null` rows are hidden from non-admins.
@@ -138,14 +149,14 @@ No FK constraints. A CR is simply a Project with one Milestone (`type: "cr"`); a
 
 ## Part 3 — PM track onboarding (`project_manager`, `pm_lead`, `hod_pm`)
 
-- Seed all three roles in `routes/roles.ts`'s `DEFAULT_ROLES`/`DEFAULT_PERMISSIONS`. All three get the **same nav keys** — `nav:report`, `nav:tasks`, `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:pm-dashboard` — the tiers differ in *data scope* (via `resolveProjectAccess`), not which pages they can reach.
+- Seed all three roles in `routes/roles.ts`'s `DEFAULT_ROLES`/`DEFAULT_PERMISSIONS`, with `department: "pm"` and `tierRank` 10/20/40 per the seed table above assigned at creation time. All three get the **same nav keys** — `nav:report`, `nav:tasks`, `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:pm-dashboard` — the tiers differ in *data scope* (via `resolveProjectAccess`), not which pages they can reach. Admin can adjust department/tierRank/nav for any of the three later via the Roles page.
 - **New endpoint** `GET /dashboard/pm-summary` in `routes/dashboard.ts`, mounted behind the new middleware, aggregating `tasksTable`, `requirementsTable`, `milestonesTable`, and execution-file/summary data, grouped **per accessible project, then per Milestone within it**. Because `accessibleProjectIds` already reflects the caller's tier (own projects for `project_manager`, team's for `pm_lead`, whole department's for `hod_pm`), this one endpoint serves all three tiers without branching logic — the tiering is fully handled upstream in the middleware.
 - **New page** `artifacts/qa-pulse/src/pages/PmDashboard.tsx` at route `/pm-dashboard`.
 - `Layout.tsx`: add `"project_manager"`, `"pm_lead"`, `"hod_pm"` to the hardcoded `roles: string[]` fallback arrays on the relevant `NavItem` entries, and add the new PM Dashboard nav entry.
 
 ## Part 4 — FA track onboarding (`functional_analyst`, `fa_lead`, `hod_fa_bi`)
 
-- Seed all three roles with nav keys: `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:report`. Same nav across tiers; scope differs via `resolveProjectAccess`.
+- Seed all three roles with `department: "fa_bi"` and `tierRank` 10/20/40, and nav keys: `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:report`. Same nav across tiers; scope differs via `resolveProjectAccess`. Also seed the reserved `bi`/`bi_lead` roles with `department: "fa_bi"`, `tierRank` 10/20 and **no nav keys** (no pages to show yet) — this is what makes `hod_fa_bi`'s visibility already correct once BI is actually onboarded later, without touching this CR's code again.
 - **Schema**: add `reviewedBy integer` and `reviewedAt timestamp` to `requirementsTable`. Extend the frontend's status list with `in_review`/`approved`/`rejected`.
 - **New endpoint** `PATCH /requirements/:id/review` in `routes/requirements.ts`: restricted to any FA-track role (`functional_analyst`, `fa_lead`, `hod_fa_bi`) or `admin`/`cto`, also passes through the project-access check; updates `status`/`reviewedBy`/`reviewedAt`, writes to `activityTable`, notifies the requirement's `assigneeId` via `notificationsTable`. This is the **upstream** approval gate.
 - **New endpoint** `PATCH /milestones/:id/review` — same pattern, applied to a Milestone once its requirements have all passed QA: sets `status` to `uat_passed`/`uat_rejected` with a comment. This is the **downstream** UAT gate, closing the loop back to the FA track after QA. Notifies the Milestone's `createdBy` (the PM).
@@ -157,13 +168,14 @@ No FK constraints. A CR is simply a Project with one Milestone (`type: "cr"`); a
 ## Part 5 — QA tier expansion (`qa_manager`, `hod_qa` — new)
 
 QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above `qa_lead`, plus the tiering behavior itself:
-- Seed `qa_manager` and `hod_qa` with the **same nav keys `qa_lead` already has** (`nav:requirements`, `nav:test-cases`, `nav:traceability`, `nav:tasks`, `nav:ai-hub`, `nav:report`, `nav:inbox`, `nav:team`, `nav:team-hangouts`, `nav:configurations`).
+- Seed `qa_manager` (`tierRank: 30`) and `hod_qa` (`tierRank: 40`) with `department: "qa"` and the **same nav keys `qa_lead` already has** (`nav:requirements`, `nav:test-cases`, `nav:traceability`, `nav:tasks`, `nav:ai-hub`, `nav:report`, `nav:inbox`, `nav:team`, `nav:team-hangouts`, `nav:configurations`).
+- Backfill `department: "qa"` / `tierRank: 10` and `20` onto the **existing** `qa_member`/`qa_lead` role rows as part of this migration — they predate the `department`/`tierRank` columns, so without this step they'd fall into the "unconfigured role" fallback (IC-only visibility) rather than actually tiering.
 - **Behavior change to flag clearly in testing**: today `qa_lead` and `qa_member` see identical (unscoped) data, since no access control exists yet. Once this CR ships, `qa_lead` becomes a genuine Lead tier — it will see every project any `qa_member` is assigned to, not just its own direct assignments. This is a real, user-visible change for existing `qa_lead` accounts, not just new roles — call it out to QA leadership before rollout.
 - `Layout.tsx`: add `"qa_manager"`, `"hod_qa"` to the same fallback arrays `qa_lead` is already in.
 
 ## Part 6 — CTO onboarding (`cto`)
 
-- Seed `cto` with the **broadest nav set** — everything `admin` has via `ALL_NAV_KEYS`, so the CTO can see any department's pages — but `cto` is **not** `admin`: it does not get access to `POST /roles`, `PUT /roles/:id/permissions`, or user-management mutations (those stay `admin`-only). CTO is "see everything, configure nothing."
+- Seed `cto` with `department: null`, `tierRank: null` (special-cased in `resolveProjectAccess`, not part of the department comparison), and the **broadest nav set** — everything `admin` has via `ALL_NAV_KEYS`, so the CTO can see any department's pages — but `cto` is **not** `admin`: it does not get access to `POST /roles`, `PUT /roles/:id/permissions`, or user-management mutations (those stay `admin`-only). CTO is "see everything, configure nothing."
 - `resolveProjectAccess`: `cto` gets `accessibleProjectIds = null`, identical to `admin`'s unrestricted sentinel — project-level visibility, not object-model access.
 - `Layout.tsx`: add `"cto"` to the fallback arrays used by `ALL_NAV_KEYS`-equivalent items.
 
@@ -175,8 +187,9 @@ QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above 
 - Access-denied returns **404**, not 403.
 - Milestone `type`/`status` are free text and unenforced — a reporting label, not a workflow state machine. PM/FA move status manually.
 - `milestoneId` on Requirements/Tasks is optional.
-- **No new "reports-to" schema** — Lead/Manager/HOD/CTO visibility is a pure function of role tier (the `DEPARTMENTS`/`IC_ROLE_OF` lookup), not actual line-management data. If the org later needs "a Lead only sees *their own* reports, not every IC in the department," that requires a follow-up CR to add real reporting-line data — explicitly deferred, not built here.
-- `qa_manager` and `hod_qa` end up with identical project-visibility scope in this model (both = "all QA department projects") — the distinction between them is intentionally left to future feature/permission differences, not visibility.
+- **Department/tierRank are admin-configurable, but there's still no "reports-to" schema.** Lead/Manager/HOD/CTO visibility is a pure function of role-level `department`/`tierRank` values (editable via the Roles page, no deploy needed), not actual line-management data. If the org later needs "a Lead only sees *their own* reports, not every IC in the department," that requires a follow-up CR to add real per-user reporting-line data — explicitly deferred, not built here.
+- `qa_manager` (rank 30) and `hod_qa` (rank 40) are **not** guaranteed identical visibility — `hod_qa` additionally includes any project the HOD is personally a direct member of. See the algorithm note above.
+- Existing `qa_member`/`qa_lead` role rows get `department`/`tierRank` backfilled in this migration (they predate these columns) — without this, they'd silently fall back to unconfigured/IC-only behavior instead of actually tiering.
 
 ## Verification
 
@@ -185,6 +198,7 @@ QA already has `qa_member` and `qa_lead`; this CR only adds the two tiers above 
 - As `admin` and as `cto`: all projects remain visible.
 - **Tier escalation check**: create `project_manager` A on Project 1 only, `pm_lead` B with no direct project_members rows, `hod_pm` C with no direct rows. Confirm B sees Project 1 (via A's membership) and any other project any `project_manager` is on; confirm C sees every project any PM-track user (any tier) is on.
 - **QA behavior-change check**: confirm an existing `qa_lead` account now sees every project any `qa_member` is assigned to, not just their own prior direct assignments — flag this to whoever owns the QA rollout before enabling in production.
+- **Admin-configurability check**: via the Roles page, change `pm_lead`'s `tierRank` from 20 to 5 (below the IC's 10) and confirm that `pm_lead`'s visibility immediately drops to IC-scope-or-less on next request — no restart/deploy required. Then set it back to 20 and confirm visibility returns.
 - **CR-scale flow**: create one Milestone (`type: "cr"`) on a project, attach 2 requirements to it, approve both as the FA, confirm PM Dashboard shows the milestone at 100% requirements-approved.
 - **New-project-scale flow**: create 3 sequential Milestones (`type: "phase"`) on one project, attach separate requirement sets to each, confirm PM Dashboard lists all 3 independently with correct per-milestone rollups.
 - Confirm a requirement/task with no `milestoneId` rolls up into an "Unassigned" bucket, not silently dropped.
