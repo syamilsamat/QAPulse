@@ -54,6 +54,7 @@ export interface ExecutionTestCase {
   comments: string;
   qaPic: string;
   rowOrder?: number;
+  rowType?: "testcase" | "group"; // "group" rows are section banners; label lives in caseName
 }
 
 const getRedmineKey = (): string | null => {

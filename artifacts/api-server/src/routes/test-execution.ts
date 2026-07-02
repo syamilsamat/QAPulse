@@ -620,6 +620,7 @@ router.get(
           comments: t.comments,
           qaPic: t.qaPic,
           rowOrder: t.rowOrder,
+          rowType: t.rowType,
         })),
       });
     } catch {
@@ -742,8 +743,9 @@ router.post(
         const t = testCases[idx];
         const dbId = typeof t.id === "number" && existingDbIdSet.has(t.id) ? t.id : null;
 
+        const isGroupTag = t.rowType === "group";
         let tcId: string = t.testCaseId || "";
-        if (!tcId) {
+        if (!tcId && !isGroupTag) {
           tcId = `TC-${ticketId}-${String(nextSeq).padStart(3, "0")}`;
           nextSeq++;
         }
@@ -777,6 +779,7 @@ router.post(
           comments: t.comments || null,
           qaPic: t.qaPic || null,
           rowOrder: t.rowOrder ?? idx,
+          rowType: isGroupTag ? "group" : "testcase",
         };
 
         if (dbId !== null) {
