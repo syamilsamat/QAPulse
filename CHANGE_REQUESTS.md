@@ -20,6 +20,9 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR010](#cr010--trigger-playwright-from-qapulse-ui) | Trigger Playwright from QAPulse UI | ⏳ Pending | — |
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | 📋 Planned | 2026-06-29 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
+| [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
+| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ⏳ Pending | — |
+| [CR015](#cr015--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | 📋 Planned | 2026-07-02 |
 
 ---
 
@@ -168,3 +171,81 @@ Addresses bottlenecks found in codebase audit:
 - Per-user rate limiting (current limiter is IP-based only, affects users on shared NAT)
 
 **Delivery order:** Job queue → DB pool → Pagination → Redis cache → Batch Redmine → Per-user rate limit
+
+---
+
+### CR013 — Microsoft Login SSO
+**Status:** ⏳ Pending
+**Source:** unmerged branch `claude/microsoft-login-integration-6cm4go`
+
+Replace email/password auth with Microsoft Entra ID (Azure AD) SSO, single-tenant, org accounts only. Password login removed entirely; admins pre-create user accounts (name, email, role — no password). Users signing in with a Microsoft email not already in QAPulse get a "contact admin" error (no auto-provisioning).
+
+- Make `password` nullable on `usersTable`
+- New `POST /auth/microsoft` — validates Azure AD ID token via `jwks-rsa` + `jsonwebtoken`, looks up user by email, issues QA Pulse JWT
+- Remove `POST /auth/login`; keep `/auth/me`, `/auth/logout`, `/auth/change-password`
+- Frontend: MSAL redirect flow (`@azure/msal-browser`, `@azure/msal-react`) replaces the Login page's email/password form
+- Remove password fields from Settings' user creation form
+
+Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microsoft-login-integration-6cm4go` branch, not yet on `main`)
+
+---
+
+### CR014 — Org-wide Role Hierarchy & Project-Level Access Control
+**Status:** ⏳ Pending
+**Source:** unmerged branch `claude/microsoft-login-integration-6cm4go` (originally scoped as "PM/BA onboarding"; BA role renamed to Functional Analyst since this org merged Business Analyst and System Analyst into one title)
+
+Expands QAPulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO), driven by two new **admin-configurable** columns on the existing `roles` table (`department`, `tierRank`) rather than a hardcoded lookup — admin can retier/re-department any role via the existing Roles page, no deploy needed. Still **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
+
+**Part 1 — Project-level access control (prerequisite)**
+- New `project_members` table (projectId + userId, no per-project sub-roles yet)
+- New `department`/`tierRank` columns on the existing `rolesTable`, editable via `Roles.tsx` + `PATCH /roles/:id` + `requireAuth` / `resolveProjectAccess` middleware (reads department/tierRank at request time) + `canAccessProject` / `scopeToUserProjects` helpers (unchanged, tier logic lives entirely in `resolveProjectAccess`)
+- Retrofit `requirements`, `test-cases`, `tasks`, `traceability`, `projects` routes to scope by membership; `test-execution` retrofitted per-route (not router-level, due to its SSE endpoint); 404 on denied access
+- One-time backfill grandfathering existing users into existing projects, plus backfilling `department`/`tierRank` onto the pre-existing `qa_member`/`qa_lead` role rows
+
+**Part 2 — Milestones (shared CR / new-project primitive)**
+- New `milestones` table (projectId, name, type: cr/phase/sprint/release, status, targetDate) — a CR is a project with one milestone; a new project is a sequence of milestones
+- Nullable `milestoneId` on `requirementsTable` and `tasksTable`
+- New `routes/milestones.ts` (create/list/status update, project-scoped)
+
+**Part 3 — PM track (`project_manager`, `pm_lead`, `hod_pm`)**
+- All three roles share nav (`nav:pm-dashboard` + existing PM-relevant keys); tiers differ only in project-visibility scope
+- New `GET /dashboard/pm-summary` + `PmDashboard.tsx`, grouped per project → per milestone
+
+**Part 4 — FA track (`functional_analyst`, `fa_lead`, `hod_fa_bi`)**
+- `reviewedBy` / `reviewedAt` columns on `requirementsTable`
+- `PATCH /requirements/:id/review` — upstream requirement baseline approval
+- `PATCH /milestones/:id/review` — downstream UAT sign-off, closing the loop back to the FA track (notifies the milestone's creator/PM)
+- `bi`/`bi_lead` role names reserved (so `hod_fa_bi` visibility is forward-compatible) but BI itself is **not** onboarded in this CR
+
+**Part 5 — QA tier expansion (`qa_manager`, `hod_qa` — new)**
+- `qa_member`/`qa_lead` already exist; adds the two tiers above plus tiered visibility itself — **note:** `qa_lead` gains broader visibility than before (every `qa_member`'s projects, not just its own), a real behavior change for existing accounts
+
+**Part 6 — CTO (`cto`)**
+- Broadest nav (like `admin`) but no role/user-management permissions — "see everything, configure nothing"
+- Unrestricted project visibility (same `null` sentinel as `admin`)
+
+Full plan: `docs/change-requests/pm-ba-onboarding.md` (on the `claude/microsoft-login-integration-6cm4go` branch, not yet on `main`)
+
+---
+
+### CR015 — Per-Requirement AI Test Case Generation
+**Status:** 📋 Planned (2026-07-02)
+
+Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #23123 + #32134) are generated and saved per-requirement instead of bundled.
+
+**Current behavior (bug):** all selected requirements' descriptions are concatenated into one Gemini prompt; the response is one flat array of test cases with no link back to source requirement. On save, every generated test case is written with the same single `requirementId` (whichever requirement was picked in the "Base Requirement" dropdown), regardless of which requirement actually produced it.
+
+**Target behavior:**
+- Parallel per-requirement Gemini calls (capped concurrency via `p-limit`, already a project dependency) — one call per selected requirement, not one bundled call with self-tagging. Guarantees correct requirement linkage structurally.
+- Each requirement gets its own independent ~5–10 test case count based on its own complexity (not scaled by batch size) — e.g. 5 for #23123, 3 for #32134.
+- Preview UI groups generated cases under requirement headers ("#23123 — 5 test cases").
+- Save writes each test case with its own group's `requirementId`, fixing the mislink bug.
+- Partial-failure handling: if one requirement's generation fails (Gemini + OpenRouter both exhausted), the rest of the batch still returns (`Promise.allSettled`), with an `error` field on the failed group.
+- Test Cases list reloads/refetches after save (existing `queryClient.invalidateQueries` pattern already covers this).
+
+**Scope:**
+- `lib/api-spec/openapi.yaml` — replace singular `requirementDescription`/`requirementId` on `AIGenerateInput` with a `requirements: [{id, title, description}]` array; wrap `AIGenerateResponse` in per-requirement `results` groups; also correct `AIGeneratedTestCase` schema fields to match actual route output (drops stale `objective`/`automationCandidate`, which don't match what the route returns). Regenerate via `pnpm --filter @workspace/api-spec run codegen`.
+- `artifacts/api-server/src/routes/test-cases.ts:178-314` — extract single-generation logic into a per-requirement helper, fan out with `p-limit` + `Promise.allSettled`.
+- `artifacts/qa-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
+
+Full implementation plan drafted 2026-07-02 (not yet executed).
