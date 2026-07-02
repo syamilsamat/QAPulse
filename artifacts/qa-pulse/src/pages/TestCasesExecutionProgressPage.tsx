@@ -3283,7 +3283,7 @@ export default function TestCasesExecutionProgressPage() {
                 return (
                   <div key={moduleName}>
                     <div
-                      className="flex items-center gap-2 px-3 py-2 bg-muted/50 cursor-pointer select-none hover:bg-muted/80 transition-colors sticky top-0 z-10"
+                      className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b border-border cursor-pointer select-none hover:bg-muted/80 transition-colors sticky top-0 z-10"
                       onClick={() => setFocusCollapsedModules(prev => {
                         const s = new Set(prev);
                         s.has(moduleName) ? s.delete(moduleName) : s.add(moduleName);
@@ -3295,7 +3295,7 @@ export default function TestCasesExecutionProgressPage() {
                       <Badge variant="secondary" className="text-[10px] shrink-0">{moduleRows.length}</Badge>
                     </div>
                     {!isCollapsed && (
-                      <div>
+                      <div className="divide-y divide-border/50">
                         {moduleRows.map(row => {
                           const isActive = focusRow?.id === row.id;
                           return (
