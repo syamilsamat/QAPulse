@@ -76,13 +76,33 @@ router.get("/requirements", async (req, res): Promise<void> => {
   const execMap: Record<number, { pass: number; fail: number; pending: number }> = {};
 
   if (reqIds.length > 0) {
-    const tcRows = await db
-      .select({ requirementId: testCasesTable.requirementId, cnt: sql<number>`count(*)::int` })
+    // Count distinct test cases per requirement — a test case linked from both the
+    // library and an execution file (via libraryTcId) counts once, not twice.
+    const libTcRows = await db
+      .select({ id: testCasesTable.id, requirementId: testCasesTable.requirementId })
       .from(testCasesTable)
-      .where(inArray(testCasesTable.requirementId, reqIds))
-      .groupBy(testCasesTable.requirementId);
-    for (const row of tcRows) {
-      if (row.requirementId != null) tcCountMap[row.requirementId] = row.cnt;
+      .where(inArray(testCasesTable.requirementId, reqIds));
+    const execLinkRows = await db
+      .select({
+        id: executionTestCasesTable.id,
+        requirementId: executionTestCasesTable.requirementId,
+        libraryTcId: executionTestCasesTable.libraryTcId,
+      })
+      .from(executionTestCasesTable)
+      .where(inArray(executionTestCasesTable.requirementId, reqIds));
+
+    const distinctTcSets: Record<number, Set<string>> = {};
+    for (const row of libTcRows) {
+      if (row.requirementId == null) continue;
+      (distinctTcSets[row.requirementId] ??= new Set()).add(`lib:${row.id}`);
+    }
+    for (const row of execLinkRows) {
+      if (row.requirementId == null) continue;
+      const identity = row.libraryTcId != null ? `lib:${row.libraryTcId}` : `exec:${row.id}`;
+      (distinctTcSets[row.requirementId] ??= new Set()).add(identity);
+    }
+    for (const id of reqIds) {
+      tcCountMap[id] = distinctTcSets[id]?.size ?? 0;
     }
 
     const execRows = await db
