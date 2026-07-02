@@ -249,3 +249,19 @@ Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #231
 - `artifacts/qa-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
 
 Full implementation plan drafted 2026-07-02 (not yet executed).
+
+---
+
+### CR016 — Traceability Matrix Requirement Hierarchy
+**Status:** ⏳ Pending deploy (2026-07-03)
+
+Follow-up to CR005. Now that child requirements carry their own test case links, the matrix shows the full requirement tree instead of only root requirements:
+
+- Child requirements render as nested, expandable rows under their parent (any depth).
+- Parent coverage/status is **rolled up** from all descendant TCs, deduped by TC identity (a TC linked to both parent and child counts once). A failing child TC bubbles up to the parent's status; a parent with no direct TCs but covered children no longer shows "No TCs".
+- Parents with children show a "X direct · Y rolled up from N children" subtitle.
+- TC sources now match the Requirements page: library links (`test_cases.requirement_id`) **plus** direct execution-file links (`execution_test_cases.requirement_id`), deduped via the same `lib:`/`exec:` identity convention.
+- Excel export mirrors the hierarchy: indented `↳` child rows, plus a rolled-up summary row for parents.
+- Module filter keeps a tree when the root or any descendant matches; status filter applies to the root's rolled-up status.
+
+**Scope:** `artifacts/api-server/src/routes/traceability.ts` (rewritten — tree assembly + recursive rollup), `artifacts/qa-pulse/src/pages/TraceabilityMatrix.tsx` (recursive rows + hierarchical export). No DB changes.
