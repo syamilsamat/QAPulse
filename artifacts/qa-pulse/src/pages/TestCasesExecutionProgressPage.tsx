@@ -41,8 +41,12 @@ import {
   Library,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   GripVertical,
   Tag,
+  LayoutList,
+  Table2,
+  PanelLeft,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -82,6 +86,14 @@ const RESULT_PILL_ACTIVE: Record<string, string> = {
   Blocked: "bg-orange-100 text-orange-700 border-orange-300",
   "In Progress": "bg-blue-100 text-blue-700 border-blue-300",
   "Not Executed": "bg-slate-100 text-slate-600 border-slate-300",
+};
+
+const RESULT_DOT_COLOR: Record<string, string> = {
+  Passed: "bg-green-500",
+  Failed: "bg-red-500",
+  Blocked: "bg-orange-400",
+  "In Progress": "bg-blue-400",
+  "Not Executed": "bg-slate-300",
 };
 
 export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
@@ -1424,11 +1436,17 @@ export default function TestCasesExecutionProgressPage() {
   const [mode, setMode] = useState<"execute" | "edit">("execute");
 
   // View layout preference — read from localStorage per user
-  const [viewLayout, setViewLayout] = useState<"tree" | "spreadsheet">(() => {
+  const [viewLayout, setViewLayout] = useState<"tree" | "spreadsheet" | "focus">(() => {
     const userId = currentUser?.id;
     if (!userId) return "tree";
-    return (localStorage.getItem(`qa_pulse_exec_view_${userId}`) as "tree" | "spreadsheet") ?? "tree";
+    return (localStorage.getItem(`qa_pulse_exec_view_${userId}`) as "tree" | "spreadsheet" | "focus") ?? "tree";
   });
+
+  // Focus view — master-detail layout (TestLink-style): tree on the left,
+  // single test case detail on the right
+  const [focusRowId, setFocusRowId] = useState<string | number | null>(null);
+  // Modules default open in focus view — this tracks explicit user collapses only
+  const [focusCollapsedModules, setFocusCollapsedModules] = useState<Set<string>>(new Set());
 
   // Column visibility — persisted per user in localStorage
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
@@ -1958,6 +1976,22 @@ export default function TestCasesExecutionProgressPage() {
         return aO - bO;
       });
   }, [data, globalSearch, moduleFilters, resultFilters, qaFilters]);
+
+  // Focus view: keep the selection valid as filters/data change, defaulting to the first row
+  useEffect(() => {
+    if (viewLayout !== "focus") return;
+    if (focusRowId !== null && filteredData.some((r) => r.id === focusRowId)) return;
+    setFocusRowId(filteredData.length > 0 ? filteredData[0].id ?? null : null);
+  }, [viewLayout, filteredData, focusRowId]);
+
+  const focusRow = focusRowId !== null ? filteredData.find((r) => r.id === focusRowId) ?? null : null;
+  const focusIndex = focusRow ? filteredData.findIndex((r) => r.id === focusRow.id) : -1;
+
+  const goToFocusOffset = (offset: number) => {
+    if (focusIndex === -1 || filteredData.length === 0) return;
+    const next = filteredData[Math.min(Math.max(focusIndex + offset, 0), filteredData.length - 1)];
+    if (next) setFocusRowId(next.id ?? null);
+  };
 
   // Tree view: scope is whichever module the dragged row belongs to, resolved per-drag
   // since rows from different modules' SortableContexts share one page-level DndContext.
@@ -2826,6 +2860,27 @@ export default function TestCasesExecutionProgressPage() {
             </button>
           </div>
 
+          {/* View layout toggle — persisted per account, same as tree/spreadsheet */}
+          <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium" title="Switch view layout">
+            {([
+              { key: "tree" as const, label: "Tree view", Icon: LayoutList },
+              { key: "focus" as const, label: "Focus view (TestLink-style)", Icon: PanelLeft },
+              { key: "spreadsheet" as const, label: "Spreadsheet view", Icon: Table2 },
+            ]).map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setViewLayout(key);
+                  if (currentUser?.id) localStorage.setItem(`qa_pulse_exec_view_${currentUser.id}`, key);
+                }}
+                className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${viewLayout === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+                title={label}
+              >
+                <Icon className="w-3.5 h-3.5" />
+              </button>
+            ))}
+          </div>
+
           <input
             type="file"
             accept=".xlsx, .xls"
@@ -3224,6 +3279,238 @@ export default function TestCasesExecutionProgressPage() {
               })}
             </DndContext>
           </div>
+        )}
+      </Card>
+
+      {/* FOCUS VIEW — TestLink-style master-detail: tree on the left, single TC on the right */}
+      <Card className={`${viewLayout === "focus" ? "hidden lg:flex" : "hidden"} flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]`}>
+        {filteredData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-muted-foreground p-8 w-full">
+            <Search className="w-10 h-10 mb-4 opacity-20" />
+            <p>No test cases match your current filters and search criteria.</p>
+            <Button variant="link" onClick={() => { setGlobalSearch(""); setModuleFilters([]); setResultFilters([]); setQaFilters([]); }}>
+              Clear all filters
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Left: module tree */}
+            <div className="w-72 shrink-0 border-r border-border overflow-y-auto">
+              {groupByModule(filteredData).map(({ name: moduleName, rows: moduleRows }) => {
+                const isCollapsed = focusCollapsedModules.has(moduleName);
+                return (
+                  <div key={moduleName}>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 bg-muted/50 cursor-pointer select-none hover:bg-muted/80 transition-colors sticky top-0 z-10"
+                      onClick={() => setFocusCollapsedModules(prev => {
+                        const s = new Set(prev);
+                        s.has(moduleName) ? s.delete(moduleName) : s.add(moduleName);
+                        return s;
+                      })}
+                    >
+                      {isCollapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />}
+                      <span className="font-semibold text-xs flex-1 truncate">{moduleName}</span>
+                      <Badge variant="secondary" className="text-[10px] shrink-0">{moduleRows.length}</Badge>
+                    </div>
+                    {!isCollapsed && (
+                      <div>
+                        {moduleRows.map(row => {
+                          const isActive = focusRow?.id === row.id;
+                          return (
+                            <div
+                              key={row.id as string}
+                              onClick={() => setFocusRowId(row.id ?? null)}
+                              className={`flex items-center gap-2 pl-6 pr-3 py-2 text-xs cursor-pointer border-l-2 transition-colors ${isActive ? "bg-primary/10 border-primary" : "border-transparent hover:bg-muted/40"}`}
+                            >
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${RESULT_DOT_COLOR[row.result || ""] || "bg-slate-300"}`} />
+                              <div className="min-w-0 flex-1">
+                                <div className={`font-mono text-[10px] ${isActive ? "text-primary" : "text-muted-foreground"}`}>{row.caseId || row.testCaseId || "—"}</div>
+                                <div className="truncate">{row.caseName || "Untitled"}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Right: single test case detail */}
+            {focusRow ? (() => {
+              const row = focusRow;
+              const isQaMember = currentUser?.role === "qa_member";
+              const isAssignedToMe = row.qaPic === currentUser?.name;
+              const isUnassigned = !row.qaPic;
+              const canEdit = !isQaMember || isAssignedToMe;
+              const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
+              const steps = parseLines(row.testSteps);
+              const expectations = parseLines(row.expectedResult);
+              const getExpected = (i: number) => {
+                if (expectations.length === 0) return "";
+                if (expectations.length === 1) return i === Math.max(0, steps.length - 1) ? expectations[0] : "";
+                return expectations[i] || "";
+              };
+              const displaySteps = steps.length > 0 ? steps : [""];
+              const cellCls = "p-3 text-sm text-foreground whitespace-pre-wrap";
+              const headCls = "p-2 text-[10px] font-bold uppercase text-muted-foreground bg-muted/50";
+              const dividerX = "divide-x divide-border";
+              const borderB = "border-b border-border";
+              return (
+                <div className="flex-1 flex flex-col min-w-0">
+                  {/* Header */}
+                  <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
+                    <span className="font-mono text-xs text-primary font-medium">{row.caseId || row.testCaseId || "—"}</span>
+                    <span className="text-sm font-medium truncate">{row.caseName || "Untitled"}</span>
+                    <span className="ml-auto text-xs text-muted-foreground shrink-0">QA PIC: {row.qaPic || "Unassigned"}</span>
+                  </div>
+
+                  {/* Body */}
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="text-sm space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          {mode === "edit"
+                            ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.scenario || ""} fieldName="Scenario" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "scenario", val)} />
+                            : <p className="text-sm whitespace-pre-wrap">{row.scenario || "—"}</p>
+                          }
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div>
+                          {mode === "edit"
+                            ? <select className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
+                                <option value="">Select...</option>
+                                {availableModules.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                              </select>
+                            : <p className="text-sm">{row.moduleName || "—"}</p>
+                          }
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          {mode === "edit"
+                            ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.preCondition || ""} fieldName="Pre-Condition" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "preCondition", val)} />
+                            : <p className="text-sm whitespace-pre-wrap">{row.preCondition || "—"}</p>
+                          }
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          {mode === "edit"
+                            ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.testData || ""} fieldName="Test Data" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "testData", val)} />
+                            : <p className="text-sm whitespace-pre-wrap">{row.testData || "—"}</p>
+                          }
+                        </div>
+                      </div>
+
+                      <div className="border border-border rounded-md overflow-hidden">
+                        <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
+                          <div className={headCls}>Test Step {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          <div className={headCls}>Expected Result {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                        </div>
+                        {mode === "edit" ? (
+                          <div className={`grid grid-cols-2 ${dividerX}`}>
+                            <div className="p-3">
+                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} />
+                            </div>
+                            <div className="p-3">
+                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} fieldName="Expected Result" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "expectedResult", val)} />
+                            </div>
+                          </div>
+                        ) : (
+                          displaySteps.map((step, i) => (
+                            <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                              <div className={cellCls}>{step || "—"}</div>
+                              <div className={cellCls}>{getExpected(i) || ""}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
+                          {canEdit ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                  {status}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                              {row.result || "Not Executed"}
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
+                          {isQaMember ? (
+                            isAssignedToMe ? (
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-medium">{currentUser?.name}</span>
+                                <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                              </div>
+                            ) : isUnassigned ? (
+                              <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
+                                + Assign to me
+                              </button>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">{row.qaPic}</span>
+                            )
+                          ) : (
+                            <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                              <option value="">Select QA PIC...</option>
+                              {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Redmine Defect ID</div>
+                          {canEdit ? (
+                            <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
+                          ) : (
+                            <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA Notes</div>
+                          {canEdit ? (
+                            <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
+                          ) : (
+                            <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer: prev/next */}
+                  <div className="px-4 py-2.5 border-t border-border flex items-center justify-between shrink-0">
+                    <span className="text-xs text-muted-foreground">{focusIndex + 1} of {filteredData.length}</span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => goToFocusOffset(-1)} disabled={focusIndex <= 0} className="gap-1">
+                        <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => goToFocusOffset(1)} disabled={focusIndex === -1 || focusIndex >= filteredData.length - 1} className="gap-1">
+                        Next <ChevronRight className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Select a test case from the tree.</div>
+            )}
+          </>
         )}
       </Card>
 
