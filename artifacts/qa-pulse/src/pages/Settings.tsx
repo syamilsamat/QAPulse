@@ -599,21 +599,21 @@ export default function Settings() {
             <div className="flex gap-3">
               <button
                 onClick={() => handleExecViewChange("tree")}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "tree" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "tree" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-foreground hover:bg-muted/50"}`}
               >
                 <LayoutList className="w-4 h-4" />
                 Tree view
               </button>
               <button
                 onClick={() => handleExecViewChange("focus")}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "focus" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "focus" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-foreground hover:bg-muted/50"}`}
               >
                 <PanelLeft className="w-4 h-4" />
                 Focus mode
               </button>
               <button
                 onClick={() => handleExecViewChange("spreadsheet")}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "spreadsheet" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "spreadsheet" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-foreground hover:bg-muted/50"}`}
               >
                 <Table2 className="w-4 h-4" />
                 Spreadsheet view
