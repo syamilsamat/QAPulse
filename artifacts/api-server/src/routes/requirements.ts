@@ -377,4 +377,53 @@ router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
   }
 });
 
+// Resolve a requirement by Redmine ticket ID — used when importing execution
+// test cases from Excel. Returns the existing requirement if one is already
+// linked to that ticket, otherwise fetches the single issue from Redmine and
+// creates a new requirement record (no children, no module/tracker targeting).
+router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => {
+  const ticketId = String(req.body?.ticketId ?? "").trim();
+  if (!ticketId) {
+    res.status(400).json({ error: "ticketId is required" });
+    return;
+  }
+
+  const [existing] = await db.select().from(requirementsTable).where(eq(requirementsTable.redmineTicketId, ticketId));
+  if (existing) {
+    res.json({ created: false, requirement: await formatRequirement(existing) });
+    return;
+  }
+
+  try {
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const resp = await redmineFetchLocal(`/issues/${encodeURIComponent(ticketId)}.json`, apiKey);
+    if (!resp.ok) {
+      res.status(404).json({ error: `Redmine issue #${ticketId} not found` });
+      return;
+    }
+    const data = await resp.json();
+    const issue = data.issue;
+    if (!issue) {
+      res.status(404).json({ error: `Redmine issue #${ticketId} not found` });
+      return;
+    }
+
+    const [created] = await db
+      .insert(requirementsTable)
+      .values({
+        title: issue.subject,
+        description: issue.description ?? "",
+        priority: PRIORITY_MAP[issue.priority?.name?.toLowerCase()] ?? "normal",
+        redmineTicketId: ticketId,
+        tracker: issue.tracker?.name ?? "Task",
+        status: "draft",
+      })
+      .returning();
+
+    res.status(201).json({ created: true, requirement: await formatRequirement(created) });
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message || `Failed to fetch Redmine issue #${ticketId}` });
+  }
+});
+
 export default router;

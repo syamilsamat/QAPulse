@@ -62,10 +62,13 @@ import {
   fetchUsers,
   fetchExecutionFiles,
   fetchTrackers,
+  fetchRequirements,
+  resolveRequirementByRedmine,
   type ExecutionTestCase,
   type ExecutionModule,
   type ExecutionUser,
   type TrackerOption,
+  type RequirementOption,
 } from "@/lib/execution-api";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
@@ -1406,6 +1409,7 @@ export default function TestCasesExecutionProgressPage() {
 
   const [availableModules, setAvailableModules] = useState<ExecutionModule[]>([]);
   const [availableTrackers, setAvailableTrackers] = useState<TrackerOption[]>([]);
+  const [requirementsList, setRequirementsList] = useState<RequirementOption[]>([]);
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
 
@@ -1559,10 +1563,12 @@ export default function TestCasesExecutionProgressPage() {
       fetchUsers(),
       fetchExecutionFiles(),
       fetchTrackers(),
+      fetchRequirements(),
       fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([result, allModules, users, files, trackersData, allTasks]) => {
+      .then(([result, allModules, users, files, trackersData, requirementsData, allTasks]) => {
         setAvailableTrackers(trackersData || []);
+        setRequirementsList(requirementsData || []);
         const testCases = result?.testCases || [];
         const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
         const selectedModuleNames = file?.selectedModules
@@ -2497,6 +2503,42 @@ export default function TestCasesExecutionProgressPage() {
       };
 
       if (consolidatedData.length > 0) {
+        // Resolve each unique Redmine ticket ID (userStory column) to a requirement —
+        // reuse an existing link, else fetch-and-create from Redmine — deduped so a
+        // shared ticket across many rows only triggers one lookup.
+        const uniqueTicketIds = Array.from(
+          new Set(
+            consolidatedData
+              .map((r) => r.userStory?.trim())
+              .filter((v): v is string => !!v),
+          ),
+        );
+        if (uniqueTicketIds.length > 0) {
+          const resolved = await Promise.all(
+            uniqueTicketIds.map((tid) =>
+              resolveRequirementByRedmine(tid)
+                .catch(() => null)
+                .then((req) => [tid, req] as const),
+            ),
+          );
+          const requirementByTicket = new Map(resolved);
+          for (const row of consolidatedData) {
+            const tid = row.userStory?.trim();
+            const req = tid ? requirementByTicket.get(tid) : null;
+            if (req) row.requirementId = req.id;
+          }
+          const newlyResolved = resolved
+            .map(([, req]) => req)
+            .filter((r): r is RequirementOption => !!r);
+          if (newlyResolved.length > 0) {
+            setRequirementsList((prev) => {
+              const byId = new Map(prev.map((r) => [r.id, r]));
+              for (const r of newlyResolved) byId.set(r.id, r);
+              return Array.from(byId.values());
+            });
+          }
+        }
+
         // Mark existing DB rows for deletion and all imported rows as dirty
         const oldDbIds = dataRef.current
           .filter((r) => typeof r.id === "number")
@@ -3343,8 +3385,17 @@ export default function TestCasesExecutionProgressPage() {
                 <div className="flex-1 flex flex-col min-w-0">
                   {/* Header */}
                   <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
-                    <span className="font-mono text-xs text-primary font-medium">{row.caseId || row.testCaseId || "—"}</span>
-                    <span className="text-sm font-medium truncate">{row.caseName || "Untitled"}</span>
+                    <span className="font-mono text-xs text-primary font-medium shrink-0">{row.caseId || row.testCaseId || "—"}</span>
+                    {mode === "edit" ? (
+                      <Input
+                        className="h-7 text-sm flex-1 min-w-0"
+                        value={row.caseName || ""}
+                        placeholder="Case name"
+                        onChange={(e) => updateCell(row.id as string | number, "caseName", e.target.value)}
+                      />
+                    ) : (
+                      <span className="text-sm font-medium truncate flex-1 min-w-0">{row.caseName || "Untitled"}</span>
+                    )}
                     <span className="ml-auto text-xs text-muted-foreground shrink-0">QA PIC: {row.qaPic || "Unassigned"}</span>
                     {mode === "edit" && (
                       <Button
@@ -3362,6 +3413,39 @@ export default function TestCasesExecutionProgressPage() {
                   {/* Body */}
                   <div className="flex-1 overflow-y-auto p-4">
                     <div className="text-sm space-y-4">
+                      <div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1 flex items-center gap-2">
+                          Requirement
+                          {row.requirementId ? (
+                            <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">linked</span>
+                          ) : (
+                            <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">not linked</span>
+                          )}
+                        </div>
+                        {mode === "edit" ? (
+                          <SearchableSelect
+                            value={row.requirementId != null ? String(row.requirementId) : ""}
+                            onValueChange={(v) => updateCell(row.id as string | number, "requirementId", v)}
+                            options={requirementsList.map((r) => ({
+                              value: String(r.id),
+                              label: r.redmineTicketId ? `#${r.redmineTicketId} — ${r.title}` : r.title,
+                            }))}
+                            placeholder="Search requirement by Redmine ID or title..."
+                            searchPlaceholder="Search requirements..."
+                            emptyText="No requirements found."
+                          />
+                        ) : (() => {
+                          const linked = row.requirementId
+                            ? requirementsList.find((r) => r.id === Number(row.requirementId))
+                            : null;
+                          return (
+                            <p className="text-sm">
+                              {linked ? (linked.redmineTicketId ? `#${linked.redmineTicketId} — ${linked.title}` : linked.title) : "—"}
+                            </p>
+                          );
+                        })()}
+                      </div>
+
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
