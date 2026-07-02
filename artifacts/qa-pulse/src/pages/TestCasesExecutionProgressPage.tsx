@@ -3084,13 +3084,13 @@ export default function TestCasesExecutionProgressPage() {
           <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium">
             <button
               onClick={() => setMode("execute")}
-              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"}`}
             >
               Execute
             </button>
             <button
               onClick={() => setMode("edit")}
-              className={`px-3 py-1.5 transition-colors ${mode === "edit" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+              className={`px-3 py-1.5 transition-colors ${mode === "edit" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"}`}
             >
               Edit test cases
             </button>
