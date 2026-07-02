@@ -39,6 +39,7 @@ export interface ExecutionTestCase {
   testCaseId?: string;
   libraryTcId?: number | null;
   userStory: string;
+  requirementId?: number | string | null;
   tracker?: string;
   scenario: string;
   preCondition: string;
@@ -105,6 +106,34 @@ export const fetchTrackers = async (): Promise<TrackerOption[]> => {
   const res = await fetch("/api/trackers", { headers: getHeaders() });
   if (!res.ok) return [];
   return res.json();
+};
+
+export interface RequirementOption {
+  id: number;
+  title: string;
+  redmineTicketId?: string | null;
+}
+
+export const fetchRequirements = async (): Promise<RequirementOption[]> => {
+  const res = await fetch("/api/requirements", { headers: getHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+};
+
+// Resolves a requirement by Redmine ticket ID for Excel import — returns the
+// existing requirement if already linked, otherwise fetches the issue from
+// Redmine and creates one. Returns null if the ticket can't be resolved.
+export const resolveRequirementByRedmine = async (
+  ticketId: string,
+): Promise<RequirementOption | null> => {
+  const res = await fetch("/api/requirements/resolve-redmine", {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify({ ticketId }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.requirement ?? null;
 };
 
 export const syncTrackersFromRedmine = async (): Promise<TrackerOption[]> => {
