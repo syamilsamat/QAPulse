@@ -15,7 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
   RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, XIcon,
-  LayoutList, Table2,
+  LayoutList, Table2, PanelLeft,
 } from "lucide-react";
 
 interface DocRegEntry {
@@ -55,11 +55,11 @@ export default function Settings() {
 
   // Execution view preference
   const execViewKey = user ? `qa_pulse_exec_view_${user.id}` : null;
-  const [execView, setExecView] = useState<"tree" | "spreadsheet">(() => {
+  const [execView, setExecView] = useState<"tree" | "spreadsheet" | "focus">(() => {
     if (!user) return "tree";
-    return (localStorage.getItem(`qa_pulse_exec_view_${user.id}`) as "tree" | "spreadsheet") ?? "tree";
+    return (localStorage.getItem(`qa_pulse_exec_view_${user.id}`) as "tree" | "spreadsheet" | "focus") ?? "tree";
   });
-  const handleExecViewChange = (v: "tree" | "spreadsheet") => {
+  const handleExecViewChange = (v: "tree" | "spreadsheet" | "focus") => {
     setExecView(v);
     if (execViewKey) localStorage.setItem(execViewKey, v);
   };
@@ -603,6 +603,13 @@ export default function Settings() {
               >
                 <LayoutList className="w-4 h-4" />
                 Tree view
+              </button>
+              <button
+                onClick={() => handleExecViewChange("focus")}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm transition-colors ${execView === "focus" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+              >
+                <PanelLeft className="w-4 h-4" />
+                Focus mode
               </button>
               <button
                 onClick={() => handleExecViewChange("spreadsheet")}

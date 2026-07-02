@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -44,9 +45,6 @@ import {
   ChevronLeft,
   GripVertical,
   Tag,
-  LayoutList,
-  Table2,
-  PanelLeft,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -166,6 +164,56 @@ function MiniProgressBar({ data }: { data: ModuleProgress }) {
         {data.notExecuted > 0 && <span className="text-muted-foreground">{data.notExecuted}NE</span>}
       </div>
     </div>
+  );
+}
+
+function FilterDropdown({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0">
+          {label}
+          {selected.length > 0 && (
+            <Badge variant="secondary" className="h-4 px-1.5 text-[10px] font-semibold">
+              {selected.length}
+            </Badge>
+          )}
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2" align="start">
+        <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+          {options.length === 0 ? (
+            <span className="text-xs text-muted-foreground italic px-2 py-1">No options available</span>
+          ) : (
+            options.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-muted/60 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  className="w-3.5 h-3.5 rounded border-gray-300"
+                  checked={selected.includes(opt.value)}
+                  onChange={() => onToggle(opt.value)}
+                />
+                {opt.label}
+              </label>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1431,6 +1479,10 @@ export default function TestCasesExecutionProgressPage() {
 
   // Linked task warning
   const [linkedTask, setLinkedTask] = useState<{ name: string; status: string; type?: string; projectName?: string | null } | null | undefined>(undefined);
+
+  // Dismissible warning banners
+  const [taskWarningDismissed, setTaskWarningDismissed] = useState(false);
+  const [editWarningDismissed, setEditWarningDismissed] = useState(false);
 
   // Execute / Edit mode — always defaults to "execute" on file open
   const [mode, setMode] = useState<"execute" | "edit">("execute");
@@ -2860,27 +2912,6 @@ export default function TestCasesExecutionProgressPage() {
             </button>
           </div>
 
-          {/* View layout toggle — persisted per account, same as tree/spreadsheet */}
-          <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium" title="Switch view layout">
-            {([
-              { key: "tree" as const, label: "Tree view", Icon: LayoutList },
-              { key: "focus" as const, label: "Focus view (TestLink-style)", Icon: PanelLeft },
-              { key: "spreadsheet" as const, label: "Spreadsheet view", Icon: Table2 },
-            ]).map(({ key, label, Icon }) => (
-              <button
-                key={key}
-                onClick={() => {
-                  setViewLayout(key);
-                  if (currentUser?.id) localStorage.setItem(`qa_pulse_exec_view_${currentUser.id}`, key);
-                }}
-                className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${viewLayout === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
-                title={label}
-              >
-                <Icon className="w-3.5 h-3.5" />
-              </button>
-            ))}
-          </div>
-
           <input
             type="file"
             accept=".xlsx, .xls"
@@ -2889,37 +2920,39 @@ export default function TestCasesExecutionProgressPage() {
             onChange={handleImportExcel}
           />
 
-          {/* Utilities */}
-          <div className="flex gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
-              className="gap-2"
-            >
-              {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              Import
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownloadExcel}
-              disabled={isDownloading}
-              className="gap-2"
-            >
-              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {isDownloading ? "Downloading..." : "Download"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCapaAnalysis}
-              className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
-            >
-              <Sparkles className="w-4 h-4" /> CAPA AI
-            </Button>
-          </div>
+          {/* Utilities — execute mode only */}
+          {mode === "execute" && (
+            <div className="flex gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImporting}
+                className="gap-2"
+              >
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadExcel}
+                disabled={isDownloading}
+                className="gap-2"
+              >
+                {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isDownloading ? "Downloading..." : "Download"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCapaAnalysis}
+                className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+              >
+                <Sparkles className="w-4 h-4" /> CAPA AI
+              </Button>
+            </div>
+          )}
 
           <div className="w-px h-6 bg-border hidden lg:block" />
 
@@ -2967,25 +3000,41 @@ export default function TestCasesExecutionProgressPage() {
       </div>
 
       {/* LINKED TASK WARNING BANNER */}
-      {linkedTask === null && (
+      {linkedTask === null && !taskWarningDismissed && (
         <div className="shrink-0 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>No linked task found for Ticket #{ticketId}. Create a task in the Tasks page first to track this execution properly.</span>
+          <span className="flex-1">No linked task found for Ticket #{ticketId}. Create a task in the Tasks page first to track this execution properly.</span>
+          <button
+            type="button"
+            onClick={() => setTaskWarningDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 text-amber-600 hover:text-amber-900"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {/* EDIT MODE WARNING BANNER */}
-      {mode === "edit" && (
+      {mode === "edit" && !editWarningDismissed && (
         <div className="shrink-0 flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-3 py-2 text-sm">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>You're editing the execution copy. Changes won't update the library TC.</span>
+          <span className="flex-1">You're editing the execution copy. Changes won't update the library TC.</span>
+          <button
+            type="button"
+            onClick={() => setEditWarningDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 text-blue-600 hover:text-blue-900"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {/* GLOBAL SEARCH & FILTER BAR */}
       <div className="flex flex-col gap-2 bg-muted/30 border border-border p-2 rounded-lg shrink-0">
-        <div className="flex flex-col lg:flex-row gap-2 items-start lg:items-center justify-between">
-          <div className="relative w-full lg:w-96 shrink-0">
+        <div className="flex flex-col lg:flex-row gap-2 items-start lg:items-center flex-wrap">
+          <div className="relative w-full lg:w-72 shrink-0">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search across all columns..."
@@ -3002,7 +3051,33 @@ export default function TestCasesExecutionProgressPage() {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground w-full lg:w-auto justify-end flex-wrap">
+
+          <FilterDropdown
+            label="Module"
+            options={uniqueModules.map((m) => ({ value: m, label: m }))}
+            selected={moduleFilters}
+            onToggle={(v) => toggleFilter("module", v)}
+          />
+          <FilterDropdown
+            label="Result"
+            options={[
+              ...RESULT_OPTIONS.filter(Boolean).map((r) => ({ value: r, label: r })),
+              { value: "", label: "Pending/Empty" },
+            ]}
+            selected={resultFilters}
+            onToggle={(v) => toggleFilter("result", v)}
+          />
+          <FilterDropdown
+            label="QA PIC"
+            options={[
+              ...uniqueQA.map((qa) => ({ value: qa, label: qa })),
+              { value: "", label: "No QA Assigned" },
+            ]}
+            selected={qaFilters}
+            onToggle={(v) => toggleFilter("qa", v)}
+          />
+
+          <div className="flex items-center gap-2 text-xs text-muted-foreground w-full lg:w-auto lg:ml-auto justify-end flex-wrap">
             <Filter className="w-3.5 h-3.5" />
             <span>{filteredData.length} records{totalActiveFilters > 0 ? ` (${totalActiveFilters} filters)` : ""}</span>
             {totalActiveFilters > 0 && (
@@ -3011,110 +3086,17 @@ export default function TestCasesExecutionProgressPage() {
                 Clear Filters
               </Button>
             )}
-            <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
-              onClick={() => setShowColPicker(v => !v)}>
-              <span>Columns</span>
-            </Button>
+            {viewLayout === "spreadsheet" && (
+              <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
+                onClick={() => setShowColPicker(v => !v)}>
+                <span>Columns</span>
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Filter Badges Container */}
-        <div className="flex flex-col lg:flex-row gap-3 overflow-hidden mt-1">
-          {/* Module Filters */}
-          <div className="flex-1 min-w-0">
-            <Label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">
-              Filter by Module
-            </Label>
-            <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-y-auto">
-              {uniqueModules.length > 0 ? (
-                uniqueModules.map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => toggleFilter("module", m)}
-                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                      moduleFilters.includes(m)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))
-              ) : (
-                <span className="text-[10px] text-muted-foreground italic">
-                  No modules available
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Result Filters */}
-          <div className="flex-1 min-w-0">
-            <Label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">
-              Filter by Result
-            </Label>
-            <div className="flex flex-wrap gap-1.5">
-              {RESULT_OPTIONS.filter(Boolean).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => toggleFilter("result", r)}
-                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                    resultFilters.includes(r)
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-              <button
-                onClick={() => toggleFilter("result", "")}
-                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                  resultFilters.includes("")
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                Pending/Empty
-              </button>
-            </div>
-          </div>
-
-          {/* QA PIC Filters */}
-          <div className="flex-1 min-w-0">
-            <Label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">
-              Filter by QA PIC
-            </Label>
-            <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-y-auto">
-              {uniqueQA.map((qa) => (
-                <button
-                  key={qa}
-                  onClick={() => toggleFilter("qa", qa)}
-                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                    qaFilters.includes(qa)
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {qa}
-                </button>
-              ))}
-              <button
-                onClick={() => toggleFilter("qa", "")}
-                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                  qaFilters.includes("")
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                No QA Assigned
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Column visibility picker */}
-        {showColPicker && (
+        {/* Column visibility picker — spreadsheet view only */}
+        {viewLayout === "spreadsheet" && showColPicker && (
           <div className="border-t mt-2 pt-2 flex flex-wrap gap-x-4 gap-y-1">
             <Label className="text-[10px] font-bold text-muted-foreground uppercase w-full">Show / Hide Columns</Label>
             {[
