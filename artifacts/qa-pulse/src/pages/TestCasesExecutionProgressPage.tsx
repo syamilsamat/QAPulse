@@ -45,6 +45,7 @@ import {
   ChevronLeft,
   GripVertical,
   Tag,
+  ArrowDownToLine,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -98,6 +99,28 @@ const RESULT_DOT_COLOR: Record<string, string> = {
 };
 
 export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
+
+// Fields compared to detect drift between an execution copy and its linked library
+// test case. Execution-only concerns (QA PIC, Result, Defect Number, QA Notes) are
+// deliberately excluded — they always differ and shouldn't trigger a sync prompt.
+const LIBRARY_COMPARE_FIELDS: { execField: keyof AppExecutionTestCase; libField: string }[] = [
+  { execField: "caseName", libField: "title" },
+  { execField: "scenario", libField: "scenario" },
+  { execField: "preCondition", libField: "preconditions" },
+  { execField: "testData", libField: "testData" },
+  { execField: "testSteps", libField: "testSteps" },
+  { execField: "expectedResult", libField: "expectedResult" },
+  { execField: "moduleName", libField: "module" },
+  { execField: "userStory", libField: "redmineUserStory" },
+  { execField: "tracker", libField: "tracker" },
+];
+
+function getLibraryDrift(row: AppExecutionTestCase, lib: any | undefined | null): boolean {
+  if (!lib) return false;
+  return LIBRARY_COMPARE_FIELDS.some(
+    ({ execField, libField }) => ((row[execField] as string) || "").trim() !== ((lib[libField] as string) || "").trim(),
+  );
+}
 
 type ModuleProgress = { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number };
 
@@ -512,6 +535,9 @@ interface RowProps {
   ) => void;
   onDelete: (id: string | number) => void;
   onPromote: (row: AppExecutionTestCase) => void;
+  onUpdateLibrary: (row: AppExecutionTestCase) => void;
+  onPullLatest: (row: AppExecutionTestCase) => void;
+  libraryDrift: boolean;
   onBlurRow: (id: string | number) => void;
   availableModules: ExecutionModule[];
   availableTrackers: TrackerOption[];
@@ -532,6 +558,9 @@ const DesktopTableRow = React.memo(
     onUpdate,
     onDelete,
     onPromote,
+    onUpdateLibrary,
+    onPullLatest,
+    libraryDrift,
     onBlurRow,
     availableModules,
     availableTrackers,
@@ -804,7 +833,7 @@ const DesktopTableRow = React.memo(
         {!readOnly && (
           <td className="border border-border p-0 text-center align-top pt-2">
             <div className="flex flex-col items-center gap-1">
-              {!row.libraryTcId && (
+              {!row.libraryTcId ? (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -814,7 +843,28 @@ const DesktopTableRow = React.memo(
                 >
                   <Library className="w-4 h-4" />
                 </Button>
-              )}
+              ) : libraryDrift ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Update library test case with these changes"
+                    className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                    onClick={() => onUpdateLibrary(row)}
+                  >
+                    <Library className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Pull latest from library"
+                    className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                    onClick={() => onPullLatest(row)}
+                  >
+                    <ArrowDownToLine className="w-4 h-4" />
+                  </Button>
+                </>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
@@ -1137,6 +1187,10 @@ interface SortableTreeRowProps {
   qaUsers: ExecutionUser[];
   currentUser: { id: number; name: string; role: string } | null;
   dragDisabled?: boolean;
+  onPromote: (row: AppExecutionTestCase) => void;
+  onUpdateLibrary: (row: AppExecutionTestCase) => void;
+  onPullLatest: (row: AppExecutionTestCase) => void;
+  libraryDrift: boolean;
 }
 
 // Extracted from the tree-view module-row map so useSortable (a hook) can be called
@@ -1154,6 +1208,10 @@ const SortableTreeRow = React.memo(
     qaUsers,
     currentUser,
     dragDisabled,
+    onPromote,
+    onUpdateLibrary,
+    onPullLatest,
+    libraryDrift,
   }: SortableTreeRowProps) => {
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
@@ -1390,6 +1448,25 @@ const SortableTreeRow = React.memo(
                   </div>
                 </div>
 
+                {mode === "edit" && (!row.libraryTcId || libraryDrift) && (
+                  <div className="flex items-center gap-2 pt-1">
+                    {!row.libraryTcId ? (
+                      <Button variant="outline" size="sm" className="gap-2 h-7 text-xs" onClick={() => onPromote(row)}>
+                        <Library className="w-3.5 h-3.5" /> Promote to Library
+                      </Button>
+                    ) : (
+                      <>
+                        <Button variant="outline" size="sm" className="gap-2 h-7 text-xs" onClick={() => onUpdateLibrary(row)}>
+                          <Library className="w-3.5 h-3.5" /> Update Library TC
+                        </Button>
+                        <Button variant="outline" size="sm" className="gap-2 h-7 text-xs" onClick={() => onPullLatest(row)}>
+                          <ArrowDownToLine className="w-3.5 h-3.5" /> Pull Latest from Library
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+
               </div>
             </div>
           );
@@ -1435,6 +1512,10 @@ export default function TestCasesExecutionProgressPage() {
   // Pull from Test Cases library
   const [pullDialogOpen, setPullDialogOpen] = useState(false);
   const [libraryTestCases, setLibraryTestCases] = useState<any[]>([]);
+  const libraryTcById = useMemo(
+    () => new Map(libraryTestCases.map((tc) => [tc.id, tc])),
+    [libraryTestCases],
+  );
   const [libraryProjects, setLibraryProjects] = useState<any[]>([]);
   const [pullFilter, setPullFilter] = useState<{ projectId?: number; module?: string }>({});
   const [selectedPullIds, setSelectedPullIds] = useState<Set<number>>(new Set());
@@ -1565,10 +1646,12 @@ export default function TestCasesExecutionProgressPage() {
       fetchTrackers(),
       fetchRequirements(),
       fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
+      fetch("/api/test-cases", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([result, allModules, users, files, trackersData, requirementsData, allTasks]) => {
+      .then(([result, allModules, users, files, trackersData, requirementsData, allTasks, libraryTcs]) => {
         setAvailableTrackers(trackersData || []);
         setRequirementsList(requirementsData || []);
+        setLibraryTestCases(libraryTcs || []);
         const testCases = result?.testCases || [];
         const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
         const selectedModuleNames = file?.selectedModules
@@ -2237,6 +2320,65 @@ export default function TestCasesExecutionProgressPage() {
     } finally {
       setIsPromoting(false);
     }
+  };
+
+  // Push this execution copy's definitional fields up to the already-linked library
+  // test case (the "there's drift" counterpart to the create-new promote flow above).
+  const handleUpdateLibraryFromExecution = async (row: AppExecutionTestCase) => {
+    if (!row.libraryTcId) return;
+    try {
+      const body = {
+        title: row.caseName || row.scenario || "Untitled",
+        scenario: row.scenario || undefined,
+        preconditions: row.preCondition || undefined,
+        testData: row.testData || undefined,
+        testSteps: row.testSteps || undefined,
+        expectedResult: row.expectedResult || undefined,
+        module: row.moduleName || undefined,
+        redmineUserStory: row.userStory || undefined,
+        tracker: row.tracker || undefined,
+      };
+      const res = await fetch(`/api/test-cases/${row.libraryTcId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to update library test case");
+      const updated = await res.json();
+      setLibraryTestCases((prev) => prev.map((tc) => (tc.id === updated.id ? updated : tc)));
+      toast({ title: "Library test case updated" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to update library test case" });
+    }
+  };
+
+  // Overwrite this execution copy's definitional fields from the linked library test
+  // case's current content — the reverse direction of the update-library flow above.
+  const handlePullLatestFromLibrary = (row: AppExecutionTestCase) => {
+    const lib = row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null;
+    if (!lib) return;
+    setData((prev) =>
+      prev.map((r) =>
+        r.id === row.id
+          ? {
+              ...r,
+              caseName: lib.title || "",
+              scenario: lib.scenario || "",
+              preCondition: lib.preconditions || "",
+              testData: lib.testData || "",
+              testSteps: lib.testSteps || "",
+              expectedResult: lib.expectedResult || "",
+              moduleName: lib.module || r.moduleName,
+              userStory: lib.redmineUserStory || "",
+              tracker: lib.tracker || "",
+            }
+          : r,
+      ),
+    );
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, row.id as string | number]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    setHasUnsavedChanges(true);
+    toast({ title: "Pulled latest from library — remember to Save" });
   };
 
   const normalizeHeader = (val: any) => {
@@ -3229,6 +3371,9 @@ export default function TestCasesExecutionProgressPage() {
                           onBlurRow={saveBlurRow}
                           onDelete={requestSingleDelete}
                           onPromote={openPromoteDialog}
+                          onUpdateLibrary={handleUpdateLibraryFromExecution}
+                          onPullLatest={handlePullLatestFromLibrary}
+                          libraryDrift={getLibraryDrift(row, row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null)}
                           availableModules={availableModules}
                           availableTrackers={availableTrackers}
                           qaUsers={qaUsers}
@@ -3293,6 +3438,10 @@ export default function TestCasesExecutionProgressPage() {
                               qaUsers={qaUsers}
                               currentUser={currentUser}
                               dragDisabled={mode !== "edit"}
+                              onPromote={openPromoteDialog}
+                              onUpdateLibrary={handleUpdateLibraryFromExecution}
+                              onPullLatest={handlePullLatestFromLibrary}
+                              libraryDrift={getLibraryDrift(row, row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null)}
                             />
                           ))}
                         </div>
@@ -3398,15 +3547,31 @@ export default function TestCasesExecutionProgressPage() {
                     )}
                     <span className="ml-auto text-xs text-muted-foreground shrink-0">QA PIC: {row.qaPic || "Unassigned"}</span>
                     {mode === "edit" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                        title="Delete test case"
-                        onClick={() => requestSingleDelete(row.id as string | number)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <>
+                        {!row.libraryTcId ? (
+                          <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs shrink-0" onClick={() => openPromoteDialog(row)}>
+                            <Library className="w-3.5 h-3.5" /> Promote to Library
+                          </Button>
+                        ) : getLibraryDrift(row, libraryTcById.get(row.libraryTcId)) ? (
+                          <>
+                            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs shrink-0" onClick={() => handleUpdateLibraryFromExecution(row)}>
+                              <Library className="w-3.5 h-3.5" /> Update Library
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs shrink-0" onClick={() => handlePullLatestFromLibrary(row)}>
+                              <ArrowDownToLine className="w-3.5 h-3.5" /> Pull Latest
+                            </Button>
+                          </>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                          title="Delete test case"
+                          onClick={() => requestSingleDelete(row.id as string | number)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </>
                     )}
                   </div>
 
