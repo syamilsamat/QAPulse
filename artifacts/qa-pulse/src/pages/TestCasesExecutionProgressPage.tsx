@@ -3346,6 +3346,17 @@ export default function TestCasesExecutionProgressPage() {
                     <span className="font-mono text-xs text-primary font-medium">{row.caseId || row.testCaseId || "—"}</span>
                     <span className="text-sm font-medium truncate">{row.caseName || "Untitled"}</span>
                     <span className="ml-auto text-xs text-muted-foreground shrink-0">QA PIC: {row.qaPic || "Unassigned"}</span>
+                    {mode === "edit" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        title="Delete test case"
+                        onClick={() => requestSingleDelete(row.id as string | number)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
                   </div>
 
                   {/* Body */}
