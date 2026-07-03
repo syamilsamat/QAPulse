@@ -13,7 +13,13 @@ import {
 import { actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { resolveApiKeyFromToken } from "./requirements";
-import { pushDefectToRedmine, refreshDefectStatuses, pullProductionDefects } from "./redmine-defect-bridge";
+import {
+  pushDefectToRedmine,
+  refreshDefectStatuses,
+  pullProductionDefects,
+  fetchChildIssuesByTracker,
+  severityFromPriority,
+} from "./redmine-defect-bridge";
 
 const router: IRouter = Router();
 
@@ -456,6 +462,160 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Pull failed" });
+  }
+});
+
+// ─── Sync from Redmine: children of a requirement's ticket, routed by tracker ─
+// Tracker routing: QA Defect → qa defect list · Prod Defect → production list ·
+// User Story → requirements · anything else → qa defect list, real tracker kept.
+
+function routeForTracker(trackerName: string): "qa" | "production" | "requirement" {
+  const n = trackerName.toLowerCase();
+  if (n.includes("prod")) return "production";
+  if (n.includes("user story") || n.includes("story")) return "requirement";
+  return "qa";
+}
+
+router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
+  try {
+    const { projectId, module, requirementId, trackerName } = req.body ?? {};
+    if (!requirementId || !trackerName) {
+      res.status(400).json({ error: "requirementId and trackerName are required" });
+      return;
+    }
+
+    const [requirement] = await db
+      .select()
+      .from(requirementsTable)
+      .where(eq(requirementsTable.id, Number(requirementId)));
+    if (!requirement) {
+      res.status(404).json({ error: "Requirement not found" });
+      return;
+    }
+    if (!requirement.redmineTicketId) {
+      res.status(400).json({ error: "Selected requirement has no Redmine ticket id" });
+      return;
+    }
+
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const { issues, error } = await fetchChildIssuesByTracker(apiKey, requirement.redmineTicketId, String(trackerName));
+    if (error) {
+      res.status(502).json({ error });
+      return;
+    }
+
+    const route = routeForTracker(String(trackerName));
+    const actorId = actorFromReq(req);
+    let created = 0;
+    let updated = 0;
+
+    for (const issue of issues) {
+      const rid = String(issue.id);
+
+      if (route === "requirement") {
+        const [existing] = await db
+          .select()
+          .from(requirementsTable)
+          .where(eq(requirementsTable.redmineTicketId, rid));
+        if (existing) {
+          await db
+            .update(requirementsTable)
+            .set({
+              title: issue.subject ?? existing.title,
+              module: module ?? existing.module,
+              projectId: projectId ?? existing.projectId,
+              parentId: requirement.id,
+            })
+            .where(eq(requirementsTable.id, existing.id));
+          updated++;
+        } else {
+          await db.insert(requirementsTable).values({
+            title: issue.subject ?? "Untitled",
+            description: issue.description ?? null,
+            module: module ?? requirement.module,
+            projectId: projectId ?? requirement.projectId,
+            parentId: requirement.id,
+            redmineTicketId: rid,
+            tracker: String(trackerName),
+            status: "open",
+          });
+          created++;
+        }
+        continue;
+      }
+
+      // defect routes (qa / production / other-tracker-as-qa)
+      const cached = {
+        status: issue.status?.name ?? "Unknown",
+        assigneeName: issue.assigned_to?.name ?? null,
+        statusSyncedAt: new Date(),
+      };
+      const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, rid));
+      let defectId: number;
+      if (existing) {
+        await db
+          .update(defectsTable)
+          .set({
+            ...cached,
+            title: issue.subject ?? existing.title,
+            module: module ?? existing.module,
+            projectId: projectId ?? existing.projectId,
+            tracker: String(trackerName),
+          })
+          .where(eq(defectsTable.id, existing.id));
+        defectId = existing.id;
+        updated++;
+      } else {
+        const [row] = await db
+          .insert(defectsTable)
+          .values({
+            title: issue.subject ?? "Untitled",
+            description: issue.description ?? null,
+            severity: severityFromPriority(issue.priority?.name),
+            module: module ?? null,
+            projectId: projectId ?? null,
+            reporterId: actorId,
+            redmineId: rid,
+            syncStatus: "synced",
+            source: route === "production" ? "production" : "qa",
+            foundIn: route === "production" ? "Production" : "SIT",
+            tracker: String(trackerName),
+            ...cached,
+          })
+          .returning();
+        const prefix = route === "production" ? "DEF-P" : "DEF-";
+        await db
+          .update(defectsTable)
+          .set({ defectCode: `${prefix}${String(row.id).padStart(4, "0")}` })
+          .where(eq(defectsTable.id, row.id));
+        defectId = row.id;
+        created++;
+      }
+
+      // stamp the requirement link (dedupe)
+      const dLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.defectId, defectId));
+      if (!dLinks.some((l: any) => l.requirementId === requirement.id)) {
+        await db.insert(defectLinksTable).values({
+          defectId,
+          requirementId: requirement.id,
+          linkType: "requirement",
+        });
+      }
+    }
+
+    await logActivity({
+      type: "defects_synced",
+      description: `Synced ${issues.length} "${trackerName}" issue(s) under requirement "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${updated} updated`,
+      userId: actorId,
+      entityId: requirement.id,
+      entityType: route === "requirement" ? "requirement" : "defect",
+      newValue: { trackerName, route, created, updated, parentRedmineId: requirement.redmineTicketId },
+    });
+
+    res.json({ route, total: issues.length, created, updated });
+  } catch (err: any) {
+    console.error("[POST /defects/sync-from-redmine]", err);
+    res.status(500).json({ error: err?.message ?? "Sync failed" });
   }
 });
 

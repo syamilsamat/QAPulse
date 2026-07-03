@@ -14,12 +14,14 @@ import {
   ExternalLink,
   RefreshCw,
   CloudUpload,
+  CloudDownload,
   AlertTriangle,
   RotateCw,
   CheckCircle2,
   FlaskConical,
   Search,
 } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +76,7 @@ interface DefectRow {
   syncError: string | null;
   source: string;
   foundIn: string;
+  tracker: string | null;
   escapeStatus: string;
   escapeClass: string | null;
   escapeNotes: string | null;
@@ -148,6 +151,7 @@ export default function Defects() {
   const [isPulling, setIsPulling] = useState(false);
   const [pullTracker, setPullTracker] = useState<string>(() => localStorage.getItem("qa_pulse_prod_tracker") ?? "");
   const [newOpen, setNewOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -319,6 +323,9 @@ export default function Defects() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setSyncOpen(true)} className="gap-2">
+            <CloudDownload className="w-4 h-4" /> Sync from Redmine
+          </Button>
           <Button variant="outline" onClick={handleRefreshStatus} disabled={isRefreshing} className="gap-2">
             {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Refresh status
@@ -468,7 +475,7 @@ export default function Defects() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {[d.module, d.projectName, `found in ${d.foundIn}`, format(new Date(d.createdAt), "dd MMM yyyy"), `${d.links.length} linked TC${d.links.length !== 1 ? "s" : ""}`]
+                    {[d.module, d.projectName, d.tracker, `found in ${d.foundIn}`, format(new Date(d.createdAt), "dd MMM yyyy"), `${d.links.length} linked TC${d.links.length !== 1 ? "s" : ""}`]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
@@ -575,7 +582,181 @@ export default function Defects() {
         projects={projects}
         onCreated={() => { setNewOpen(false); invalidate(); }}
       />
+
+      <SyncRedmineDialog
+        open={syncOpen}
+        onClose={() => setSyncOpen(false)}
+        projects={projects}
+        trackers={trackers}
+        onSynced={() => {
+          setSyncOpen(false);
+          queryClient.invalidateQueries();
+        }}
+      />
     </div>
+  );
+}
+
+// ─── Sync from Redmine dialog ────────────────────────────────────────────────
+// Pulls the child issues of a requirement's Redmine ticket, one tracker at a
+// time. Routing: QA Defect → QA list · Prod Defect → Production list ·
+// User Story → Requirements · other trackers → QA list (real tracker kept).
+
+function SyncRedmineDialog({
+  open,
+  onClose,
+  projects,
+  trackers,
+  onSynced,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projects: { id: number; name: string }[];
+  trackers: { id: number; name: string }[];
+  onSynced: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [projectId, setProjectId] = useState<string>("");
+  const [module, setModule] = useState<string>("");
+  const [requirementId, setRequirementId] = useState<string>("");
+  const [trackerName, setTrackerName] = useState<string>("");
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const { data: modules = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["execution-modules"],
+    enabled: open,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/modules`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const { data: requirements = [] } = useQuery<any[]>({
+    queryKey: ["sync-requirements", projectId],
+    enabled: open,
+    queryFn: async () => {
+      const qs = projectId ? `?projectId=${projectId}` : "";
+      const res = await fetch(`${getApiUrl()}/requirements${qs}`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const reqOptions = requirements
+    .filter((r) => r.redmineTicketId)
+    .map((r) => ({ value: String(r.id), label: `#${r.redmineTicketId} — ${r.title}` }));
+
+  const handleSync = async () => {
+    if (!requirementId) {
+      toast({ variant: "destructive", title: "Select the requirement (Redmine ticket) to sync under" });
+      return;
+    }
+    if (!trackerName) {
+      toast({ variant: "destructive", title: "Select a tracker" });
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/sync-from-redmine`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: projectId ? Number(projectId) : null,
+          module: module || null,
+          requirementId: Number(requirementId),
+          trackerName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      const dest =
+        data.route === "requirement" ? "Requirements" : data.route === "production" ? "Production defects" : "QA defects";
+      toast({
+        title: `Synced ${data.total} "${trackerName}" issue(s) → ${dest}`,
+        description: `${data.created} new, ${data.updated} updated`,
+      });
+      onSynced();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base flex items-center gap-2">
+            <CloudDownload className="w-4 h-4" /> Sync from Redmine
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Project</Label>
+              <Select value={projectId} onValueChange={setProjectId}>
+                <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Module</Label>
+              <SearchableSelect
+                value={module}
+                onValueChange={setModule}
+                options={modules.map((m) => ({ value: m.name, label: m.name }))}
+                placeholder="Select module..."
+                searchPlaceholder="Search module..."
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Requirement (Redmine ticket) <span className="text-destructive">*</span></Label>
+            <SearchableSelect
+              value={requirementId}
+              onValueChange={setRequirementId}
+              options={reqOptions}
+              placeholder="Select #redmineId — title..."
+              searchPlaceholder="Search requirement..."
+              emptyText={projectId ? "No requirements with a Redmine ticket in this project." : "No requirements with a Redmine ticket."}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tracker <span className="text-destructive">*</span></Label>
+            <Select value={trackerName} onValueChange={setTrackerName}>
+              <SelectTrigger><SelectValue placeholder="Select tracker..." /></SelectTrigger>
+              <SelectContent>
+                {trackers.map((t) => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {trackerName && (
+              <p className="text-xs text-muted-foreground">
+                {/prod/i.test(trackerName)
+                  ? "Will be saved as production defects."
+                  : /story/i.test(trackerName)
+                    ? "Will be saved as requirements (children of the selected requirement)."
+                    : /defect|bug/i.test(trackerName)
+                      ? "Will be saved as QA defects."
+                      : `Will be saved with tracker "${trackerName}" and listed under QA defects for now.`}
+              </p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={isSyncing}>Cancel</Button>
+          <Button onClick={handleSync} disabled={isSyncing} className="gap-2">
+            {isSyncing ? <><Loader2 className="w-4 h-4 animate-spin" /> Syncing...</> : <><CloudDownload className="w-4 h-4" /> Sync</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
