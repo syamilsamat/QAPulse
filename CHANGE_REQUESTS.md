@@ -313,7 +313,9 @@ Supports impact analysis before editing/deleting a library TC, avoiding duplicat
 ---
 
 ### CR019 — Defect Tracking: Write-Through to Redmine + Defects Page
-**Status:** 📋 Planned (2026-07-03)
+**Status:** ⏳ Pending deploy (implemented 2026-07-03 — requires `db push` for the defects + defect_links tables)
+
+**Implementation note:** the execution fail modal already created Redmine issues directly (with assignee/custom fields/screenshots/duplicate check), so that flow was kept and extended with local registration (`POST /defects/register`, upsert by redmineId) instead of replacing it. Write-through `POST /defects` exists for the manual New Defect dialog. All Redmine code isolated in `redmine-defect-bridge.ts` as designed.
 
 First step toward native defect tracking in QAPulse. QAPulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so the future full cutover (CR021) only removes the Redmine write — schema and UI carry over unchanged.
 
@@ -349,7 +351,7 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 ---
 
 ### CR020 — Production Defect Workflow (Escape Analysis)
-**Status:** 📋 Planned (2026-07-03). Depends on CR019.
+**Status:** ⏳ Pending deploy (implemented 2026-07-03 together with CR019; same `db push`). PMO report Excel integration of leakage rate deferred — metrics live on the Defects page Production tab.
 
 Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QAPulse) and **QAPulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QAPulse closes the QA loop.
 

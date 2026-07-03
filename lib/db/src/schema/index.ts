@@ -13,3 +13,4 @@ export * from "./execution";
 export * from "./redmine";
 export * from "./contacts";
 export * from "./refresh-tokens";
+export * from "./defects";
