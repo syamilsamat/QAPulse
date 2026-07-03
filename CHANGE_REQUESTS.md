@@ -253,7 +253,7 @@ Full implementation plan drafted 2026-07-02 (not yet executed).
 ---
 
 ### CR016 — Traceability Matrix Requirement Hierarchy
-**Status:** ⏳ Pending deploy (2026-07-03)
+**Status:** ✅ Deployed (2026-07-03)
 
 Follow-up to CR005. Now that child requirements carry their own test case links, the matrix shows the full requirement tree instead of only root requirements:
 
@@ -290,7 +290,7 @@ Extends the traceability matrix (CR005/CR016) once milestones/sprints exist as a
 ---
 
 ### CR018 — TC Library: Execution File Drill-Down
-**Status:** ⏳ Pending deploy (2026-07-03)
+**Status:** ✅ Deployed (2026-07-03)
 
 The "In N runs" badge on the Test Case Library (table and mobile card views) is now clickable. It opens a dialog listing every execution file that contains the test case — Redmine ticket ID, file title, the TC's case ID in that file, its result, executed date, and defect number. Clicking a row navigates to that execution file's detail page.
 
