@@ -6,6 +6,7 @@ import { logger } from "../lib/logger";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomBytes } from "crypto";
+import { logActivity } from "./_audit";
 
 const router: IRouter = Router();
 
@@ -38,6 +39,24 @@ export function signToken(payload: { id: number; email: string; role: string }):
 export function verifyToken(token: string): { id: number; email: string; role: string } {
   if (tokenBlacklist.has(token)) throw new Error("Token revoked");
   return jwt.verify(token, JWT_SECRET) as { id: number; email: string; role: string };
+}
+
+// CR011: actor identity for audit rows — null when unauthenticated/invalid
+export function actorFromReq(req: Request): number | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  try {
+    return verifyToken(authHeader.slice(7)).id;
+  } catch {
+    return null;
+  }
+}
+
+// CR011: client IP — parse X-Forwarded-For directly (Replit sits behind a proxy)
+export function clientIp(req: Request): string | null {
+  const xf = req.headers["x-forwarded-for"];
+  if (typeof xf === "string" && xf) return xf.split(",")[0].trim();
+  return req.ip ?? req.socket?.remoteAddress ?? null;
 }
 
 export async function getAuthUser(req: Request): Promise<typeof usersTable.$inferSelect | null> {
@@ -117,14 +136,34 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     expiresAt: new Date(Date.now() + REFRESH_EXPIRES_MS),
   });
 
+  await logActivity({
+    type: "user_login",
+    description: `${user.name} logged in`,
+    userId: user.id,
+    entityId: user.id,
+    entityType: "system",
+    newValue: { ip: clientIp(req) },
+  });
+
   res.json({ user: formatUser(user), token, refreshToken });
 });
 
 // CR007-4: Stateful logout — blacklist access token + revoke refresh token
 router.post("/auth/logout", async (req, res): Promise<void> => {
+  const actorId = actorFromReq(req); // resolve before blacklisting the token
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     tokenBlacklist.add(authHeader.slice(7));
+  }
+  if (actorId) {
+    await logActivity({
+      type: "user_logout",
+      description: `User #${actorId} logged out`,
+      userId: actorId,
+      entityId: actorId,
+      entityType: "system",
+      newValue: { ip: clientIp(req) },
+    });
   }
   const { refreshToken } = req.body;
   if (refreshToken && typeof refreshToken === "string") {

@@ -1,13 +1,13 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray, sql } from "drizzle-orm";
-import { verifyToken } from "./auth";
+import { verifyToken, actorFromReq } from "./auth";
+import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 import {
   db,
   requirementsTable,
   usersTable,
   projectsTable,
-  activityTable,
   insertRequirementSchema,
   testCasesTable,
   executionTestCasesTable,
@@ -143,9 +143,10 @@ router.post("/requirements", async (req, res): Promise<void> => {
 
   const [requirement] = await db.insert(requirementsTable).values(parsed.data).returning();
 
-  await db.insert(activityTable).values({
+  await logActivity({
     type: "requirement_created",
     description: `Requirement "${requirement.title}" was created`,
+    userId: actorFromReq(req),
     entityId: requirement.id,
     entityType: "requirement",
   });
@@ -228,11 +229,23 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [before] = await db.select({ assigneeId: requirementsTable.assigneeId }).from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
+  const [before] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
   const [requirement] = await db.update(requirementsTable).set(parsed.data).where(eq(requirementsTable.id, params.data.id)).returning();
   if (!requirement) {
     res.status(404).json({ error: "Requirement not found" });
     return;
+  }
+
+  const diff = before ? diffChanges(before, parsed.data) : null;
+  if (diff) {
+    await logActivity({
+      type: "requirement_updated",
+      description: `Requirement "${requirement.title}" was updated`,
+      userId: actorFromReq(req),
+      entityId: requirement.id,
+      entityType: "requirement",
+      ...diff,
+    });
   }
 
   // Notify new assignee if changed
@@ -278,6 +291,21 @@ router.delete("/requirements/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Requirement not found" });
     return;
   }
+
+  await logActivity({
+    type: "requirement_deleted",
+    description: `Requirement "${requirement.title}" was deleted`,
+    userId: actorFromReq(req),
+    entityId: requirement.id,
+    entityType: "requirement",
+    oldValue: {
+      title: requirement.title,
+      module: requirement.module,
+      projectId: requirement.projectId,
+      status: requirement.status,
+      redmineTicketId: requirement.redmineTicketId,
+    },
+  });
 
   res.sendStatus(204);
 });

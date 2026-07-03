@@ -8,7 +8,6 @@ import {
   usersTable,
   projectsTable,
   requirementsTable,
-  activityTable,
   executionTestCasesTable,
   executionFilesTable,
 } from "@workspace/db";
@@ -23,7 +22,8 @@ import {
   GenerateTestCasesWithAIBody,
 } from "@workspace/api-zod";
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
-import { verifyToken } from "./auth";
+import { verifyToken, actorFromReq } from "./auth";
+import { logActivity, diffChanges } from "./_audit";
 
 // Initialize primary Gemini client
 const ai = new GoogleGenAI({});
@@ -361,7 +361,7 @@ router.post("/test-cases", async (req, res): Promise<void> => {
     }
   }
   const [tc] = await db.insert(testCasesTable).values(payload).returning();
-  await db.insert(activityTable).values({
+  await logActivity({
     type: "test_case_created",
     description: `Test case "${tc.title}" was created${tc.aiAssisted ? " (AI-assisted)" : ""}`,
     userId: tc.authorId,
@@ -434,8 +434,22 @@ router.patch("/test-cases/:id", async (req, res): Promise<void> => {
   const parsed = UpdateTestCaseBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.message }) as any;
 
+  const [before] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
   const [tc] = await db.update(testCasesTable).set(parsed.data).where(eq(testCasesTable.id, params.data.id)).returning();
   if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
+
+  const diff = before ? diffChanges(before, parsed.data) : null;
+  if (diff) {
+    await logActivity({
+      type: "test_case_updated",
+      description: `Test case "${tc.title}" was updated`,
+      userId: actorFromReq(req),
+      entityId: tc.id,
+      entityType: "test_case",
+      ...diff,
+    });
+  }
+
   res.json(await formatTestCase(tc));
 });
 
@@ -445,6 +459,22 @@ router.delete("/test-cases/:id", async (req, res): Promise<void> => {
 
   const [tc] = await db.delete(testCasesTable).where(eq(testCasesTable.id, params.data.id)).returning();
   if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
+
+  await logActivity({
+    type: "test_case_deleted",
+    description: `Test case "${tc.title}" was deleted`,
+    userId: actorFromReq(req),
+    entityId: tc.id,
+    entityType: "test_case",
+    oldValue: {
+      title: tc.title,
+      caseId: tc.caseId,
+      module: tc.module,
+      projectId: tc.projectId,
+      requirementId: tc.requirementId,
+    },
+  });
+
   res.sendStatus(204);
 });
 
@@ -470,6 +500,15 @@ router.post("/test-cases/:id/clone", express.json(), async (req, res): Promise<v
   }
 
   const [cloned] = await db.insert(testCasesTable).values({ ...rest, ...overrides, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
+
+  await logActivity({
+    type: "test_case_created",
+    description: `Test case "${cloned.title}" was cloned from "${original.title}"`,
+    userId: cloned.authorId,
+    entityId: cloned.id,
+    entityType: "test_case",
+  });
+
   res.status(201).json(await formatTestCase(cloned));
 });
 

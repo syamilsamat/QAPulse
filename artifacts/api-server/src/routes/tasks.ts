@@ -1,7 +1,9 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, activityTable, taskEventsTable, executionModulesTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable } from "@workspace/db";
 import { notifyUser } from "./_notify";
+import { actorFromReq } from "./auth";
+import { logActivity, diffChanges } from "./_audit";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
 import {
@@ -106,16 +108,17 @@ router.post("/tasks", async (req, res): Promise<void> => {
 
   const [task] = await db.insert(tasksTable).values(parsed.data).returning();
 
-  // Loop through multiple assignees to generate logs and notifications
+  // CR011: one audit row per event, attributed to the actor (not per assignee)
+  await logActivity({
+    type: "task_created",
+    description: `Task "${task.name}" was created`,
+    userId: actorFromReq(req),
+    entityId: task.id,
+    entityType: "task",
+  });
+
   if (task.assigneeIds && task.assigneeIds.length > 0) {
     for (const id of task.assigneeIds) {
-      await db.insert(activityTable).values({
-        type: "task_created",
-        description: `Task "${task.name}" was created`,
-        userId: id,
-        entityId: task.id,
-        entityType: "task",
-      });
       await notifyUser(id, "New task assigned", `You have been assigned task "${task.name}".`, "task", "task", task.id);
     }
   }
@@ -160,17 +163,26 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  // CR011: one diff row per update — keeps the task_status_changed type when status moved
+  const diff = prevTask ? diffChanges(prevTask, parsed.data) : null;
+  if (diff) {
+    const statusChanged = "status" in diff.newValue;
+    await logActivity({
+      type: statusChanged ? "task_status_changed" : "task_updated",
+      description: statusChanged
+        ? `Task "${task.name}" status changed from ${prevTask!.status} to ${task.status}`
+        : `Task "${task.name}" was updated`,
+      userId: actorFromReq(req),
+      entityId: task.id,
+      entityType: "task",
+      ...diff,
+    });
+  }
+
   if (prevTask && parsed.data.status && prevTask.status !== parsed.data.status) {
     // Loop through assignees to notify them of the status change
     if (task.assigneeIds && task.assigneeIds.length > 0) {
       for (const id of task.assigneeIds) {
-        await db.insert(activityTable).values({
-          type: "task_status_changed",
-          description: `Task "${task.name}" status changed from ${prevTask.status} to ${parsed.data.status}`,
-          userId: id,
-          entityId: task.id,
-          entityType: "task",
-        });
         await notifyUser(id, "Task updated", `Task "${task.name}" status changed to ${parsed.data.status}.`, "task", "task", task.id);
       }
     }
@@ -191,6 +203,22 @@ router.delete("/tasks/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Task not found" });
     return;
   }
+
+  await logActivity({
+    type: "task_deleted",
+    description: `Task "${task.name}" was deleted`,
+    userId: actorFromReq(req),
+    entityId: task.id,
+    entityType: "task",
+    oldValue: {
+      name: task.name,
+      status: task.status,
+      priority: task.priority,
+      projectId: task.projectId,
+      requirementId: task.requirementId,
+      assigneeIds: task.assigneeIds,
+    },
+  });
 
   res.sendStatus(204);
 });
@@ -213,17 +241,19 @@ router.post("/tasks/:id/release", async (req, res): Promise<void> => {
     .where(eq(tasksTable.id, params.data.id))
     .returning();
 
+  await logActivity({
+    type: "task_released",
+    description: `Task "${task.name}" was released and is now available for pick-up`,
+    userId: actorFromReq(req),
+    entityId: task.id,
+    entityType: "task",
+    oldValue: { assigneeIds: prevTask.assigneeIds, status: prevTask.status },
+    newValue: { assigneeIds: [], status: "new" },
+  });
+
   // Notify the previously assigned users that the task was released
   if (prevTask.assigneeIds && prevTask.assigneeIds.length > 0) {
     for (const id of prevTask.assigneeIds) {
-      await db.insert(activityTable).values({
-        type: "task_released",
-        description: `Task "${task.name}" was released and is now available for pick-up`,
-        userId: id,
-        entityId: task.id,
-        entityType: "task",
-      });
-
       await notifyUser(id, "Task released", `Task "${task.name}" was released and is now available for pick-up.`, "task", "task", task.id);
     }
   }
@@ -254,16 +284,17 @@ router.post("/tasks/:id/assign", async (req, res): Promise<void> => {
     return;
   }
 
+  await logActivity({
+    type: "task_assigned",
+    description: `Task "${task.name}" was assigned`,
+    userId: actorFromReq(req),
+    entityId: task.id,
+    entityType: "task",
+    newValue: { assigneeIds: task.assigneeIds, status: "in_progress" },
+  });
+
   if (task.assigneeIds && task.assigneeIds.length > 0) {
     for (const id of task.assigneeIds) {
-      await db.insert(activityTable).values({
-        type: "task_assigned",
-        description: `Task "${task.name}" was assigned`,
-        userId: id,
-        entityId: task.id,
-        entityType: "task",
-      });
-
       await notifyUser(id, "Task assigned", `Task "${task.name}" was assigned to you.`, "task", "task", task.id);
     }
   }

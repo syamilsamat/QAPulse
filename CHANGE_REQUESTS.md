@@ -125,7 +125,7 @@ Custom Playwright reporter that auto-pushes test results into QAPulse execution 
 ---
 
 ### CR011 — Audit Trail Enhancement
-**Status:** 📋 Planned (2026-06-29, plan refined 2026-07-03)
+**Status:** ⏳ Pending deploy (implemented 2026-07-03 — requires `db push` for the two new activity columns + indexes)
 
 Builds a compliance-grade **Audit Log** (new admin-only page — note: `HistoryTrail.tsx` is a *task* history page, not the audit log; the activity feed lives on the Dashboard).
 

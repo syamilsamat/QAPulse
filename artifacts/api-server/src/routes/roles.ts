@@ -26,6 +26,7 @@ export const ALL_NAV_KEYS = [
   "nav:admin-search",
   "nav:team-hangouts",
   "nav:configurations",
+  "nav:audit-log", // CR011 — admin-only; endpoint is also role-gated server-side
 ];
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)
@@ -86,6 +87,20 @@ async function bootstrap() {
       await pool.query(
         `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [roleId, key]
+      );
+    }
+  }
+
+  // Admin always has every nav key — backfills keys added by later CRs
+  // (e.g. nav:audit-log) into DBs that were seeded before the key existed
+  const { rows: adminRows } = await pool.query<{ id: number }>(
+    `SELECT id FROM roles WHERE name = 'admin'`
+  );
+  if (adminRows[0]) {
+    for (const key of ALL_NAV_KEYS) {
+      await pool.query(
+        `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [adminRows[0].id, key]
       );
     }
   }

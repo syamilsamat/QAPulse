@@ -28,6 +28,7 @@ import TestCasesExecutionProgressPage from "@/pages/TestCasesExecutionProgressPa
 import ModuleAndProject from "@/pages/ModuleAndProject";
 import Roles from "@/pages/Roles";
 import TraceabilityMatrix from "@/pages/TraceabilityMatrix";
+import AuditLog from "@/pages/AuditLog";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -148,6 +149,10 @@ function Router() {
 
       <Route path="/roles">
         <ProtectedRoute component={Roles} roles={["admin"]} />
+      </Route>
+
+      <Route path="/audit-log">
+        <ProtectedRoute component={AuditLog} roles={["admin"]} />
       </Route>
 
       <Route path="/test-cases/execution-details/:ticketId">
