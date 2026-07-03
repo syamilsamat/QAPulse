@@ -16,6 +16,7 @@ export const requirementsTable = pgTable("requirements", {
   status: text("status").notNull().default("open"),
   tracker: varchar("tracker", { length: 255 }), // This will now work!
   parentId: integer("parent_id"),
+  redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }), // issue created_on (Sync from Redmine)
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -150,26 +150,43 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
   return { refreshed };
 }
 
-// Sync-from-Redmine dialog: fetch the child issues of a parent ticket,
-// restricted to one tracker. Read-only.
-export async function fetchChildIssuesByTracker(
+// Sync-from-Redmine dialog: walk the WHOLE subtree under a parent ticket
+// (children, grandchildren, …) breadth-first, so parents always come before
+// their children in the returned list. Read-only. Caps: depth 5, ~300 issues.
+export async function fetchIssueTree(
   apiKey: string,
-  parentRedmineId: string,
-  trackerName: string,
-): Promise<{ issues: any[]; error?: string }> {
-  const trackers = await db.select().from(trackersTable);
-  const tracker = trackers.find((t: any) => t.name.toLowerCase() === trackerName.toLowerCase());
-  if (!tracker) return { issues: [], error: `Tracker "${trackerName}" not found — sync trackers first` };
+  rootRedmineId: string,
+): Promise<{ issues: { issue: any; parentRedmineId: string }[]; error?: string }> {
+  const collected: { issue: any; parentRedmineId: string }[] = [];
+  const seen = new Set<string>([String(rootRedmineId)]);
+  let frontier = [String(rootRedmineId)];
+
   try {
-    const res = await redmineFetch(
-      `/issues.json?parent_id=${encodeURIComponent(parentRedmineId)}&tracker_id=${tracker.redmineId}&status_id=*&limit=100`,
-      apiKey,
-    );
-    if (!res.ok) return { issues: [], error: `Redmine ${res.status}` };
-    const data: any = await res.json();
-    return { issues: data?.issues ?? [] };
+    for (let depth = 0; depth < 5 && frontier.length > 0 && collected.length < 300; depth++) {
+      const next: string[] = [];
+      for (const parentId of frontier) {
+        const res = await redmineFetch(
+          `/issues.json?parent_id=${encodeURIComponent(parentId)}&status_id=*&limit=100`,
+          apiKey,
+        );
+        if (!res.ok) {
+          if (collected.length === 0) return { issues: [], error: `Redmine ${res.status}` };
+          continue;
+        }
+        const data: any = await res.json();
+        for (const issue of data?.issues ?? []) {
+          const rid = String(issue.id);
+          if (seen.has(rid)) continue;
+          seen.add(rid);
+          collected.push({ issue, parentRedmineId: parentId });
+          next.push(rid);
+        }
+      }
+      frontier = next;
+    }
+    return { issues: collected };
   } catch (err: any) {
-    return { issues: [], error: err?.message ?? "Redmine unreachable" };
+    return { issues: collected, error: collected.length === 0 ? err?.message ?? "Redmine unreachable" : undefined };
   }
 }
 
