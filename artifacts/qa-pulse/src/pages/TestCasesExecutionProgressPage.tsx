@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
-import { useRoute, useLocation } from "wouter";
+import { useRoute, useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1556,6 +1556,30 @@ export default function TestCasesExecutionProgressPage() {
   const [resultFilters, setResultFilters] = useState<string[]>([]);
   const [qaFilters, setQaFilters] = useState<string[]>([]);
   const hasSetDefaultQaFilter = useRef(false);
+
+  // ?tc=<caseId> deep link (e.g. from the TC Library "In N runs" dialog):
+  // pre-fill the search with the case ID and expand its module in tree view
+  const searchString = useSearch();
+  const tcParam = useMemo(
+    () => new URLSearchParams(searchString).get("tc") ?? "",
+    [searchString],
+  );
+  const hasAppliedTcParam = useRef(false);
+  useEffect(() => {
+    if (!tcParam || hasAppliedTcParam.current || data.length === 0) return;
+    hasAppliedTcParam.current = true;
+    setGlobalSearch(tcParam);
+    const tcLower = tcParam.toLowerCase();
+    setExpandedModules((prev) => {
+      const next = new Set(prev);
+      for (const row of data) {
+        if (!row.moduleName) continue;
+        const values = Object.values(row).map((v) => String(v).toLowerCase());
+        if (values.some((v) => v.includes(tcLower))) next.add(row.moduleName);
+      }
+      return next;
+    });
+  }, [tcParam, data]);
 
   // Defect creation modal
   const [defectModalOpen, setDefectModalOpen] = useState(false);

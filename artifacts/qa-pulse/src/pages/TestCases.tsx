@@ -655,7 +655,10 @@ function ExecutionRunsDialog({ tc, onClose }: { tc: any | null; onClose: () => v
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors"
                 onClick={() => {
                   onClose();
-                  setLocation(`/test-cases/execution/${run.redmineTicketId}`);
+                  const tcQuery = run.displayCaseId
+                    ? `?tc=${encodeURIComponent(run.displayCaseId)}`
+                    : "";
+                  setLocation(`/test-cases/execution/${run.redmineTicketId}${tcQuery}`);
                 }}
               >
                 <div className="flex-1 min-w-0">
