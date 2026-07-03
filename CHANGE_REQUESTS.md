@@ -315,7 +315,9 @@ Supports impact analysis before editing/deleting a library TC, avoiding duplicat
 ### CR019 — Defect Tracking: Write-Through to Redmine + Defects Page
 **Status:** 📋 Planned (2026-07-03)
 
-First step toward native defect tracking in QAPulse. QAPulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so a future full cutover (CR020) only removes the Redmine write — schema and UI carry over unchanged.
+First step toward native defect tracking in QAPulse. QAPulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so the future full cutover (CR021) only removes the Redmine write — schema and UI carry over unchanged.
+
+**Migration principle (applies to all Redmine-touching CRs):** every part is classified permanent or bridge. Permanent = QAPulse tables/pages/links/metrics, Redmine-agnostic, survive cutover unchanged. Bridge = the Redmine push/pull code, isolated in a single module (`redmine-defect-bridge.ts`) that nothing else imports Redmine details from — deleted at cutover.
 
 **Ownership rules (the design hinges on these):**
 1. **One-way ownership, strictly.** QAPulse owns creation + TC linkage; Redmine owns lifecycle (status, assignee, comments). QAPulse caches and displays Redmine status (refreshed on view/schedule) but never edits it locally. No write-back of status; no bidirectional sync.
@@ -324,8 +326,8 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 4. **Reporter identity.** Per-user Redmine API keys (existing `resolveApiKey`) → actual QA shows as reporter in Redmine. Global-key fallback → prepend "Reported by {name} via QAPulse" to the description.
 
 **Data model (new tables):**
-- `defects`: id, `defect_code` (auto `DEF-NNNN` per project), title, description, steps to reproduce / expected / actual, severity, status (cached from Redmine), module, `project_id`, `reporter_id`, `assignee_name` (cached), `redmine_id`, `sync_status` (`pending` | `synced` | `error`), timestamps.
-- `defect_links`: defect_id ↔ `execution_test_cases.id` (optional links to library TC / requirement later).
+- `defects`: id, `defect_code` (auto `DEF-NNNN` per project), title, description, steps to reproduce / expected / actual, severity, status (cached from Redmine), module, `project_id`, `reporter_id`, `assignee_name` (cached), `redmine_id`, `sync_status` (`pending` | `synced` | `error`), **`source` (`qa` | `production`)**, **`found_in` (`SIT` | `UAT` | `Production`)**, timestamps. The source/found_in columns are added now (cheap) so CR020 prod defects need no migration.
+- `defect_links`: defect_id ↔ target, where target is an `execution_test_cases.id` **or** a library `test_cases.id` **or** a `requirements.id` (nullable FK columns; QA defects link execution rows, prod defects link requirement/module first and the regression TC later).
 
 **Creation flows:**
 - Primary: the existing fail modal in the execution file (`TestCasesExecutionProgressPage.tsx`) — pre-filled from the TC row's steps/expected/actual, creates the defect, pushes to Redmine (`POST /issues.json` via existing `redmineFetch` plumbing in `redmine.ts`), links the TC, backfills `defect_number`.
@@ -337,8 +339,42 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 - Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QAPulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
 - Expand row → linked TCs from `defect_links` with execution file + current result, deep-linking to the execution file via the CR018 `?tc=` filter.
 - **Retest flag:** defect Fixed/Resolved in Redmine while a linked TC is still Failed → TC line shows "Retest needed"; collected under the Awaiting retest tab/card.
-- Deliberately absent: status editing, comments, reassignment — those stay in Redmine until CR020.
+- Deliberately absent: status editing, comments, reassignment — those stay in Redmine until CR021.
+- Fail-modal create dialog and Defects page mockups approved 2026-07-03.
 
 **Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qa-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
 
-**Sequencing:** supersedes the earlier "read-only defect dashboard" idea. Full native lifecycle (statuses, comments, dev roles, Redmine migration/cutover) = CR020, planned after CR014 (org role hierarchy) so developers have proper roles.
+**Sequencing:** supersedes the earlier "read-only defect dashboard" idea. Implement after CR011 (reuses the `logActivity` audit pattern). Production defect workflow = CR020; full native cutover = CR021 (after CR014 so developers have proper roles).
+
+---
+
+### CR020 — Production Defect Workflow (Escape Analysis)
+**Status:** 📋 Planned (2026-07-03). Depends on CR019.
+
+Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QAPulse) and **QAPulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QAPulse closes the QA loop.
+
+**Framing:** a prod defect is an *escape* — a bug that got past testing. The workflow answers "why did we miss it, and how do we make sure we never miss it again."
+
+**Target behavior (Production tab on the CR019 Defects page — mockup approved 2026-07-03):**
+- **Pull sync (bridge):** import incident-tracker issues as `defects` rows with `source='production'`, `found_in='Production'`; Redmine status shown read-only with last-synced indicator.
+- **Escape analysis per defect:** map to module/requirement, then classify the root cause using traceability data — *coverage gap* (no TC covered the scenario) vs *selection gap* (TC existed but wasn't in the run) vs *test passed wrongly*. Tracked as an escape-review status: Pending review → Analyzing → Closed loop.
+- **Create regression TC from defect:** one-click, pre-filled from the defect's steps/expected/actual, linked back via `defect_links` — the regression suite grows from real escapes.
+- **Closed loop state:** regression TC added + retest passed → escape review complete.
+- **Metrics cards + PMO report:** prod defect count per release, **defect leakage rate** (prod ÷ total), escapes analyzed, regression TCs added. Leakage rate also feeds the existing Pareto/CAPA process.
+
+**Permanent vs bridge:** escape review, regression backfill, leakage metrics, Production tab = permanent (read QAPulse tables only). Pull sync + read-only Redmine status = bridge, lives in `redmine-defect-bridge.ts`, deleted at CR021 cutover (prod intake then happens directly in QAPulse or its replacement).
+
+**Scope estimate:** `artifacts/api-server/src/routes/defects.ts` (pull-sync job + escape-review endpoints), `artifacts/qa-pulse/src/pages/Defects.tsx` (Production tab, escape panel, create-regression-TC dialog), `pmo-report.ts` (leakage metrics). No schema change beyond CR019's tables.
+
+---
+
+### CR021 — Native Defect Tracking Cutover (Retire Redmine for Defects)
+**Status:** 📋 Planned (2026-07-03). Depends on CR019 + CR020; sequenced after CR014 (dev roles).
+
+The end state: QAPulse becomes the **system of record** for defects; Redmine is retired for defect tracking (it may remain for other uses — requirements import etc. are unaffected).
+
+- **Delete the bridges:** remove `redmine-defect-bridge.ts` (write-through push, status read, prod pull). Everything permanent from CR019/CR020 continues unchanged.
+- **Enable native lifecycle:** status transitions (New → Open → In Progress → Fixed → Verified/Closed + Reopened/Rejected/Duplicate/Deferred), comments, assignment — on the existing Defects page. Developers work in QAPulse (requires CR014 roles).
+- **History migration:** one-time import of remaining Redmine defect tickets via `redmine_legacy_id` (subject, status, assignee, journal); legacy `RM #` chips keep resolving for old records; unresolvable IDs surfaced in a data-quality report.
+- **Notifications:** assignee/reporter notified on transitions via the existing notifications table.
+- Retest loop switches from Redmine-status polling to native status transitions (same UI, different trigger).
