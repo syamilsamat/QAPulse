@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useSearch } from "wouter";
+import { useSearch, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listTestCases,
@@ -605,6 +605,87 @@ function DetailItem({
   );
 }
 
+function ExecutionRunsDialog({ tc, onClose }: { tc: any | null; onClose: () => void }) {
+  const { token } = useAuth();
+  const [, setLocation] = useLocation();
+  const { data: runs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["tc-executions", tc?.id],
+    enabled: !!tc,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/test-cases/${tc.id}/executions`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error("Failed to fetch execution files");
+      return res.json();
+    },
+  });
+
+  const resultBadge = (result: string | null) => {
+    const r = result?.toLowerCase() ?? "";
+    if (r.startsWith("pass"))
+      return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs shrink-0">Passed</Badge>;
+    if (r.startsWith("fail"))
+      return <Badge className="bg-red-100 text-red-700 hover:bg-red-100 text-xs shrink-0">Failed</Badge>;
+    if (r === "blocked")
+      return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 text-xs shrink-0">Blocked</Badge>;
+    return <Badge className="bg-gray-100 text-gray-500 hover:bg-gray-100 text-xs shrink-0">Not Run</Badge>;
+  };
+
+  return (
+    <Dialog open={!!tc} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg w-[95vw] sm:w-full">
+        <DialogHeader>
+          <DialogTitle className="text-base leading-snug">
+            Execution files — {tc?.title}
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : runs.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            This test case is not in any execution file.
+          </p>
+        ) : (
+          <div className="divide-y rounded-md border">
+            {runs.map((run) => (
+              <button
+                key={run.executionFileId}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors"
+                onClick={() => {
+                  onClose();
+                  setLocation(`/test-cases/execution-details/${run.redmineTicketId}`);
+                }}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-muted-foreground shrink-0">
+                      #{run.redmineTicketId}
+                    </span>
+                    <span className="text-sm font-medium truncate">
+                      {run.fileTitle ?? "Untitled execution file"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                    {run.displayCaseId && <span className="font-mono">{run.displayCaseId}</span>}
+                    {run.executedAt && <span>{format(new Date(run.executedAt), "dd MMM yyyy")}</span>}
+                    {run.defectNumber && (
+                      <span className="text-red-600 font-mono">Defect: {run.defectNumber}</span>
+                    )}
+                  </div>
+                </div>
+                {resultBadge(run.result)}
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function TestCases() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -623,6 +704,7 @@ export default function TestCases() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [runsDialogTc, setRunsDialogTc] = useState<any | null>(null);
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
@@ -1292,7 +1374,11 @@ export default function TestCases() {
                 </Badge>
               )}
               {(tc.executionCount ?? 0) > 0 && (
-                <Badge variant="outline" className="text-[9px] h-4 border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400 shrink-0">
+                <Badge
+                  variant="outline"
+                  className="text-[9px] h-4 border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400 shrink-0 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950"
+                  onClick={(e) => { e.stopPropagation(); setRunsDialogTc(tc); }}
+                >
                   In {tc.executionCount} run{tc.executionCount !== 1 ? "s" : ""}
                 </Badge>
               )}
@@ -1727,7 +1813,11 @@ export default function TestCases() {
                               </Badge>
                             )}
                             {(tc.executionCount ?? 0) > 0 && (
-                              <Badge variant="outline" className="text-[9px] h-4 border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400">
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] h-4 border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950"
+                                onClick={(e) => { e.stopPropagation(); setRunsDialogTc(tc); }}
+                              >
                                 In {tc.executionCount} run{tc.executionCount !== 1 ? "s" : ""}
                               </Badge>
                             )}
@@ -1955,6 +2045,8 @@ export default function TestCases() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ExecutionRunsDialog tc={runsDialogTc} onClose={() => setRunsDialogTc(null)} />
 
       <AIGenerateDialog
         open={aiDialogOpen}
