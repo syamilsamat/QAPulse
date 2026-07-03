@@ -297,3 +297,36 @@ The "In N runs" badge on the Test Case Library (table and mobile card views) is 
 Supports impact analysis before editing/deleting a library TC, avoiding duplicate compiles (CR003), and jumping straight to a failing run.
 
 **Scope:** `artifacts/api-server/src/routes/test-cases.ts` (new `GET /test-cases/:id/executions` — on-demand, one entry per execution file, newest row wins), `artifacts/qa-pulse/src/pages/TestCases.tsx` (`ExecutionRunsDialog` + clickable badges). No DB changes.
+
+---
+
+### CR019 — Defect Tracking: Write-Through to Redmine + Defects Page
+**Status:** 📋 Planned (2026-07-03)
+
+First step toward native defect tracking in QAPulse. QAPulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so a future full cutover (CR020) only removes the Redmine write — schema and UI carry over unchanged.
+
+**Ownership rules (the design hinges on these):**
+1. **One-way ownership, strictly.** QAPulse owns creation + TC linkage; Redmine owns lifecycle (status, assignee, comments). QAPulse caches and displays Redmine status (refreshed on view/schedule) but never edits it locally. No write-back of status; no bidirectional sync.
+2. **Backfill `defect_number`.** On creation, the returned Redmine ID is written into `execution_test_cases.defect_number` exactly as if typed — Pareto/CAPA sheets, verdict Excel, traceability matrix, and link-out chips keep working with zero changes, and IDs are guaranteed real (no more typo'd defect numbers).
+3. **Never block execution on Redmine.** If Redmine is down when a TC is failed, the defect row is created locally as "pending sync"; a background retry (with idempotency guard against duplicate Redmine tickets) pushes it and fills in the Redmine ID.
+4. **Reporter identity.** Per-user Redmine API keys (existing `resolveApiKey`) → actual QA shows as reporter in Redmine. Global-key fallback → prepend "Reported by {name} via QAPulse" to the description.
+
+**Data model (new tables):**
+- `defects`: id, `defect_code` (auto `DEF-NNNN` per project), title, description, steps to reproduce / expected / actual, severity, status (cached from Redmine), module, `project_id`, `reporter_id`, `assignee_name` (cached), `redmine_id`, `sync_status` (`pending` | `synced` | `error`), timestamps.
+- `defect_links`: defect_id ↔ `execution_test_cases.id` (optional links to library TC / requirement later).
+
+**Creation flows:**
+- Primary: the existing fail modal in the execution file (`TestCasesExecutionProgressPage.tsx`) — pre-filled from the TC row's steps/expected/actual, creates the defect, pushes to Redmine (`POST /issues.json` via existing `redmineFetch` plumbing in `redmine.ts`), links the TC, backfills `defect_number`.
+- Secondary: manual "New defect" on the Defects page.
+
+**Defects page (new, mockup approved 2026-07-03):**
+- Summary cards: Open · In progress · Awaiting retest · Closed (30d).
+- Saved-view tabs: All open / Blocking TCs / Awaiting retest / My defects; project + severity filters, search.
+- Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QAPulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
+- Expand row → linked TCs from `defect_links` with execution file + current result, deep-linking to the execution file via the CR018 `?tc=` filter.
+- **Retest flag:** defect Fixed/Resolved in Redmine while a linked TC is still Failed → TC line shows "Retest needed"; collected under the Awaiting retest tab/card.
+- Deliberately absent: status editing, comments, reassignment — those stay in Redmine until CR020.
+
+**Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qa-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
+
+**Sequencing:** supersedes the earlier "read-only defect dashboard" idea. Full native lifecycle (statuses, comments, dev roles, Redmine migration/cutover) = CR020, planned after CR014 (org role hierarchy) so developers have proper roles.
