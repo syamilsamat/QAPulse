@@ -171,6 +171,15 @@ export default function Defects() {
     },
   });
 
+  const { data: statuses = [] } = useQuery<{ redmineId: number; name: string; isClosed: boolean }[]>({
+    queryKey: ["defect-statuses"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/defects/statuses`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
   const listParams = new URLSearchParams();
   listParams.set("source", tab);
   if (view !== "all") listParams.set("view", view);
@@ -258,6 +267,26 @@ export default function Defects() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
       toast({ title: `Synced — Redmine #${data.redmineId}` });
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    }
+  };
+
+  const handleStatusChange = async (d: DefectRow, statusRedmineId: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}/status`, {
+        method: "PATCH",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ statusRedmineId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Status update failed");
+      toast({
+        title: d.redmineId
+          ? `Status updated — synced to Redmine #${d.redmineId}`
+          : "Status updated locally (defect not yet in Redmine)",
+      });
       invalidate();
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
@@ -497,6 +526,27 @@ export default function Defects() {
 
               {expanded.has(d.id) && (
                 <div className="bg-muted/20 px-4 py-3 space-y-3">
+                  {/* Status edit — write-through to Redmine */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Status:</span>
+                    <Select
+                      value={String(statuses.find((s) => s.name.toLowerCase() === d.status.toLowerCase())?.redmineId ?? "")}
+                      onValueChange={(v) => handleStatusChange(d, Number(v))}
+                    >
+                      <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                        <SelectValue placeholder={d.status} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statuses.map((s) => (
+                          <SelectItem key={s.redmineId} value={String(s.redmineId)}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-[10px] text-muted-foreground">
+                      {d.redmineId ? `saving pushes the change to Redmine #${d.redmineId}` : "local only until synced to Redmine"}
+                    </span>
+                  </div>
+
                   {/* Linked TCs */}
                   {d.links.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No linked test cases.</p>

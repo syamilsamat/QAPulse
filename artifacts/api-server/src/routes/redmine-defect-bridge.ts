@@ -1,5 +1,5 @@
 import { eq, inArray, isNotNull } from "drizzle-orm";
-import { db, defectsTable, trackersTable, type Defect } from "@workspace/db";
+import { db, defectsTable, trackersTable, redmineStatusesTable, type Defect } from "@workspace/db";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CR019/CR020 Redmine defect bridge — DELIBERATELY the only file that knows
@@ -108,6 +108,52 @@ export async function pushDefectToRedmine(
     const redmineId = data?.issue?.id != null ? String(data.issue.id) : undefined;
     if (!redmineId) return { ok: false, error: "Redmine returned no issue id" };
     return { ok: true, redmineId };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
+// Sync the full Redmine status list (/issue_statuses.json) into QAPulse so
+// the Defects page can offer the real status options for editing.
+export async function syncIssueStatuses(apiKey: string): Promise<{ synced: number; error?: string }> {
+  try {
+    const res = await redmineFetch(`/issue_statuses.json`, apiKey);
+    if (!res.ok) return { synced: 0, error: `Redmine ${res.status}` };
+    const data: any = await res.json();
+    const statuses: any[] = data?.issue_statuses ?? [];
+    for (const s of statuses) {
+      await db
+        .insert(redmineStatusesTable)
+        .values({ redmineId: s.id, name: s.name, isClosed: s.is_closed ? 1 : 0, syncedAt: new Date() })
+        .onConflictDoUpdate({
+          target: redmineStatusesTable.redmineId,
+          set: { name: s.name, isClosed: s.is_closed ? 1 : 0, syncedAt: new Date() },
+        });
+    }
+    return { synced: statuses.length };
+  } catch (err: any) {
+    return { synced: 0, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
+// Status write-through: push a status change made in QAPulse to Redmine.
+// The caller only updates the local cache when this succeeds — Redmine stays
+// the system of record until CR021.
+export async function pushStatusToRedmine(
+  redmineIssueId: string,
+  statusRedmineId: number,
+  apiKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await redmineFetch(`/issues/${encodeURIComponent(redmineIssueId)}.json`, apiKey, {
+      method: "PUT",
+      body: JSON.stringify({ issue: { status_id: statusRedmineId } }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Redmine ${res.status}: ${body.slice(0, 300) || "status change rejected (check workflow permissions)"}` };
+    }
+    return { ok: true };
   } catch (err: any) {
     return { ok: false, error: err?.message ?? "Redmine unreachable" };
   }
