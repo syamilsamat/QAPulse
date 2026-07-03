@@ -150,6 +150,29 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
   return { refreshed };
 }
 
+// Sync-from-Redmine dialog: fetch the child issues of a parent ticket,
+// restricted to one tracker. Read-only.
+export async function fetchChildIssuesByTracker(
+  apiKey: string,
+  parentRedmineId: string,
+  trackerName: string,
+): Promise<{ issues: any[]; error?: string }> {
+  const trackers = await db.select().from(trackersTable);
+  const tracker = trackers.find((t: any) => t.name.toLowerCase() === trackerName.toLowerCase());
+  if (!tracker) return { issues: [], error: `Tracker "${trackerName}" not found — sync trackers first` };
+  try {
+    const res = await redmineFetch(
+      `/issues.json?parent_id=${encodeURIComponent(parentRedmineId)}&tracker_id=${tracker.redmineId}&status_id=*&limit=100`,
+      apiKey,
+    );
+    if (!res.ok) return { issues: [], error: `Redmine ${res.status}` };
+    const data: any = await res.json();
+    return { issues: data?.issues ?? [] };
+  } catch (err: any) {
+    return { issues: [], error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
 // CR020 pull sync: import production incidents from the chosen Redmine tracker
 // as source='production' defects. Insert new, update cached fields on existing.
 export async function pullProductionDefects(

@@ -28,6 +28,9 @@ export const defectsTable = pgTable(
     syncError: text("sync_error"),
     source: text("source").notNull().default("qa"), // qa | production
     foundIn: text("found_in").notNull().default("SIT"), // SIT | UAT | Production
+    // Actual Redmine tracker name — "other" trackers land in the QA list for
+    // now but keep their real tracker recorded (Sync from Redmine dialog)
+    tracker: text("tracker"),
     // CR020 escape review (production defects only)
     escapeStatus: text("escape_status").notNull().default("pending"), // pending | analyzing | closed
     escapeClass: text("escape_class"), // coverage_gap | selection_gap | passed_wrongly
