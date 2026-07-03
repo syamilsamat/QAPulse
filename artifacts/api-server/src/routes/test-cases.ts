@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
@@ -10,6 +10,7 @@ import {
   requirementsTable,
   activityTable,
   executionTestCasesTable,
+  executionFilesTable,
 } from "@workspace/db";
 import {
   CreateTestCaseBody,
@@ -368,6 +369,53 @@ router.post("/test-cases", async (req, res): Promise<void> => {
     entityType: "test_case",
   });
   res.status(201).json(await formatTestCase(tc));
+});
+
+// Execution files that contain this library TC (one entry per file, newest
+// row wins when the TC appears in a file more than once).
+router.get("/test-cases/:id/executions", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid test case id" });
+    return;
+  }
+  const rows = await db
+    .select({
+      executionFileId: executionTestCasesTable.executionFileId,
+      caseId: executionTestCasesTable.caseId,
+      testCaseId: executionTestCasesTable.testCaseId,
+      result: executionTestCasesTable.result,
+      executedAt: executionTestCasesTable.executedAt,
+      defectNumber: executionTestCasesTable.defectNumber,
+      redmineTicketId: executionFilesTable.redmineTicketId,
+      fileTitle: executionFilesTable.title,
+      tracker: executionFilesTable.tracker,
+    })
+    .from(executionTestCasesTable)
+    .innerJoin(
+      executionFilesTable,
+      eq(executionFilesTable.id, executionTestCasesTable.executionFileId)
+    )
+    .where(eq(executionTestCasesTable.libraryTcId, id))
+    .orderBy(desc(executionTestCasesTable.id));
+
+  const byFile = new Map<number, (typeof rows)[number]>();
+  for (const row of rows) {
+    if (!byFile.has(row.executionFileId)) byFile.set(row.executionFileId, row);
+  }
+
+  res.json(
+    Array.from(byFile.values()).map((r) => ({
+      executionFileId: r.executionFileId,
+      redmineTicketId: r.redmineTicketId,
+      fileTitle: r.fileTitle,
+      tracker: r.tracker,
+      displayCaseId: r.testCaseId ?? r.caseId ?? null,
+      result: r.result,
+      defectNumber: r.defectNumber,
+      executedAt: r.executedAt,
+    }))
+  );
 });
 
 router.get("/test-cases/:id", async (req, res): Promise<void> => {
