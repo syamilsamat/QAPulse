@@ -252,7 +252,7 @@ export default function Defects() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Pull failed");
       localStorage.setItem("qa_pulse_prod_tracker", pullTracker);
-      toast({ title: `Pulled from Redmine: ${data.imported} new, ${data.updated} updated` });
+      toast({ title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QAPulse (ignored)` });
       invalidate();
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
@@ -733,10 +733,11 @@ function SyncRedmineDialog({
         data.requirements ? `${data.requirements} requirement(s)` : null,
         data.qaDefects ? `${data.qaDefects} QA defect(s)` : null,
         data.prodDefects ? `${data.prodDefects} prod defect(s)` : null,
-        data.skipped ? `${data.skipped} skipped` : null,
+        data.ignored ? `${data.ignored} already in QAPulse (ignored)` : null,
+        data.skipped ? `${data.skipped} skipped by tracker filter` : null,
       ].filter(Boolean);
       toast({
-        title: `Synced ${data.total} issue(s) — ${data.created} new, ${data.updated} updated`,
+        title: `Synced ${data.total} issue(s) — ${data.created} new`,
         description: parts.length ? parts.join(" · ") : "Nothing matched.",
       });
       onSynced();
