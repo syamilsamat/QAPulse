@@ -20,6 +20,7 @@ import {
   fetchRedmineProjectMembers,
   searchRedmineIssues,
   createRedmineDefect,
+  registerLocalDefect,
   type RedmineProjectItem,
   type RedmineProjectConfigItem,
   type RedmineTracker,
@@ -45,6 +46,8 @@ interface Props {
   expectedResult?: string;
   parentIssueId?: string | number | null;
   onSkip?: () => void;
+  // CR019: DB id of the execution row that failed — links the local defect record
+  executionTcId?: number | null;
 }
 
 export default function DefectCreationModal({
@@ -57,6 +60,7 @@ export default function DefectCreationModal({
   expectedResult,
   parentIssueId,
   onSkip,
+  executionTcId,
 }: Props) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +172,13 @@ export default function DefectCreationModal({
 
   const handleLinkExisting = (issue: RedmineIssueMatch) => {
     setLinkedIssueId(issue.id);
+    // CR019: record locally so the Defects page tracks it (best-effort)
+    registerLocalDefect({
+      redmineId: issue.id.toString(),
+      title: issue.subject,
+      actualResult,
+      executionTcId: executionTcId ?? null,
+    }).catch(() => {});
     onDefectCreated({
       redmineIssueId: issue.id.toString(),
       actualResult,
@@ -230,6 +241,15 @@ export default function DefectCreationModal({
       });
 
       toast({ title: `Defect #${result.id} created in Redmine` });
+      // CR019: record locally so the Defects page tracks it (best-effort)
+      registerLocalDefect({
+        redmineId: result.id.toString(),
+        title: subject.trim(),
+        description: defectDescription.trim() || undefined,
+        expectedResult: expectedResultValue.trim() || undefined,
+        actualResult: actualResult.trim() || undefined,
+        executionTcId: executionTcId ?? null,
+      }).catch(() => {});
       onDefectCreated({
         redmineIssueId: result.id.toString(),
         actualResult,

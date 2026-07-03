@@ -2805,6 +2805,7 @@ export default function TestCasesExecutionProgressPage() {
         testCaseId={defectRow?.testCaseId ?? undefined}
         expectedResult={defectRow?.expectedResult ?? undefined}
         parentIssueId={ticketId ?? null}
+        executionTcId={typeof defectRow?.id === "number" ? defectRow.id : null}
         onSkip={() => {
           setDefectModalOpen(false);
           pendingFailRowIdRef.current = null;

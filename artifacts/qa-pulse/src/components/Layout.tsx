@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, GitMerge, ScrollText } from 'lucide-react';
+import { Columns3Cog, Shield, GitMerge, ScrollText, Bug } from 'lucide-react';
 
 import {
   HoverPulse,
@@ -339,6 +339,14 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-cyan-500",
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:traceability",
+  },
+  {
+    href: "/defects",
+    label: "Defects",
+    icon: Bug,
+    activeColor: "text-red-500",
+    // no permKey — role-gated only, so existing DBs don't hide it (CR019)
+    roles: ["qa_member", "qa_lead", "admin"],
   },
   {
     href: "/tasks",
