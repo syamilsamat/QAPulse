@@ -17,11 +17,13 @@ import { resolveApiKeyFromToken } from "./requirements";
 import {
   pushDefectToRedmine,
   refreshDefectStatuses,
-  pullProductionDefects,
+  pullTrackerIssues,
   fetchIssueTree,
   severityFromPriority,
   syncIssueStatuses,
   pushStatusToRedmine,
+  routeForTracker,
+  defectCodePrefix,
 } from "./redmine-defect-bridge";
 
 const router: IRouter = Router();
@@ -182,6 +184,7 @@ router.get("/defects/metrics", async (req, res): Promise<void> => {
 
     const qa = defects.filter((d: any) => d.source === "qa");
     const prod = defects.filter((d: any) => d.source === "production");
+    const others = defects.filter((d: any) => d.source === "other");
     const open = (list: typeof defects) => list.filter((d: any) => !CLOSED_STATUS.test(d.status)).length;
     const retest = defects.filter((d: any) => RETEST_STATUS.test(d.status) && !CLOSED_STATUS.test(d.status)).length;
     const total = defects.length;
@@ -190,8 +193,11 @@ router.get("/defects/metrics", async (req, res): Promise<void> => {
       total,
       qaCount: qa.length,
       prodCount: prod.length,
+      othersCount: others.length,
       openQa: open(qa),
       openProd: open(prod),
+      openOthers: open(others),
+      otherTrackers: new Set(others.map((d: any) => d.tracker).filter(Boolean)).size,
       awaitingRetest: retest,
       leakageRate: total > 0 ? Math.round((prod.length / total) * 100) : 0,
       escapesAnalyzed: prod.filter((d: any) => d.escapeStatus !== "pending").length,
@@ -539,14 +545,14 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
       return;
     }
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-    const result = await pullProductionDefects(apiKey, trackerName);
+    const result = await pullTrackerIssues(apiKey, trackerName);
     if (result.error) {
       res.status(502).json(result);
       return;
     }
     await logActivity({
       type: "defects_pulled",
-      description: `Production defects pulled from Redmine tracker "${trackerName}": ${result.imported} new, ${result.ignored} already in QAPulse (ignored)`,
+      description: `Pulled Redmine tracker "${trackerName}": ${result.imported} new (${result.qaDefects} QA, ${result.prodDefects} prod, ${result.others} others, ${result.requirements} requirements), ${result.ignored} already in QAPulse (ignored)`,
       userId: actorFromReq(req),
       entityType: "defect",
       newValue: { trackerName, ...result },
@@ -558,15 +564,8 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
 });
 
 // ─── Sync from Redmine: children of a requirement's ticket, routed by tracker ─
-// Tracker routing: QA Defect → qa defect list · Prod Defect → production list ·
-// User Story → requirements · anything else → qa defect list, real tracker kept.
-
-function routeForTracker(trackerName: string): "qa" | "production" | "requirement" {
-  const n = trackerName.toLowerCase();
-  if (n.includes("prod")) return "production";
-  if (n.includes("user story") || n.includes("story")) return "requirement";
-  return "qa";
-}
+// Routing (shared routeForTracker in the bridge): QA Defect → QA tab ·
+// Prod Defect → Production tab · User Story → requirements · else → Others tab.
 
 router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
   try {
@@ -606,7 +605,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
     let created = 0;
     let ignored = 0; // already in QAPulse → left untouched (insert-only sync)
     let skipped = 0;
-    const counts = { requirements: 0, qaDefects: 0, prodDefects: 0 };
+    const counts = { requirements: 0, qaDefects: 0, prodDefects: 0, others: 0 };
 
     // Hierarchy anchors: for each Redmine id, the QAPulse requirement to hang
     // children off. Root = the selected requirement. Defects and skipped
@@ -687,7 +686,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             reporterId: actorId,
             redmineId: rid,
             syncStatus: "synced",
-            source: route === "production" ? "production" : "qa",
+            source: route, // qa | production | other
             foundIn: route === "production" ? "Production" : "SIT",
             tracker: issueTracker || null,
             category: issue.category?.name ?? null,
@@ -695,15 +694,15 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             ...cached,
           })
           .returning();
-        const prefix = route === "production" ? "DEF-P" : "DEF-";
         await db
           .update(defectsTable)
-          .set({ defectCode: `${prefix}${String(row.id).padStart(4, "0")}` })
+          .set({ defectCode: `${defectCodePrefix(route)}${String(row.id).padStart(4, "0")}` })
           .where(eq(defectsTable.id, row.id));
         defectId = row.id;
         created++;
       }
       if (route === "production") counts.prodDefects++;
+      else if (route === "other") counts.others++;
       else counts.qaDefects++;
 
       // link to the nearest ancestor requirement (dedupe)
@@ -720,7 +719,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
 
     await logActivity({
       type: "defects_synced",
-      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QAPulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
+      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QAPulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects, ${counts.others} others${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
       userId: actorId,
       entityId: requirement.id,
       entityType: "defect",
