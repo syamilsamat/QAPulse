@@ -237,14 +237,15 @@ export async function fetchIssueTree(
 }
 
 // CR020 pull sync: import production incidents from the chosen Redmine tracker
-// as source='production' defects. Insert new, update cached fields on existing.
+// as source='production' defects. INSERT-ONLY: issues already in QAPulse are
+// ignored untouched ("Refresh status" is the update mechanism).
 export async function pullProductionDefects(
   apiKey: string,
   trackerName: string,
-): Promise<{ imported: number; updated: number; error?: string }> {
+): Promise<{ imported: number; ignored: number; error?: string }> {
   const trackers = await db.select().from(trackersTable);
   const tracker = trackers.find((t: any) => t.name.toLowerCase() === trackerName.toLowerCase());
-  if (!tracker) return { imported: 0, updated: 0, error: `Tracker "${trackerName}" not found — sync trackers first` };
+  if (!tracker) return { imported: 0, ignored: 0, error: `Tracker "${trackerName}" not found — sync trackers first` };
 
   let issues: any[] = [];
   try {
@@ -252,14 +253,14 @@ export async function pullProductionDefects(
       `/issues.json?tracker_id=${tracker.redmineId}&status_id=*&limit=100&sort=updated_on:desc`,
       apiKey,
     );
-    if (!res.ok) return { imported: 0, updated: 0, error: `Redmine ${res.status}` };
+    if (!res.ok) return { imported: 0, ignored: 0, error: `Redmine ${res.status}` };
     const data: any = await res.json();
     issues = data?.issues ?? [];
   } catch (err: any) {
-    return { imported: 0, updated: 0, error: err?.message ?? "Redmine unreachable" };
+    return { imported: 0, ignored: 0, error: err?.message ?? "Redmine unreachable" };
   }
 
-  if (issues.length === 0) return { imported: 0, updated: 0 };
+  if (issues.length === 0) return { imported: 0, ignored: 0 };
 
   const redmineIds = issues.map((i) => String(i.id));
   const existing = await db
@@ -269,7 +270,7 @@ export async function pullProductionDefects(
   const existingByRedmine = new Map<string | null, number>(existing.map((e: any) => [e.redmineId, e.id]));
 
   let imported = 0;
-  let updated = 0;
+  let ignored = 0;
   for (const issue of issues) {
     const rid = String(issue.id);
     const cached = {
@@ -277,13 +278,9 @@ export async function pullProductionDefects(
       assigneeName: issue.assigned_to?.name ?? null,
       statusSyncedAt: new Date(),
     };
-    const localId = existingByRedmine.get(rid);
-    if (localId) {
-      await db
-        .update(defectsTable)
-        .set({ ...cached, title: issue.subject ?? "Untitled" })
-        .where(eq(defectsTable.id, localId));
-      updated++;
+    // insert-only: already in QAPulse → ignore untouched
+    if (existingByRedmine.has(rid)) {
+      ignored++;
     } else {
       const [row] = await db
         .insert(defectsTable)
@@ -292,10 +289,13 @@ export async function pullProductionDefects(
           description: issue.description ?? null,
           severity: severityFromPriority(issue.priority?.name),
           module: issue.category?.name ?? null,
+          category: issue.category?.name ?? null,
+          tracker: issue.tracker?.name ?? trackerName,
           redmineId: rid,
           syncStatus: "synced",
           source: "production",
           foundIn: "Production",
+          redmineCreatedAt: issue.created_on ? new Date(issue.created_on) : null,
           ...cached,
         })
         .returning();
@@ -306,5 +306,5 @@ export async function pullProductionDefects(
       imported++;
     }
   }
-  return { imported, updated };
+  return { imported, ignored };
 }

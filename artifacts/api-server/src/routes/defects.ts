@@ -546,7 +546,7 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
     }
     await logActivity({
       type: "defects_pulled",
-      description: `Production defects pulled from Redmine tracker "${trackerName}": ${result.imported} new, ${result.updated} updated`,
+      description: `Production defects pulled from Redmine tracker "${trackerName}": ${result.imported} new, ${result.ignored} already in QAPulse (ignored)`,
       userId: actorFromReq(req),
       entityType: "defect",
       newValue: { trackerName, ...result },
@@ -604,7 +604,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
     const actorId = actorFromReq(req);
     const syncDate = new Date();
     let created = 0;
-    let updated = 0;
+    let ignored = 0; // already in QAPulse → left untouched (insert-only sync)
     let skipped = 0;
     const counts = { requirements: 0, qaDefects: 0, prodDefects: 0 };
 
@@ -635,18 +635,9 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
           .where(eq(requirementsTable.redmineTicketId, rid));
         let reqId: number;
         if (existing) {
-          await db
-            .update(requirementsTable)
-            .set({
-              title: issue.subject ?? existing.title,
-              module: module ?? existing.module,
-              projectId: projectId ?? existing.projectId,
-              parentId: anchorReqId,
-              redmineCreatedAt: redmineCreatedAt ?? existing.redmineCreatedAt,
-            })
-            .where(eq(requirementsTable.id, existing.id));
+          // already in QAPulse → ignore untouched; still anchor children to it
           reqId = existing.id;
-          updated++;
+          ignored++;
         } else {
           const [row] = await db
             .insert(requirementsTable)
@@ -664,8 +655,8 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             .returning();
           reqId = row.id;
           created++;
+          counts.requirements++;
         }
-        counts.requirements++;
         anchorByRedmineId.set(rid, reqId); // children of a story anchor to the story
         continue;
       }
@@ -677,23 +668,14 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
         statusSyncedAt: syncDate,
       };
       const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, rid));
-      let defectId: number;
       if (existing) {
-        await db
-          .update(defectsTable)
-          .set({
-            ...cached,
-            title: issue.subject ?? existing.title,
-            module: module ?? existing.module,
-            projectId: projectId ?? existing.projectId,
-            tracker: issueTracker || existing.tracker,
-            category: issue.category?.name ?? existing.category,
-            redmineCreatedAt: redmineCreatedAt ?? existing.redmineCreatedAt,
-          })
-          .where(eq(defectsTable.id, existing.id));
-        defectId = existing.id;
-        updated++;
-      } else {
+        // already in QAPulse → ignore untouched; children still anchor through
+        anchorByRedmineId.set(rid, anchorReqId);
+        ignored++;
+        continue;
+      }
+      let defectId: number;
+      {
         const [row] = await db
           .insert(defectsTable)
           .values({
@@ -738,14 +720,14 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
 
     await logActivity({
       type: "defects_synced",
-      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${updated} updated (${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects${skipped ? `, ${skipped} skipped by tracker filter` : ""})`,
+      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QAPulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
       userId: actorId,
       entityId: requirement.id,
       entityType: "defect",
-      newValue: { trackerFilter, created, updated, skipped, ...counts, parentRedmineId: requirement.redmineTicketId },
+      newValue: { trackerFilter, created, ignored, skipped, ...counts, parentRedmineId: requirement.redmineTicketId },
     });
 
-    res.json({ total: issues.length, created, updated, skipped, ...counts });
+    res.json({ total: issues.length, created, ignored, skipped, ...counts });
   } catch (err: any) {
     console.error("[POST /defects/sync-from-redmine]", err);
     res.status(500).json({ error: err?.message ?? "Sync failed" });
