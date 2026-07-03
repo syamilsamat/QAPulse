@@ -939,20 +939,20 @@ export default function Requirements() {
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
+        <DialogContent className="sm:max-w-[75vw] max-h-[90vh] overflow-y-auto w-[95vw] p-8">
           <DialogHeader>
             <DialogTitle>
-              {editingReq 
-                ? "Edit Requirement" 
-                : form.parentId 
-                  ? "New Child Requirement" 
+              {editingReq
+                ? "Edit Requirement"
+                : form.parentId
+                  ? "New Child Requirement"
                   : "New Requirement"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-6 py-2">
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5 sm:col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="space-y-1.5 sm:col-span-3">
                 <Label>Title <span className="text-destructive">*</span></Label>
                 <Input
                   placeholder="Requirement title"
@@ -970,10 +970,10 @@ export default function Requirements() {
 
             <div className="space-y-1.5">
               <Label>Description</Label>
-              <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} />
+              <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={5} />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <Label>Project</Label>
                 <SearchableSelect
