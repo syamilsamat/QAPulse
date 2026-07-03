@@ -77,6 +77,8 @@ interface DefectRow {
   source: string;
   foundIn: string;
   tracker: string | null;
+  category: string | null;
+  redmineCreatedAt: string | null;
   escapeStatus: string;
   escapeClass: string | null;
   escapeNotes: string | null;
@@ -475,7 +477,15 @@ export default function Defects() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {[d.module, d.projectName, d.tracker, `found in ${d.foundIn}`, format(new Date(d.createdAt), "dd MMM yyyy"), `${d.links.length} linked TC${d.links.length !== 1 ? "s" : ""}`]
+                    {[
+                      d.module,
+                      d.category && d.category !== d.module ? d.category : null,
+                      d.projectName,
+                      d.tracker,
+                      `found in ${d.foundIn}`,
+                      format(new Date(d.redmineCreatedAt ?? d.createdAt), "dd MMM yyyy"),
+                      `${d.links.length} linked TC${d.links.length !== 1 ? "s" : ""}`,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
@@ -620,7 +630,7 @@ function SyncRedmineDialog({
   const [projectId, setProjectId] = useState<string>("");
   const [module, setModule] = useState<string>("");
   const [requirementId, setRequirementId] = useState<string>("");
-  const [trackerName, setTrackerName] = useState<string>("");
+  const [trackerName, setTrackerName] = useState<string>("all");
   const [isSyncing, setIsSyncing] = useState(false);
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -655,10 +665,6 @@ function SyncRedmineDialog({
       toast({ variant: "destructive", title: "Select the requirement (Redmine ticket) to sync under" });
       return;
     }
-    if (!trackerName) {
-      toast({ variant: "destructive", title: "Select a tracker" });
-      return;
-    }
     setIsSyncing(true);
     try {
       const res = await fetch(`${getApiUrl()}/defects/sync-from-redmine`, {
@@ -673,11 +679,15 @@ function SyncRedmineDialog({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
-      const dest =
-        data.route === "requirement" ? "Requirements" : data.route === "production" ? "Production defects" : "QA defects";
+      const parts = [
+        data.requirements ? `${data.requirements} requirement(s)` : null,
+        data.qaDefects ? `${data.qaDefects} QA defect(s)` : null,
+        data.prodDefects ? `${data.prodDefects} prod defect(s)` : null,
+        data.skipped ? `${data.skipped} skipped` : null,
+      ].filter(Boolean);
       toast({
-        title: `Synced ${data.total} "${trackerName}" issue(s) → ${dest}`,
-        description: `${data.created} new, ${data.updated} updated`,
+        title: `Synced ${data.total} issue(s) — ${data.created} new, ${data.updated} updated`,
+        description: parts.length ? parts.join(" · ") : "Nothing matched.",
       });
       onSynced();
     } catch (err: any) {
@@ -729,24 +739,25 @@ function SyncRedmineDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Tracker <span className="text-destructive">*</span></Label>
+            <Label>Tracker</Label>
             <Select value={trackerName} onValueChange={setTrackerName}>
-              <SelectTrigger><SelectValue placeholder="Select tracker..." /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="All trackers" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">All trackers</SelectItem>
                 {trackers.map((t) => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
               </SelectContent>
             </Select>
-            {trackerName && (
-              <p className="text-xs text-muted-foreground">
-                {/prod/i.test(trackerName)
-                  ? "Will be saved as production defects."
+            <p className="text-xs text-muted-foreground">
+              {trackerName === "all"
+                ? "Syncs the whole subtree — every child and grandchild is routed by its own tracker: User Story → Requirements, Prod Defect → Production, QA Defect → QA list, others → QA list (tracker kept)."
+                : /prod/i.test(trackerName)
+                  ? "Only Prod Defect issues in the subtree — saved as production defects."
                   : /story/i.test(trackerName)
-                    ? "Will be saved as requirements (children of the selected requirement)."
+                    ? "Only User Story issues in the subtree — saved as requirements under their parent."
                     : /defect|bug/i.test(trackerName)
-                      ? "Will be saved as QA defects."
-                      : `Will be saved with tracker "${trackerName}" and listed under QA defects for now.`}
-              </p>
-            )}
+                      ? "Only these issues in the subtree — saved as QA defects."
+                      : `Only "${trackerName}" issues — saved with that tracker, listed under QA defects for now.`}
+            </p>
           </div>
         </div>
         <DialogFooter>

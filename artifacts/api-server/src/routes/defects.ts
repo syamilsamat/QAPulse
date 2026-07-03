@@ -17,7 +17,7 @@ import {
   pushDefectToRedmine,
   refreshDefectStatuses,
   pullProductionDefects,
-  fetchChildIssuesByTracker,
+  fetchIssueTree,
   severityFromPriority,
 } from "./redmine-defect-bridge";
 
@@ -479,10 +479,15 @@ function routeForTracker(trackerName: string): "qa" | "production" | "requiremen
 router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
   try {
     const { projectId, module, requirementId, trackerName } = req.body ?? {};
-    if (!requirementId || !trackerName) {
-      res.status(400).json({ error: "requirementId and trackerName are required" });
+    if (!requirementId) {
+      res.status(400).json({ error: "requirementId is required" });
       return;
     }
+    // trackerName optional: "all" (or empty) syncs every tracker, each issue
+    // routed by its OWN tracker; a specific name imports only that tracker
+    // (the tree is still walked so deep matches under other trackers land too)
+    const trackerFilter =
+      trackerName && String(trackerName).toLowerCase() !== "all" ? String(trackerName).toLowerCase() : null;
 
     const [requirement] = await db
       .select()
@@ -498,25 +503,45 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
     }
 
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-    const { issues, error } = await fetchChildIssuesByTracker(apiKey, requirement.redmineTicketId, String(trackerName));
+    const { issues, error } = await fetchIssueTree(apiKey, requirement.redmineTicketId);
     if (error) {
       res.status(502).json({ error });
       return;
     }
 
-    const route = routeForTracker(String(trackerName));
     const actorId = actorFromReq(req);
+    const syncDate = new Date();
     let created = 0;
     let updated = 0;
+    let skipped = 0;
+    const counts = { requirements: 0, qaDefects: 0, prodDefects: 0 };
 
-    for (const issue of issues) {
+    // Hierarchy anchors: for each Redmine id, the QAPulse requirement to hang
+    // children off. Root = the selected requirement. Defects and skipped
+    // issues pass their parent's anchor through, so grandchildren still link.
+    const anchorByRedmineId = new Map<string, number>();
+    anchorByRedmineId.set(String(requirement.redmineTicketId), requirement.id);
+
+    for (const { issue, parentRedmineId } of issues) {
       const rid = String(issue.id);
+      const issueTracker: string = issue.tracker?.name ?? "";
+      const route = routeForTracker(issueTracker);
+      const anchorReqId = anchorByRedmineId.get(parentRedmineId) ?? requirement.id;
+      const redmineCreatedAt = issue.created_on ? new Date(issue.created_on) : null;
+
+      if (trackerFilter && issueTracker.toLowerCase() !== trackerFilter) {
+        // not imported, but children still anchor to this issue's anchor
+        anchorByRedmineId.set(rid, anchorReqId);
+        skipped++;
+        continue;
+      }
 
       if (route === "requirement") {
         const [existing] = await db
           .select()
           .from(requirementsTable)
           .where(eq(requirementsTable.redmineTicketId, rid));
+        let reqId: number;
         if (existing) {
           await db
             .update(requirementsTable)
@@ -524,23 +549,32 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
               title: issue.subject ?? existing.title,
               module: module ?? existing.module,
               projectId: projectId ?? existing.projectId,
-              parentId: requirement.id,
+              parentId: anchorReqId,
+              redmineCreatedAt: redmineCreatedAt ?? existing.redmineCreatedAt,
             })
             .where(eq(requirementsTable.id, existing.id));
+          reqId = existing.id;
           updated++;
         } else {
-          await db.insert(requirementsTable).values({
-            title: issue.subject ?? "Untitled",
-            description: issue.description ?? null,
-            module: module ?? requirement.module,
-            projectId: projectId ?? requirement.projectId,
-            parentId: requirement.id,
-            redmineTicketId: rid,
-            tracker: String(trackerName),
-            status: "open",
-          });
+          const [row] = await db
+            .insert(requirementsTable)
+            .values({
+              title: issue.subject ?? "Untitled",
+              description: issue.description ?? null,
+              module: module ?? requirement.module,
+              projectId: projectId ?? requirement.projectId,
+              parentId: anchorReqId,
+              redmineTicketId: rid,
+              tracker: issueTracker || null,
+              status: "open",
+              redmineCreatedAt,
+            })
+            .returning();
+          reqId = row.id;
           created++;
         }
+        counts.requirements++;
+        anchorByRedmineId.set(rid, reqId); // children of a story anchor to the story
         continue;
       }
 
@@ -548,7 +582,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
       const cached = {
         status: issue.status?.name ?? "Unknown",
         assigneeName: issue.assigned_to?.name ?? null,
-        statusSyncedAt: new Date(),
+        statusSyncedAt: syncDate,
       };
       const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, rid));
       let defectId: number;
@@ -560,7 +594,9 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             title: issue.subject ?? existing.title,
             module: module ?? existing.module,
             projectId: projectId ?? existing.projectId,
-            tracker: String(trackerName),
+            tracker: issueTracker || existing.tracker,
+            category: issue.category?.name ?? existing.category,
+            redmineCreatedAt: redmineCreatedAt ?? existing.redmineCreatedAt,
           })
           .where(eq(defectsTable.id, existing.id));
         defectId = existing.id;
@@ -572,14 +608,16 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             title: issue.subject ?? "Untitled",
             description: issue.description ?? null,
             severity: severityFromPriority(issue.priority?.name),
-            module: module ?? null,
+            module: module ?? issue.category?.name ?? null,
             projectId: projectId ?? null,
             reporterId: actorId,
             redmineId: rid,
             syncStatus: "synced",
             source: route === "production" ? "production" : "qa",
             foundIn: route === "production" ? "Production" : "SIT",
-            tracker: String(trackerName),
+            tracker: issueTracker || null,
+            category: issue.category?.name ?? null,
+            redmineCreatedAt,
             ...cached,
           })
           .returning();
@@ -591,28 +629,31 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
         defectId = row.id;
         created++;
       }
+      if (route === "production") counts.prodDefects++;
+      else counts.qaDefects++;
 
-      // stamp the requirement link (dedupe)
+      // link to the nearest ancestor requirement (dedupe)
       const dLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.defectId, defectId));
-      if (!dLinks.some((l: any) => l.requirementId === requirement.id)) {
+      if (!dLinks.some((l: any) => l.requirementId === anchorReqId)) {
         await db.insert(defectLinksTable).values({
           defectId,
-          requirementId: requirement.id,
+          requirementId: anchorReqId,
           linkType: "requirement",
         });
       }
+      anchorByRedmineId.set(rid, anchorReqId); // children of a defect keep its anchor
     }
 
     await logActivity({
       type: "defects_synced",
-      description: `Synced ${issues.length} "${trackerName}" issue(s) under requirement "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${updated} updated`,
+      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${updated} updated (${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects${skipped ? `, ${skipped} skipped by tracker filter` : ""})`,
       userId: actorId,
       entityId: requirement.id,
-      entityType: route === "requirement" ? "requirement" : "defect",
-      newValue: { trackerName, route, created, updated, parentRedmineId: requirement.redmineTicketId },
+      entityType: "defect",
+      newValue: { trackerFilter, created, updated, skipped, ...counts, parentRedmineId: requirement.redmineTicketId },
     });
 
-    res.json({ route, total: issues.length, created, updated });
+    res.json({ total: issues.length, created, updated, skipped, ...counts });
   } catch (err: any) {
     console.error("[POST /defects/sync-from-redmine]", err);
     res.status(500).json({ error: err?.message ?? "Sync failed" });

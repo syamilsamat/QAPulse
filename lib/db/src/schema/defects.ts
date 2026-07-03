@@ -31,6 +31,8 @@ export const defectsTable = pgTable(
     // Actual Redmine tracker name — "other" trackers land in the QA list for
     // now but keep their real tracker recorded (Sync from Redmine dialog)
     tracker: text("tracker"),
+    category: text("category"), // Redmine category name, saved alongside the tracker
+    redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }), // issue created_on
     // CR020 escape review (production defects only)
     escapeStatus: text("escape_status").notNull().default("pending"), // pending | analyzing | closed
     escapeClass: text("escape_class"), // coverage_gap | selection_gap | passed_wrongly
