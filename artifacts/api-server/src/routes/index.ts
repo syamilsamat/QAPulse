@@ -18,6 +18,7 @@ import contactsRouter from "./contacts";
 import rolesRouter from "./roles";
 import traceabilityRouter from "./traceability";
 import documentRegisterRouter from "./document-register";
+import auditLogRouter from "./audit-log";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(contactsRouter);
 router.use(rolesRouter);
 router.use(traceabilityRouter);
 router.use(documentRegisterRouter);
+router.use(auditLogRouter);
 
 export default router;

@@ -3,6 +3,8 @@ import express from "express";
 import { eq, and, ilike } from "drizzle-orm";
 import { execSync } from "child_process";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
+import { actorFromReq } from "./auth";
+import { logActivity } from "./_audit";
 
 let nodemailer: any = null;
 try {
@@ -65,6 +67,7 @@ import {
   executionFileAuditTable,
   documentRegisterTable,
   projectsTable,
+  activityTable,
 } from "@workspace/db";
 
 function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
@@ -1589,6 +1592,29 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       // CR006: AI-generated CAPA items
       const capaItems = await runCapaAI(String(redmineId), testCases, allDefects.length > 0 ? allDefects : undefined);
 
+      // CR011 P4: prior verdict sends for this ticket become Review Log rows,
+      // and the current send is appended as the final row
+      let verdictAuditEntries: { summary: string; updatedByName: string | null; createdAt: string; tcCount: number }[] = [];
+      try {
+        const priorVerdicts = await db
+          .select({ description: activityTable.description, userId: activityTable.userId, newValue: activityTable.newValue, createdAt: activityTable.createdAt, actorName: usersTable.name })
+          .from(activityTable)
+          .leftJoin(usersTable, eq(usersTable.id, activityTable.userId))
+          .where(eq(activityTable.type, "verdict_sent"));
+        verdictAuditEntries = priorVerdicts
+          .filter((v: any) => {
+            try { return String(JSON.parse(v.newValue ?? "{}").redmineId) === String(redmineId); } catch { return false; }
+          })
+          .map((v: any) => ({
+            summary: v.description,
+            updatedByName: v.actorName ?? null,
+            createdAt: v.createdAt instanceof Date ? v.createdAt.toISOString() : String(v.createdAt),
+            tcCount: 0,
+          }));
+      } catch (err) {
+        console.warn("[send-verdict] prior verdict lookup failed:", err);
+      }
+
       // Document register — look up Ref No by project + module + tracker
       let refNo: string | undefined;
       try {
@@ -1625,12 +1651,24 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
         allDefects: allDefects.length > 0 ? allDefects : undefined,
         capaItems: capaItems.length > 0 ? capaItems : undefined,
         refNo,
-        auditEntries: auditRows.map((a: any) => ({
-          summary: a.summary,
-          updatedByName: a.updatedByName ?? null,
-          createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
-          tcCount: a.tcCount ?? 0,
-        })),
+        auditEntries: [
+          ...auditRows.map((a: any) => ({
+            summary: a.summary,
+            updatedByName: a.updatedByName ?? null,
+            createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
+            tcCount: a.tcCount ?? 0,
+          })),
+          ...verdictAuditEntries,
+          // CR011 P4: the send happening right now is the final Review Log row
+          {
+            summary: `Verdict ${verdict} sent to ${to.map((r: any) => r.email).join(", ")}`,
+            updatedByName: senderName ?? null,
+            createdAt: new Date().toISOString(),
+            tcCount: 0,
+          },
+        ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+        // CR011 P4: a PASS verdict closes the CAPA loop — fills empty Actual Closure Dates
+        capaClosureDate: verdict === "PASS" ? new Date().toISOString() : undefined,
       });
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
@@ -1669,6 +1707,22 @@ router.post("/pmo/send-verdict", express.json(), async (req, res) => {
       text: bodyText,
       html: htmlBody,
       attachments,
+    });
+
+    // CR011: audit trail for verdict sends — recipients + verdict in new_value
+    await logActivity({
+      type: "verdict_sent",
+      description: `Verdict ${verdict} sent for ${typeLabel} #${redmineId}${issueSubject ? ` : ${issueSubject}` : ""}`,
+      userId: actorFromReq(req),
+      entityType: "verdict",
+      newValue: {
+        redmineId,
+        verdict,
+        reason: reason?.trim() || null,
+        to: to.map((r: any) => r.email),
+        cc: (cc ?? []).map((r: any) => r.email),
+        hasAttachment: attachments.length > 0,
+      },
     });
 
     res.json({ success: true, message: `Verdict sent to ${formatRecipients(to)}`, hasAttachment: attachments.length > 0 });

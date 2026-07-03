@@ -13,6 +13,7 @@ import {
   requirementsTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
+import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
@@ -893,6 +894,23 @@ router.post(
             tcCount: currentTcCount,
           }).catch(() => {});
         }
+      }
+
+      // CR011: ONE summarized activity row per save — per-TC result changes are
+      // surfaced from execution_tc_history in the audit log, not double-written here
+      if (historyRows.length > 0 || addedTCCount > 0 || removedTCCount > 0) {
+        const parts: string[] = [];
+        if (historyRows.length > 0) parts.push(`${historyRows.length} result change${historyRows.length !== 1 ? "s" : ""}`);
+        if (addedTCCount > 0) parts.push(`${addedTCCount} TC${addedTCCount !== 1 ? "s" : ""} added`);
+        if (removedTCCount > 0) parts.push(`${removedTCCount} TC${removedTCCount !== 1 ? "s" : ""} removed`);
+        await logActivity({
+          type: "execution_saved",
+          description: `Execution file "${file.title ?? ticketId}" saved: ${parts.join(", ")}`,
+          userId: changedBy,
+          entityId: file.id,
+          entityType: "execution",
+          newValue: { resultChanges: historyRows.length, tcAdded: addedTCCount, tcRemoved: removedTCCount },
+        });
       }
 
       // 4. Update file's updatedAt

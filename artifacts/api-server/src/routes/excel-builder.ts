@@ -276,6 +276,8 @@ export interface ExcelBuildOptions {
   allDefects?: DefectForExcel[];
   // Document register ref no e.g. "BSB-QA-FWCMS-153-CRD-V1.0"
   refNo?: string;
+  // CR011 P4: a PASS verdict closes the CAPA loop — fills empty Actual Closure Dates
+  capaClosureDate?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -411,7 +413,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo, capaClosureDate } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -546,7 +548,8 @@ export async function buildTestCaseExcel(
           if (ai.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
           if (ai.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
           if (ai.plannedDate) capaSheet.cell(`F${row}`).value(ai.plannedDate);
-          if (ai.actualClosureDate) capaSheet.cell(`G${row}`).value(ai.actualClosureDate);
+          const closure = ai.actualClosureDate || (capaClosureDate ? fmtShortDate(capaClosureDate) : "");
+          if (closure) capaSheet.cell(`G${row}`).value(closure);
         });
       } else {
         // Fallback: existing logic without AI
@@ -555,6 +558,7 @@ export async function buildTestCaseExcel(
           capaSheet.cell(`B${row}`).value(sl);
           capaSheet.cell(`C${row}`).value(analysisPoint);
           if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
+          if (capaClosureDate) capaSheet.cell(`G${row}`).value(fmtShortDate(capaClosureDate));
         });
       }
     }

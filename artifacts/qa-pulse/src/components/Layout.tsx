@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, GitMerge } from 'lucide-react';
+import { Columns3Cog, Shield, GitMerge, ScrollText } from 'lucide-react';
 
 import {
   HoverPulse,
@@ -415,6 +415,14 @@ const NAV_ITEMS: NavItem[] = [
     icon: Shield,
     activeColor: "text-slate-400",
     roles: ["admin"],
+  },
+  {
+    href: "/audit-log",
+    label: "Audit Log",
+    icon: ScrollText,
+    activeColor: "text-slate-500",
+    roles: ["admin"],
+    permKey: "nav:audit-log",
   },
   {
     href: "/settings",
