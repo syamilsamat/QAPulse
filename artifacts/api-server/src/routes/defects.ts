@@ -9,6 +9,7 @@ import {
   projectsTable,
   executionTestCasesTable,
   executionFilesTable,
+  redmineStatusesTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
@@ -19,6 +20,8 @@ import {
   pullProductionDefects,
   fetchIssueTree,
   severityFromPriority,
+  syncIssueStatuses,
+  pushStatusToRedmine,
 } from "./redmine-defect-bridge";
 
 const router: IRouter = Router();
@@ -422,6 +425,95 @@ router.post("/defects/:id/retry-sync", async (req, res): Promise<void> => {
     }
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Retry failed" });
+  }
+});
+
+// ─── Redmine status list (synced locally, auto-populates when empty) ─────────
+
+router.get("/defects/statuses", async (req, res): Promise<void> => {
+  try {
+    let statuses = await db.select().from(redmineStatusesTable);
+    if (statuses.length === 0) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      await syncIssueStatuses(apiKey);
+      statuses = await db.select().from(redmineStatusesTable);
+    }
+    res.json(statuses.map((s: any) => ({ redmineId: s.redmineId, name: s.name, isClosed: !!s.isClosed })));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to load statuses" });
+  }
+});
+
+router.post("/defects/sync-statuses", async (req, res): Promise<void> => {
+  try {
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const result = await syncIssueStatuses(apiKey);
+    if (result.error) {
+      res.status(502).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Status sync failed" });
+  }
+});
+
+// ─── Status edit (write-through: Redmine first, local cache on success) ──────
+
+router.patch("/defects/:id/status", async (req, res): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    const statusRedmineId = Number(req.body?.statusRedmineId);
+    if (!Number.isInteger(statusRedmineId)) {
+      res.status(400).json({ error: "statusRedmineId is required" });
+      return;
+    }
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    const [statusRow] = await db
+      .select()
+      .from(redmineStatusesTable)
+      .where(eq(redmineStatusesTable.redmineId, statusRedmineId));
+    if (!statusRow) {
+      res.status(400).json({ error: "Unknown status — sync statuses first" });
+      return;
+    }
+
+    // Write-through: Redmine is still the record. Only defects without a
+    // Redmine id (pending sync) may change status locally.
+    if (defect.redmineId) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      const push = await pushStatusToRedmine(defect.redmineId, statusRedmineId, apiKey);
+      if (!push.ok) {
+        res.status(502).json({ error: push.error ?? "Redmine rejected the status change" });
+        return;
+      }
+    }
+
+    const oldStatus = defect.status;
+    const [updated] = await db
+      .update(defectsTable)
+      .set({ status: statusRow.name, statusSyncedAt: new Date() })
+      .where(eq(defectsTable.id, id))
+      .returning();
+
+    await logActivity({
+      type: "defect_status_changed",
+      description: `Defect ${defect.defectCode ?? `#${id}`} status changed from ${oldStatus} to ${statusRow.name}${defect.redmineId ? ` (synced to Redmine #${defect.redmineId})` : " (local only — not yet in Redmine)"}`,
+      userId: actorFromReq(req),
+      entityId: id,
+      entityType: "defect",
+      oldValue: { status: oldStatus },
+      newValue: { status: statusRow.name },
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    console.error("[PATCH /defects/:id/status]", err);
+    res.status(500).json({ error: err?.message ?? "Status update failed" });
   }
 });
 
