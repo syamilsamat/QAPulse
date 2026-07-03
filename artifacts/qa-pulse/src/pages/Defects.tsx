@@ -93,8 +93,11 @@ interface Metrics {
   total: number;
   qaCount: number;
   prodCount: number;
+  othersCount: number;
   openQa: number;
   openProd: number;
+  openOthers: number;
+  otherTrackers: number;
   awaitingRetest: number;
   leakageRate: number;
   escapesAnalyzed: number;
@@ -143,7 +146,7 @@ export default function Defects() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
-  const [tab, setTab] = useState<"qa" | "production">("qa");
+  const [tab, setTab] = useState<"qa" | "production" | "other">("qa");
   const [view, setView] = useState<string>("open");
   const [filterProject, setFilterProject] = useState("all");
   const [filterSeverity, setFilterSeverity] = useState("all");
@@ -252,7 +255,16 @@ export default function Defects() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Pull failed");
       localStorage.setItem("qa_pulse_prod_tracker", pullTracker);
-      toast({ title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QAPulse (ignored)` });
+      const destParts = [
+        data.qaDefects ? `${data.qaDefects} QA` : null,
+        data.prodDefects ? `${data.prodDefects} prod` : null,
+        data.others ? `${data.others} others` : null,
+        data.requirements ? `${data.requirements} requirement(s)` : null,
+      ].filter(Boolean);
+      toast({
+        title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QAPulse (ignored)`,
+        description: destParts.length ? destParts.join(" · ") : undefined,
+      });
       invalidate();
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
@@ -331,12 +343,19 @@ export default function Defects() {
           { label: "Awaiting retest", value: metrics?.awaitingRetest ?? 0, cls: "text-amber-600" },
           { label: "Leakage rate", value: `${metrics?.leakageRate ?? 0}%`, cls: "text-blue-600" },
         ]
-      : [
-          { label: "Prod defects", value: metrics?.prodCount ?? 0, cls: "" },
-          { label: "Leakage rate", value: `${metrics?.leakageRate ?? 0}%`, cls: "text-red-600" },
-          { label: "Escapes analyzed", value: `${metrics?.escapesAnalyzed ?? 0} / ${metrics?.prodCount ?? 0}`, cls: "text-amber-600" },
-          { label: "Regression TCs added", value: metrics?.regressionTcs ?? 0, cls: "text-green-600" },
-        ];
+      : tab === "production"
+        ? [
+            { label: "Prod defects", value: metrics?.prodCount ?? 0, cls: "" },
+            { label: "Leakage rate", value: `${metrics?.leakageRate ?? 0}%`, cls: "text-red-600" },
+            { label: "Escapes analyzed", value: `${metrics?.escapesAnalyzed ?? 0} / ${metrics?.prodCount ?? 0}`, cls: "text-amber-600" },
+            { label: "Regression TCs added", value: metrics?.regressionTcs ?? 0, cls: "text-green-600" },
+          ]
+        : [
+            { label: "Other issues", value: metrics?.othersCount ?? 0, cls: "" },
+            { label: "Open", value: metrics?.openOthers ?? 0, cls: "text-red-600" },
+            { label: "Awaiting retest", value: metrics?.awaitingRetest ?? 0, cls: "text-amber-600" },
+            { label: "Distinct trackers", value: metrics?.otherTrackers ?? 0, cls: "text-blue-600" },
+          ];
 
   return (
     <div className="space-y-6">
@@ -380,6 +399,12 @@ export default function Defects() {
           onClick={() => { setTab("production"); setView("all"); setExpanded(new Set()); }}
         >
           Production
+        </button>
+        <button
+          className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "other" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setTab("other"); setView("all"); setExpanded(new Set()); }}
+        >
+          Others
         </button>
       </div>
 
@@ -441,11 +466,11 @@ export default function Defects() {
         </div>
       </div>
 
-      {/* Production pull sync bar */}
-      {tab === "production" && (
+      {/* Pull sync bar — each pulled issue routes by its own tracker */}
+      {(tab === "production" || tab === "other") && (
         <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
           <CloudUpload className="w-4 h-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Pull production incidents from Redmine tracker:</span>
+          <span className="text-xs text-muted-foreground">Pull issues from Redmine tracker:</span>
           <Select value={pullTracker} onValueChange={setPullTracker}>
             <SelectTrigger className="w-44 h-7 text-xs"><SelectValue placeholder="Select tracker..." /></SelectTrigger>
             <SelectContent>
@@ -467,7 +492,9 @@ export default function Defects() {
           <p className="text-sm">
             {tab === "production"
               ? "No production defects yet — pick the incident tracker above and pull from Redmine."
-              : "No defects match the selected filters."}
+              : tab === "other"
+                ? "No other-tracker issues yet — pull a tracker above or use Sync from Redmine."
+                : "No defects match the selected filters."}
           </p>
         </div>
       ) : (
@@ -733,6 +760,7 @@ function SyncRedmineDialog({
         data.requirements ? `${data.requirements} requirement(s)` : null,
         data.qaDefects ? `${data.qaDefects} QA defect(s)` : null,
         data.prodDefects ? `${data.prodDefects} prod defect(s)` : null,
+        data.others ? `${data.others} other(s)` : null,
         data.ignored ? `${data.ignored} already in QAPulse (ignored)` : null,
         data.skipped ? `${data.skipped} skipped by tracker filter` : null,
       ].filter(Boolean);
@@ -800,14 +828,14 @@ function SyncRedmineDialog({
             </Select>
             <p className="text-xs text-muted-foreground">
               {trackerName === "all"
-                ? "Syncs the whole subtree — every child and grandchild is routed by its own tracker: User Story → Requirements, Prod Defect → Production, QA Defect → QA list, others → QA list (tracker kept)."
+                ? "Syncs the whole subtree — every child and grandchild is routed by its own tracker: User Story → Requirements, Prod Defect → Production, QA Defect → QA list, others → Others tab."
                 : /prod/i.test(trackerName)
                   ? "Only Prod Defect issues in the subtree — saved as production defects."
                   : /story/i.test(trackerName)
                     ? "Only User Story issues in the subtree — saved as requirements under their parent."
                     : /defect|bug/i.test(trackerName)
                       ? "Only these issues in the subtree — saved as QA defects."
-                      : `Only "${trackerName}" issues — saved with that tracker, listed under QA defects for now.`}
+                      : `Only "${trackerName}" issues — saved with that tracker, listed in the Others tab.`}
             </p>
           </div>
         </div>

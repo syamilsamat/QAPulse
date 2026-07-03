@@ -1,5 +1,5 @@
 import { eq, inArray, isNotNull } from "drizzle-orm";
-import { db, defectsTable, trackersTable, redmineStatusesTable, type Defect } from "@workspace/db";
+import { db, defectsTable, trackersTable, redmineStatusesTable, requirementsTable, type Defect } from "@workspace/db";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CR019/CR020 Redmine defect bridge — DELIBERATELY the only file that knows
@@ -18,6 +18,23 @@ async function redmineFetch(path: string, apiKey: string, options: RequestInit =
   };
   if (apiKey) headers["X-Redmine-API-Key"] = apiKey;
   return fetch(`${getBaseUrl()}${path}`, { ...options, headers });
+}
+
+// Tracker routing shared by every import path:
+// User Story → requirement · Prod Defect → production tab · QA Defect/Bug →
+// QA tab · anything else → Others tab (full details kept)
+export function routeForTracker(trackerName: string): "qa" | "production" | "requirement" | "other" {
+  const n = (trackerName ?? "").toLowerCase();
+  if (n.includes("prod")) return "production";
+  if (n.includes("user story") || n.includes("story")) return "requirement";
+  if (n.includes("defect") || n.includes("bug")) return "qa";
+  return "other";
+}
+
+export function defectCodePrefix(route: string): string {
+  if (route === "production") return "DEF-P";
+  if (route === "other") return "DEF-O";
+  return "DEF-";
 }
 
 // Redmine priority name → QAPulse severity
@@ -236,16 +253,25 @@ export async function fetchIssueTree(
   }
 }
 
-// CR020 pull sync: import production incidents from the chosen Redmine tracker
-// as source='production' defects. INSERT-ONLY: issues already in QAPulse are
-// ignored untouched ("Refresh status" is the update mechanism).
-export async function pullProductionDefects(
-  apiKey: string,
-  trackerName: string,
-): Promise<{ imported: number; ignored: number; error?: string }> {
+// "Pull now": import the 100 most recently updated issues of the chosen
+// tracker, each routed by its tracker (QA/Prod/Others tabs, User Story →
+// requirement). INSERT-ONLY: issues already in QAPulse are ignored untouched
+// ("Refresh status" is the update mechanism).
+export interface PullResultCounts {
+  imported: number;
+  ignored: number;
+  qaDefects: number;
+  prodDefects: number;
+  others: number;
+  requirements: number;
+  error?: string;
+}
+
+export async function pullTrackerIssues(apiKey: string, trackerName: string): Promise<PullResultCounts> {
+  const empty: PullResultCounts = { imported: 0, ignored: 0, qaDefects: 0, prodDefects: 0, others: 0, requirements: 0 };
   const trackers = await db.select().from(trackersTable);
   const tracker = trackers.find((t: any) => t.name.toLowerCase() === trackerName.toLowerCase());
-  if (!tracker) return { imported: 0, ignored: 0, error: `Tracker "${trackerName}" not found — sync trackers first` };
+  if (!tracker) return { ...empty, error: `Tracker "${trackerName}" not found — sync trackers first` };
 
   let issues: any[] = [];
   try {
@@ -253,58 +279,81 @@ export async function pullProductionDefects(
       `/issues.json?tracker_id=${tracker.redmineId}&status_id=*&limit=100&sort=updated_on:desc`,
       apiKey,
     );
-    if (!res.ok) return { imported: 0, ignored: 0, error: `Redmine ${res.status}` };
+    if (!res.ok) return { ...empty, error: `Redmine ${res.status}` };
     const data: any = await res.json();
     issues = data?.issues ?? [];
   } catch (err: any) {
-    return { imported: 0, ignored: 0, error: err?.message ?? "Redmine unreachable" };
+    return { ...empty, error: err?.message ?? "Redmine unreachable" };
   }
 
-  if (issues.length === 0) return { imported: 0, ignored: 0 };
+  if (issues.length === 0) return empty;
 
-  const redmineIds = issues.map((i) => String(i.id));
-  const existing = await db
-    .select({ id: defectsTable.id, redmineId: defectsTable.redmineId })
-    .from(defectsTable)
-    .where(inArray(defectsTable.redmineId, redmineIds));
-  const existingByRedmine = new Map<string | null, number>(existing.map((e: any) => [e.redmineId, e.id]));
-
-  let imported = 0;
-  let ignored = 0;
+  const counts = { ...empty };
   for (const issue of issues) {
     const rid = String(issue.id);
-    const cached = {
-      status: issue.status?.name ?? "Unknown",
-      assigneeName: issue.assigned_to?.name ?? null,
-      statusSyncedAt: new Date(),
-    };
-    // insert-only: already in QAPulse → ignore untouched
-    if (existingByRedmine.has(rid)) {
-      ignored++;
-    } else {
-      const [row] = await db
-        .insert(defectsTable)
-        .values({
-          title: issue.subject ?? "Untitled",
-          description: issue.description ?? null,
-          severity: severityFromPriority(issue.priority?.name),
-          module: issue.category?.name ?? null,
-          category: issue.category?.name ?? null,
-          tracker: issue.tracker?.name ?? trackerName,
-          redmineId: rid,
-          syncStatus: "synced",
-          source: "production",
-          foundIn: "Production",
-          redmineCreatedAt: issue.created_on ? new Date(issue.created_on) : null,
-          ...cached,
-        })
-        .returning();
-      await db
-        .update(defectsTable)
-        .set({ defectCode: `DEF-P${String(row.id).padStart(4, "0")}` })
-        .where(eq(defectsTable.id, row.id));
-      imported++;
+    const issueTracker = issue.tracker?.name ?? trackerName;
+    const route = routeForTracker(issueTracker);
+
+    if (route === "requirement") {
+      // insert-only against the requirements table
+      const [existing] = await db
+        .select({ id: requirementsTable.id })
+        .from(requirementsTable)
+        .where(eq(requirementsTable.redmineTicketId, rid));
+      if (existing) {
+        counts.ignored++;
+        continue;
+      }
+      await db.insert(requirementsTable).values({
+        title: issue.subject ?? "Untitled",
+        description: issue.description ?? null,
+        module: issue.category?.name ?? null,
+        redmineTicketId: rid,
+        tracker: issueTracker,
+        status: "open",
+        redmineCreatedAt: issue.created_on ? new Date(issue.created_on) : null,
+      });
+      counts.imported++;
+      counts.requirements++;
+      continue;
     }
+
+    // defect destinations (qa / production / other)
+    const [existing] = await db
+      .select({ id: defectsTable.id })
+      .from(defectsTable)
+      .where(eq(defectsTable.redmineId, rid));
+    if (existing) {
+      counts.ignored++;
+      continue;
+    }
+    const [row] = await db
+      .insert(defectsTable)
+      .values({
+        title: issue.subject ?? "Untitled",
+        description: issue.description ?? null,
+        severity: severityFromPriority(issue.priority?.name),
+        module: issue.category?.name ?? null,
+        category: issue.category?.name ?? null,
+        tracker: issueTracker,
+        redmineId: rid,
+        syncStatus: "synced",
+        source: route,
+        foundIn: route === "production" ? "Production" : "SIT",
+        redmineCreatedAt: issue.created_on ? new Date(issue.created_on) : null,
+        status: issue.status?.name ?? "Unknown",
+        assigneeName: issue.assigned_to?.name ?? null,
+        statusSyncedAt: new Date(),
+      })
+      .returning();
+    await db
+      .update(defectsTable)
+      .set({ defectCode: `${defectCodePrefix(route)}${String(row.id).padStart(4, "0")}` })
+      .where(eq(defectsTable.id, row.id));
+    counts.imported++;
+    if (route === "production") counts.prodDefects++;
+    else if (route === "other") counts.others++;
+    else counts.qaDefects++;
   }
-  return { imported, ignored };
+  return counts;
 }
