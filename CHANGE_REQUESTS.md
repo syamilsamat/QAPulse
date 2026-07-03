@@ -125,30 +125,42 @@ Custom Playwright reporter that auto-pushes test results into QAPulse execution 
 ---
 
 ### CR011 — Audit Trail Enhancement
-**Status:** 📋 Planned (2026-06-29)
+**Status:** 📋 Planned (2026-06-29, plan refined 2026-07-03)
 
-Enhances the History Trail for real compliance/audit use:
+Builds a compliance-grade **Audit Log** (new admin-only page — note: `HistoryTrail.tsx` is a *task* history page, not the audit log; the activity feed lives on the Dashboard).
 
-**P0 — Core Audit Integrity**
-- Before/after change diffs (`oldValue`/`newValue` columns on `activity` table)
-- Actor identity (join users on every activity row)
+**Current-state findings (2026-07-03 survey):** three disconnected audit systems exist. (1) `activity` table logs only six create/assign event types — **updates and deletes are not logged anywhere**. (2) `execution_tc_history` already records from/to result with `changedBy` per execution TC (test-execution.ts save path) — P2's data layer already exists, it's just not surfaced. (3) `execution_file_audit` writes per-save summaries feeding the Review Log Excel sheet — P4 is half-built.
 
-**P1 — Usability**
-- Date range filter with URL-persisted params
-- Export Audit Log to Excel (Date, Actor, Entity, Action, Old, New)
+**Decisions (locked 2026-07-03):**
+- **Best-effort audit writes:** `logActivity()` helper wraps insert in try/catch — an audit failure never fails the business operation. (Revisit to strict mode only if compliance demands.)
+- **Audit Log page is admin-only** (nav-gated + route-gated).
 
-**P2 — Coverage Gaps**
-- Execution result change tracking (`execution_result_changed` activity type)
-- Verdict send audit entries
+**Phase 1 — P0 Core integrity**
+- Migration: `old_value` / `new_value` (nullable text, JSON of changed fields only) on `activity`; indexes on `created_at` and `(entity_type, entity_id)`.
+- `logActivity(db, {...})` helper (best-effort) replaces the six inline inserts.
+- Update/delete logging in requirements, test-cases, tasks PATCH/DELETE: fetch old row → changed-fields diff → one activity row. Creates keep `old_value = null`.
+- New `GET /audit-log`: paginated, actor name joined in SQL (not the current load-all-users pattern), filters entityType / userId / date range.
 
-**P3 — Security**
-- Login/logout event logging with IP, admin-only System filter
+**Phase 2 — P1 Usability**
+- New Audit Log page (admin-only): table view, date-range filter with URL-persisted params, Excel export (Date, Actor, Entity, Action, Old, New) client-side via `xlsx-js-style`.
 
-**P4 — Send Verdict Excel Integration**
-- Actor names + diffs in Review Log sheet
-- CAPA status auto-filled from verdict send log
+**Phase 3 — P2 Coverage**
+- Surface `execution_tc_history` in the audit page as a merged view (mapped to Old/New format) — do NOT double-write per-row activity.
+- **One summarized activity row per execution save** (bulk saves touch dozens of rows; per-row entries would flood the feed).
+- `verdict_sent` activity entry in send-verdict flow (recipients + file in `new_value`).
 
-DB change: `ALTER TABLE activity ADD COLUMN old_value text; ADD COLUMN new_value text;`
+**Phase 4 — P3 Security**
+- `user_login` / `user_logout` activity rows with IP. Requires `app.set("trust proxy", 1)` + `X-Forwarded-For` (Replit proxy) — global Express config change, verify it doesn't confuse future rate limiting (CR012).
+- Shown only under an admin-gated "System" filter.
+
+**Phase 5 — P4 Verdict Excel**
+- Review Log sheet gains actor + diff summaries (extends `execution_file_audit`); CAPA status auto-filled from `verdict_sent` entries.
+
+**Impact assessment:** low-risk/additive. Two nullable columns (one `db push`); dashboard feed response gains optional fields (non-breaking); each PATCH gains one SELECT + one INSERT (negligible); activity volume grows with update logging (mitigated by indexes + paginated endpoint).
+
+**Sequencing:** implement **before CR019** — the defects CR reuses this history pattern and the `logActivity` hook.
+
+DB change: `ALTER TABLE activity ADD COLUMN old_value text, ADD COLUMN new_value text;` + two indexes.
 
 ---
 
