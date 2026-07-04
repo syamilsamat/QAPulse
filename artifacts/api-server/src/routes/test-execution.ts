@@ -12,7 +12,7 @@ import {
   usersTable,
   requirementsTable,
 } from "@workspace/db";
-import { verifyToken } from "./auth";
+import { verifyToken, actorFromReq } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
@@ -318,6 +318,9 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
         } else {
           // Try to fetch and create requirement from Redmine
           try {
+            const importingUserId = actorFromReq(req);
+            if (!importingUserId) throw new Error("Unauthenticated — cannot resolve a createdBy fallback for the imported requirement");
+
             const effectiveProjectId = projectId !== undefined
               ? (projectId ? Number(projectId) : null)
               : (await db.select({ projectId: executionFilesTable.projectId })
@@ -338,6 +341,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
               undefined,
               tracker || undefined,
               apiKey,
+              importingUserId,
             );
             if (savedId) patch.requirementId = savedId;
           } catch (syncErr: any) {
@@ -485,6 +489,9 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
     // If not found locally and module+projectId provided, sync from Redmine
     if (!existingReq && targetModule && targetProjectId) {
       try {
+        const importingUserId = actorFromReq(req);
+        if (!importingUserId) throw new Error("Unauthenticated — cannot resolve a createdBy fallback for the imported requirement");
+
         const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
         const savedId = await syncRedmineTicket(
           newTicketId.trim(),
@@ -493,6 +500,7 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
           undefined,
           trackerFilter || undefined,
           apiKey,
+          importingUserId,
         );
         requirementId = savedId;
         // Re-fetch to get the synced title
