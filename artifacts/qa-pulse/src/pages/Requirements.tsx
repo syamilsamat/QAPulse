@@ -79,11 +79,20 @@ function capitalize(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  low: "bg-slate-100 text-slate-700",
-  normal: "bg-blue-100 text-blue-700",
-  high: "bg-orange-100 text-orange-700",
-  urgent: "bg-red-100 text-red-700",
+// Left-stripe convention: a colored row accent replaces the old pill badge —
+// the stripe is the primary signal, the Priority column keeps a plain text
+// label for accessibility (color alone isn't a sufficient indicator).
+const PRIORITY_STRIPE: Record<string, string> = {
+  low: "border-l-slate-300 dark:border-l-slate-600",
+  normal: "border-l-blue-400 dark:border-l-blue-500",
+  high: "border-l-orange-400 dark:border-l-orange-500",
+  urgent: "border-l-red-500 dark:border-l-red-500",
+};
+const PRIORITY_TEXT: Record<string, string> = {
+  low: "text-slate-600 dark:text-slate-400",
+  normal: "text-blue-600 dark:text-blue-400",
+  high: "text-orange-600 dark:text-orange-400",
+  urgent: "text-red-600 dark:text-red-400",
 };
 
 // 1. Build the Tree Structure
@@ -824,20 +833,24 @@ export default function Requirements() {
                 searchPlaceholder="Search module..."
                 className="flex-1 min-w-[120px]"
               />
-              <SearchableSelect
-                value={filterPriority}
-                onValueChange={setFilterPriority}
-                options={[
-                  { value: "all", label: "All Priority" },
+              <div className="flex items-center gap-1 shrink-0">
+                {[
+                  { value: "all", label: "All" },
                   { value: "low", label: "Low" },
                   { value: "normal", label: "Normal" },
                   { value: "high", label: "High" },
                   { value: "urgent", label: "Urgent" },
-                ]}
-                placeholder="Priority"
-                searchPlaceholder="Search..."
-                className="flex-1 min-w-[110px]"
-              />
+                ].map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setFilterPriority(p.value)}
+                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${filterPriority === p.value ? "bg-primary/10 text-primary border-primary/30 font-medium" : "text-muted-foreground border-border hover:bg-muted"}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
               <div className="flex border rounded-md overflow-hidden shrink-0">
                 <Button
                   variant={viewMode === "comfy" ? "default" : "ghost"}
@@ -909,7 +922,7 @@ export default function Requirements() {
                     {paginatedRequirements.map((r: any) => {
                       const cellPy = viewMode === "compact" ? "py-1.5" : "py-3";
                       return (
-                      <TableRow key={r.id} className={`hover:bg-muted/40 ${selectedReqs.includes(r.id) ? "bg-primary/5" : ""}`}>
+                      <TableRow key={r.id} className={`hover:bg-muted/40 border-l-4 ${PRIORITY_STRIPE[r.priority] ?? "border-l-transparent"} ${selectedReqs.includes(r.id) ? "bg-primary/5" : ""}`}>
                         <TableCell className={`text-center ${cellPy}`}>
                           <Checkbox
                             checked={selectedReqs.includes(r.id)}
@@ -1009,7 +1022,7 @@ export default function Requirements() {
                         )}
                         {viewMode === "comfy" && (
                           <TableCell className={cellPy}>
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${PRIORITY_COLORS[r.priority]}`}>
+                            <span className={`text-xs font-medium whitespace-nowrap ${PRIORITY_TEXT[r.priority] ?? "text-muted-foreground"}`}>
                               {capitalize(r.priority)}
                             </span>
                           </TableCell>
@@ -1203,10 +1216,13 @@ export default function Requirements() {
                   className={errors.priority ? "border-destructive" : ""}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>Release</Label>
-                <Input placeholder="e.g. v3.0" value={form.release ?? ""} onChange={(e) => setForm({ ...form, release: e.target.value })} />
-              </div>
+              {form.release && (
+                <div className="space-y-1.5">
+                  <Label>Release (legacy)</Label>
+                  <Input value={form.release} disabled className="text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Parent Redmine ID (Optional)</Label>
                 <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} />

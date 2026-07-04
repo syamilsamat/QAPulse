@@ -65,6 +65,9 @@ interface TraceabilityRow {
   reqStatus: string | null;
   parentId: number | null;
   milestoneId: number | null;
+  milestoneName: string | null;
+  milestoneTargetDate: string | null;
+  milestoneStatus: string | null;
   directTcCount: number;
   tcCount: number;
   passed: number;
@@ -213,6 +216,86 @@ export default function TraceabilityMatrix() {
     });
   };
 
+  // ─── Milestone grouping (CR017 target #2) ─────────────────────────────────
+  // Sub-groups a project's ROOT requirements by their own milestoneId. A
+  // root's tcCount/passed/etc already rolls up its whole subtree (CR016), so
+  // bucketing by the root's milestone — not walking each descendant's own
+  // milestoneId — is the simple, low-risk reading of "group by requirement
+  // tree." Only used when browsing "All Milestones"; a specific milestone
+  // filter already scopes everything to one milestone, so sub-grouping would
+  // be a single, pointless bucket.
+  interface MilestoneGroup {
+    milestoneId: number | null;
+    milestoneName: string | null;
+    milestoneTargetDate: string | null;
+    milestoneStatus: string | null;
+    rows: TraceabilityRow[];
+    reqCount: number;
+    tcCount: number;
+    passed: number;
+    failed: number;
+    blocked: number;
+    notRun: number;
+    coveragePct: number;
+    overallStatus: string;
+  }
+
+  function classifyOverall(tcCount: number, passed: number, failed: number, blocked: number, notRun: number): string {
+    if (tcCount === 0) return "no-tcs";
+    if (failed > 0) return "failing";
+    if (blocked > 0) return "blocked";
+    if (notRun === tcCount) return "not-run";
+    if (passed === tcCount) return "passed";
+    return "in-progress";
+  }
+
+  function groupRowsByMilestone(projectRows: TraceabilityRow[]): MilestoneGroup[] {
+    const buckets = new Map<number | null, MilestoneGroup>();
+    for (const row of projectRows) {
+      const key = row.milestoneId;
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          milestoneId: key,
+          milestoneName: row.milestoneName,
+          milestoneTargetDate: row.milestoneTargetDate,
+          milestoneStatus: row.milestoneStatus,
+          rows: [],
+          reqCount: 0, tcCount: 0, passed: 0, failed: 0, blocked: 0, notRun: 0, coveragePct: 0, overallStatus: "no-tcs",
+        });
+      }
+      const bucket = buckets.get(key)!;
+      bucket.rows.push(row);
+      bucket.reqCount++;
+      bucket.tcCount += row.tcCount;
+      bucket.passed += row.passed;
+      bucket.failed += row.failed;
+      bucket.blocked += row.blocked;
+      bucket.notRun += row.notRun;
+    }
+    for (const bucket of buckets.values()) {
+      bucket.coveragePct = bucket.tcCount > 0 ? Math.round((bucket.passed / bucket.tcCount) * 100) : 0;
+      bucket.overallStatus = classifyOverall(bucket.tcCount, bucket.passed, bucket.failed, bucket.blocked, bucket.notRun);
+    }
+    // No-milestone bucket last; otherwise order by target date (undated last within dated set)
+    return Array.from(buckets.values()).sort((a, b) => {
+      if (a.milestoneId === null) return 1;
+      if (b.milestoneId === null) return -1;
+      if (!a.milestoneTargetDate && !b.milestoneTargetDate) return 0;
+      if (!a.milestoneTargetDate) return 1;
+      if (!b.milestoneTargetDate) return -1;
+      return new Date(a.milestoneTargetDate).getTime() - new Date(b.milestoneTargetDate).getTime();
+    });
+  }
+
+  const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set());
+  const toggleMilestoneGroup = (key: string) => {
+    setCollapsedMilestones(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
   const toggleExpand = (reqId: number) => {
     setExpandedReqs((prev) => {
       const next = new Set(prev);
@@ -233,23 +316,24 @@ export default function TraceabilityMatrix() {
   const handleExport = () => {
     const sheetData: any[][] = [
       [
-        "Project", "Redmine ID", "Requirement", "Module", "Test Case ID", "TC Title",
+        "Project", "Redmine ID", "Requirement", "Module", "Milestone", "Test Case ID", "TC Title",
         "Result", "Defect #", "Executed At",
       ],
     ];
 
     const pushReqRows = (req: TraceabilityRow, depth: number) => {
       const title = depth > 0 ? `${"    ".repeat(depth)}↳ ${req.reqTitle}` : req.reqTitle;
+      const milestone = req.milestoneName ?? "—";
 
       if (req.children.length > 0) {
         sheetData.push([
-          "", req.reqRedmineId ?? req.reqId, title, req.reqModule ?? "", "", "",
+          "", req.reqRedmineId ?? req.reqId, title, req.reqModule ?? "", milestone, "", "",
           `${req.passed}/${req.tcCount} passed (rolled up)`, "", "",
         ]);
       }
 
       if (req.testCases.length === 0 && req.children.length === 0) {
-        sheetData.push(["", req.reqRedmineId ?? req.reqId, title, req.reqModule ?? "", "", "", "No TCs", "", ""]);
+        sheetData.push(["", req.reqRedmineId ?? req.reqId, title, req.reqModule ?? "", milestone, "", "", "No TCs", "", ""]);
       } else {
         for (const tc of req.testCases) {
           const latest = tc.results[tc.results.length - 1];
@@ -258,6 +342,7 @@ export default function TraceabilityMatrix() {
             req.reqRedmineId ?? req.reqId,
             title,
             req.reqModule ?? "",
+            milestone,
             tc.displayCaseId,
             tc.tcTitle ?? "",
             latest?.result ?? "Not Run",
@@ -272,7 +357,7 @@ export default function TraceabilityMatrix() {
 
     for (const group of groupedByProject) {
       // Project group header row
-      sheetData.push([group.projectName ?? "No Project", "", "", "", "", "", "", "", ""]);
+      sheetData.push([group.projectName ?? "No Project", "", "", "", "", "", "", "", "", ""]);
       for (const req of group.rows) pushReqRows(req, 0);
     }
 
@@ -291,7 +376,7 @@ export default function TraceabilityMatrix() {
     }
 
     // Color result cells
-    const resultCol = 6; // column G (0-indexed) — after adding Project column
+    const resultCol = 7; // column H (0-indexed) — after adding Project and Milestone columns
     for (let r = 1; r <= sheetData.length - 1; r++) {
       const cellRef = XLSX.utils.encode_cell({ r, c: resultCol });
       if (!ws[cellRef]) continue;
@@ -304,7 +389,7 @@ export default function TraceabilityMatrix() {
     }
 
     ws["!cols"] = [
-      { wch: 25 }, { wch: 12 }, { wch: 40 }, { wch: 20 }, { wch: 16 }, { wch: 40 },
+      { wch: 25 }, { wch: 12 }, { wch: 40 }, { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 40 },
       { wch: 12 }, { wch: 14 }, { wch: 20 },
     ];
 
@@ -597,7 +682,49 @@ export default function TraceabilityMatrix() {
                   </TableRow>
 
                   {/* Requirement rows (roots; children render on expand) */}
-                  {!collapsedProjects.has(group.projectId) &&
+                  {!collapsedProjects.has(group.projectId) && filterMilestone === "all" &&
+                    groupRowsByMilestone(group.rows).map((mg) => {
+                      const mgKey = `${group.projectId ?? "no-project"}:${mg.milestoneId ?? "no-milestone"}`;
+                      const mgCollapsed = collapsedMilestones.has(mgKey);
+                      return (
+                        <Fragment key={mgKey}>
+                          <TableRow
+                            className="bg-violet-50/60 dark:bg-violet-950/20 cursor-pointer hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                            onClick={() => toggleMilestoneGroup(mgKey)}
+                          >
+                            <TableCell />
+                            <TableCell colSpan={2}>
+                              <div className="flex items-center gap-2 font-medium text-sm">
+                                {mgCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                {mg.milestoneName ?? "No milestone"}
+                                {mg.milestoneTargetDate && (
+                                  <span className="text-xs font-normal text-muted-foreground">
+                                    due {format(new Date(mg.milestoneTargetDate), "d MMM yyyy")}
+                                  </span>
+                                )}
+                                <span className="text-xs font-normal text-muted-foreground">
+                                  ({mg.reqCount} requirement{mg.reqCount !== 1 ? "s" : ""})
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center text-sm font-medium">{mg.tcCount}</TableCell>
+                            <TableCell className="text-center text-sm text-green-600 font-medium">{mg.passed}</TableCell>
+                            <TableCell className="text-center text-sm text-red-600 font-medium">{mg.failed}</TableCell>
+                            <TableCell className="text-center text-sm text-orange-600 font-medium">{mg.blocked}</TableCell>
+                            <TableCell className="text-center text-sm text-gray-500 font-medium">{mg.notRun}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Progress value={mg.coveragePct} className="h-2 flex-1" />
+                                <span className="text-xs text-muted-foreground w-8 text-right">{mg.coveragePct}%</span>
+                              </div>
+                            </TableCell>
+                            <TableCell><StatusBadge status={mg.overallStatus} /></TableCell>
+                          </TableRow>
+                          {!mgCollapsed && mg.rows.map((req) => renderReqRows(req, 0))}
+                        </Fragment>
+                      );
+                    })}
+                  {!collapsedProjects.has(group.projectId) && filterMilestone !== "all" &&
                     group.rows.map((req) => renderReqRows(req, 0))}
                 </Fragment>
               ))}
