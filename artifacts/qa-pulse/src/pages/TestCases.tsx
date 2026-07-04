@@ -710,9 +710,16 @@ export default function TestCases() {
   const [nlLoading, setNlLoading] = useState(false);
   const [nlResultIds, setNlResultIds] = useState<number[] | null>(null);
   const nlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [filterProject, setFilterProject] = useState("all");
+  const [filterProject, setFilterProject] = useState(() => {
+    const params = new URLSearchParams(searchString);
+    return params.get("projectId") ?? "all";
+  });
   const [filterModule, setFilterModule] = useState("all");
   const [filterAI, setFilterAI] = useState("all");
+  const [filterMilestone, setFilterMilestone] = useState(() => {
+    const params = new URLSearchParams(searchString);
+    return params.get("milestoneId") ?? "all";
+  });
   const [sortBy, setSortBy] = useState("newest");
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -796,6 +803,21 @@ export default function TestCases() {
     },
   });
 
+  // Milestone filter options — scoped to the Project filter (GET /milestones
+  // requires a projectId), same dependency the Requirements page filter has.
+  const { data: milestonesForFilter = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject],
+    queryFn: async () => {
+      if (filterProject === "all") return [];
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${filterProject}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
+  });
+
   const { data: trackers = [] } = useQuery({
     queryKey: ["trackers"],
     queryFn: async () => {
@@ -816,7 +838,7 @@ export default function TestCases() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterProject, filterModule, filterAI, filterRequirement, sortBy, groupByModule]);
+  }, [search, filterProject, filterModule, filterAI, filterRequirement, filterMilestone, sortBy, groupByModule]);
 
   const isNlQuery = useCallback((q: string) => {
     if (q.length < 15) return false;
@@ -922,6 +944,16 @@ export default function TestCases() {
     return new Set([reqId, ...descendants.map((d) => d.id)]);
   }, [filterRequirement, requirements]);
 
+  // A TC's milestone is derived through its requirement (test_cases has no
+  // milestoneId column of its own — requirements.milestoneId is the only
+  // link). Every requirement is required to carry a milestone (CR023p3), so
+  // this is a direct lookup, not a tree-expansion like requirementFilterIds.
+  const reqMilestoneById = useMemo(() => {
+    const map = new Map<number, number | null>();
+    for (const r of requirements as any[]) map.set(r.id, r.milestoneId ?? null);
+    return map;
+  }, [requirements]);
+
   const filtered = useMemo(() => {
     // NL mode: filter by AI-returned IDs, preserve AI ranking order
     if (nlMode && nlResultIds !== null && !nlLoading) {
@@ -931,6 +963,7 @@ export default function TestCases() {
         if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
         if (filterModule !== "all" && (t.module ?? "") !== filterModule) return false;
         if (requirementFilterIds && !requirementFilterIds.has(t.requirementId)) return false;
+        if (filterMilestone !== "all" && reqMilestoneById.get(t.requirementId) !== Number(filterMilestone)) return false;
         if (filterAI === "ai" && !t.aiAssisted) return false;
         if (filterAI === "manual" && t.aiAssisted) return false;
         return true;
@@ -945,6 +978,8 @@ export default function TestCases() {
       if (filterModule !== "all" && (t.module ?? "") !== filterModule)
         return false;
       if (requirementFilterIds && !requirementFilterIds.has(t.requirementId))
+        return false;
+      if (filterMilestone !== "all" && reqMilestoneById.get(t.requirementId) !== Number(filterMilestone))
         return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
@@ -989,7 +1024,7 @@ export default function TestCases() {
     });
 
     return result;
-  }, [testCases, search, filterProject, filterModule, requirementFilterIds, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
+  }, [testCases, search, filterProject, filterModule, requirementFilterIds, filterMilestone, reqMilestoneById, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTestCases = filtered.slice(
@@ -1634,7 +1669,7 @@ export default function TestCases() {
               />
               <SearchableSelect
                 value={filterProject}
-                onValueChange={setFilterProject}
+                onValueChange={(v) => { setFilterProject(v); setFilterMilestone("all"); }}
                 options={[
                   { value: "all", label: "All Projects" },
                   ...projects.map((p) => ({ value: String(p.id), label: p.name })),
@@ -1642,6 +1677,17 @@ export default function TestCases() {
                 placeholder="Project"
                 searchPlaceholder="Search project..."
                 className="flex-1 min-w-[120px]"
+              />
+              <SearchableSelect
+                value={filterMilestone}
+                onValueChange={setFilterMilestone}
+                options={[
+                  { value: "all", label: "All Milestones" },
+                  ...milestonesForFilter.map((m) => ({ value: String(m.id), label: m.name })),
+                ]}
+                placeholder={filterProject !== "all" ? "Milestone" : "Select a project first"}
+                searchPlaceholder="Search milestones..."
+                className="flex-1 min-w-[130px]"
               />
               <SearchableSelect
                 value={filterModule}
