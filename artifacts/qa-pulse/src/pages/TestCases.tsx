@@ -828,7 +828,7 @@ export default function TestCases() {
     setNlLoading(true);
     nlDebounceRef.current = setTimeout(async () => {
       try {
-        const token = localStorage.getItem("qa_pulse_token");
+        const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
         const payload = {
           query: search,
           testCases: (testCases as any[]).map(tc => ({
@@ -1318,7 +1318,7 @@ export default function TestCases() {
   };
 
   const handleAISuccess = async (groups: { requirementId: number; requirementTitle: string; testCases: any[] }[], formData: any) => {
-    const token = localStorage.getItem("qa_pulse_token");
+    const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
     const saves = groups.flatMap((group) =>
       group.testCases.map((tc) =>
         fetch(`${getApiUrl()}/test-cases`, {
@@ -1346,13 +1346,21 @@ export default function TestCases() {
             module: formData?.module,
             authorId: formData?.authorId || user?.id,
           }),
+        }).then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r;
         }),
       ),
     );
-    const totalSaved = saves.length;
-    await Promise.all(saves);
+    const results = await Promise.allSettled(saves);
+    const saved = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
     await queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-    toast({ title: `${totalSaved} AI test cases saved` });
+    if (failed > 0) {
+      toast({ variant: "destructive", title: `${saved} saved, ${failed} failed — check you are logged in` });
+    } else {
+      toast({ title: `${saved} AI test cases saved` });
+    }
   };
 
   const tcTableRow = (tc: any) => {
