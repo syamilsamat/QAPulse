@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -97,7 +98,8 @@ function MetricCard({ label, value, tone }: { label: string; value: number; tone
   );
 }
 
-function MilestoneTile({ m }: { m: MilestoneSummary }) {
+function MilestoneTile({ m, projectId }: { m: MilestoneSummary; projectId: number }) {
+  const [, navigate] = useLocation();
   const readinessPct = m.qa.tcCount > 0 ? m.qa.passPct : m.approvedPct;
   const dueLabel = m.targetDate
     ? m.scheduleRisk === "overdue"
@@ -106,7 +108,11 @@ function MilestoneTile({ m }: { m: MilestoneSummary }) {
     : "Not scheduled";
 
   return (
-    <div className="border rounded-lg p-3 space-y-2">
+    <button
+      type="button"
+      onClick={() => navigate(`/requirements?projectId=${projectId}&milestoneId=${m.id}`)}
+      className="border rounded-lg p-3 space-y-2 text-left w-full hover:border-primary/50 hover:bg-muted/30 transition-colors"
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium">{m.name}</span>
         <RiskBadge risk={m.scheduleRisk} />
@@ -122,7 +128,7 @@ function MilestoneTile({ m }: { m: MilestoneSummary }) {
         {m.qa.tcCount > 0 && ` · ${m.qa.passPct}% QA coverage`}
         {m.uat && ` · ${m.uat.passPct}% UAT`}
       </p>
-    </div>
+    </button>
   );
 }
 
@@ -233,7 +239,7 @@ export default function PmDashboard() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {project.milestones.map((m) => (
-                    <MilestoneTile key={m.id} m={m} />
+                    <MilestoneTile key={m.id} m={m} projectId={project.projectId} />
                   ))}
                 </div>
               )}

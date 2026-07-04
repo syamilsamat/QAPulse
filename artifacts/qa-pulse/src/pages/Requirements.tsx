@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listRequirements,
@@ -122,11 +122,13 @@ export default function Requirements() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
+  const searchString = useSearch();
 
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
+  const [filterMilestone, setFilterMilestone] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("newest");
   const [viewMode, setViewMode] = useState<"comfy" | "compact">(() => {
     try { return (localStorage.getItem("req_view_mode") as "comfy" | "compact") ?? "comfy"; } catch { return "comfy"; }
@@ -208,6 +210,35 @@ export default function Requirements() {
     enabled: !!formProjectId && dialogOpen,
   });
 
+  // Milestone filter options — scoped to the selected Project filter, same
+  // dependency the create/edit form's Milestone picker already has (the
+  // /milestones endpoint requires a projectId).
+  const { data: milestonesForFilter = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject],
+    queryFn: async () => {
+      if (filterProject === "all") return [];
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${filterProject}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
+  });
+
+  // ?projectId=&milestoneId= deep link (e.g. from the PM Dashboard's
+  // milestone tiles) — pre-fill both filters on first load.
+  const hasAppliedDeepLink = useRef(false);
+  useEffect(() => {
+    if (hasAppliedDeepLink.current) return;
+    const params = new URLSearchParams(searchString);
+    const projectIdParam = params.get("projectId");
+    const milestoneIdParam = params.get("milestoneId");
+    if (!projectIdParam && !milestoneIdParam) return;
+    hasAppliedDeepLink.current = true;
+    if (projectIdParam) setFilterProject(projectIdParam);
+    if (milestoneIdParam) setFilterMilestone(milestoneIdParam);
+  }, [searchString]);
+
   const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_REVIEW_ROLES.includes(user?.role ?? "");
 
@@ -239,7 +270,7 @@ export default function Requirements() {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedReqs([]);
-  }, [search, filterPriority, filterProject, filterModule, sortBy]);
+  }, [search, filterPriority, filterProject, filterModule, filterMilestone, sortBy]);
 
   const createMutation = useCreateRequirement({
     mutation: {
@@ -287,6 +318,7 @@ export default function Requirements() {
       if (filterPriority !== "all" && r.priority !== filterPriority) return false;
       if (filterProject !== "all" && String(r.projectId) !== filterProject) return false;
       if (filterModule !== "all" && (r.module ?? "") !== filterModule) return false;
+      if (filterMilestone !== "all" && String(r.milestoneId) !== filterMilestone) return false;
       return true;
     };
 
@@ -336,7 +368,7 @@ export default function Requirements() {
     });
 
     return result;
-  }, [requirements, search, filterPriority, filterProject, filterModule, sortBy]);
+  }, [requirements, search, filterPriority, filterProject, filterModule, filterMilestone, sortBy]);
 
   // Auto-expand all parents of descendant results when searching
   useEffect(() => {
@@ -761,7 +793,7 @@ export default function Requirements() {
               />
               <SearchableSelect
                 value={filterProject}
-                onValueChange={setFilterProject}
+                onValueChange={(v) => { setFilterProject(v); setFilterMilestone("all"); }}
                 options={[
                   { value: "all", label: "All Projects" },
                   ...projects.map((p) => ({ value: String(p.id), label: p.name })),
@@ -769,6 +801,17 @@ export default function Requirements() {
                 placeholder="Project"
                 searchPlaceholder="Search project..."
                 className="flex-1 min-w-[120px]"
+              />
+              <SearchableSelect
+                value={filterMilestone}
+                onValueChange={setFilterMilestone}
+                options={[
+                  { value: "all", label: "All Milestones" },
+                  ...milestonesForFilter.map((m) => ({ value: String(m.id), label: m.name })),
+                ]}
+                placeholder={filterProject !== "all" ? "Milestone" : "Select a project first"}
+                searchPlaceholder="Search milestones..."
+                className="flex-1 min-w-[130px]"
               />
               <SearchableSelect
                 value={filterModule}
