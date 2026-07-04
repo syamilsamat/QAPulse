@@ -454,6 +454,7 @@ export default function Requirements() {
       priority: "normal",
       status: "draft",
       milestoneId: parentReq.milestoneId ?? null,
+      tracker: parentReq.tracker ?? undefined,
     });
     setAcceptanceCriteria([]);
     setNewCriterion("");
