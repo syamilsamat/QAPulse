@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+const TeamsPage = lazy(() => import("./Teams"));
 import { Columns3Cog } from 'lucide-react';
 import {
   fetchProjects,
@@ -634,6 +635,11 @@ export default function ModuleAndProject() {
           {isLeadOrAdmin && (
             <TabsTrigger value="team" className="gap-2">
               <Users className="w-4 h-4" /> Team Members
+            </TabsTrigger>
+          )}
+          {user?.role === "admin" && (
+            <TabsTrigger value="teams" className="gap-2">
+              <Users className="w-4 h-4" /> Teams
             </TabsTrigger>
           )}
           <TabsTrigger value="doc-register" className="gap-2">
@@ -1340,6 +1346,14 @@ export default function ModuleAndProject() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {user?.role === "admin" && (
+          <TabsContent value="teams">
+            <Suspense fallback={<div className="p-6 text-muted-foreground text-sm">Loading…</div>}>
+              <TeamsPage />
+            </Suspense>
+          </TabsContent>
+        )}
 
       </Tabs>
 
