@@ -466,6 +466,9 @@ export default function Requirements() {
     const errs: Record<string, string> = {};
     if (!form.title?.trim()) errs.title = "Title is required";
     if (!form.priority) errs.priority = "Priority is required";
+    if (!form.projectId) errs.projectId = "Project is required";
+    if (reqFormModules.length === 0) errs.module = "At least one module is required";
+    if (!form.milestoneId) errs.milestoneId = "Milestone is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -1090,18 +1093,20 @@ export default function Requirements() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <Label>Project</Label>
+                <Label>Project <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v), milestoneId: null })}
                   options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
                   placeholder="Select project"
                   searchPlaceholder="Search project..."
+                  className={errors.projectId ? "border-destructive" : ""}
                 />
+                {errors.projectId && <p className="text-xs text-destructive">{errors.projectId}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Module</Label>
-                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
+                <Label>Module <span className="text-destructive">*</span></Label>
+                <div className={`border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5 ${errors.module ? "border-destructive" : ""}`}>
                   {(executionModules as any[]).map((m: any) => (
                     <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
                       <Checkbox
@@ -1112,7 +1117,10 @@ export default function Requirements() {
                     </label>
                   ))}
                 </div>
-                {reqFormModules.length > 0 && <p className="text-xs text-muted-foreground">{reqFormModules.length} selected</p>}
+                {errors.module
+                  ? <p className="text-xs text-destructive">{errors.module}</p>
+                  : reqFormModules.length > 0 && <p className="text-xs text-muted-foreground">{reqFormModules.length} selected</p>
+                }
               </div>
               <div className="space-y-1.5">
                 <Label>Tracker</Label>
@@ -1154,14 +1162,22 @@ export default function Requirements() {
                 <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label>Milestone</Label>
+                <Label>Milestone <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={form.milestoneId ? String(form.milestoneId) : ""}
                   onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
-                  options={[{ value: "", label: "None" }, ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name }))]}
+                  options={[
+                    { value: "", label: form.projectId ? "Select milestone…" : "Select a project first" },
+                    ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name })),
+                  ]}
                   placeholder="Select milestone…"
                   searchPlaceholder="Search milestones…"
+                  className={errors.milestoneId ? "border-destructive" : ""}
                 />
+                {errors.milestoneId && <p className="text-xs text-destructive">{errors.milestoneId}</p>}
+                {form.projectId && milestonesForProject.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No milestones for this project — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
+                )}
               </div>
             </div>
 
