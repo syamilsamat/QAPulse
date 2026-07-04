@@ -219,9 +219,9 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 - **Part 2 — Milestones** (PR #293): `milestones` table + CRUD + `/milestones` page.
 - **Part 4 — FA track** (PR #293): review workflow with segregation of duties, RequirementDetail page, review queue banner, description snapshots + diffs.
 - **Role tiers seeded** (Parts 3/5/6 role definitions): `cto` (tier 5), `hod_qa`/`hod_pm`/`hod_fa`/`hod_dev` (tier 4), FA/Dev lead + member roles, all with department/tierRank and nav permissions; Department + Tier Rank admin-editable on the Roles page.
+- **Part 1 completion — `traceability`, `test-execution`, `defects` routes scoped** *(2026-07-04, second pass)*: all three now require auth (previously traceability had **no auth check at all**, and the other two only parsed tokens opportunistically) and enforce project scoping — list endpoints filter to accessible projects, entity endpoints 403 on inaccessible projects, project moves also check the target project. Rows with `projectId = null` (legacy files / Redmine pulls without a project) stay visible to any authenticated user. The `/execution-events` SSE stream stays deliberately unauthenticated (EventSource can't send headers; it only emits `{ticketId, type}` pings — revisit if the payload grows). Three token-less frontend fetches fixed along the way (`TestCases.tsx` modules/trackers, `Tasks.tsx` execution-progress).
 
 **Still outstanding:**
-- **Access scoping NOT retrofitted to `traceability`, `test-execution`, or `defects` routes** — these remain unscoped; any authenticated user can still reach any project's data through them. This is the remaining hole in Part 1.
 - **Part 3 — PM dashboard** (`GET /dashboard/pm-summary` + `PmDashboard.tsx`) not built.
 - See CR023 for review-workflow gaps found when auditing the shipped FA track against the full design.
 

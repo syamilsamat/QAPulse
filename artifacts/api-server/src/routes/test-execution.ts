@@ -14,6 +14,7 @@ import {
   testCasesTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
@@ -22,9 +23,30 @@ import { fetchActiveDefectsForIssue } from "./pmo-report";
 
 const router: IRouter = Router();
 
+// CR014 access control (per-route, not router-level, because /execution-events
+// is an SSE stream the browser's EventSource opens without headers).
+function requireAuth(req: any, res: any): { userId: number; role: string } | null {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  return ctx;
+}
+
+// Files with no project are legacy rows that predate project scoping — visible
+// to any authenticated user. Scoping applies only to project-tagged files.
+async function canAccessFileProject(
+  ctx: { userId: number; role: string },
+  projectId: number | null | undefined,
+): Promise<boolean> {
+  if (projectId == null) return true;
+  return canAccessProject(ctx.userId, ctx.role, projectId);
+}
+
 // --- 1. SETUP SERVER-SENT EVENTS (SSE) CLIENTS ---
 const clients = new Set<any>();
 
+// Deliberately unauthenticated: EventSource cannot send an Authorization
+// header, and the stream only emits {ticketId, type:"UPDATED"} pings — no
+// test data. Revisit if the payload ever grows.
 router.get("/execution-events", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -44,7 +66,8 @@ const broadcastUpdate = (ticketId: string) => {
    MODULES
    ──────────────────────────────── */
 
-router.get("/modules", async (_req, res): Promise<void> => {
+router.get("/modules", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const modules = await db.select().from(executionModulesTable);
     res.json(
@@ -60,6 +83,7 @@ router.get("/modules", async (_req, res): Promise<void> => {
 });
 
 router.post("/modules", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const { name } = req.body;
     if (!name || !name.trim()) {
@@ -79,6 +103,7 @@ router.post("/modules", async (req, res): Promise<void> => {
 });
 
 router.delete("/modules/:id", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -95,6 +120,7 @@ router.delete("/modules/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/modules/:id", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -133,9 +159,15 @@ router.patch("/modules/:id", async (req, res): Promise<void> => {
    EXECUTION FILES
    ──────────────────────────────── */
 
-router.get("/execution-files", async (_req, res): Promise<void> => {
+router.get("/execution-files", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
-    const files = await db.select().from(executionFilesTable);
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    let files = await db.select().from(executionFilesTable);
+    if (accessible !== null) {
+      files = files.filter((f) => f.projectId == null || accessible.includes(f.projectId));
+    }
     res.json(
       files.map((f) => ({
         id: f.id,
@@ -157,9 +189,24 @@ router.get("/execution-files", async (_req, res): Promise<void> => {
 });
 
 // Returns aggregated execution progress per redmine ticket ID (full breakdown)
-router.get("/execution-progress", async (_req, res): Promise<void> => {
+router.get("/execution-progress", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
-    const rows = await db.select().from(executionSummariesTable);
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    let rows = await db.select().from(executionSummariesTable);
+    if (accessible !== null) {
+      const files = await db
+        .select({ redmineTicketId: executionFilesTable.redmineTicketId, projectId: executionFilesTable.projectId })
+        .from(executionFilesTable);
+      const projectByTicket = new Map<string, number | null>(
+        files.map((f: { redmineTicketId: string; projectId: number | null }) => [f.redmineTicketId, f.projectId]),
+      );
+      rows = rows.filter((r: { redmineTicketId: string }) => {
+        const pid = projectByTicket.get(r.redmineTicketId);
+        return pid == null || accessible.includes(pid);
+      });
+    }
     const agg: Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }> = {};
     for (const row of rows) {
       if (!agg[row.redmineTicketId]) agg[row.redmineTicketId] = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
@@ -178,7 +225,8 @@ router.get("/execution-progress", async (_req, res): Promise<void> => {
 
 // ─── Trackers (synced from Redmine) ──────────────────────────────────────────
 
-router.get("/trackers", async (_req, res): Promise<void> => {
+router.get("/trackers", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const trackers = await db.select().from(trackersTable).orderBy(trackersTable.name);
     res.json(trackers);
@@ -188,6 +236,7 @@ router.get("/trackers", async (_req, res): Promise<void> => {
 });
 
 router.post("/trackers/sync", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const apiKey = (req.headers["x-redmine-user-key"] as string | undefined) || process.env.REDMINE_API_KEY || "";
     const redmineUrl = process.env.REDMINE_URL || "https://redmine.bestinet.my";
@@ -216,10 +265,16 @@ router.post("/trackers/sync", async (req, res): Promise<void> => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post("/execution-files", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { redmineTicketId, title, qaPic, remarks, selectedModules, tracker, projectId, requirementId, milestoneId, fileType } = req.body;
     if (!redmineTicketId || !redmineTicketId.trim()) {
       res.status(400).json({ error: "Redmine Ticket ID is required" });
+      return;
+    }
+    if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     const [file] = await db
@@ -281,13 +336,32 @@ router.post("/execution-files", async (req, res): Promise<void> => {
 });
 
 router.patch("/execution-files/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
+    const [currentFile] = await db
+      .select({ projectId: executionFilesTable.projectId })
+      .from(executionFilesTable)
+      .where(eq(executionFilesTable.id, id));
+    if (!currentFile) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    if (!(await canAccessFileProject(ctx, currentFile.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
     const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId, qaPic } = req.body;
+    // Moving the file to another project also requires access to the target
+    if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
+      res.status(403).json({ error: "Access denied to the target project" });
+      return;
+    }
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (selectedModules !== undefined) patch.selectedModules = selectedModules || null;
     if (title !== undefined) patch.title = title || null;
@@ -396,6 +470,8 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
 });
 
 router.get("/execution-files/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -408,6 +484,10 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
       .where(eq(executionFilesTable.id, id));
     if (!file) {
       res.status(404).json({ error: "File not found" });
+      return;
+    }
+    if (!(await canAccessFileProject(ctx, file.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     res.json({
@@ -428,6 +508,8 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/execution-files/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -436,9 +518,13 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
     }
     // Look up the ticket ID before deleting so we can clean up orphaned summaries
     const [file] = await db
-      .select({ redmineTicketId: executionFilesTable.redmineTicketId })
+      .select({ redmineTicketId: executionFilesTable.redmineTicketId, projectId: executionFilesTable.projectId })
       .from(executionFilesTable)
       .where(eq(executionFilesTable.id, id));
+    if (file && !(await canAccessFileProject(ctx, file.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
 
     await db.delete(executionFilesTable).where(eq(executionFilesTable.id, id));
 
@@ -457,6 +543,8 @@ router.delete("/execution-files/:id", async (req, res): Promise<void> => {
    ──────────────────────────────── */
 
 router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { ticketId } = req.params;
     const { newTicketId, newTitle, resetResults = true, copyQaPic = true, module: targetModule, projectId: targetProjectId, trackerFilter } = req.body;
@@ -470,6 +558,14 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
       .where(eq(executionFilesTable.redmineTicketId, ticketId));
     if (!sourceFile) {
       res.status(404).json({ error: "Source execution file not found" });
+      return;
+    }
+    if (!(await canAccessFileProject(ctx, sourceFile.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    if (targetProjectId && !(await canAccessProject(ctx.userId, ctx.role, Number(targetProjectId)))) {
+      res.status(403).json({ error: "Access denied to the target project" });
       return;
     }
 
@@ -578,8 +674,18 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
    ──────────────────────────────── */
 
 router.get("/execution-files/:ticketId/summaries", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { ticketId } = req.params;
+    const [file] = await db
+      .select({ projectId: executionFilesTable.projectId })
+      .from(executionFilesTable)
+      .where(eq(executionFilesTable.redmineTicketId, ticketId));
+    if (file && !(await canAccessFileProject(ctx, file.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
     const rows = await db.select().from(executionSummariesTable)
       .where(eq(executionSummariesTable.redmineTicketId, ticketId));
     res.json(rows);
@@ -595,6 +701,8 @@ router.get("/execution-files/:ticketId/summaries", async (req, res): Promise<voi
 router.get(
   "/execution-files/:ticketId/test-cases",
   async (req, res): Promise<void> => {
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
     try {
       const ticketId = req.params.ticketId;
       const [file] = await db
@@ -604,6 +712,10 @@ router.get(
 
       if (!file) {
         res.json({ testCases: [], lastUpdatedAt: null });
+        return;
+      }
+      if (!(await canAccessFileProject(ctx, file.projectId))) {
+        res.status(403).json({ error: "Access denied to this project" });
         return;
       }
 
@@ -669,6 +781,8 @@ router.get(
 router.post(
   "/execution-files/:ticketId/test-cases",
   async (req, res): Promise<void> => {
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
     try {
       const ticketId = req.params.ticketId;
       // testCases: rows to upsert (dirty rows for auto-save, all rows for full sync)
@@ -687,6 +801,10 @@ router.post(
 
       if (!file) {
         res.status(404).json({ error: "Execution file not found" });
+        return;
+      }
+      if (!(await canAccessFileProject(ctx, file.projectId))) {
+        res.status(403).json({ error: "Access denied to this project" });
         return;
       }
 
@@ -1030,6 +1148,8 @@ router.post(
    ──────────────────────────────── */
 
 router.get("/execution-files/:ticketId/download-excel", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { ticketId } = req.params;
     const { issueType, issueSubject, senderName, projectName } = req.query as Record<string, string>;
@@ -1038,6 +1158,10 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       .select()
       .from(executionFilesTable)
       .where(eq(executionFilesTable.redmineTicketId, ticketId));
+    if (file && !(await canAccessFileProject(ctx, file.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
 
     const testCases = file
       ? await db

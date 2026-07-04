@@ -12,6 +12,7 @@ import {
   redmineStatusesTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 import { resolveApiKeyFromToken } from "./requirements";
 import {
@@ -27,6 +28,23 @@ import {
 } from "./redmine-defect-bridge";
 
 const router: IRouter = Router();
+
+// CR014 access control. Defects with no project are visible to any
+// authenticated user (Redmine pulls can land without a project); scoping
+// applies only to project-tagged defects.
+function requireAuth(req: any, res: any): { userId: number; role: string } | null {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  return ctx;
+}
+
+async function canAccessDefectProject(
+  ctx: { userId: number; role: string },
+  projectId: number | null | undefined,
+): Promise<boolean> {
+  if (projectId == null) return true;
+  return canAccessProject(ctx.userId, ctx.role, projectId);
+}
 
 // Redmine statuses that mean "fix landed, QA should retest"
 const RETEST_STATUS = /fixed|resolved|ready/i;
@@ -54,10 +72,21 @@ async function backfillDefectNumber(executionTcId: number, redmineId: string) {
 // ─── List ────────────────────────────────────────────────────────────────────
 
 router.get("/defects", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { source, severity, projectId, search, escapeStatus, view } = req.query as Record<string, string>;
 
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (projectId && accessible !== null && !accessible.includes(Number(projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
     let defects = await db.select().from(defectsTable).orderBy(desc(defectsTable.id));
+    if (accessible !== null) {
+      defects = defects.filter((d: any) => d.projectId == null || accessible.includes(d.projectId));
+    }
     if (source) defects = defects.filter((d: any) => d.source === source);
     if (severity) defects = defects.filter((d: any) => d.severity === severity);
     if (projectId) defects = defects.filter((d: any) => d.projectId === Number(projectId));
@@ -174,9 +203,19 @@ router.get("/defects", async (req, res): Promise<void> => {
 // ─── Metrics (incl. CR020 leakage rate) ──────────────────────────────────────
 
 router.get("/defects/metrics", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { projectId } = req.query as Record<string, string>;
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (projectId && accessible !== null && !accessible.includes(Number(projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
     let defects = await db.select().from(defectsTable);
+    if (accessible !== null) {
+      defects = defects.filter((d: any) => d.projectId == null || accessible.includes(d.projectId));
+    }
     if (projectId) defects = defects.filter((d: any) => d.projectId === Number(projectId));
 
     const links = await db.select().from(defectLinksTable);
@@ -221,6 +260,13 @@ router.post("/defects", async (req, res): Promise<void> => {
 
     if (!title || typeof title !== "string" || !title.trim()) {
       res.status(400).json({ error: "title is required" });
+      return;
+    }
+
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
+    if (projectId != null && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
 
@@ -314,6 +360,8 @@ router.post("/defects", async (req, res): Promise<void> => {
 // Defects page and retest tracking know about it. Upserts by redmineId.
 
 router.post("/defects/register", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId } = req.body ?? {};
     if (!redmineId || !title) {
@@ -343,6 +391,11 @@ router.post("/defects/register", async (req, res): Promise<void> => {
         if (/uat/i.test(row.fileTracker ?? "")) foundIn = "UAT";
         execMeta = { libraryTcId: row.libraryTcId, requirementId: row.requirementId };
       }
+    }
+
+    if (!(await canAccessDefectProject(ctx, projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
     }
 
     const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
@@ -403,11 +456,17 @@ router.post("/defects/register", async (req, res): Promise<void> => {
 // ─── Retry a pending/errored Redmine push ────────────────────────────────────
 
 router.post("/defects/:id/retry-sync", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = Number(req.params.id);
     const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
     if (!defect) {
       res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
@@ -437,6 +496,7 @@ router.post("/defects/:id/retry-sync", async (req, res): Promise<void> => {
 // ─── Redmine status list (synced locally, auto-populates when empty) ─────────
 
 router.get("/defects/statuses", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     let statuses = await db.select().from(redmineStatusesTable);
     if (statuses.length === 0) {
@@ -451,6 +511,7 @@ router.get("/defects/statuses", async (req, res): Promise<void> => {
 });
 
 router.post("/defects/sync-statuses", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
     const result = await syncIssueStatuses(apiKey);
@@ -467,6 +528,8 @@ router.post("/defects/sync-statuses", async (req, res): Promise<void> => {
 // ─── Status edit (write-through: Redmine first, local cache on success) ──────
 
 router.patch("/defects/:id/status", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = Number(req.params.id);
     const statusRedmineId = Number(req.body?.statusRedmineId);
@@ -477,6 +540,10 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
     if (!defect) {
       res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     const [statusRow] = await db
@@ -526,6 +593,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
 // ─── Refresh cached Redmine statuses (one-way read) ──────────────────────────
 
 router.post("/defects/refresh-status", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
     const result = await refreshDefectStatuses(apiKey);
@@ -538,6 +606,7 @@ router.post("/defects/refresh-status", async (req, res): Promise<void> => {
 // ─── CR020: pull production incidents from Redmine ───────────────────────────
 
 router.post("/defects/pull-production", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   try {
     const trackerName = req.body?.trackerName;
     if (!trackerName || typeof trackerName !== "string") {
@@ -568,6 +637,8 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
 // Prod Defect → Production tab · User Story → requirements · else → Others tab.
 
 router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const { projectId, module, requirementId, trackerName } = req.body ?? {};
     if (!requirementId) {
@@ -586,6 +657,10 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
       .where(eq(requirementsTable.id, Number(requirementId)));
     if (!requirement) {
       res.status(404).json({ error: "Requirement not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, projectId ?? requirement.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     if (!requirement.redmineTicketId) {
@@ -736,11 +811,17 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
 // ─── CR020: escape review fields ─────────────────────────────────────────────
 
 router.patch("/defects/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = Number(req.params.id);
     const [before] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
     if (!before) {
       res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, before.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     const patch: Record<string, any> = {};
@@ -749,6 +830,10 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
     }
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "Nothing to update" });
+      return;
+    }
+    if (patch.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, Number(patch.projectId)))) {
+      res.status(403).json({ error: "Access denied to the target project" });
       return;
     }
     const [updated] = await db.update(defectsTable).set(patch).where(eq(defectsTable.id, id)).returning();
@@ -773,11 +858,17 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
 // ─── CR020: create a regression TC from a defect ─────────────────────────────
 
 router.post("/defects/:id/regression-tc", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const id = Number(req.params.id);
     const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
     if (!defect) {
       res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
       return;
     }
 
