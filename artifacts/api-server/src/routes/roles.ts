@@ -41,7 +41,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
 
 let bootstrapped = false;
 
-async function bootstrap() {
+export async function bootstrap() {
   if (bootstrapped) return;
 
   await pool.query(`

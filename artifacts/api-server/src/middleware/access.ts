@@ -28,47 +28,53 @@ export function getAuthContext(req: Request): AuthContext | null {
 
 /**
  * Returns the set of project IDs this user can access, or null meaning
- * unrestricted (admin / cto). Used by all entity list endpoints to scope
- * results to the caller's project membership.
+ * unrestricted (admin / cto). Falls back to null if the membership tables
+ * haven't been created yet (bootstrap hasn't run), preserving pre-CR014
+ * behaviour until the schema is ready.
  */
 export async function scopeToUserProjects(userId: number, role: string): Promise<number[] | null> {
   if (role === "admin") return null;
 
-  const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
-  const tierRank = roleRow?.tierRank ?? 1;
-  const department = roleRow?.department ?? null;
+  try {
+    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+    const tierRank = roleRow?.tierRank ?? 1;
+    const department = roleRow?.department ?? null;
 
-  // CTO tier — sees everything
-  if (tierRank >= 5) return null;
+    // CTO tier — sees everything
+    if (tierRank >= 5) return null;
 
-  const ids = new Set<number>();
+    const ids = new Set<number>();
 
-  if (tierRank >= 4 && department) {
-    // HOD — all projects whose teams belong to their department
-    const rows = await db
-      .select({ projectId: projectTeamsTable.projectId })
-      .from(projectTeamsTable)
-      .innerJoin(teamsTable, eq(teamsTable.id, projectTeamsTable.teamId))
-      .where(eq(teamsTable.department, department));
-    for (const r of rows) ids.add(r.projectId);
-  } else {
-    // Lead / Member — only projects in their teams
-    const rows = await db
-      .select({ projectId: projectTeamsTable.projectId })
-      .from(projectTeamsTable)
-      .innerJoin(userTeamsTable, eq(userTeamsTable.teamId, projectTeamsTable.teamId))
-      .where(eq(userTeamsTable.userId, userId));
-    for (const r of rows) ids.add(r.projectId);
+    if (tierRank >= 4 && department) {
+      // HOD — all projects whose teams belong to their department
+      const rows = await db
+        .select({ projectId: projectTeamsTable.projectId })
+        .from(projectTeamsTable)
+        .innerJoin(teamsTable, eq(teamsTable.id, projectTeamsTable.teamId))
+        .where(eq(teamsTable.department, department));
+      for (const r of rows) ids.add(r.projectId);
+    } else {
+      // Lead / Member — only projects in their teams
+      const rows = await db
+        .select({ projectId: projectTeamsTable.projectId })
+        .from(projectTeamsTable)
+        .innerJoin(userTeamsTable, eq(userTeamsTable.teamId, projectTeamsTable.teamId))
+        .where(eq(userTeamsTable.userId, userId));
+      for (const r of rows) ids.add(r.projectId);
+    }
+
+    // Direct project_members escape hatch
+    const direct = await db
+      .select({ projectId: projectMembersTable.projectId })
+      .from(projectMembersTable)
+      .where(eq(projectMembersTable.userId, userId));
+    for (const r of direct) ids.add(r.projectId);
+
+    return Array.from(ids);
+  } catch {
+    // Tables not yet created (bootstrap pending) — fall back to unrestricted
+    return null;
   }
-
-  // Direct project_members escape hatch
-  const direct = await db
-    .select({ projectId: projectMembersTable.projectId })
-    .from(projectMembersTable)
-    .where(eq(projectMembersTable.userId, userId));
-  for (const r of direct) ids.add(r.projectId);
-
-  return Array.from(ids);
 }
 
 export async function canAccessProject(userId: number, role: string, projectId: number): Promise<boolean> {
