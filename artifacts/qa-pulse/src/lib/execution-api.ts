@@ -73,7 +73,8 @@ const getRedmineKey = (): string | null => {
 };
 
 const getHeaders = () => {
-  const token = localStorage.getItem("qa_pulse_token");
+  // Check both storages: token lives in sessionStorage when "Remember Me" is off
+  const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
   const redmineKey = getRedmineKey();
   return {
     "Content-Type": "application/json",
