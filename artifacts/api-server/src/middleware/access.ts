@@ -54,21 +54,37 @@ export async function scopeToUserProjects(userId: number, role: string): Promise
         .where(eq(teamsTable.department, department));
       for (const r of rows) ids.add(r.projectId);
     } else {
-      // Lead / Member — only projects in their teams
-      const rows = await db
-        .select({ projectId: projectTeamsTable.projectId })
-        .from(projectTeamsTable)
-        .innerJoin(userTeamsTable, eq(userTeamsTable.teamId, projectTeamsTable.teamId))
+      // Lead / Member — check whether they belong to any team first
+      const teamMemberships = await db
+        .select({ teamId: userTeamsTable.teamId })
+        .from(userTeamsTable)
         .where(eq(userTeamsTable.userId, userId));
-      for (const r of rows) ids.add(r.projectId);
-    }
 
-    // Direct project_members escape hatch
-    const direct = await db
-      .select({ projectId: projectMembersTable.projectId })
-      .from(projectMembersTable)
-      .where(eq(projectMembersTable.userId, userId));
-    for (const r of direct) ids.add(r.projectId);
+      if (teamMemberships.length > 0) {
+        // User is in teams → team-scoped access + any explicit individual overrides
+        const teamRows = await db
+          .select({ projectId: projectTeamsTable.projectId })
+          .from(projectTeamsTable)
+          .innerJoin(userTeamsTable, eq(userTeamsTable.teamId, projectTeamsTable.teamId))
+          .where(eq(userTeamsTable.userId, userId));
+        for (const r of teamRows) ids.add(r.projectId);
+
+        // Explicit individual project_members (intentional overrides, not backfill)
+        const direct = await db
+          .select({ projectId: projectMembersTable.projectId })
+          .from(projectMembersTable)
+          .where(eq(projectMembersTable.userId, userId));
+        for (const r of direct) ids.add(r.projectId);
+      } else {
+        // No team assignments yet — fall back to project_members (bootstrap backfill
+        // gives everyone access to all projects until teams are configured).
+        const direct = await db
+          .select({ projectId: projectMembersTable.projectId })
+          .from(projectMembersTable)
+          .where(eq(projectMembersTable.userId, userId));
+        for (const r of direct) ids.add(r.projectId);
+      }
+    }
 
     return Array.from(ids);
   } catch {

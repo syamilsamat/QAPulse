@@ -8,10 +8,19 @@ const router: IRouter = Router();
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_ROLES: Array<{ name: string; description: string; isSystem: boolean; department: string | null; tierRank: number | null }> = [
-  { name: "admin",      description: "Admin",      isSystem: true,  department: null, tierRank: null },
-  { name: "qa_lead",    description: "QA Lead",    isSystem: false, department: "qa", tierRank: 2 },
-  { name: "qa_member",  description: "QA Member",  isSystem: false, department: "qa", tierRank: 1 },
-  { name: "pmo",        description: "PMO",        isSystem: false, department: "pm", tierRank: 1 },
+  { name: "admin",      description: "Admin",                    isSystem: true,  department: null, tierRank: null },
+  { name: "cto",        description: "CTO / Director",           isSystem: false, department: null, tierRank: 5 },
+  { name: "hod_qa",     description: "Head of QA",               isSystem: false, department: "qa", tierRank: 4 },
+  { name: "hod_pm",     description: "Head of PM",               isSystem: false, department: "pm", tierRank: 4 },
+  { name: "hod_fa",     description: "Head of FA",               isSystem: false, department: "fa", tierRank: 4 },
+  { name: "hod_dev",    description: "Head of Dev",              isSystem: false, department: "dev", tierRank: 4 },
+  { name: "qa_lead",    description: "QA Lead",                  isSystem: false, department: "qa", tierRank: 2 },
+  { name: "qa_member",  description: "QA Member",                isSystem: false, department: "qa", tierRank: 1 },
+  { name: "fa_lead",    description: "Functional Analyst Lead",  isSystem: false, department: "fa", tierRank: 2 },
+  { name: "fa_member",  description: "Functional Analyst",       isSystem: false, department: "fa", tierRank: 1 },
+  { name: "dev_lead",   description: "Dev Lead",                 isSystem: false, department: "dev", tierRank: 2 },
+  { name: "dev_member", description: "Developer",                isSystem: false, department: "dev", tierRank: 1 },
+  { name: "pmo",        description: "PMO",                      isSystem: false, department: "pm", tierRank: 1 },
 ];
 
 export const ALL_NAV_KEYS = [
@@ -31,10 +40,19 @@ export const ALL_NAV_KEYS = [
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
-  admin: ALL_NAV_KEYS,
-  qa_lead: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
-  qa_member: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts"],
-  pmo: [],
+  admin:      ALL_NAV_KEYS,
+  cto:        ALL_NAV_KEYS,
+  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
+  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
+  hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
+  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
+  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
+  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts"],
+  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
+  fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts"],
+  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
+  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts"],
+  pmo:        [],
 };
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
