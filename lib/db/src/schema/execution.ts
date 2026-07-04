@@ -53,6 +53,8 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   qaPic: text("qa_pic"),
   rowOrder: integer("row_order").notNull().default(0),
   rowType: text("row_type").notNull().default("testcase"), // "testcase" | "group" — group rows are section banners, label lives in caseName
+  // CR023p4 — per-execution-instance ack of a requirement revision
+  reviewAcknowledgedAt: timestamp("review_acknowledged_at"),
 });
 
 // 4. Status Change History Table (audit trail for CAPA / Pareto analysis)

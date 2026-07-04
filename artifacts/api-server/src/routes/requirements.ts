@@ -14,6 +14,7 @@ import {
   insertRequirementSchema,
   testCasesTable,
   executionTestCasesTable,
+  tasksTable,
 } from "@workspace/db";
 import {
   GetRequirementParams,
@@ -375,6 +376,55 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     let actorId: number | null = null;
     try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
     await notifyUser(requirement.assigneeId, "Requirement assigned", `"${requirement.title}" has been assigned to you.`, "requirement", "requirement", requirement.id, actorId);
+  }
+
+  // CR023p4 — a description change re-opens review on every linked test case
+  // and task, and fans out a revision notice to the requirement's author,
+  // assignee, and every assignee of a linked task.
+  const descriptionChanged = !!diff?.newValue && Object.prototype.hasOwnProperty.call(diff.newValue, "description");
+  if (descriptionChanged) {
+    const now = new Date();
+    const revisedTcs = await db.update(testCasesTable)
+      .set({ requirementRevisedAt: now })
+      .where(eq(testCasesTable.requirementId, requirement.id))
+      .returning({ id: testCasesTable.id });
+
+    const revisedTasks = await db.update(tasksTable)
+      .set({ requirementRevisedAt: now })
+      .where(eq(tasksTable.requirementId, requirement.id))
+      .returning({ id: tasksTable.id, assigneeIds: tasksTable.assigneeIds });
+
+    if (revisedTcs.length > 0 || revisedTasks.length > 0) {
+      const recipients = new Set<number>();
+      if (requirement.createdBy) recipients.add(requirement.createdBy);
+      if (requirement.assigneeId) recipients.add(requirement.assigneeId);
+      for (const t of revisedTasks) {
+        for (const uid of t.assigneeIds ?? []) recipients.add(uid);
+      }
+
+      const actorId = actorFromReq(req);
+      await Promise.all(
+        [...recipients].map((uid) =>
+          notifyUser(
+            uid,
+            "Requirement revised",
+            `"${requirement.title}" was revised — linked test cases/tasks need re-review.`,
+            "requirement_revised",
+            "requirement",
+            requirement.id,
+            actorId,
+          ).catch(() => {}),
+        ),
+      );
+
+      await logActivity({
+        type: "requirement_revised",
+        description: `Requirement "${requirement.title}" description revised — ${revisedTcs.length} test case(s) and ${revisedTasks.length} task(s) flagged for re-review`,
+        userId: actorId,
+        entityId: requirement.id,
+        entityType: "requirement",
+      });
+    }
   }
 
   // --- CASCADE UPDATES TO CHILDREN ---

@@ -586,6 +586,22 @@ export default function Tasks() {
     },
   });
 
+  // CR023p4 — clears the requirement-revision alert; visibility only, no status change
+  const acknowledgeRevision = async (taskId: number) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/acknowledge-revision`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to acknowledge");
+      invalidate();
+    } catch {
+      toast({ variant: "destructive", title: "Failed to acknowledge revision" });
+    }
+  };
+
+  const revisedTasks = useMemo(
+    () => (tasks as any[]).filter((t) => t.requirementRevisedAt),
+    [tasks],
+  );
+
   const filtered = useMemo(() => {
     // 1. Filter the dataset
     let result = tasks.filter((t: any) => {
@@ -995,6 +1011,29 @@ export default function Tasks() {
           users={users}
           onAssign={openAssignDialog}
         />
+      )}
+
+      {revisedTasks.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span className="font-semibold text-sm text-amber-700 dark:text-amber-400">
+                Linked requirement revised ({revisedTasks.length})
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-1">
+            {revisedTasks.map((t: any) => (
+              <div key={t.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-amber-100 dark:border-amber-900">
+                <span className="truncate flex-1">{t.name}</span>
+                <Button size="sm" variant="outline" className="h-7 text-xs shrink-0 ml-2" onClick={() => acknowledgeRevision(t.id)}>
+                  Acknowledge
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       <Card>
