@@ -1444,14 +1444,25 @@ components:
           type: string
 
     # AI Generation
+    AIRequirementInput:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+
     AIGenerateInput:
       type: object
-      required: [requirementTitle]
+      required: [requirements]
       properties:
-        requirementTitle:
-          type: string
-        requirementDescription:
-          type: string
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIRequirementInput"
         module:
           type: string
         projectId:
@@ -1466,8 +1477,6 @@ components:
           type: string
         additionalNotes:
           type: string
-        requirementId:
-          type: integer
         generatePositive:
           type: boolean
         generateNegative:
@@ -1483,15 +1492,21 @@ components:
 
     AIGeneratedTestCase:
       type: object
-      required: [title, objective, preconditions, testSteps, expectedResult, type, priority]
+      required: [title, testSteps, expectedResult, type, priority]
       properties:
         title:
           type: string
-        objective:
+        redmineUserStory:
+          type: string
+        tracker:
+          type: string
+        scenario:
           type: string
         preconditions:
           type: string
         testSteps:
+          type: string
+        testData:
           type: string
         expectedResult:
           type: string
@@ -1501,17 +1516,30 @@ components:
           type: string
         tags:
           type: string
-        automationCandidate:
-          type: boolean
 
-    AIGenerateResponse:
+    AIGenerateResultGroup:
       type: object
-      required: [testCases]
+      required: [requirementId, requirementTitle, testCases]
       properties:
+        requirementId:
+          type: integer
+        requirementTitle:
+          type: string
         testCases:
           type: array
           items:
             $ref: "#/components/schemas/AIGeneratedTestCase"
+        error:
+          type: string
+
+    AIGenerateResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIGenerateResultGroup"
         similarTestCasesUsed:
           type: integer
         templateUsed:

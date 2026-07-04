@@ -24,6 +24,7 @@ import {
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
+import pLimit from "p-limit";
 
 // Initialize primary Gemini client
 const ai = new GoogleGenAI({});
@@ -107,7 +108,7 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
       clearTimeout(timeoutId); // Clear timeout if response is received
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as any;
         if (data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
           console.log(`✅ Success with Fallback Node: ${model}`);
           return data.choices[0].message.content;
@@ -176,110 +177,63 @@ async function formatTestCase(tc: any) {
   };
 }
 
-router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
-  const parsed = GenerateTestCasesWithAIBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const {
-    requirementTitle,
-    requirementDescription,
-    module: featureModule,
-    tags,
-    additionalNotes,
-    requirementId,
-    generatePositive,
-    generateNegative,
-    generateEdgeCases,
-    useTemplateOnly,
-    tracker: selectedTracker,
-  } = parsed.data;
-
-  let existingContext = "";
-  let similarCount = 0;
-  try {
-    let query: any = db.select().from(testCasesTable);
-    if (requirementId) query = query.where(eq(testCasesTable.requirementId, requirementId));
-
-    const existingCases = await query.limit(30);
-    similarCount = existingCases.length;
-
-    if (existingCases.length > 0) {
-      existingContext = "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
-        existingCases.map((tc: any) => `- Title: ${tc.title} | Scenario: ${tc.scenario || "N/A"}`).join("\n");
-    }
-  } catch (dbErr) {
-    console.warn("Could not read historical test cases.", dbErr);
-  }
-
-  const caseTypes = [];
-  if (generatePositive !== false) caseTypes.push("positive path");
-  if (generateNegative) caseTypes.push("negative validation");
-  if (generateEdgeCases) caseTypes.push("extreme boundary condition");
-
-  // Count how many distinct requirements were passed based on the delimiter from the frontend
-  const reqCount = requirementDescription ? requirementDescription.split("\n\n---\n\n").length : 1;
-  let countInstruction = "Generate a focused batch of 8 to 12 highly detailed test cases based on the requirements.";
-
-  if (reqCount > 1) {
-    const minTarget = reqCount * 5;
-    countInstruction = `Generate a comprehensive batch of test cases. Since there are ${reqCount} distinct requirements provided in the scope, you MUST generate at least ${minTarget} test cases in total (aiming for roughly 5 test cases per requirement). Do not artificially limit your output.`;
-  }
-
-  const systemInstruction = `You are an expert QA engine. ${countInstruction}
-    CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
-    If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
-    Return ONLY a valid JSON object matching this structure:
-    {
-      "testCases": [{
-        "title": "string (The Case Name)",
-        "redmineUserStory": "string (Extract from context if available)",
-        "tracker": "string",
-        "scenario": "string (Detailed scenario description)",
-        "preconditions": "string",
-        "testSteps": ["1. First step", "2. Second step"],
-        "testData": "string",
-        "expectedResult": "string",
-        "tags": "string",
-        "type": "string (manual or automation_candidate)",
-        "priority": "string (low, medium, high, or critical)"
-      }]
-    }`;
-
-  const userPrompt = `Requirement Hierarchy & Descriptions:\n${requirementDescription || "N/A"}\n\nModule: ${featureModule || "N/A"}\nTracker: ${selectedTracker || "N/A"}\nFocus Scenarios: ${caseTypes.join(", ")}\nNotes: ${additionalNotes || "None"} ${existingContext}`;
-
-  const fallbackObject = { testCases: [] };
-  let finalRawText = "";
-
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      testCases: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            redmineUserStory: { type: Type.STRING },
-            tracker: { type: Type.STRING },
-            scenario: { type: Type.STRING },
-            preconditions: { type: Type.STRING },
-            testSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
-            testData: { type: Type.STRING },
-            expectedResult: { type: Type.STRING },
-            tags: { type: Type.STRING },
-            type: { type: Type.STRING },
-            priority: { type: Type.STRING },
-          },
-          required: ["title", "scenario", "testSteps", "expectedResult"],
+const tcGenResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    testCases: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          redmineUserStory: { type: Type.STRING },
+          tracker: { type: Type.STRING },
+          scenario: { type: Type.STRING },
+          preconditions: { type: Type.STRING },
+          testSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+          testData: { type: Type.STRING },
+          expectedResult: { type: Type.STRING },
+          tags: { type: Type.STRING },
+          type: { type: Type.STRING },
+          priority: { type: Type.STRING },
         },
+        required: ["title", "scenario", "testSteps", "expectedResult"],
       },
     },
-    required: ["testCases"],
-  };
+  },
+  required: ["testCases"],
+};
 
+async function generateForRequirement(
+  req: { id: number; title: string; description?: string },
+  opts: {
+    caseTypes: string[];
+    featureModule?: string;
+    selectedTracker?: string;
+    additionalNotes?: string;
+    useTemplateOnly?: boolean;
+  },
+): Promise<{ testCases: any[]; error?: string }> {
+  let existingContext = "";
+  try {
+    const existingCases = await db.select().from(testCasesTable).where(eq(testCasesTable.requirementId, req.id)).limit(30);
+    if (existingCases.length > 0) {
+      existingContext =
+        "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
+        existingCases.map((tc: any) => `- Title: ${tc.title} | Scenario: ${tc.scenario || "N/A"}`).join("\n");
+    }
+  } catch {
+    // non-fatal
+  }
+
+  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 to 10 highly detailed test cases for the single requirement provided.
+    CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
+    If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
+    Return ONLY a valid JSON object with a "testCases" array.`;
+
+  const userPrompt = `Requirement: [#${req.id}] ${req.title}\nDescription: ${req.description || "No description provided"}\n\nModule: ${opts.featureModule || "N/A"}\nTracker: ${opts.selectedTracker || "N/A"}\nFocus Scenarios: ${opts.caseTypes.join(", ")}\nNotes: ${opts.additionalNotes || "None"}${existingContext}`;
+
+  let finalRawText = "";
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -288,30 +242,68 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
         systemInstruction,
         maxOutputTokens: 8192,
         responseMimeType: "application/json",
-        responseSchema: responseSchema,
+        responseSchema: tcGenResponseSchema,
       },
     });
     finalRawText = response.text ?? '{"testCases": []}';
   } catch (error: any) {
-    // FIX: Properly log the exact error so you know why Gemini failed
-    console.error("❌ Primary Gemini API failed:", error.message || error);
-    console.warn("🔄 Attempting fallback routing...");
+    console.error(`❌ Gemini failed for req ${req.id}:`, error.message || error);
     try {
       finalRawText = await callFallbackAI(systemInstruction, userPrompt);
-    } catch (fallbackError) {
-      res.status(500).json({ error: "All generative AI streams exhausted." });
-      return;
+    } catch {
+      return { testCases: [], error: "All generative AI streams exhausted." };
     }
   }
 
-  const parsedPayload = safeParseJSON(finalRawText, fallbackObject);
-  const formattedTestCases = (parsedPayload.testCases ?? []).map((tc: any) => {
+  const parsed = safeParseJSON(finalRawText, { testCases: [] });
+  const testCases = (parsed.testCases ?? []).map((tc: any) => {
     if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
     else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
     return tc;
   });
+  return { testCases };
+}
 
-  res.json({ testCases: formattedTestCases, similarTestCasesUsed: similarCount, templateUsed: useTemplateOnly ? "standard_template" : "hybrid" });
+router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
+  const parsed = GenerateTestCasesWithAIBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const {
+    requirements,
+    module: featureModule,
+    additionalNotes,
+    generatePositive,
+    generateNegative,
+    generateEdgeCases,
+    useTemplateOnly,
+    tracker: selectedTracker,
+  } = parsed.data;
+
+  const caseTypes: string[] = [];
+  if (generatePositive !== false) caseTypes.push("positive path");
+  if (generateNegative) caseTypes.push("negative validation");
+  if (generateEdgeCases) caseTypes.push("extreme boundary condition");
+
+  const limit = pLimit(3);
+  const settled = await Promise.allSettled(
+    requirements.map((r) =>
+      limit(() => generateForRequirement(r, { caseTypes, featureModule, selectedTracker, additionalNotes, useTemplateOnly })),
+    ),
+  );
+
+  const results = requirements.map((r, i) => {
+    const outcome = settled[i];
+    if (outcome.status === "fulfilled") {
+      return { requirementId: r.id, requirementTitle: r.title, testCases: outcome.value.testCases, error: outcome.value.error };
+    }
+    return { requirementId: r.id, requirementTitle: r.title, testCases: [], error: String((outcome as any).reason) };
+  });
+
+  const totalSimilar = results.reduce((sum, r) => sum + r.testCases.length, 0);
+  res.json({ results, similarTestCasesUsed: totalSimilar, templateUsed: useTemplateOnly ? "standard_template" : "hybrid" });
 });
 
 router.get("/test-cases", async (req, res): Promise<void> => {

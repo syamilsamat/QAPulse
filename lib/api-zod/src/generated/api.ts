@@ -557,9 +557,14 @@ export const CloneTestCaseResponse = zod.void();
 /**
  * @summary Generate test cases using AI
  */
+export const AIRequirementInput = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().optional(),
+});
+
 export const GenerateTestCasesWithAIBody = zod.object({
-  requirementTitle: zod.string(),
-  requirementDescription: zod.string().optional(),
+  requirements: zod.array(AIRequirementInput),
   module: zod.string().optional(),
   projectId: zod.number().optional(),
   release: zod.string().optional(),
@@ -567,7 +572,6 @@ export const GenerateTestCasesWithAIBody = zod.object({
   priority: zod.string().optional(),
   tags: zod.string().optional(),
   additionalNotes: zod.string().optional(),
-  requirementId: zod.number().optional(),
   generatePositive: zod.boolean().optional(),
   generateNegative: zod.boolean().optional(),
   generateEdgeCases: zod.boolean().optional(),
@@ -576,18 +580,27 @@ export const GenerateTestCasesWithAIBody = zod.object({
   tracker: zod.string().optional(),
 });
 
+export const AIGeneratedTestCaseSchema = zod.object({
+  title: zod.string(),
+  redmineUserStory: zod.string().optional(),
+  tracker: zod.string().optional(),
+  scenario: zod.string().optional(),
+  preconditions: zod.string().optional(),
+  testSteps: zod.string(),
+  testData: zod.string().optional(),
+  expectedResult: zod.string(),
+  type: zod.string(),
+  priority: zod.string(),
+  tags: zod.string().optional(),
+});
+
 export const GenerateTestCasesWithAIResponse = zod.object({
-  testCases: zod.array(
+  results: zod.array(
     zod.object({
-      title: zod.string(),
-      objective: zod.string(),
-      preconditions: zod.string(),
-      testSteps: zod.string(),
-      expectedResult: zod.string(),
-      type: zod.string(),
-      priority: zod.string(),
-      tags: zod.string().optional(),
-      automationCandidate: zod.boolean().optional(),
+      requirementId: zod.number(),
+      requirementTitle: zod.string(),
+      testCases: zod.array(AIGeneratedTestCaseSchema),
+      error: zod.string().optional(),
     }),
   ),
   similarTestCasesUsed: zod.number().optional(),

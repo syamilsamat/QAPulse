@@ -119,32 +119,29 @@ function AIGenerateDialog({
   const [aiFormModules, setAiFormModules] = useState<string[]>([]);
   const [availableReqs, setAvailableReqs] = useState<any[]>([]);
   const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
-  const [preview, setPreview] = useState<any[]>([]);
+  const [preview, setPreview] = useState<{ requirementId: number; requirementTitle: string; testCases: any[]; error?: string }[]>([]);
   const [step, setStep] = useState<"form" | "preview">("form");
   const generateMutation = useGenerateTestCasesWithAI();
 
   const handleGenerate = () => {
-    if (!form.requirementTitle) return;
+    if (selectedReqIds.size === 0 && availableReqs.length === 0) return;
 
-    // Combine checked Parent and Child descriptions into a single block with explicit delimiters
-    const selectedDesc = availableReqs
+    const selectedRequirements = availableReqs
       .filter((r) => selectedReqIds.has(r.id))
-      .map(
-        (r) =>
-          `[${r.depth === 0 ? "PARENT" : "CHILD"} REQUIREMENT: ${r.redmineTicketId ? "#" + r.redmineTicketId : "ID:" + r.id} - ${r.title}]\n${r.description || "No description"}`,
-      )
-      .join("\n\n---\n\n");
+      .map((r) => ({ id: r.id, title: r.title, description: r.description ?? "" }));
+
+    if (selectedRequirements.length === 0) return;
 
     generateMutation.mutate(
       {
         data: {
           ...form,
-          requirementDescription: selectedDesc,
-        } as AIGenerateInput,
+          requirements: selectedRequirements,
+        } as any,
       },
       {
-        onSuccess: (data) => {
-          setPreview(data.testCases ?? []);
+        onSuccess: (data: any) => {
+          setPreview(data.results ?? []);
           setStep("preview");
         },
       },
@@ -478,45 +475,53 @@ function AIGenerateDialog({
           <div className="space-y-4 py-2">
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                {preview.length} test case{preview.length !== 1 ? "s" : ""}{" "}
-                generated
+                {preview.reduce((sum, g) => sum + g.testCases.length, 0)} test case{preview.reduce((sum, g) => sum + g.testCases.length, 0) !== 1 ? "s" : ""}{" "}
+                generated across {preview.length} requirement{preview.length !== 1 ? "s" : ""}
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setStep("form")}
-              >
+              <Button variant="outline" size="sm" onClick={() => setStep("form")}>
                 Back
               </Button>
             </div>
-            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-              {preview.map((tc, i) => (
-                <Card key={i} className="border">
-                  <CardContent className="p-4 space-y-2">
-                    <p className="font-medium text-sm">{tc.title}</p>
-                    {tc.scenario && (
-                      <p className="text-xs text-muted-foreground">
-                        <strong className="text-foreground">Scenario:</strong>{" "}
-                        {tc.scenario}
-                      </p>
-                    )}
-                    {tc.testSteps && (
-                      <div className="text-xs bg-muted/50 rounded p-2 whitespace-pre-line font-mono mt-2">
-                        {tc.testSteps}
-                      </div>
-                    )}
-
-                    {/* NEW: Expected Result with Green Text */}
-                    {tc.expectedResult && (
-                      <div className="text-xs mt-2">
-                        <strong className="text-foreground">Expected Result:</strong>{" "}
-                        <span className="text-green-700 dark:text-green-400 font-medium whitespace-pre-line">
-                          {tc.expectedResult}
-                        </span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+            <div className="space-y-5 max-h-[50vh] overflow-y-auto pr-1">
+              {preview.map((group) => (
+                <div key={group.requirementId} className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide shrink-0">
+                      {group.requirementTitle} — {group.testCases.length} test case{group.testCases.length !== 1 ? "s" : ""}
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                  {group.error && (
+                    <p className="text-xs text-destructive px-1">{group.error}</p>
+                  )}
+                  {group.testCases.map((tc, i) => (
+                    <Card key={i} className="border">
+                      <CardContent className="p-4 space-y-2">
+                        <p className="font-medium text-sm">{tc.title}</p>
+                        {tc.scenario && (
+                          <p className="text-xs text-muted-foreground">
+                            <strong className="text-foreground">Scenario:</strong>{" "}
+                            {tc.scenario}
+                          </p>
+                        )}
+                        {tc.testSteps && (
+                          <div className="text-xs bg-muted/50 rounded p-2 whitespace-pre-line font-mono mt-2">
+                            {tc.testSteps}
+                          </div>
+                        )}
+                        {tc.expectedResult && (
+                          <div className="text-xs mt-2">
+                            <strong className="text-foreground">Expected Result:</strong>{" "}
+                            <span className="text-green-700 dark:text-green-400 font-medium whitespace-pre-line">
+                              {tc.expectedResult}
+                            </span>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
@@ -533,7 +538,7 @@ function AIGenerateDialog({
           {step === "form" ? (
             <Button
               onClick={handleGenerate}
-              disabled={!form.requirementTitle || !form.projectId || aiFormModules.length === 0 || generateMutation.isPending}
+              disabled={selectedReqIds.size === 0 || !form.projectId || aiFormModules.length === 0 || generateMutation.isPending}
               className="gap-2 w-full sm:w-auto"
             >
               {generateMutation.isPending ? (
@@ -557,7 +562,7 @@ function AIGenerateDialog({
               className="gap-2 w-full sm:w-auto"
             >
               <Plus className="w-4 h-4" />
-              Save All ({preview.length})
+              Save All ({preview.reduce((sum, g) => sum + g.testCases.length, 0)})
             </Button>
           )}
         </DialogFooter>
@@ -1312,39 +1317,42 @@ export default function TestCases() {
     else createMutation.mutate({ data: { ...submitData, aiAssisted: false, authorId: user?.id } as any });
   };
 
-  const handleAISuccess = async (aiTestCases: any[], formData: any) => {
+  const handleAISuccess = async (groups: { requirementId: number; requirementTitle: string; testCases: any[] }[], formData: any) => {
     const token = localStorage.getItem("qa_pulse_token");
-    const saves = aiTestCases.map((tc) =>
-      fetch(`${getApiUrl()}/test-cases`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          title: tc.title,
-          redmineUserStory: tc.redmineUserStory,
-          tracker: formData?.tracker || tc.tracker,
-          scenario: tc.scenario,
-          preconditions: tc.preconditions,
-          testSteps: tc.testSteps,
-          testData: tc.testData,
-          expectedResult: tc.expectedResult,
-          tags: tc.tags,
-          type: tc.type || "manual",
-          priority: tc.priority || "medium",
-          status: "active",
-          aiAssisted: true,
-          requirementId: formData?.requirementId,
-          projectId: formData?.projectId,
-          module: formData?.module,
-          authorId: formData?.authorId || user?.id,
+    const saves = groups.flatMap((group) =>
+      group.testCases.map((tc) =>
+        fetch(`${getApiUrl()}/test-cases`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            title: tc.title,
+            redmineUserStory: tc.redmineUserStory,
+            tracker: formData?.tracker || tc.tracker,
+            scenario: tc.scenario,
+            preconditions: tc.preconditions,
+            testSteps: tc.testSteps,
+            testData: tc.testData,
+            expectedResult: tc.expectedResult,
+            tags: tc.tags,
+            type: tc.type || "manual",
+            priority: tc.priority || "medium",
+            status: "active",
+            aiAssisted: true,
+            requirementId: group.requirementId,
+            projectId: formData?.projectId,
+            module: formData?.module,
+            authorId: formData?.authorId || user?.id,
+          }),
         }),
-      }),
+      ),
     );
+    const totalSaved = saves.length;
     await Promise.all(saves);
     await queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-    toast({ title: `${aiTestCases.length} AI test cases saved` });
+    toast({ title: `${totalSaved} AI test cases saved` });
   };
 
   const tcTableRow = (tc: any) => {
