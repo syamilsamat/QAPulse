@@ -97,6 +97,20 @@ async function exportToExcel(testCases: any[], senderName?: string) {
   URL.revokeObjectURL(url);
 }
 
+// Recursive descendant walk over a flat requirement list (parentId-linked).
+// Shared by the AI Generate dialog's requirement picker and the TC Library's
+// requirement filter, so filtering by a parent also surfaces TCs linked to
+// any child, grandchild, etc. — not just the exact requirement selected.
+function getAllDescendants(parentId: number, allReqs: any[], depth = 1): any[] {
+  const children = allReqs.filter((r: any) => r.parentId === parentId);
+  let desc: any[] = [];
+  for (const child of children) {
+    desc.push({ ...child, depth });
+    desc = desc.concat(getAllDescendants(child.id, allReqs, depth + 1));
+  }
+  return desc;
+}
+
 function AIGenerateDialog({
   open,
   onClose,
@@ -193,15 +207,6 @@ function AIGenerateDialog({
                     const reqId = Number(v);
                     const req = requirements.find((r: any) => r.id === reqId);
                     if (req) {
-                      const getAllDescendants = (parentId: number, allReqs: any[], depth = 1): any[] => {
-                        const children = allReqs.filter((r: any) => r.parentId === parentId);
-                        let desc: any[] = [];
-                        for (const child of children) {
-                          desc.push({ ...child, depth });
-                          desc = desc.concat(getAllDescendants(child.id, allReqs, depth + 1));
-                        }
-                        return desc;
-                      };
                       const descendants = getAllDescendants(req.id, requirements);
                       const combined = [{ ...req, depth: 0 }, ...descendants];
                       setAvailableReqs(combined);
@@ -907,6 +912,16 @@ export default function TestCases() {
     },
   });
 
+  // Requirement filter set: the selected requirement plus every descendant
+  // (child, grandchild, ...), so filtering by a parent surfaces TCs linked
+  // anywhere in its subtree, not just directly on that exact requirement.
+  const requirementFilterIds = useMemo(() => {
+    if (filterRequirement === "all") return null;
+    const reqId = Number(filterRequirement);
+    const descendants = getAllDescendants(reqId, requirements as any[]);
+    return new Set([reqId, ...descendants.map((d) => d.id)]);
+  }, [filterRequirement, requirements]);
+
   const filtered = useMemo(() => {
     // NL mode: filter by AI-returned IDs, preserve AI ranking order
     if (nlMode && nlResultIds !== null && !nlLoading) {
@@ -915,7 +930,7 @@ export default function TestCases() {
         if (!idSet.has(t.id)) return false;
         if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
         if (filterModule !== "all" && (t.module ?? "") !== filterModule) return false;
-        if (filterRequirement !== "all" && String(t.requirementId) !== filterRequirement) return false;
+        if (requirementFilterIds && !requirementFilterIds.has(t.requirementId)) return false;
         if (filterAI === "ai" && !t.aiAssisted) return false;
         if (filterAI === "manual" && t.aiAssisted) return false;
         return true;
@@ -929,7 +944,7 @@ export default function TestCases() {
         return false;
       if (filterModule !== "all" && (t.module ?? "") !== filterModule)
         return false;
-      if (filterRequirement !== "all" && String(t.requirementId) !== filterRequirement)
+      if (requirementFilterIds && !requirementFilterIds.has(t.requirementId))
         return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
@@ -974,7 +989,7 @@ export default function TestCases() {
     });
 
     return result;
-  }, [testCases, search, filterProject, filterModule, filterRequirement, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
+  }, [testCases, search, filterProject, filterModule, requirementFilterIds, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTestCases = filtered.slice(

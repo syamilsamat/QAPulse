@@ -31,6 +31,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR021](#cr021--native-defect-tracking-cutover-retire-redmine-for-defects) | Native Defect Tracking Cutover (Retire Redmine for Defects) | 📋 Planned | 2026-07-03 |
 | [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | ✅ Deployed | 2026-07-04 |
 | [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | ✅ Deployed | 2026-07-05 |
+| [CR024](#cr024--tc-library-requirement-filter-includes-descendants) | TC Library: Requirement Filter Includes Descendants | ✅ Deployed | 2026-07-05 |
 
 ---
 
@@ -477,3 +478,16 @@ A follow-up audit comparing CR014/CR022's actual shipped implementation against 
 - Editing an approved requirement's description now flags every linked test case and task as needing re-review; an "Alert: Revised" badge + acknowledge/"Revised" action surfaces across all three consumers — Tasks page, TC Library, and every execution view (Tree/Spreadsheet/Focus) in `TestCasesExecutionProgressPage.tsx`.
 
 Full plan: `docs/change-requests/requirement-detail-gaps.md`
+
+---
+
+### CR024 — TC Library: Requirement Filter Includes Descendants
+**Status:** ✅ Deployed (2026-07-05)
+
+Filtering the TC Library by requirement previously matched only test cases linked to that exact requirement — a parent requirement's filter would miss test cases linked to its children, grandchildren, etc., even though CR016 already treats the requirement hierarchy as a single unit for coverage rollup on the Traceability Matrix. Same tree, different page, was inconsistent.
+
+- Filtering by a requirement now includes every descendant in the subtree (child, grandchild, and beyond), not just direct children.
+- Extracted the recursive `getAllDescendants(parentId, allReqs, depth)` walk to module scope in `TestCases.tsx` — it previously existed only as an inline closure inside the AI Generate dialog's requirement picker. Both the filter and the AI dialog now share one implementation.
+- Client-side only: the filter builds a `Set` of {selected requirement id} ∪ all descendant ids and checks membership instead of strict equality, in both the normal and NL-search filter branches.
+
+**Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
