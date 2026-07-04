@@ -67,7 +67,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     type,
     status,
     targetDate: targetDate ? new Date(targetDate) : null,
-    createdBy: ctx.userId,
+    createdBy: (ctx as any).id ?? ctx.userId,
   }).returning();
 
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: ctx.id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
