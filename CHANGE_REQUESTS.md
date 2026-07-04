@@ -23,6 +23,13 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
 | [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ⏳ Pending | — |
 | [CR015](#cr015--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | 📋 Planned | 2026-07-02 |
+| [CR016](#cr016--traceability-matrix-requirement-hierarchy) | Traceability Matrix Requirement Hierarchy | ✅ Deployed | 2026-07-03 |
+| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | 📋 Planned | 2026-07-03 |
+| [CR018](#cr018--tc-library-execution-file-drill-down) | TC Library: Execution File Drill-Down | ✅ Deployed | 2026-07-03 |
+| [CR019](#cr019--defect-tracking-write-through-to-redmine--defects-page) | Defect Tracking: Write-Through to Redmine + Defects Page | 📋 Planned | 2026-07-03 |
+| [CR020](#cr020--production-defect-workflow-escape-analysis) | Production Defect Workflow (Escape Analysis) | 📋 Planned | 2026-07-03 |
+| [CR021](#cr021--native-defect-tracking-cutover-retire-redmine-for-defects) | Native Defect Tracking Cutover (Retire Redmine for Defects) | 📋 Planned | 2026-07-03 |
+| [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | 📋 Planned | 2026-07-04 |
 
 ---
 
@@ -224,9 +231,12 @@ Expands QAPulse to match this org's real reporting structure: a CTO above four d
 - New `GET /dashboard/pm-summary` + `PmDashboard.tsx`, grouped per project → per milestone
 
 **Part 4 — FA track (`functional_analyst`, `fa_lead`, `hod_fa_bi`)**
-- `reviewedBy` / `reviewedAt` columns on `requirementsTable`
-- `PATCH /requirements/:id/review` — upstream requirement baseline approval
+- Audit columns on `requirementsTable`: `createdBy` + separate `approvedBy`/`approvedAt` and `rejectedBy`/`rejectedAt` (last approval and last rejection independently retrievable; full journal in `activityTable`)
+- `PATCH /requirements/:id/review` — upstream approval gate, with segregation of duties (author cannot approve own requirement) + notification fan-out (PM looped in on reject)
 - `PATCH /milestones/:id/review` — downstream UAT sign-off, closing the loop back to the FA track (notifies the milestone's creator/PM)
+- Requirement Detail page (`/requirements/:id`) — ancestry breadcrumb, child requirements, History panel, "Analyze with AI"
+- **"My Review Queue"** — per-FA buckets ("waiting on my review" / "awaiting my revision") as a tab on the Requirements page; `fa_lead`+ automatically see the team-wide queue with aging (days in status, stalled rows highlighted) *(added 2026-07-04)*
+- **Description snapshots + old-vs-new diff** — new `oldValue`/`newValue` columns on `activityTable` (additive slice of CR011); every description edit journals both versions, History panel renders the diff so re-reviewers see exactly what changed between reject and resubmit *(added 2026-07-04)*
 - `bi`/`bi_lead` role names reserved (so `hod_fa_bi` visibility is forward-compatible) but BI itself is **not** onboarded in this CR
 
 **Part 5 — QA tier expansion (`qa_manager`, `hod_qa` — new)**
@@ -236,7 +246,7 @@ Expands QAPulse to match this org's real reporting structure: a CTO above four d
 - Broadest nav (like `admin`) but no role/user-management permissions — "see everything, configure nothing"
 - Unrestricted project visibility (same `null` sentinel as `admin`)
 
-Full plan: `docs/change-requests/pm-ba-onboarding.md` (on the `claude/microsoft-login-integration-6cm4go` branch, not yet on `main`)
+Full plan: `docs/change-requests/pm-ba-onboarding.md`
 
 ---
 
@@ -380,3 +390,30 @@ The end state: QAPulse becomes the **system of record** for defects; Redmine is 
 - **History migration:** one-time import of remaining Redmine defect tickets via `redmine_legacy_id` (subject, status, assignee, journal); legacy `RM #` chips keep resolving for old records; unresolvable IDs surfaced in a data-quality report.
 - **Notifications:** assignee/reporter notified on transitions via the existing notifications table.
 - Retest loop switches from Redmine-status polling to native status transitions (same UI, different trigger).
+
+---
+
+### CR022 — FA Requirement Workflow Enhancements
+**Status:** 📋 Planned (2026-07-04). Part 1 independent (ship with/before CR015); Parts 2–3 depend on CR014.
+
+Follow-ups to CR014's FA track onboarding — three separable features that deepen the FA requirement workflow beyond the approval/UAT gates CR014 establishes:
+
+**Part 1 — Acceptance criteria as a structured field** *(no CR014 dependency)*
+- Nullable `acceptanceCriteria jsonb` (ordered string checklist) on `requirementsTable`, with an add/remove/reorder editor in the requirement dialogs and Detail page
+- Feeds CR015's AI test-case generation (criteria included in the per-requirement prompt payload, one TC per criterion minimum), FA review, and UAT sign-off — reviewers approve against criteria, not prose
+- Criteria edits also trigger CR014 Part 7's `requirementRevisedAt` re-review flag (extends the "description only" rule)
+- Redmine imports leave it `null` — FA fills in post-import, no parsing heuristics
+
+**Part 2 — Discussion thread on requirements** *(depends on CR014's Detail page)*
+- New `requirement_comments` table + `GET`/`POST /requirements/:id/comments` (project-scoped; anyone who can view can comment)
+- Chronological thread on the Requirement Detail page between the review box and History panel — keeps the reject → revise → resubmit conversation in QAPulse instead of Teams/email
+- New comment notifies author, assignee, and prior commenters (deduped, minus the commenter); comments permanent (no edit/delete in v1)
+- Review-action comments stay in `activityTable` per CR014 — the thread is for discussion *between* review actions, not a replacement audit trail
+
+**Part 3 — UAT with evidence** *(depends on CR014 Milestones + UAT gate)*
+- Reuses execution machinery: `fileType` (`qa`|`uat`) + `milestoneId` columns on `executionFilesTable`; "Start UAT" on a milestone creates a UAT file pre-populated with one row per acceptance criterion (fallback: per requirement)
+- FA-track roles get route-scoped access to UAT execution files only; results recorded via the existing ResultPills/save path, so `executionTcHistoryTable` auditing works for free
+- CR014's milestone UAT review shows the UAT file's rolled-up summary next to approve/reject; outstanding failures warn but don't block (consistent with unenforced milestone status)
+- Turns the UAT sign-off from a rubber stamp into a verdict with a recorded trail
+
+Full plan: `docs/change-requests/fa-workflow-enhancements.md`
