@@ -468,6 +468,22 @@ export default function Requirements() {
   const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 
   // isRoot: true for the user-initiated call; false for all recursive child calls
+  // Tracker badge — distinguishes CR vs User Story vs others at a glance
+  const trackerBadge = (tracker?: string | null) => {
+    if (!tracker) return null;
+    const t = tracker.toLowerCase();
+    const cls = t.includes("change request") || t === "cr"
+      ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800"
+      : t.includes("story")
+        ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:border-sky-800"
+        : "bg-muted text-muted-foreground border-border";
+    return (
+      <span className={`text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${cls}`}>
+        {tracker}
+      </span>
+    );
+  };
+
   const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, isRoot: boolean = true) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -781,6 +797,7 @@ export default function Requirements() {
                                 {r.redmineTicketId && (
                                   <span className="text-xs text-muted-foreground">#{r.redmineTicketId}</span>
                                 )}
+                                {trackerBadge(r.tracker)}
                                 {(r.tcCount ?? 0) > 0 && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
@@ -812,6 +829,7 @@ export default function Requirements() {
                                       <ExternalLink className="w-3 h-3" />#{r.redmineTicketId}
                                     </a>
                                   )}
+                                  {trackerBadge(r.tracker)}
                                   {(r.tcCount ?? 0) > 0 && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
