@@ -38,10 +38,33 @@ router.get("/teams", async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   try {
     const teams = await db.select().from(teamsTable).orderBy(teamsTable.name);
-    const memberships = await db.select({ teamId: userTeamsTable.teamId }).from(userTeamsTable);
-    const counts: Record<number, number> = {};
-    for (const m of memberships) counts[m.teamId] = (counts[m.teamId] ?? 0) + 1;
-    res.json(teams.map((t) => ({ ...t, memberCount: counts[t.id] ?? 0 })));
+
+    const memberRows = await db
+      .select({ teamId: userTeamsTable.teamId, userId: userTeamsTable.userId, teamRole: userTeamsTable.role, name: usersTable.name })
+      .from(userTeamsTable)
+      .innerJoin(usersTable, eq(usersTable.id, userTeamsTable.userId));
+
+    const projectRows = await db
+      .select({ teamId: projectTeamsTable.teamId, projectId: projectTeamsTable.projectId, name: projectsTable.name })
+      .from(projectTeamsTable)
+      .innerJoin(projectsTable, eq(projectsTable.id, projectTeamsTable.projectId));
+
+    const membersByTeam: Record<number, Array<{ id: number; name: string; teamRole: string }>> = {};
+    for (const r of memberRows) {
+      (membersByTeam[r.teamId] ??= []).push({ id: r.userId, name: r.name, teamRole: r.teamRole });
+    }
+
+    const projectsByTeam: Record<number, Array<{ id: number; name: string }>> = {};
+    for (const r of projectRows) {
+      (projectsByTeam[r.teamId] ??= []).push({ id: r.projectId, name: r.name });
+    }
+
+    res.json(teams.map((t) => ({
+      ...t,
+      memberCount: membersByTeam[t.id]?.length ?? 0,
+      members: membersByTeam[t.id] ?? [],
+      projects: projectsByTeam[t.id] ?? [],
+    })));
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Failed to load teams" });
   }
