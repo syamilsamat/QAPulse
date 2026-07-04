@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, milestonesTable, requirementsTable, executionFilesTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
@@ -46,7 +46,28 @@ router.get("/milestones", async (req, res): Promise<void> => {
   const rows = await db.select().from(milestonesTable)
     .where(eq(milestonesTable.projectId, projectId))
     .orderBy(milestonesTable.targetDate);
-  res.json(rows.map(fmt));
+
+  const ids = rows.map(m => m.id);
+  const reqs = ids.length
+    ? await db.select({ milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus })
+        .from(requirementsTable).where(inArray(requirementsTable.milestoneId, ids))
+    : [];
+  const execFiles = ids.length
+    ? await db.select({ milestoneId: executionFilesTable.milestoneId, fileType: executionFilesTable.fileType })
+        .from(executionFilesTable).where(inArray(executionFilesTable.milestoneId, ids))
+    : [];
+
+  res.json(rows.map(m => {
+    const mReqs = reqs.filter(r => r.milestoneId === m.id);
+    const mExecFiles = execFiles.filter(f => f.milestoneId === m.id);
+    return {
+      ...fmt(m),
+      requirementCount: mReqs.length,
+      approvedCount: mReqs.filter(r => r.reviewStatus === "approved").length,
+      executionFileCount: mExecFiles.filter(f => f.fileType === "qa").length,
+      uatFileCount: mExecFiles.filter(f => f.fileType === "uat").length,
+    };
+  }));
 });
 
 // POST /milestones

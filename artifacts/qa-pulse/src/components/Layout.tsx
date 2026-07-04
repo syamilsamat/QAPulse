@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, GitMerge, ScrollText, Bug } from 'lucide-react';
+import { Columns3Cog, Shield, GitMerge, ScrollText, Bug, LayoutDashboard } from 'lucide-react';
 
 import {
   HoverPulse,
@@ -416,6 +416,14 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-violet-500",
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:milestones",
+  },
+  {
+    href: "/pm-dashboard",
+    label: "PM Dashboard",
+    icon: LayoutDashboard,
+    activeColor: "text-blue-600",
+    roles: ["hod_pm", "pm_lead", "admin", "cto"],
+    permKey: "nav:pm-dashboard",
   },
   {
     href: "/configurations",
