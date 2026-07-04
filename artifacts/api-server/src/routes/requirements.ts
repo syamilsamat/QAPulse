@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
@@ -10,6 +10,7 @@ import {
   usersTable,
   projectsTable,
   milestonesTable,
+  activityTable,
   insertRequirementSchema,
   testCasesTable,
   executionTestCasesTable,
@@ -250,7 +251,72 @@ router.get("/requirements/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await formatRequirement(requirement));
+  // CR023p2.5 — test coverage count for the detail page's metadata sidebar
+  const libTcRows = await db.select({ id: testCasesTable.id })
+    .from(testCasesTable).where(eq(testCasesTable.requirementId, requirement.id));
+  const execLinkRows = await db.select({ id: executionTestCasesTable.id, libraryTcId: executionTestCasesTable.libraryTcId })
+    .from(executionTestCasesTable).where(eq(executionTestCasesTable.requirementId, requirement.id));
+  const distinctTcs = new Set<string>();
+  for (const row of libTcRows) distinctTcs.add(`lib:${row.id}`);
+  for (const row of execLinkRows) distinctTcs.add(row.libraryTcId != null ? `lib:${row.libraryTcId}` : `exec:${row.id}`);
+
+  const execRows = await db
+    .select({ result: executionTestCasesTable.result, cnt: sql<number>`count(*)::int` })
+    .from(executionTestCasesTable)
+    .innerJoin(testCasesTable, eq(testCasesTable.id, executionTestCasesTable.libraryTcId))
+    .where(eq(testCasesTable.requirementId, requirement.id))
+    .groupBy(executionTestCasesTable.result);
+  let execPass = 0, execFail = 0, execPending = 0;
+  for (const row of execRows) {
+    const r = (row.result ?? "").toLowerCase();
+    if (r.startsWith("pass")) execPass += row.cnt;
+    else if (r.startsWith("fail")) execFail += row.cnt;
+    else execPending += row.cnt;
+  }
+
+  res.json({
+    ...(await formatRequirement(requirement)),
+    tcCount: distinctTcs.size,
+    execPass,
+    execFail,
+    execPending,
+  });
+});
+
+// GET /requirements/:id/history — chronological activity journal (CR023p2.3)
+router.get("/requirements/:id/history", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const rows = await db
+    .select({
+      id: activityTable.id,
+      type: activityTable.type,
+      description: activityTable.description,
+      userId: activityTable.userId,
+      actorName: usersTable.name,
+      oldValue: activityTable.oldValue,
+      newValue: activityTable.newValue,
+      createdAt: activityTable.createdAt,
+    })
+    .from(activityTable)
+    .leftJoin(usersTable, eq(usersTable.id, activityTable.userId))
+    .where(and(eq(activityTable.entityType, "requirement"), eq(activityTable.entityId, id)))
+    .orderBy(desc(activityTable.createdAt));
+
+  res.json(rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    description: r.description,
+    userId: r.userId,
+    actorName: r.actorName ?? null,
+    oldValue: r.oldValue ? JSON.parse(r.oldValue) : null,
+    newValue: r.newValue ? JSON.parse(r.newValue) : null,
+    createdAt: r.createdAt.toISOString(),
+  })));
 });
 
 router.patch("/requirements/:id", async (req, res): Promise<void> => {
