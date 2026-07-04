@@ -36,6 +36,9 @@ export const testCasesTable = pgTable("test_cases", {
   caseId: text("case_id"),
   // --------------------------------------
 
+  // CR023p4 — requirement-change re-review flow
+  requirementRevisedAt: timestamp("requirement_revised_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

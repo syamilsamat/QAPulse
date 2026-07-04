@@ -320,6 +320,34 @@ router.post("/tasks/:id/assign", async (req, res): Promise<void> => {
   res.json(await formatTask(task));
 });
 
+// CR023p4 — clears the requirement-revision alert; visibility only, no status change
+router.post("/tasks/:id/acknowledge-revision", async (req, res): Promise<void> => {
+  const params = GetTaskParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [task] = await db.update(tasksTable)
+    .set({ requirementRevisedAt: null })
+    .where(eq(tasksTable.id, params.data.id))
+    .returning();
+  if (!task) {
+    res.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  await logActivity({
+    type: "task_revision_acknowledged",
+    description: `Task "${task.name}" requirement-revision alert acknowledged`,
+    userId: actorFromReq(req),
+    entityId: task.id,
+    entityType: "task",
+  });
+
+  res.json(await formatTask(task));
+});
+
 /* ────────────────────────────────
    TASK EVENTS
    ──────────────────────────────── */

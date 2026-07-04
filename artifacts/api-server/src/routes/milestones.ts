@@ -26,6 +26,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     type: m.type,
     status: m.status,
     targetDate: m.targetDate?.toISOString() ?? null,
+    createdBy: m.createdBy ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
   };
@@ -66,6 +67,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     type,
     status,
     targetDate: targetDate ? new Date(targetDate) : null,
+    createdBy: (ctx as any).id ?? ctx.userId,
   }).returning();
 
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: ctx.id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
