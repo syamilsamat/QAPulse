@@ -25,8 +25,9 @@ import {
 const router: IRouter = Router();
 
 async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
-  let assigneeName = null;
-  let projectName = null;
+  let assigneeName: string | null = null;
+  let projectName: string | null = null;
+  let milestoneName: string | null = null;
 
   if (req.assigneeId) {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.assigneeId));
@@ -35,6 +36,10 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
   if (req.projectId) {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, req.projectId));
     projectName = project?.name ?? null;
+  }
+  if (req.milestoneId) {
+    const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, req.milestoneId));
+    milestoneName = milestone?.name ?? null;
   }
 
   return {
@@ -54,6 +59,8 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     status: req.status,
     // CR014p2
     milestoneId: req.milestoneId ?? null,
+    // CR023p3.1 — list view's Milestone column
+    milestoneName,
     // CR022p1
     acceptanceCriteria: req.acceptanceCriteria ? JSON.parse(req.acceptanceCriteria) : [],
     // CR014p4
