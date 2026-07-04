@@ -21,10 +21,10 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | ✅ Deployed | 2026-07-04 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
-| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ✅ Deployed | 2026-07-04 |
+| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | 🟡 Partially Deployed | 2026-07-04 |
 | [CR015](#cr015--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | ✅ Deployed | 2026-07-04 |
 | [CR016](#cr016--traceability-matrix-requirement-hierarchy) | Traceability Matrix Requirement Hierarchy | ✅ Deployed | 2026-07-03 |
-| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | ✅ Deployed | 2026-07-04 |
+| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | 🟡 Partially Deployed | 2026-07-04 |
 | [CR018](#cr018--tc-library-execution-file-drill-down) | TC Library: Execution File Drill-Down | ✅ Deployed | 2026-07-03 |
 | [CR019](#cr019--defect-tracking-write-through-to-redmine--defects-page) | Defect Tracking: Write-Through to Redmine + Defects Page | ✅ Deployed | 2026-07-04 |
 | [CR020](#cr020--production-defect-workflow-escape-analysis) | Production Defect Workflow (Escape Analysis) | ✅ Deployed | 2026-07-04 |
@@ -211,8 +211,23 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 ---
 
 ### CR014 — Org-wide Role Hierarchy & Project-Level Access Control
-**Status:** ⏳ Pending
-**Source:** unmerged branch `claude/microsoft-login-integration-6cm4go` (originally scoped as "PM/BA onboarding"; BA role renamed to Functional Analyst since this org merged Business Analyst and System Analyst into one title)
+**Status:** 🟡 Partially Deployed (2026-07-04)
+**Source:** originally drafted on branch `claude/microsoft-login-integration-6cm4go` (as "PM/BA onboarding"; BA role renamed to Functional Analyst since this org merged Business Analyst and System Analyst into one title). Implementation landed on `main` independently of that branch (commits `d028150`, `795b878` + PR #293) — only CR013 (SSO) still lives on the unmerged branch.
+
+**Deployed (2026-07-04):**
+- **Part 1 — access-control foundation** (commits `d028150`, `795b878`): `teams` / `user_teams` / `project_teams` / `project_members` tables, `roles.department` + `roles.tier_rank` columns, idempotent bootstrap on API start (table/column creation, role backfill, grandfathering all existing users into all existing projects), `scopeToUserProjects` / `canAccessProject` in `middleware/access.ts`. Team-scoped access with `project_members` fallback. Teams tab on Configuration page (admin-only). Scoping applied to `requirements`, `test-cases`, `tasks`, `projects`, `milestones`, `teams`, `roles` routes.
+- **Part 2 — Milestones** (PR #293): `milestones` table + CRUD + `/milestones` page.
+- **Part 4 — FA track** (PR #293): review workflow with segregation of duties, RequirementDetail page, review queue banner, description snapshots + diffs.
+- **Role tiers seeded** (Parts 3/5/6 role definitions): `cto` (tier 5), `hod_qa`/`hod_pm`/`hod_fa`/`hod_dev` (tier 4), FA/Dev lead + member roles, all with department/tierRank and nav permissions; Department + Tier Rank admin-editable on the Roles page.
+
+**Still outstanding:**
+- **Access scoping NOT retrofitted to `traceability`, `test-execution`, or `defects` routes** — these remain unscoped; any authenticated user can still reach any project's data through them. This is the remaining hole in Part 1.
+- **Part 3 — PM dashboard** (`GET /dashboard/pm-summary` + `PmDashboard.tsx`) not built.
+- See CR023 for review-workflow gaps found when auditing the shipped FA track against the full design.
+
+---
+
+**Original plan (for reference):**
 
 Expands QAPulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO), driven by two new **admin-configurable** columns on the existing `roles` table (`department`, `tierRank`) rather than a hardcoded lookup — admin can retier/re-department any role via the existing Roles page, no deploy needed. Still **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
 
@@ -252,7 +267,7 @@ Full plan: `docs/change-requests/pm-ba-onboarding.md`
 ---
 
 ### CR015 — Per-Requirement AI Test Case Generation
-**Status:** 📋 Planned (2026-07-02)
+**Status:** ✅ Deployed (2026-07-04, commit `2f356f3`)
 
 Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #23123 + #32134) are generated and saved per-requirement instead of bundled.
 
@@ -271,7 +286,7 @@ Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #231
 - `artifacts/api-server/src/routes/test-cases.ts:178-314` — extract single-generation logic into a per-requirement helper, fan out with `p-limit` + `Promise.allSettled`.
 - `artifacts/qa-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
 
-Full implementation plan drafted 2026-07-02 (not yet executed).
+Implemented as planned above; deployed 2026-07-04 (commit `2f356f3`). The mislink bug (all generated TCs saved under one `requirementId`) is fixed — generation and save are per-requirement.
 
 ---
 
@@ -292,9 +307,13 @@ Follow-up to CR005. Now that child requirements carry their own test case links,
 ---
 
 ### CR017 — Milestone/Sprint-Aware Traceability Matrix
-**Status:** 📋 Planned (2026-07-03)
+**Status:** 🟡 Partially Deployed (2026-07-04, PR #293 — core change shipped; grouping/export items open)
 
-Extends the traceability matrix (CR005/CR016) once milestones/sprints exist as a first-class entity. Drafted ahead of the milestone feature itself; blocked on that feature's data model landing first.
+**Deployed:** milestone filter dropdown on the matrix (shown when a project is selected) + **sprint-scoped result resolution** — the core change (target #1): with a `milestoneId` filter active, requirements are scoped by `r.milestone_id` and the latest-result join only considers execution files belonging to that milestone, with a "Milestone scope active" banner explaining that unrun TCs show Not Run instead of stale green.
+
+**Not implemented (from the plan below):** milestone grouping + per-milestone readiness header rows (target #2), grayed out-of-sprint parent context rows (target #3 — current behavior prunes by requirement `milestone_id` filter instead), Excel Milestone column (target #4). The `requirements.release` free-text column has not been migrated/deprecated.
+
+Extends the traceability matrix (CR005/CR016) now that milestones exist as a first-class entity (CR014 Part 2 landed the data model).
 
 **Prerequisite data model (part of the milestone feature, not this CR):**
 - New `milestones` table: `id`, `name`, `project_id`, `start_date`, `end_date`, `status`.
@@ -324,7 +343,9 @@ Supports impact analysis before editing/deleting a library TC, avoiding duplicat
 ---
 
 ### CR019 — Defect Tracking: Write-Through to Redmine + Defects Page
-**Status:** ⏳ Pending deploy (implemented 2026-07-03 — requires `db push` for the defects + defect_links tables)
+**Status:** ✅ Deployed (2026-07-04, PR #270 + follow-up commits)
+
+**Post-deploy amendments (2026-07-04):** editable status with write-through to Redmine (ownership rule 1 amended below); Sync from Redmine dialog — whole-subtree import with per-issue tracker routing (Change Request tracker → Requirements, Others tab for unmapped trackers); Redmine imports are insert-only (existing rows ignored).
 
 **Implementation note:** the execution fail modal already created Redmine issues directly (with assignee/custom fields/screenshots/duplicate check), so that flow was kept and extended with local registration (`POST /defects/register`, upsert by redmineId) instead of replacing it. Write-through `POST /defects` exists for the manual New Defect dialog. All Redmine code isolated in `redmine-defect-bridge.ts` as designed.
 
@@ -352,7 +373,7 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 - Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QAPulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
 - Expand row → linked TCs from `defect_links` with execution file + current result, deep-linking to the execution file via the CR018 `?tc=` filter.
 - **Retest flag:** defect Fixed/Resolved in Redmine while a linked TC is still Failed → TC line shows "Retest needed"; collected under the Awaiting retest tab/card.
-- Deliberately absent: status editing, comments, reassignment — those stay in Redmine until CR021.
+- Deliberately absent: comments, reassignment — those stay in Redmine until CR021. (Status editing was originally absent too, but was added post-deploy 2026-07-04 as write-through — see ownership rule 1.)
 - Fail-modal create dialog and Defects page mockups approved 2026-07-03.
 
 **Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qa-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
@@ -362,7 +383,7 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 ---
 
 ### CR020 — Production Defect Workflow (Escape Analysis)
-**Status:** ⏳ Pending deploy (implemented 2026-07-03 together with CR019; same `db push`). PMO report Excel integration of leakage rate deferred — metrics live on the Defects page Production tab.
+**Status:** ✅ Deployed (2026-07-04, together with CR019). PMO report Excel integration of leakage rate deferred — metrics live on the Defects page Production tab.
 
 Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QAPulse) and **QAPulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QAPulse closes the QA loop.
 
@@ -395,7 +416,7 @@ The end state: QAPulse becomes the **system of record** for defects; Redmine is 
 ---
 
 ### CR022 — FA Requirement Workflow Enhancements
-**Status:** 📋 Planned (2026-07-04). Part 1 independent (ship with/before CR015); Parts 2–3 depend on CR014.
+**Status:** ✅ Deployed (2026-07-04, PR #293 — all three parts: AC editor, discussion thread, UAT file type + milestone picker).
 
 Follow-ups to CR014's FA track onboarding — three separable features that deepen the FA requirement workflow beyond the approval/UAT gates CR014 establishes:
 
@@ -422,7 +443,7 @@ Full plan: `docs/change-requests/fa-workflow-enhancements.md`
 ---
 
 ### CR023 — Requirement Detail & Review Workflow Gaps
-**Status:** 📋 Planned
+**Status:** 📋 Planned (2026-07-05)
 
 A follow-up audit comparing CR014/CR022's actual shipped implementation against the fuller design worked out in parallel (`docs/change-requests/pm-ba-onboarding.md`) found real gaps — some are missing features, two are actual security/consistency bugs in the review workflow that should be fixed regardless of priority.
 
