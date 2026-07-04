@@ -50,6 +50,17 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     assigneeName,
     redmineTicketId: req.redmineTicketId,
     status: req.status,
+    // CR014p2
+    milestoneId: req.milestoneId ?? null,
+    // CR022p1
+    acceptanceCriteria: req.acceptanceCriteria ? JSON.parse(req.acceptanceCriteria) : [],
+    // CR014p4
+    reviewStatus: (req as any).reviewStatus ?? "draft",
+    createdBy: (req as any).createdBy ?? null,
+    approvedBy: (req as any).approvedBy ?? null,
+    approvedAt: (req as any).approvedAt ? new Date((req as any).approvedAt).toISOString() : null,
+    rejectedBy: (req as any).rejectedBy ?? null,
+    rejectedAt: (req as any).rejectedAt ? new Date((req as any).rejectedAt).toISOString() : null,
     createdAt: req.createdAt.toISOString(),
     updatedAt: req.updatedAt.toISOString(),
   };
@@ -163,7 +174,10 @@ router.post("/requirements", async (req, res): Promise<void> => {
     if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
 
-  const [requirement] = await db.insert(requirementsTable).values(parsed.data).returning();
+  const [requirement] = await db.insert(requirementsTable).values({
+    ...parsed.data,
+    createdBy: ctx.userId,
+  } as any).returning();
 
   await logActivity({
     type: "requirement_created",
@@ -330,6 +344,122 @@ router.delete("/requirements/:id", async (req, res): Promise<void> => {
   });
 
   res.sendStatus(204);
+});
+
+// ─── FA Review Workflow (CR014 Part 4) ───────────────────────────────────────
+
+const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
+
+// GET /requirements/review-queue — My Review Queue for FA roles
+router.get("/requirements/review-queue", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const isLead = ["fa_lead", "hod_fa", "hod_qa", "admin"].includes(ctx.role);
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
+  // "Waiting on my review" — in_review, not authored by me
+  // "Awaiting my revision" — rejected, authored by me
+  // Lead sees team-wide queue; member sees only their own
+  const allReqs = await db.select().from(requirementsTable);
+  const scoped = allReqs.filter(r => accessible === null || (r.projectId != null && accessible.includes(r.projectId)));
+
+  const waitingOnMe = scoped.filter(r => {
+    const reviewStatus = (r as any).reviewStatus ?? "draft";
+    const createdBy = (r as any).createdBy;
+    return reviewStatus === "in_review" && (isLead || createdBy !== ctx.userId);
+  });
+
+  const awaitingMyRevision = scoped.filter(r => {
+    const reviewStatus = (r as any).reviewStatus ?? "draft";
+    const createdBy = (r as any).createdBy;
+    return reviewStatus === "rejected" && createdBy === ctx.userId;
+  });
+
+  const now = Date.now();
+  function withAge(reqs: typeof allReqs) {
+    return reqs.map(r => ({
+      id: r.id,
+      title: r.title,
+      module: r.module,
+      projectId: r.projectId,
+      reviewStatus: (r as any).reviewStatus ?? "draft",
+      createdBy: (r as any).createdBy,
+      rejectedAt: (r as any).rejectedAt ?? null,
+      updatedAt: r.updatedAt.toISOString(),
+      daysInStatus: Math.floor((now - r.updatedAt.getTime()) / 86400000),
+      stale: Math.floor((now - r.updatedAt.getTime()) / 86400000) > 3,
+    }));
+  }
+
+  res.json({ waitingOnMe: withAge(waitingOnMe), awaitingMyRevision: withAge(awaitingMyRevision) });
+});
+
+// PATCH /requirements/:id/review — approve or reject
+router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!FA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "FA role required for review actions" }); return; }
+
+  const id = parseInt(req.params.id);
+  const [req_] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!req_) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+  const { action, comment } = req.body; // action: 'submit' | 'approve' | 'reject'
+  if (!["submit", "approve", "reject"].includes(action)) {
+    res.status(400).json({ error: "action must be submit, approve, or reject" }); return;
+  }
+
+  const createdBy = (req_ as any).createdBy;
+
+  // Segregation of duties: author cannot approve their own requirement
+  if (action === "approve" && createdBy === ctx.userId) {
+    res.status(403).json({ error: "You cannot approve a requirement you authored" }); return;
+  }
+
+  const now = new Date();
+  const update: any = {};
+
+  if (action === "submit") {
+    update.reviewStatus = "in_review";
+  } else if (action === "approve") {
+    update.reviewStatus = "approved";
+    update.approvedBy = ctx.userId;
+    update.approvedAt = now;
+    update.rejectedBy = null;
+    update.rejectedAt = null;
+  } else {
+    update.reviewStatus = "rejected";
+    update.rejectedBy = ctx.userId;
+    update.rejectedAt = now;
+  }
+
+  const [updated] = await db.update(requirementsTable).set(update).where(eq(requirementsTable.id, id)).returning();
+
+  await logActivity({
+    type: `requirement_${action}`,
+    description: `Requirement "${req_.title}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "requirement",
+    oldValue: { reviewStatus: (req_ as any).reviewStatus ?? "draft" },
+    newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
+  });
+
+  // Notify: on reject → notify author; on approve → notify author
+  if (createdBy && createdBy !== ctx.userId) {
+    const msg = action === "approve"
+      ? `Your requirement "${req_.title}" has been approved.`
+      : `Your requirement "${req_.title}" was rejected${comment ? `: ${comment}` : ""}.`;
+    notifyUser(createdBy, {
+      type: `requirement_${action}`,
+      message: msg,
+      entityId: id,
+      entityType: "requirement",
+    }).catch(() => {});
+  }
+
+  res.json(await formatRequirement(updated));
 });
 
 // ─── Redmine Import (same logic as Requirements page processRedmineSync) ─────

@@ -410,6 +410,14 @@ const NAV_ITEMS: NavItem[] = [
     showBadge: false,
   },
   {
+    href: "/milestones",
+    label: "Milestones",
+    icon: ScrollText,
+    activeColor: "text-violet-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:milestones",
+  },
+  {
     href: "/configurations",
     label: "Configuration",
     icon: Columns3Cog,

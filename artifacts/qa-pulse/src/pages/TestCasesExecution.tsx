@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import * as XLSX from "xlsx-js-style";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,34 @@ import {
   type ExecutionTestCase,
   type TrackerOption,
 } from "@/lib/execution-api";
+
+// ─── MilestonePicker local helper ────────────────────────────────────────────
+function MilestonePicker({ projectId, token, value, onChange }: { projectId: string; token: string | null; value: string; onChange: (v: string) => void }) {
+  const { data: milestones = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${projectId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!projectId,
+  });
+  if (milestones.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <Label>Milestone <span className="text-xs text-muted-foreground">(optional)</span></Label>
+      <SearchableSelect
+        value={value}
+        onValueChange={onChange}
+        options={[{ value: "", label: "None" }, ...milestones.map(m => ({ value: String(m.id), label: m.name }))]}
+        placeholder="Select milestone…"
+        searchPlaceholder="Search milestones…"
+      />
+    </div>
+  );
+}
 
 // ─── Excel column mappings (same as progress page) ───────────────────────────
 const COLUMN_MAPPINGS: Record<string, string[]> = {
@@ -342,6 +371,8 @@ export default function TestCasesExecution() {
     projectId: "",
     tracker: "",
     selectedModules: [] as number[],
+    milestoneId: "",
+    fileType: "qa",
   });
   const [parsedExcelRows, setParsedExcelRows] = useState<ExecutionTestCase[] | null>(null);
   const [excelFileName, setExcelFileName] = useState("");
@@ -810,7 +841,7 @@ export default function TestCasesExecution() {
 
   // ─── Create file ───────────────────────────────────────────────────────────
   const resetFileForm = () => {
-    setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [] });
+    setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [], milestoneId: "", fileType: "qa" });
     setTicketLookupMsg(null);
     clearExcel();
   };
@@ -861,7 +892,9 @@ export default function TestCasesExecution() {
         tracker: fileForm.tracker || undefined,
         projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
         requirementId: resolvedRequirementId,
-      });
+        milestoneId: fileForm.milestoneId ? Number(fileForm.milestoneId) : undefined,
+        fileType: fileForm.fileType || "qa",
+      } as any);
 
       setFiles([newFile, ...files]);
       setNewFileOpen(false);
@@ -1551,7 +1584,7 @@ export default function TestCasesExecution() {
               <Label>Project <span className="text-destructive">*</span></Label>
               <SearchableSelect
                 value={fileForm.projectId}
-                onValueChange={v => setFileForm({ ...fileForm, projectId: v })}
+                onValueChange={v => setFileForm({ ...fileForm, projectId: v, milestoneId: "" })}
                 options={[
                   { value: "", label: "Select project..." },
                   ...projects.map(p => ({ value: String(p.id), label: p.name })),
@@ -1559,6 +1592,33 @@ export default function TestCasesExecution() {
                 placeholder="Search project..."
               />
             </div>
+
+            {/* File Type (QA vs UAT) */}
+            <div className="space-y-1">
+              <Label>File Type</Label>
+              <div className="flex gap-2">
+                {[{ v: "qa", label: "QA Testing" }, { v: "uat", label: "UAT" }].map(opt => (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setFileForm({ ...fileForm, fileType: opt.v })}
+                    className={`flex-1 py-2 rounded border text-sm font-medium transition-colors ${fileForm.fileType === opt.v ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted"}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Milestone (optional) */}
+            {fileForm.projectId && (
+              <MilestonePicker
+                projectId={fileForm.projectId}
+                token={token}
+                value={fileForm.milestoneId}
+                onChange={v => setFileForm({ ...fileForm, milestoneId: v })}
+              />
+            )}
 
             {/* Module (mandatory, multi-select) */}
             <div className="space-y-1">

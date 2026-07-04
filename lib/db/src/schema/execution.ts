@@ -18,6 +18,9 @@ export const executionFilesTable = pgTable("execution_files", {
   tracker: text("tracker"),
   projectId: integer("project_id"),
   requirementId: integer("requirement_id"),
+  // CR014p2 / CR022p3 — milestone linkage and file type
+  milestoneId: integer("milestone_id"),
+  fileType: text("file_type").notNull().default("qa"), // 'qa' | 'uat'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
