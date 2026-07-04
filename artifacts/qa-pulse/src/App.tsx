@@ -30,6 +30,7 @@ import Roles from "@/pages/Roles";
 import TraceabilityMatrix from "@/pages/TraceabilityMatrix";
 import AuditLog from "@/pages/AuditLog";
 import Defects from "@/pages/Defects";
+import Teams from "@/pages/Teams";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -150,6 +151,10 @@ function Router() {
 
       <Route path="/roles">
         <ProtectedRoute component={Roles} roles={["admin"]} />
+      </Route>
+
+      <Route path="/teams">
+        <ProtectedRoute component={Teams} roles={["admin"]} />
       </Route>
 
       <Route path="/audit-log">

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import express from "express";
 import { desc, eq, inArray, sql } from "drizzle-orm";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
@@ -307,16 +308,29 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
 });
 
 router.get("/test-cases", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
   const parsed = ListTestCasesQueryParams.safeParse(req.query);
   let tcs = await db.select().from(testCasesTable).orderBy(testCasesTable.createdAt);
 
   if (parsed.success) {
     const { projectId, requirementId, authorId, aiAssisted, search } = parsed.data;
-    if (projectId) tcs = tcs.filter((t) => t.projectId === projectId);
+    if (projectId) {
+      const ok = accessible === null || accessible.includes(projectId);
+      if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+      tcs = tcs.filter((t) => t.projectId === projectId);
+    } else if (accessible !== null) {
+      tcs = tcs.filter((t) => t.projectId !== null && accessible.includes(t.projectId));
+    }
     if (requirementId) tcs = tcs.filter((t) => t.requirementId === requirementId);
     if (authorId) tcs = tcs.filter((t) => t.authorId === authorId);
     if (aiAssisted !== undefined) tcs = tcs.filter((t) => t.aiAssisted === aiAssisted);
     if (search) tcs = tcs.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()));
+  } else if (accessible !== null) {
+    tcs = tcs.filter((t) => t.projectId !== null && accessible.includes(t.projectId));
   }
   const formatted = await Promise.all(tcs.map(formatTestCase));
 
@@ -337,21 +351,22 @@ router.get("/test-cases", async (req, res): Promise<void> => {
 });
 
 router.post("/test-cases", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = CreateTestCaseBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const payload: any = { ...parsed.data };
-  if (!payload.authorId) {
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith("Bearer ")) {
-      try {
-        const jwt = verifyToken(authHeader.slice(7));
-        payload.authorId = jwt.id;
-      } catch {}
-    }
+  if (!payload.authorId) payload.authorId = ctx.userId;
+
+  if (payload.projectId) {
+    const ok = await canAccessProject(ctx.userId, ctx.role, payload.projectId);
+    if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
+
   const [tc] = await db.insert(testCasesTable).values(payload).returning();
   await logActivity({
     type: "test_case_created",

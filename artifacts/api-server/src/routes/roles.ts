@@ -7,11 +7,11 @@ const router: IRouter = Router();
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DEFAULT_ROLES = [
-  { name: "admin",     description: "Admin",      isSystem: true },
-  { name: "qa_lead",   description: "QA Lead",    isSystem: false },
-  { name: "qa_member", description: "QA Member",  isSystem: false },
-  { name: "pmo",       description: "PMO",        isSystem: false },
+const DEFAULT_ROLES: Array<{ name: string; description: string; isSystem: boolean; department: string | null; tierRank: number | null }> = [
+  { name: "admin",      description: "Admin",      isSystem: true,  department: null, tierRank: null },
+  { name: "qa_lead",    description: "QA Lead",    isSystem: false, department: "qa", tierRank: 2 },
+  { name: "qa_member",  description: "QA Member",  isSystem: false, department: "qa", tierRank: 1 },
+  { name: "pmo",        description: "PMO",        isSystem: false, department: "pm", tierRank: 1 },
 ];
 
 export const ALL_NAV_KEYS = [
@@ -62,11 +62,63 @@ async function bootstrap() {
     )
   `);
 
+  // CR014 Part 1 — add department/tierRank columns to roles (idempotent)
+  await pool.query(`ALTER TABLE roles ADD COLUMN IF NOT EXISTS department TEXT`);
+  await pool.query(`ALTER TABLE roles ADD COLUMN IF NOT EXISTS tier_rank INTEGER`);
+
+  // CR014 Part 1 — teams and project membership tables
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_teams (
+      team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member',
+      PRIMARY KEY (team_id, user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_teams (
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      PRIMARY KEY (project_id, team_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (project_id, user_id)
+    )
+  `);
+
+  // Backfill: grandfather all existing users into all existing projects so
+  // current behaviour (see-everything) is preserved until teams are configured.
+  await pool.query(`
+    INSERT INTO project_members (project_id, user_id)
+    SELECT p.id, u.id FROM projects p CROSS JOIN users u
+    ON CONFLICT DO NOTHING
+  `);
+
   for (const role of DEFAULT_ROLES) {
     await pool.query(
-      `INSERT INTO roles (name, description, is_system) VALUES ($1, $2, $3)
-       ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, is_system = EXCLUDED.is_system`,
-      [role.name, role.description, role.isSystem]
+      `INSERT INTO roles (name, description, is_system, department, tier_rank) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name) DO UPDATE
+         SET description = EXCLUDED.description,
+             is_system   = EXCLUDED.is_system,
+             department  = COALESCE(roles.department, EXCLUDED.department),
+             tier_rank   = COALESCE(roles.tier_rank,  EXCLUDED.tier_rank)`,
+      [role.name, role.description, role.isSystem, role.department, role.tierRank]
     );
   }
 
@@ -116,6 +168,8 @@ function formatRole(r: typeof rolesTable.$inferSelect, userCount = 0) {
     name: r.name,
     description: r.description ?? null,
     isSystem: r.isSystem,
+    department: r.department ?? null,
+    tierRank: r.tierRank ?? null,
     userCount,
     createdAt: r.createdAt.toISOString(),
   };
@@ -205,6 +259,8 @@ router.patch("/roles/:id", async (req, res): Promise<void> => {
     const updateData: Partial<typeof rolesTable.$inferInsert> = {};
     if (newName) updateData.name = newName;
     if (newDescription !== undefined) updateData.description = newDescription;
+    if (req.body.department !== undefined) updateData.department = req.body.department?.trim() || null;
+    if (req.body.tierRank !== undefined) updateData.tierRank = req.body.tierRank != null ? Number(req.body.tierRank) : null;
 
     const [updated] = await db.update(rolesTable).set(updateData).where(eq(rolesTable.id, id)).returning();
     res.json(formatRole(updated));

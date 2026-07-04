@@ -20,6 +20,7 @@ import traceabilityRouter from "./traceability";
 import documentRegisterRouter from "./document-register";
 import auditLogRouter from "./audit-log";
 import defectsRouter from "./defects";
+import teamsRouter from "./teams";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(traceabilityRouter);
 router.use(documentRegisterRouter);
 router.use(auditLogRouter);
 router.use(defectsRouter);
+router.use(teamsRouter);
 
 export default router;

@@ -14,3 +14,7 @@ export * from "./redmine";
 export * from "./contacts";
 export * from "./refresh-tokens";
 export * from "./defects";
+export * from "./teams";
+export * from "./user-teams";
+export * from "./project-teams";
+export * from "./project-members";
