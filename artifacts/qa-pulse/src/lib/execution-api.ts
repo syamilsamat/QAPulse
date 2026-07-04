@@ -56,6 +56,9 @@ export interface ExecutionTestCase {
   qaPic: string;
   rowOrder?: number;
   rowType?: "testcase" | "group"; // "group" rows are section banners; label lives in caseName
+  // CR023p4 — requirement-change re-review flow
+  reviewAcknowledgedAt?: string | null;
+  alertRevised?: boolean;
 }
 
 const getRedmineKey = (): string | null => {

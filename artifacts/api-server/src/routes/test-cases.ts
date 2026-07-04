@@ -173,6 +173,9 @@ async function formatTestCase(tc: any) {
     authorName,
     aiAssisted: tc.aiAssisted,
     status: tc.status,
+    // CR023p4 — informational badge only here; the actionable "Revised"
+    // control lives on the execution file page (per-instance ack)
+    requirementRevisedAt: tc.requirementRevisedAt ? new Date(tc.requirementRevisedAt).toISOString() : null,
     createdAt: tc.createdAt?.toISOString() || new Date().toISOString(),
     updatedAt: tc.updatedAt?.toISOString() || new Date().toISOString(),
   };

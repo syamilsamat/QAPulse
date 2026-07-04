@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
+  Brain,
   CheckCircle2,
   XCircle,
   Clock,
+  History as HistoryIcon,
   Send,
   MessageSquare,
   ChevronRight,
@@ -32,6 +35,20 @@ function api(path: string, token: string | null, opts?: RequestInit) {
       ...(opts?.headers ?? {}),
     },
   });
+}
+
+function RiskBadge({ level }: { level: string }) {
+  const colors: Record<string, string> = {
+    low: "bg-green-100 text-green-800 border-green-200",
+    medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    high: "bg-orange-100 text-orange-800 border-orange-200",
+    critical: "bg-red-100 text-red-800 border-red-200",
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[level?.toLowerCase()] ?? colors.medium}`}>
+      {level}
+    </span>
+  );
 }
 
 function ReviewStatusBadge({ status }: { status: string }) {
@@ -60,6 +77,8 @@ export default function RequirementDetail() {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewAction, setReviewAction] = useState<"submit" | "approve" | "reject" | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const { data: req, isLoading } = useQuery<any>({
     queryKey: ["requirement", reqId],
@@ -89,6 +108,47 @@ export default function RequirementDetail() {
       return res.json();
     },
     enabled: !!req?.milestoneId,
+  });
+
+  // Shared cache with the Requirements list page — reused here to walk the
+  // parentId ancestry chain and list this requirement's children.
+  const { data: allRequirements = [] } = useQuery({
+    queryKey: getListRequirementsQueryKey(),
+    queryFn: () => listRequirements(),
+  });
+
+  const reqMap = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const r of allRequirements as any[]) map.set(r.id, r);
+    return map;
+  }, [allRequirements]);
+
+  const ancestors = useMemo(() => {
+    const chain: any[] = [];
+    const seen = new Set<number>();
+    let current = req;
+    while (current?.parentId && reqMap.has(current.parentId) && !seen.has(current.parentId)) {
+      const parent = reqMap.get(current.parentId);
+      chain.unshift(parent);
+      seen.add(current.parentId);
+      current = parent;
+    }
+    return chain;
+  }, [req, reqMap]);
+
+  const children = useMemo(
+    () => (allRequirements as any[]).filter((r) => r.parentId === req?.id),
+    [allRequirements, req],
+  );
+
+  const { data: history = [] } = useQuery<any[]>({
+    queryKey: ["requirement-history", reqId],
+    queryFn: async () => {
+      const res = await api(`/requirements/${reqId}/history`, token);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!reqId,
   });
 
   const submitComment = async () => {
@@ -131,6 +191,29 @@ export default function RequirementDetail() {
     }
   };
 
+  const runAiAnalysis = async () => {
+    if (!reqId || !req) return;
+    setAiLoading(true);
+    try {
+      const res = await api(`/ai/analyze-requirement`, token, {
+        method: "POST",
+        body: JSON.stringify({
+          requirementId: reqId,
+          title: req.title,
+          description: req.description ?? "",
+          module: req.module ?? "",
+        }),
+      });
+      const data = await res.json();
+      setAiResult(data);
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "AI analysis failed" });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const role = user?.role ?? "";
   const FA_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_ROLES.includes(role);
@@ -152,10 +235,21 @@ export default function RequirementDetail() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+      {/* Breadcrumb — traces the actual parentId ancestry, root first */}
+      <div className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap">
         <button onClick={() => navigate("/requirements")} className="hover:text-foreground transition-colors">Requirements</button>
-        <ChevronRight className="w-4 h-4" />
+        {ancestors.map((a) => (
+          <div key={a.id} className="flex items-center gap-1">
+            <ChevronRight className="w-4 h-4 shrink-0" />
+            <button
+              onClick={() => navigate(`/requirements/${a.id}`)}
+              className="hover:text-foreground transition-colors truncate max-w-[10rem]"
+            >
+              {a.title}
+            </button>
+          </div>
+        ))}
+        <ChevronRight className="w-4 h-4 shrink-0" />
         <span className="text-foreground font-medium truncate max-w-xs">{req.title}</span>
       </div>
 
@@ -179,31 +273,37 @@ export default function RequirementDetail() {
           </div>
         </div>
 
-        {/* Review actions */}
-        {canReview && (
-          <div className="flex gap-2 flex-wrap shrink-0">
-            {req.reviewStatus === "draft" && (
-              <Button size="sm" variant="outline" onClick={() => setReviewAction("submit")}>
-                Submit for Review
-              </Button>
-            )}
-            {req.reviewStatus === "in_review" && !isAuthor && (
-              <>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => setReviewAction("approve")}>
-                  Approve
+        {/* Review actions + AI Analyzer (available to author and approver alike) */}
+        <div className="flex gap-2 flex-wrap shrink-0">
+          <Button size="sm" variant="outline" className="gap-1.5" disabled={aiLoading} onClick={runAiAnalysis}>
+            <Brain className="w-3.5 h-3.5" />
+            {aiLoading ? "Analyzing…" : "Analyze with AI"}
+          </Button>
+          {canReview && (
+            <>
+              {req.reviewStatus === "draft" && (
+                <Button size="sm" variant="outline" onClick={() => setReviewAction("submit")}>
+                  Submit for Review
                 </Button>
-                <Button size="sm" variant="destructive" onClick={() => setReviewAction("reject")}>
-                  Reject
+              )}
+              {req.reviewStatus === "in_review" && !isAuthor && (
+                <>
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => setReviewAction("approve")}>
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => setReviewAction("reject")}>
+                    Reject
+                  </Button>
+                </>
+              )}
+              {req.reviewStatus === "rejected" && isAuthor && (
+                <Button size="sm" variant="outline" onClick={() => setReviewAction("submit")}>
+                  Re-submit
                 </Button>
-              </>
-            )}
-            {req.reviewStatus === "rejected" && isAuthor && (
-              <Button size="sm" variant="outline" onClick={() => setReviewAction("submit")}>
-                Re-submit
-              </Button>
-            )}
-          </div>
-        )}
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Review action panel */}
@@ -248,6 +348,61 @@ export default function RequirementDetail() {
             </Card>
           )}
 
+          {/* AI Requirement Analyzer — inline expansion, directly below Description */}
+          {aiResult && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-primary" /> AI Analysis
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Quality Score</span>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-32 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${aiResult.score}%` }} />
+                    </div>
+                    <span className="font-bold text-primary">{aiResult.score}/100</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Risk Level:</span>
+                  <RiskBadge level={aiResult.riskLevel} />
+                </div>
+                {aiResult.summary && (
+                  <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">{aiResult.summary}</p>
+                )}
+                {aiResult.missingItems?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Missing Items</p>
+                    <ul className="space-y-1">
+                      {aiResult.missingItems.map((item: string, i: number) => (
+                        <li key={i} className="text-sm flex gap-2">
+                          <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {aiResult.questions?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Questions to Clarify</p>
+                    <ul className="space-y-1">
+                      {aiResult.questions.map((q: string, i: number) => (
+                        <li key={i} className="text-sm flex gap-2">
+                          <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 shrink-0" />
+                          {q}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Acceptance Criteria */}
           {ac.length > 0 && (
             <Card>
@@ -268,6 +423,66 @@ export default function RequirementDetail() {
               </CardContent>
             </Card>
           )}
+
+          {/* Child Requirements */}
+          {children.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Child Requirements</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1">
+                  {children.map((c: any) => (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => navigate(`/requirements/${c.id}`)}
+                        className="text-sm text-primary hover:underline text-left"
+                      >
+                        {c.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* History — chronological activity journal (creation, review actions, AI runs) */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <HistoryIcon className="w-4 h-4" /> History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {history.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No activity yet.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {history.map((h: any) => (
+                    <li key={h.id} className="flex gap-3">
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm">{h.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {h.actorName ?? "System"} · {format(new Date(h.createdAt), "dd MMM yyyy, HH:mm")}
+                        </p>
+                        {h.type === "requirement_ai_analysis" && h.newValue && (
+                          <div className="mt-1 text-xs bg-muted/50 rounded p-2 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">Score: {h.newValue.score}/100</span>
+                              <RiskBadge level={h.newValue.riskLevel} />
+                            </div>
+                            {h.newValue.summary && <p>{h.newValue.summary}</p>}
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Discussion Thread */}
           <Card>
@@ -354,6 +569,21 @@ export default function RequirementDetail() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Assignee</span>
                   <span className="font-medium">{req.assigneeName}</span>
+                </div>
+              )}
+              <Separator />
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Test Cases</span>
+                <span className="font-medium">{req.tcCount ?? 0}</span>
+              </div>
+              {(req.execPass > 0 || req.execFail > 0) && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Executions</span>
+                  <span className="font-medium">
+                    <span className="text-green-600">{req.execPass ?? 0} pass</span>
+                    {" / "}
+                    <span className="text-red-600">{req.execFail ?? 0} fail</span>
+                  </span>
                 </div>
               )}
               <Separator />

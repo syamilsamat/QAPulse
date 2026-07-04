@@ -30,6 +30,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR020](#cr020--production-defect-workflow-escape-analysis) | Production Defect Workflow (Escape Analysis) | ✅ Deployed | 2026-07-04 |
 | [CR021](#cr021--native-defect-tracking-cutover-retire-redmine-for-defects) | Native Defect Tracking Cutover (Retire Redmine for Defects) | 📋 Planned | 2026-07-03 |
 | [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | ✅ Deployed | 2026-07-04 |
+| [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | 📋 Planned | 2026-07-05 |
 
 ---
 
@@ -417,3 +418,34 @@ Follow-ups to CR014's FA track onboarding — three separable features that deep
 - Turns the UAT sign-off from a rubber stamp into a verdict with a recorded trail
 
 Full plan: `docs/change-requests/fa-workflow-enhancements.md`
+
+---
+
+### CR023 — Requirement Detail & Review Workflow Gaps
+**Status:** 📋 Planned
+
+A follow-up audit comparing CR014/CR022's actual shipped implementation against the fuller design worked out in parallel (`docs/change-requests/pm-ba-onboarding.md`) found real gaps — some are missing features, two are actual security/consistency bugs in the review workflow that should be fixed regardless of priority.
+
+**Bugs (fix first — these break intended guarantees, not just missing polish)**
+- `PATCH /requirements/:id/review`'s segregation-of-duties check only guards the `approve` action — an author can currently reject their own requirement, since no equivalent check exists on that branch
+- Rejecting a requirement only notifies the author — the assignee and the milestone's PM (both part of the original design) never get notified
+- No restriction on editing a requirement while its `reviewStatus` is `rejected` — any authenticated user can `PATCH` it regardless of authorship, not just the author/assignee as designed
+- Redmine-imported requirements get `createdBy = null` (not even a fallback to the importer) — `syncRedmineTicket()` and `POST /requirements/resolve-redmine` never set it at all, so imported requirements have **zero** segregation-of-duties protection (nobody is ever blocked from approving them)
+
+**Missing from `RequirementDetail.tsx`**
+- Breadcrumb is generic ("Requirements › {title}") — doesn't trace the `parentId` ancestry chain
+- No Child Requirements section
+- No History journal (activity log) at all
+- No AI Requirement Analyzer entry point anywhere on this page
+- No test-coverage count in the metadata sidebar
+
+**Missing from `Requirements.tsx` (list view)**
+- No Milestone column
+- Title click still opens the old edit modal instead of navigating to `/requirements/:id` — the detail page is only reachable via the row's "⋮" → "View Detail"
+- Priority still rendered as pill badges, not the left-stripe convention
+- Filters still dropdowns, not chips
+
+**Missing entirely — requirement-change re-review flow**
+- No `requirementRevisedAt` on test cases or tasks, no `reviewAcknowledgedAt` on execution test cases, no alert UI anywhere, no "Revised" button. Editing a requirement's description today has zero effect on test cases or tasks already built against it.
+
+Full plan: `docs/change-requests/requirement-detail-gaps.md`

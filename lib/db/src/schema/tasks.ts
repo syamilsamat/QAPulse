@@ -26,6 +26,8 @@ export const tasksTable = pgTable("tasks", {
   completionPercentage: integer("completion_percentage").default(0),
   tracker: text("tracker"),
   notes: text("notes"),
+  // CR023p4 — requirement-change re-review flow
+  requirementRevisedAt: timestamp("requirement_revised_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

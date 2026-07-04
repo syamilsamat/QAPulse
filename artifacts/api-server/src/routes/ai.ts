@@ -9,6 +9,8 @@ import {
   activityTable,
 } from "@workspace/db";
 import { GoogleGenAI } from "@google/genai";
+import { logActivity } from "./_audit";
+import { actorFromReq } from "./auth";
 
 const router: IRouter = Router();
 const ai = new GoogleGenAI({});
@@ -256,7 +258,28 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
     const userPrompt = `Requirement Title: ${reqTitle}\nDescription: ${reqDescription ?? "Not provided"}\nModule: ${reqModule ?? "Not specified"}\n\nAnalyze this requirement and return ONLY JSON.`;
 
     const content = await executeAiTask(systemPrompt, userPrompt);
-    res.json(safeParseJSON(content, fallback));
+    const result = safeParseJSON(content, fallback);
+
+    // CR023p2.4 — log each analyzer run to the requirement's History so past
+    // results stay reviewable without re-running the AI.
+    if (requirementId) {
+      await logActivity({
+        type: "requirement_ai_analysis",
+        description: `AI Requirement Analyzer run on "${reqTitle}" — score ${result.score}/100, risk ${result.riskLevel}`,
+        userId: actorFromReq(req),
+        entityId: Number(requirementId),
+        entityType: "requirement",
+        newValue: {
+          score: result.score,
+          riskLevel: result.riskLevel,
+          summary: result.summary,
+          missingItems: result.missingItems,
+          questions: result.questions,
+        },
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error("Analyze Req Error:", error);
     res.json(fallback);

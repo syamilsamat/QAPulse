@@ -11,8 +11,9 @@ import {
   trackersTable,
   usersTable,
   requirementsTable,
+  testCasesTable,
 } from "@workspace/db";
-import { verifyToken } from "./auth";
+import { verifyToken, actorFromReq } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
@@ -318,6 +319,9 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
         } else {
           // Try to fetch and create requirement from Redmine
           try {
+            const importingUserId = actorFromReq(req);
+            if (!importingUserId) throw new Error("Unauthenticated — cannot resolve a createdBy fallback for the imported requirement");
+
             const effectiveProjectId = projectId !== undefined
               ? (projectId ? Number(projectId) : null)
               : (await db.select({ projectId: executionFilesTable.projectId })
@@ -338,6 +342,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
               undefined,
               tracker || undefined,
               apiKey,
+              importingUserId,
             );
             if (savedId) patch.requirementId = savedId;
           } catch (syncErr: any) {
@@ -485,6 +490,9 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
     // If not found locally and module+projectId provided, sync from Redmine
     if (!existingReq && targetModule && targetProjectId) {
       try {
+        const importingUserId = actorFromReq(req);
+        if (!importingUserId) throw new Error("Unauthenticated — cannot resolve a createdBy fallback for the imported requirement");
+
         const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
         const savedId = await syncRedmineTicket(
           newTicketId.trim(),
@@ -493,6 +501,7 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
           undefined,
           trackerFilter || undefined,
           apiKey,
+          importingUserId,
         );
         requirementId = savedId;
         // Re-fetch to get the synced title
@@ -603,32 +612,53 @@ router.get(
         .from(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
 
+      // CR023p4 — flag rows whose library test case's linked requirement was
+      // revised since this execution instance last acknowledged a revision
+      const libTcIds = [...new Set(testCases.map((t) => t.libraryTcId).filter((v): v is number => v != null))];
+      const revisedMap = new Map<number, Date>();
+      if (libTcIds.length > 0) {
+        const revisedRows = await db
+          .select({ id: testCasesTable.id, requirementRevisedAt: testCasesTable.requirementRevisedAt })
+          .from(testCasesTable)
+          .where(inArray(testCasesTable.id, libTcIds));
+        for (const row of revisedRows) {
+          if (row.requirementRevisedAt) revisedMap.set(row.id, row.requirementRevisedAt);
+        }
+      }
+
       res.json({
         lastUpdatedAt: file.updatedAt,
-        testCases: testCases.map((t) => ({
-          id: t.id,
-          moduleName: t.moduleName,
-          caseId: t.caseId,
-          testCaseId: t.testCaseId,
-          libraryTcId: t.libraryTcId,
-          userStory: t.userStory,
-          requirementId: t.requirementId,
-          tracker: (t as any).tracker,
-          scenario: t.scenario,
-          preCondition: t.preCondition,
-          caseName: t.caseName,
-          testSteps: t.testSteps,
-          testData: t.testData,
-          expectedResult: t.expectedResult,
-          result: t.result,
-          actualResult: t.actualResult,
-          defectNumber: t.defectNumber,
-          defectScreenshots: t.defectScreenshots,
-          comments: t.comments,
-          qaPic: t.qaPic,
-          rowOrder: t.rowOrder,
-          rowType: t.rowType,
-        })),
+        testCases: testCases.map((t) => {
+          const revisedAt = t.libraryTcId != null ? revisedMap.get(t.libraryTcId) : undefined;
+          const reviewAcknowledgedAt = (t as any).reviewAcknowledgedAt ?? null;
+          const alertRevised = !!revisedAt && (!reviewAcknowledgedAt || new Date(reviewAcknowledgedAt) < revisedAt);
+          return {
+            id: t.id,
+            moduleName: t.moduleName,
+            caseId: t.caseId,
+            testCaseId: t.testCaseId,
+            libraryTcId: t.libraryTcId,
+            userStory: t.userStory,
+            requirementId: t.requirementId,
+            tracker: (t as any).tracker,
+            scenario: t.scenario,
+            preCondition: t.preCondition,
+            caseName: t.caseName,
+            testSteps: t.testSteps,
+            testData: t.testData,
+            expectedResult: t.expectedResult,
+            result: t.result,
+            actualResult: t.actualResult,
+            defectNumber: t.defectNumber,
+            defectScreenshots: t.defectScreenshots,
+            comments: t.comments,
+            qaPic: t.qaPic,
+            rowOrder: t.rowOrder,
+            rowType: t.rowType,
+            reviewAcknowledgedAt,
+            alertRevised,
+          };
+        }),
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch test cases" });
@@ -764,7 +794,7 @@ router.post(
             ? now
             : (existing?.executedAt ?? (t.executedAt ? new Date(t.executedAt) : null));
 
-        const rowData = {
+        const rowData: any = {
           executionFileId: file.id,
           moduleName: t.moduleName || null,
           caseId: t.caseId || null,
@@ -789,6 +819,12 @@ router.post(
           rowOrder: t.rowOrder ?? idx,
           rowType: isGroupTag ? "group" : "testcase",
         };
+        // CR023p4 — "Revised" action acks this execution instance's requirement
+        // revision alert; only set when the client explicitly sends it so a
+        // routine autosave never clobbers an existing acknowledgment.
+        if (t.reviewAcknowledgedAt !== undefined) {
+          rowData.reviewAcknowledgedAt = t.reviewAcknowledgedAt ? new Date(t.reviewAcknowledgedAt) : null;
+        }
 
         if (dbId !== null) {
           const [updated] = await db

@@ -1401,6 +1401,15 @@ export default function TestCases() {
                   In {tc.executionCount} run{tc.executionCount !== 1 ? "s" : ""}
                 </Badge>
               )}
+              {tc.requirementRevisedAt && (
+                <Badge
+                  variant="outline"
+                  className="text-[9px] h-4 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400 shrink-0"
+                  title="The linked requirement was revised since this test case was last executed"
+                >
+                  Requirement Revised
+                </Badge>
+              )}
             </div>
           </TableCell>
           {viewMode === "comfy" && (

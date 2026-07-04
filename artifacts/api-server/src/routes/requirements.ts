@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
@@ -9,9 +9,12 @@ import {
   requirementsTable,
   usersTable,
   projectsTable,
+  milestonesTable,
+  activityTable,
   insertRequirementSchema,
   testCasesTable,
   executionTestCasesTable,
+  tasksTable,
 } from "@workspace/db";
 import {
   GetRequirementParams,
@@ -23,8 +26,9 @@ import {
 const router: IRouter = Router();
 
 async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
-  let assigneeName = null;
-  let projectName = null;
+  let assigneeName: string | null = null;
+  let projectName: string | null = null;
+  let milestoneName: string | null = null;
 
   if (req.assigneeId) {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.assigneeId));
@@ -33,6 +37,10 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
   if (req.projectId) {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, req.projectId));
     projectName = project?.name ?? null;
+  }
+  if (req.milestoneId) {
+    const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, req.milestoneId));
+    milestoneName = milestone?.name ?? null;
   }
 
   return {
@@ -52,6 +60,8 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     status: req.status,
     // CR014p2
     milestoneId: req.milestoneId ?? null,
+    // CR023p3.1 — list view's Milestone column
+    milestoneName,
     // CR022p1
     acceptanceCriteria: req.acceptanceCriteria ? JSON.parse(req.acceptanceCriteria) : [],
     // CR014p4
@@ -249,7 +259,72 @@ router.get("/requirements/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await formatRequirement(requirement));
+  // CR023p2.5 — test coverage count for the detail page's metadata sidebar
+  const libTcRows = await db.select({ id: testCasesTable.id })
+    .from(testCasesTable).where(eq(testCasesTable.requirementId, requirement.id));
+  const execLinkRows = await db.select({ id: executionTestCasesTable.id, libraryTcId: executionTestCasesTable.libraryTcId })
+    .from(executionTestCasesTable).where(eq(executionTestCasesTable.requirementId, requirement.id));
+  const distinctTcs = new Set<string>();
+  for (const row of libTcRows) distinctTcs.add(`lib:${row.id}`);
+  for (const row of execLinkRows) distinctTcs.add(row.libraryTcId != null ? `lib:${row.libraryTcId}` : `exec:${row.id}`);
+
+  const execRows = await db
+    .select({ result: executionTestCasesTable.result, cnt: sql<number>`count(*)::int` })
+    .from(executionTestCasesTable)
+    .innerJoin(testCasesTable, eq(testCasesTable.id, executionTestCasesTable.libraryTcId))
+    .where(eq(testCasesTable.requirementId, requirement.id))
+    .groupBy(executionTestCasesTable.result);
+  let execPass = 0, execFail = 0, execPending = 0;
+  for (const row of execRows) {
+    const r = (row.result ?? "").toLowerCase();
+    if (r.startsWith("pass")) execPass += row.cnt;
+    else if (r.startsWith("fail")) execFail += row.cnt;
+    else execPending += row.cnt;
+  }
+
+  res.json({
+    ...(await formatRequirement(requirement)),
+    tcCount: distinctTcs.size,
+    execPass,
+    execFail,
+    execPending,
+  });
+});
+
+// GET /requirements/:id/history — chronological activity journal (CR023p2.3)
+router.get("/requirements/:id/history", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const rows = await db
+    .select({
+      id: activityTable.id,
+      type: activityTable.type,
+      description: activityTable.description,
+      userId: activityTable.userId,
+      actorName: usersTable.name,
+      oldValue: activityTable.oldValue,
+      newValue: activityTable.newValue,
+      createdAt: activityTable.createdAt,
+    })
+    .from(activityTable)
+    .leftJoin(usersTable, eq(usersTable.id, activityTable.userId))
+    .where(and(eq(activityTable.entityType, "requirement"), eq(activityTable.entityId, id)))
+    .orderBy(desc(activityTable.createdAt));
+
+  res.json(rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    description: r.description,
+    userId: r.userId,
+    actorName: r.actorName ?? null,
+    oldValue: r.oldValue ? JSON.parse(r.oldValue) : null,
+    newValue: r.newValue ? JSON.parse(r.newValue) : null,
+    createdAt: r.createdAt.toISOString(),
+  })));
 });
 
 router.patch("/requirements/:id", async (req, res): Promise<void> => {
@@ -266,6 +341,18 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
   }
 
   const [before] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
+
+  // CR023p1.3 — a rejected requirement can only be edited by its author/assignee (revise & resubmit)
+  if (before && ((before as any).reviewStatus ?? "draft") === "rejected") {
+    const ctx = getAuthContext(req);
+    const privileged = !!ctx && ["admin", "cto"].includes(ctx.role);
+    const isOwner = !!ctx && (ctx.userId === (before as any).createdBy || ctx.userId === before.assigneeId);
+    if (!ctx || (!privileged && !isOwner)) {
+      res.status(403).json({ error: "Only the author or assignee may edit a rejected requirement" });
+      return;
+    }
+  }
+
   const [requirement] = await db.update(requirementsTable).set(parsed.data).where(eq(requirementsTable.id, params.data.id)).returning();
   if (!requirement) {
     res.status(404).json({ error: "Requirement not found" });
@@ -289,6 +376,55 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     let actorId: number | null = null;
     try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
     await notifyUser(requirement.assigneeId, "Requirement assigned", `"${requirement.title}" has been assigned to you.`, "requirement", "requirement", requirement.id, actorId);
+  }
+
+  // CR023p4 — a description change re-opens review on every linked test case
+  // and task, and fans out a revision notice to the requirement's author,
+  // assignee, and every assignee of a linked task.
+  const descriptionChanged = !!diff?.newValue && Object.prototype.hasOwnProperty.call(diff.newValue, "description");
+  if (descriptionChanged) {
+    const now = new Date();
+    const revisedTcs = await db.update(testCasesTable)
+      .set({ requirementRevisedAt: now })
+      .where(eq(testCasesTable.requirementId, requirement.id))
+      .returning({ id: testCasesTable.id });
+
+    const revisedTasks = await db.update(tasksTable)
+      .set({ requirementRevisedAt: now })
+      .where(eq(tasksTable.requirementId, requirement.id))
+      .returning({ id: tasksTable.id, assigneeIds: tasksTable.assigneeIds });
+
+    if (revisedTcs.length > 0 || revisedTasks.length > 0) {
+      const recipients = new Set<number>();
+      if (requirement.createdBy) recipients.add(requirement.createdBy);
+      if (requirement.assigneeId) recipients.add(requirement.assigneeId);
+      for (const t of revisedTasks) {
+        for (const uid of t.assigneeIds ?? []) recipients.add(uid);
+      }
+
+      const actorId = actorFromReq(req);
+      await Promise.all(
+        [...recipients].map((uid) =>
+          notifyUser(
+            uid,
+            "Requirement revised",
+            `"${requirement.title}" was revised — linked test cases/tasks need re-review.`,
+            "requirement_revised",
+            "requirement",
+            requirement.id,
+            actorId,
+          ).catch(() => {}),
+        ),
+      );
+
+      await logActivity({
+        type: "requirement_revised",
+        description: `Requirement "${requirement.title}" description revised — ${revisedTcs.length} test case(s) and ${revisedTasks.length} task(s) flagged for re-review`,
+        userId: actorId,
+        entityId: requirement.id,
+        entityType: "requirement",
+      });
+    }
   }
 
   // --- CASCADE UPDATES TO CHILDREN ---
@@ -412,9 +548,9 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
 
   const createdBy = (req_ as any).createdBy;
 
-  // Segregation of duties: author cannot approve their own requirement
-  if (action === "approve" && createdBy === ctx.userId) {
-    res.status(403).json({ error: "You cannot approve a requirement you authored" }); return;
+  // Segregation of duties: author cannot review (approve or reject) their own requirement
+  if ((action === "approve" || action === "reject") && createdBy === ctx.userId) {
+    res.status(403).json({ error: `You cannot ${action} a requirement you authored` }); return;
   }
 
   const now = new Date();
@@ -446,17 +582,28 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
     newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
   });
 
-  // Notify: on reject → notify author; on approve → notify author
-  if (createdBy && createdBy !== ctx.userId) {
+  // Notify on approve: author + assignee ("routine progress", no PM needed)
+  // Notify on reject: author + assignee + the milestone's PM ("needs visibility because of a stall")
+  if (action === "approve" || action === "reject") {
+    const title = action === "approve" ? "Requirement approved" : "Requirement rejected";
     const msg = action === "approve"
       ? `Your requirement "${req_.title}" has been approved.`
-      : `Your requirement "${req_.title}" was rejected${comment ? `: ${comment}` : ""}.`;
-    notifyUser(createdBy, {
-      type: `requirement_${action}`,
-      message: msg,
-      entityId: id,
-      entityType: "requirement",
-    }).catch(() => {});
+      : `Requirement "${req_.title}" was rejected${comment ? `: ${comment}` : ""}.`;
+
+    const recipients = new Set<number>();
+    if (createdBy) recipients.add(createdBy);
+    if (req_.assigneeId) recipients.add(req_.assigneeId);
+
+    if (action === "reject" && req_.milestoneId) {
+      const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, req_.milestoneId));
+      if (milestone?.createdBy) recipients.add(milestone.createdBy);
+    }
+
+    await Promise.all(
+      [...recipients].map((uid) =>
+        notifyUser(uid, title, msg, `requirement_${action}`, "requirement", id, ctx.userId).catch(() => {})
+      )
+    );
   }
 
   res.json(await formatRequirement(updated));
@@ -476,6 +623,23 @@ async function redmineFetchLocal(path: string, apiKey: string) {
   });
 }
 
+// CR023p1.4 — Redmine issues carry an author name, not a QAPulse user ID. Matching
+// is approximate (name string vs. a separate identity system), so a miss falls
+// back to the importing user rather than ever leaving createdBy null.
+async function resolveRedmineCreatedBy(
+  authorName: string | undefined,
+  importingUserId: number,
+  ticketId: string,
+): Promise<number> {
+  const name = authorName?.trim();
+  if (name) {
+    const [match] = await db.select().from(usersTable).where(ilike(usersTable.name, name));
+    if (match) return match.id;
+  }
+  console.warn(`[Redmine import] No QAPulse user matched Redmine author "${name ?? "(none)"}" for issue #${ticketId} — falling back to importing user #${importingUserId}`);
+  return importingUserId;
+}
+
 export async function resolveApiKeyFromToken(authHeader: string | undefined): Promise<string> {
   if (!authHeader?.startsWith("Bearer ")) return process.env.REDMINE_API_KEY ?? "";
   try {
@@ -493,6 +657,7 @@ export async function syncRedmineTicket(
   parentId: number | undefined,
   trackerFilter: string | undefined,
   apiKey: string,
+  importingUserId: number,
   isRoot = true,
 ): Promise<number | undefined> {
   const resp = await redmineFetchLocal(`/issues/${encodeURIComponent(ticketId)}.json?include=children,journals`, apiKey);
@@ -529,17 +694,21 @@ export async function syncRedmineTicket(
     mappedData.status = existing.status;
     mappedData.release = existing.release ?? undefined;
     mappedData.assigneeId = existing.assigneeId ?? undefined;
+    if (!(existing as any).createdBy) {
+      mappedData.createdBy = await resolveRedmineCreatedBy(issue.author?.name, importingUserId, fetchedId);
+    }
     await db.update(requirementsTable).set(mappedData).where(eq(requirementsTable.id, existing.id));
     savedId = existing.id;
   } else {
     mappedData.status = "draft";
+    mappedData.createdBy = await resolveRedmineCreatedBy(issue.author?.name, importingUserId, fetchedId);
     const [created] = await db.insert(requirementsTable).values(mappedData).returning();
     savedId = created.id;
   }
 
   if (issue.children && Array.isArray(issue.children)) {
     for (const child of issue.children) {
-      await syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, apiKey, false);
+      await syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, apiKey, importingUserId, false);
     }
   }
 
@@ -549,6 +718,9 @@ export async function syncRedmineTicket(
 // POST /requirements/import-redmine
 // Body: { ticketId, module, projectId, trackerFilter? }
 router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const { ticketId, module, projectId, trackerFilter } = req.body;
   if (!ticketId || !module) {
     res.status(400).json({ error: "ticketId and module are required" });
@@ -564,6 +736,7 @@ router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
       undefined,
       trackerFilter || undefined,
       apiKey,
+      ctx.userId,
     );
     const [req2] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, savedId!));
     res.json({ success: true, requirement: await formatRequirement(req2) });
@@ -582,6 +755,9 @@ router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
 // linked to that ticket, otherwise fetches the single issue from Redmine and
 // creates a new requirement record (no children, no module/tracker targeting).
 router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const ticketId = String(req.body?.ticketId ?? "").trim();
   if (!ticketId) {
     res.status(400).json({ error: "ticketId is required" });
@@ -608,6 +784,8 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
       return;
     }
 
+    const createdBy = await resolveRedmineCreatedBy(issue.author?.name, ctx.userId, ticketId);
+
     const [created] = await db
       .insert(requirementsTable)
       .values({
@@ -617,6 +795,7 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
         redmineTicketId: ticketId,
         tracker: issue.tracker?.name ?? "Task",
         status: "draft",
+        createdBy,
       })
       .returning();
 

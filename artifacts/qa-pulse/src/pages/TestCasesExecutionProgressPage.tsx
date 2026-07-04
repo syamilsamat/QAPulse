@@ -539,6 +539,7 @@ interface RowProps {
   onPullLatest: (row: AppExecutionTestCase) => void;
   libraryDrift: boolean;
   onBlurRow: (id: string | number) => void;
+  onAcknowledgeRevision: (id: string | number) => void;
   availableModules: ExecutionModule[];
   availableTrackers: TrackerOption[];
   qaUsers: ExecutionUser[];
@@ -562,6 +563,7 @@ const DesktopTableRow = React.memo(
     onPullLatest,
     libraryDrift,
     onBlurRow,
+    onAcknowledgeRevision,
     availableModules,
     availableTrackers,
     qaUsers,
@@ -761,6 +763,15 @@ const DesktopTableRow = React.memo(
           ) : (
             <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
           )}
+          {row.alertRevised && (
+            <button
+              onClick={() => onAcknowledgeRevision(row.id as string | number)}
+              className="mx-2 mb-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors flex items-center gap-1 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+              title="The linked requirement was revised since this was last executed — click to reset for retest"
+            >
+              <AlertTriangle className="w-2.5 h-2.5" /> Revised
+            </button>
+          )}
         </td>
         {!hide("executedAt") && !isQaMember && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
@@ -890,6 +901,7 @@ const MobileCardRow = React.memo(
     onUpdate,
     onDelete,
     onBlurRow,
+    onAcknowledgeRevision,
     availableModules,
     availableTrackers,
     qaUsers,
@@ -972,6 +984,15 @@ const MobileCardRow = React.memo(
               <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
                 {row.result || "—"}
               </div>
+            )}
+            {row.alertRevised && (
+              <button
+                onClick={() => onAcknowledgeRevision(row.id as string | number)}
+                className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors flex items-center gap-1 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+                title="The linked requirement was revised since this was last executed — click to reset for retest"
+              >
+                <AlertTriangle className="w-2.5 h-2.5" /> Revised
+              </button>
             )}
           </div>
         </div>
@@ -1191,6 +1212,7 @@ interface SortableTreeRowProps {
   onUpdateLibrary: (row: AppExecutionTestCase) => void;
   onPullLatest: (row: AppExecutionTestCase) => void;
   libraryDrift: boolean;
+  onAcknowledgeRevision: (id: string | number) => void;
 }
 
 // Extracted from the tree-view module-row map so useSortable (a hook) can be called
@@ -1212,6 +1234,7 @@ const SortableTreeRow = React.memo(
     onUpdateLibrary,
     onPullLatest,
     libraryDrift,
+    onAcknowledgeRevision,
   }: SortableTreeRowProps) => {
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
@@ -1288,6 +1311,9 @@ const SortableTreeRow = React.memo(
             <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
             <span className="text-sm truncate text-foreground">{row.caseName || "Untitled"}</span>
           </div>
+          {row.alertRevised && (
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-label="Requirement revised — needs re-review" />
+          )}
           <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
             {row.result || "Not Executed"}
           </span>
@@ -1402,6 +1428,15 @@ const SortableTreeRow = React.memo(
                       <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
                         {row.result || "Not Executed"}
                       </span>
+                    )}
+                    {row.alertRevised && (
+                      <button
+                        onClick={() => onAcknowledgeRevision(row.id as string | number)}
+                        className="mt-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors flex items-center gap-1 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+                        title="The linked requirement was revised since this was last executed — click to reset for retest"
+                      >
+                        <AlertTriangle className="w-2.5 h-2.5" /> Revised
+                      </button>
                     )}
                   </div>
                   <div>
@@ -1990,6 +2025,43 @@ export default function TestCasesExecutionProgressPage() {
       if (dirtyRowIdsRef.current.size === 0 && deletedDbIdsRef.current.size === 0) {
         setHasUnsavedChanges(false);
       }
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [ticketId]);
+
+  // CR023p4 — "Revised" action: resets result to Not Executed through the
+  // existing save path (so it still logs to executionTcHistoryTable) and acks
+  // this execution instance's requirement-revision alert.
+  const acknowledgeRevision = useCallback(async (id: string | number) => {
+    const now = new Date().toISOString();
+    setData((prev) => {
+      const updated = prev.map((row) =>
+        row.id === id
+          ? { ...row, result: "Not Executed", reviewAcknowledgedAt: now, alertRevised: false }
+          : row,
+      );
+      dataRef.current = updated;
+      return updated;
+    });
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    setSaveStatus("saving");
+    try {
+      const currentData = dataRef.current;
+      const row = currentData.find((r) => r.id === id);
+      if (!row) return;
+      const rowToSave = {
+        ...row,
+        _tempId: typeof row.id === "string" ? row.id : undefined,
+        rowOrder: currentData.indexOf(row),
+      };
+      const result = await saveTestCases(ticketId, [rowToSave as any], []);
+      if (result?.testCases) applyReturnedRows(result.testCases);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((x) => x !== id));
+      setDirtyRowIds(dirtyRowIdsRef.current);
     } catch {
       setSaveStatus("error");
     }
@@ -3394,6 +3466,7 @@ export default function TestCasesExecutionProgressPage() {
                           isDirty={dirtyRowIds.has(row.id as string | number)}
                           onUpdate={updateCell}
                           onBlurRow={saveBlurRow}
+                          onAcknowledgeRevision={acknowledgeRevision}
                           onDelete={requestSingleDelete}
                           onPromote={openPromoteDialog}
                           onUpdateLibrary={handleUpdateLibraryFromExecution}
@@ -3467,6 +3540,7 @@ export default function TestCasesExecutionProgressPage() {
                               onUpdateLibrary={handleUpdateLibraryFromExecution}
                               onPullLatest={handlePullLatestFromLibrary}
                               libraryDrift={getLibraryDrift(row, row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null)}
+                              onAcknowledgeRevision={acknowledgeRevision}
                             />
                           ))}
                         </div>
