@@ -828,11 +828,11 @@ function SyncRedmineDialog({
             </Select>
             <p className="text-xs text-muted-foreground">
               {trackerName === "all"
-                ? "Syncs the whole subtree — every child and grandchild is routed by its own tracker: User Story → Requirements, Prod Defect → Production, QA Defect → QA list, others → Others tab."
+                ? "Syncs the whole subtree — every child and grandchild is routed by its own tracker: User Story / Change Request → Requirements, Prod Defect → Production, QA Defect → QA list, others → Others tab."
                 : /prod/i.test(trackerName)
                   ? "Only Prod Defect issues in the subtree — saved as production defects."
-                  : /story/i.test(trackerName)
-                    ? "Only User Story issues in the subtree — saved as requirements under their parent."
+                  : /story|change request|^cr$/i.test(trackerName)
+                    ? "Only these issues in the subtree — saved as requirements under their parent."
                     : /defect|bug/i.test(trackerName)
                       ? "Only these issues in the subtree — saved as QA defects."
                       : `Only "${trackerName}" issues — saved with that tracker, listed in the Others tab.`}
