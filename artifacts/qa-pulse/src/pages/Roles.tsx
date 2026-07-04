@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, Plus, Pencil, Trash2, Users, Lock, KeyRound } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, Users, Lock, KeyRound, Building2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -11,6 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -43,8 +50,34 @@ interface Role {
   name: string;
   description: string | null;
   isSystem: boolean;
+  department: string | null;
+  tierRank: number | null;
   userCount: number;
   createdAt: string;
+}
+
+const DEPARTMENTS = [
+  { value: "qa",  label: "QA" },
+  { value: "pm",  label: "PM" },
+  { value: "fa",  label: "FA / BI" },
+  { value: "dev", label: "Dev" },
+];
+
+const TIER_OPTIONS = [
+  { value: "1", label: "1 — Member" },
+  { value: "2", label: "2 — Lead" },
+  { value: "4", label: "4 — HOD" },
+  { value: "5", label: "5 — CTO" },
+];
+
+function deptLabel(d: string | null) {
+  if (!d) return null;
+  return DEPARTMENTS.find((x) => x.value === d)?.label ?? d.toUpperCase();
+}
+
+function tierLabel(t: number | null) {
+  if (t == null) return null;
+  return TIER_OPTIONS.find((x) => x.value === String(t))?.label ?? `Tier ${t}`;
 }
 
 const NAV_PERMISSION_ITEMS = [
@@ -76,6 +109,8 @@ export default function Roles() {
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
+  const [formDept, setFormDept] = useState<string>("");
+  const [formTier, setFormTier] = useState<string>("");
 
   const authHeaders = {
     "Content-Type": "application/json",
@@ -92,7 +127,7 @@ export default function Roles() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string }) => {
+    mutationFn: async (data: { name: string; description: string; department: string | null; tierRank: number | null }) => {
       const res = await fetch(`${getApiUrl()}/roles`, {
         method: "POST",
         headers: authHeaders,
@@ -111,11 +146,11 @@ export default function Roles() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { id: number; name: string; description: string }) => {
+    mutationFn: async (data: { id: number; name: string; description: string; department: string | null; tierRank: number | null }) => {
       const res = await fetch(`${getApiUrl()}/roles/${data.id}`, {
         method: "PATCH",
         headers: authHeaders,
-        body: JSON.stringify({ name: data.name, description: data.description }),
+        body: JSON.stringify({ name: data.name, description: data.description, department: data.department, tierRank: data.tierRank }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Failed to update role");
@@ -205,23 +240,38 @@ export default function Roles() {
   function openCreate() {
     setFormName("");
     setFormDesc("");
+    setFormDept("");
+    setFormTier("");
     setCreateOpen(true);
   }
 
   function openEdit(role: Role) {
     setFormName(role.name);
     setFormDesc(role.description ?? "");
+    setFormDept(role.department ?? "");
+    setFormTier(role.tierRank != null ? String(role.tierRank) : "");
     setEditRole(role);
   }
 
   function handleCreate() {
     if (!formName.trim()) return;
-    createMutation.mutate({ name: formName.trim(), description: formDesc.trim() });
+    createMutation.mutate({
+      name: formName.trim(),
+      description: formDesc.trim(),
+      department: formDept || null,
+      tierRank: formTier ? Number(formTier) : null,
+    });
   }
 
   function handleUpdate() {
     if (!editRole || !formName.trim()) return;
-    updateMutation.mutate({ id: editRole.id, name: formName.trim(), description: formDesc.trim() });
+    updateMutation.mutate({
+      id: editRole.id,
+      name: formName.trim(),
+      description: formDesc.trim(),
+      department: formDept || null,
+      tierRank: formTier ? Number(formTier) : null,
+    });
   }
 
   return (
@@ -256,8 +306,10 @@ export default function Roles() {
                 <TableRow>
                   <TableHead>Role Name</TableHead>
                   <TableHead>Display Name</TableHead>
-                  <TableHead className="text-center w-28">Users</TableHead>
-                  <TableHead className="text-center w-24">Type</TableHead>
+                  <TableHead className="w-24">Department</TableHead>
+                  <TableHead className="w-28">Tier</TableHead>
+                  <TableHead className="text-center w-20">Users</TableHead>
+                  <TableHead className="text-center w-20">Type</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
@@ -272,6 +324,23 @@ export default function Roles() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {role.description ?? <span className="italic">No description</span>}
+                    </TableCell>
+                    <TableCell>
+                      {deptLabel(role.department) ? (
+                        <Badge variant="outline" className="text-xs">
+                          <Building2 className="w-3 h-3 mr-1" />
+                          {deptLabel(role.department)}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {role.tierRank != null ? (
+                        <span className="text-xs">{tierLabel(role.tierRank)}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1 text-sm">
@@ -355,6 +424,28 @@ export default function Roles() {
                 rows={2}
               />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Department</Label>
+                <Select value={formDept} onValueChange={setFormDept}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {DEPARTMENTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tier Rank</Label>
+                <Select value={formTier} onValueChange={setFormTier}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {TIER_OPTIONS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -395,6 +486,28 @@ export default function Roles() {
                 onChange={(e) => setFormDesc(e.target.value)}
                 rows={2}
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Department</Label>
+                <Select value={formDept} onValueChange={setFormDept}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {DEPARTMENTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tier Rank</Label>
+                <Select value={formTier} onValueChange={setFormTier}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {TIER_OPTIONS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter>
