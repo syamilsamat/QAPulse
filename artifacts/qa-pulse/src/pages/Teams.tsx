@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -78,6 +78,10 @@ function deptLabel(d: string) {
   return DEPARTMENTS.find((x) => x.value === d)?.label ?? d.toUpperCase();
 }
 
+function api(path: string) {
+  return `${getApiUrl()}${path}`;
+}
+
 function authHeaders(token: string | null) {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 }
@@ -101,7 +105,7 @@ export default function Teams() {
   const { data: teams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["teams"],
     queryFn: async () => {
-      const r = await fetch(getApiUrl("/teams"), { headers: authHeaders(token) });
+      const r = await fetch(api("/teams"), { headers: authHeaders(token) });
       if (!r.ok) throw new Error("Failed to load teams");
       return r.json();
     },
@@ -110,7 +114,7 @@ export default function Teams() {
   const { data: allUsers = [] } = useQuery<User[]>({
     queryKey: ["users"],
     queryFn: async () => {
-      const r = await fetch(getApiUrl("/users"), { headers: authHeaders(token) });
+      const r = await fetch(api("/users"), { headers: authHeaders(token) });
       if (!r.ok) throw new Error("Failed to load users");
       return r.json();
     },
@@ -119,20 +123,20 @@ export default function Teams() {
   const { data: allProjects = [] } = useQuery<Project[]>({
     queryKey: ["projects"],
     queryFn: async () => {
-      const r = await fetch(getApiUrl("/projects"), { headers: authHeaders(token) });
+      const r = await fetch(api("/projects"), { headers: authHeaders(token) });
       if (!r.ok) throw new Error("Failed to load projects");
       return r.json();
     },
   });
 
   async function loadTeamDetail(team: Team) {
-    const r = await fetch(getApiUrl(`/teams/${team.id}`), { headers: authHeaders(token) });
+    const r = await fetch(api(`/teams/${team.id}`), { headers: authHeaders(token) });
     if (r.ok) setDetailTeam(await r.json());
   }
 
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; department: string }) => {
-      const r = await fetch(getApiUrl("/teams"), {
+      const r = await fetch(api("/teams"), {
         method: "POST",
         headers: authHeaders(token),
         body: JSON.stringify(data),
@@ -150,7 +154,7 @@ export default function Teams() {
 
   const editMutation = useMutation({
     mutationFn: async (data: { id: number; name: string; department: string }) => {
-      const r = await fetch(getApiUrl(`/teams/${data.id}`), {
+      const r = await fetch(api(`/teams/${data.id}`), {
         method: "PATCH",
         headers: authHeaders(token),
         body: JSON.stringify({ name: data.name, department: data.department }),
@@ -167,7 +171,7 @@ export default function Teams() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(getApiUrl(`/teams/${id}`), {
+      const r = await fetch(api(`/teams/${id}`), {
         method: "DELETE",
         headers: authHeaders(token),
       });
@@ -183,7 +187,7 @@ export default function Teams() {
 
   const addMemberMutation = useMutation({
     mutationFn: async (data: { teamId: number; userId: number; role: string }) => {
-      const r = await fetch(getApiUrl(`/teams/${data.teamId}/members`), {
+      const r = await fetch(api(`/teams/${data.teamId}/members`), {
         method: "POST",
         headers: authHeaders(token),
         body: JSON.stringify({ userId: data.userId, role: data.role }),
@@ -201,7 +205,7 @@ export default function Teams() {
 
   const removeMemberMutation = useMutation({
     mutationFn: async (data: { teamId: number; userId: number }) => {
-      const r = await fetch(getApiUrl(`/teams/${data.teamId}/members/${data.userId}`), {
+      const r = await fetch(api(`/teams/${data.teamId}/members/${data.userId}`), {
         method: "DELETE",
         headers: authHeaders(token),
       });
@@ -216,7 +220,7 @@ export default function Teams() {
 
   const assignProjectMutation = useMutation({
     mutationFn: async (data: { projectId: number; teamId: number }) => {
-      const r = await fetch(getApiUrl(`/projects/${data.projectId}/teams`), {
+      const r = await fetch(api(`/projects/${data.projectId}/teams`), {
         method: "POST",
         headers: authHeaders(token),
         body: JSON.stringify({ teamId: data.teamId }),
@@ -234,7 +238,7 @@ export default function Teams() {
 
   const unassignProjectMutation = useMutation({
     mutationFn: async (data: { projectId: number; teamId: number }) => {
-      const r = await fetch(getApiUrl(`/projects/${data.projectId}/teams/${data.teamId}`), {
+      const r = await fetch(api(`/projects/${data.projectId}/teams/${data.teamId}`), {
         method: "DELETE",
         headers: authHeaders(token),
       });
@@ -255,11 +259,12 @@ export default function Teams() {
   const availableProjects = allProjects.filter((p) => !assignedProjectIds.has(p.id));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Users className="h-6 w-6" />
-          <h1 className="text-2xl font-semibold">Teams</h1>
+          <Users className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-medium">Teams</h2>
+          <span className="text-sm text-muted-foreground">— assign users to projects by team</span>
         </div>
         <Button onClick={() => { setForm({ name: "", department: "" }); setCreateOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" /> New Team
