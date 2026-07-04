@@ -165,7 +165,7 @@ router.post("/auth/logout", async (req, res): Promise<void> => {
       newValue: { ip: clientIp(req) },
     });
   }
-  const { refreshToken } = req.body;
+  const { refreshToken } = req.body ?? {};
   if (refreshToken && typeof refreshToken === "string") {
     await db
       .update(refreshTokensTable)

@@ -470,16 +470,17 @@ export default function Teams() {
                               className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
                             >
                               {u?.name ?? uid}
-                              <button
-                                type="button"
-                                className="hover:text-destructive"
+                              <span
+                                role="button"
+                                aria-label="Remove"
+                                className="hover:text-destructive cursor-pointer"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setMemberForm((f) => ({ ...f, userIds: f.userIds.filter((id) => id !== uid) }));
                                 }}
                               >
                                 <X className="h-3 w-3" />
-                              </button>
+                              </span>
                             </span>
                           );
                         })
@@ -573,16 +574,17 @@ export default function Teams() {
                             className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
                           >
                             {p?.name ?? pid}
-                            <button
-                              type="button"
-                              className="hover:text-destructive"
+                            <span
+                              role="button"
+                              aria-label="Remove"
+                              className="hover:text-destructive cursor-pointer"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setAssignProjectIds((ids) => ids.filter((id) => id !== pid));
                               }}
                             >
                               <X className="h-3 w-3" />
-                            </button>
+                            </span>
                           </span>
                         );
                       })
