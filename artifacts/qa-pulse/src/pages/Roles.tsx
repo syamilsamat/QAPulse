@@ -427,20 +427,20 @@ export default function Roles() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Department</Label>
-                <Select value={formDept} onValueChange={setFormDept}>
+                <Select value={formDept || "none"} onValueChange={(v) => setFormDept(v === "none" ? "" : v)}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {DEPARTMENTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Tier Rank</Label>
-                <Select value={formTier} onValueChange={setFormTier}>
+                <Select value={formTier || "none"} onValueChange={(v) => setFormTier(v === "none" ? "" : v)}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {TIER_OPTIONS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -490,20 +490,20 @@ export default function Roles() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Department</Label>
-                <Select value={formDept} onValueChange={setFormDept}>
+                <Select value={formDept || "none"} onValueChange={(v) => setFormDept(v === "none" ? "" : v)}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {DEPARTMENTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Tier Rank</Label>
-                <Select value={formTier} onValueChange={setFormTier}>
+                <Select value={formTier || "none"} onValueChange={(v) => setFormTier(v === "none" ? "" : v)}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {TIER_OPTIONS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
