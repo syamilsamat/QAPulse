@@ -3,6 +3,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 import {
   db,
   requirementsTable,
@@ -55,18 +56,31 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
 }
 
 router.get("/requirements", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
   const parsed = ListRequirementsQueryParams.safeParse(req.query);
   let reqs = await db.select().from(requirementsTable).orderBy(requirementsTable.createdAt);
 
   if (parsed.success) {
     const { projectId, assigneeId, status, priority, module, release, search } = parsed.data;
-    if (projectId) reqs = reqs.filter(r => r.projectId === projectId);
+    if (projectId) {
+      const ok = accessible === null || accessible.includes(projectId);
+      if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+      reqs = reqs.filter(r => r.projectId === projectId);
+    } else if (accessible !== null) {
+      reqs = reqs.filter(r => r.projectId !== null && accessible.includes(r.projectId));
+    }
     if (assigneeId) reqs = reqs.filter(r => r.assigneeId === assigneeId);
     if (status) reqs = reqs.filter(r => r.status === status);
     if (priority) reqs = reqs.filter(r => r.priority === priority);
     if (module) reqs = reqs.filter(r => r.module === module);
     if (release) reqs = reqs.filter(r => r.release === release);
     if (search) reqs = reqs.filter(r => r.title.toLowerCase().includes(search.toLowerCase()));
+  } else if (accessible !== null) {
+    reqs = reqs.filter(r => r.projectId !== null && accessible.includes(r.projectId));
   }
 
   const formatted = await Promise.all(reqs.map(formatRequirement));
@@ -135,10 +149,18 @@ router.get("/requirements", async (req, res): Promise<void> => {
 });
 
 router.post("/requirements", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = insertRequirementSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+
+  if (parsed.data.projectId) {
+    const ok = await canAccessProject(ctx.userId, ctx.role, parsed.data.projectId);
+    if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
 
   const [requirement] = await db.insert(requirementsTable).values(parsed.data).returning();

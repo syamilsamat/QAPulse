@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable } from "@workspace/db";
 import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
@@ -74,25 +75,34 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
 }
 
 router.get("/tasks", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
   const parsed = ListTasksQueryParams.safeParse(req.query);
   let tasks = await db.select().from(tasksTable).orderBy(tasksTable.createdAt);
 
   if (parsed.success) {
     // Typecast to any to accommodate the newly added query params not yet in Zod
     const { projectId, status, priority, moduleId, requirementId, overdue } = parsed.data as any;
-    const assigneeId = (parsed.data as any).assigneeId; 
+    const assigneeId = (parsed.data as any).assigneeId;
 
-    if (projectId) tasks = tasks.filter(t => t.projectId === Number(projectId));
+    if (projectId) {
+      const ok = accessible === null || accessible.includes(Number(projectId));
+      if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+      tasks = tasks.filter(t => t.projectId === Number(projectId));
+    } else if (accessible !== null) {
+      tasks = tasks.filter(t => t.projectId !== null && accessible.includes(t.projectId));
+    }
     if (status) tasks = tasks.filter(t => t.status === status);
     if (priority) tasks = tasks.filter(t => t.priority === priority);
     if (moduleId) tasks = tasks.filter(t => t.moduleId === Number(moduleId));
     if (requirementId) tasks = tasks.filter(t => t.requirementId === Number(requirementId));
     if (overdue) tasks = tasks.filter(t => isOverdue(t));
-
-    // Filter logic for the assigneeIds array
-    if (assigneeId) {
-      tasks = tasks.filter(t => t.assigneeIds?.includes(Number(assigneeId)));
-    }
+    if (assigneeId) tasks = tasks.filter(t => t.assigneeIds?.includes(Number(assigneeId)));
+  } else if (accessible !== null) {
+    tasks = tasks.filter(t => t.projectId !== null && accessible.includes(t.projectId));
   }
 
   const formatted = await Promise.all(tasks.map(formatTask));
@@ -100,10 +110,18 @@ router.get("/tasks", async (req, res): Promise<void> => {
 });
 
 router.post("/tasks", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = CreateTaskBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+
+  if (parsed.data.projectId) {
+    const ok = await canAccessProject(ctx.userId, ctx.role, parsed.data.projectId);
+    if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
 
   const [task] = await db.insert(tasksTable).values(parsed.data).returning();
