@@ -21,15 +21,15 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | ✅ Deployed | 2026-07-04 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
-| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ⏳ Pending | — |
+| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ✅ Deployed | 2026-07-04 |
 | [CR015](#cr015--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | ✅ Deployed | 2026-07-04 |
 | [CR016](#cr016--traceability-matrix-requirement-hierarchy) | Traceability Matrix Requirement Hierarchy | ✅ Deployed | 2026-07-03 |
-| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | 📋 Planned | 2026-07-03 |
+| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | ✅ Deployed | 2026-07-04 |
 | [CR018](#cr018--tc-library-execution-file-drill-down) | TC Library: Execution File Drill-Down | ✅ Deployed | 2026-07-03 |
 | [CR019](#cr019--defect-tracking-write-through-to-redmine--defects-page) | Defect Tracking: Write-Through to Redmine + Defects Page | ✅ Deployed | 2026-07-04 |
 | [CR020](#cr020--production-defect-workflow-escape-analysis) | Production Defect Workflow (Escape Analysis) | ✅ Deployed | 2026-07-04 |
 | [CR021](#cr021--native-defect-tracking-cutover-retire-redmine-for-defects) | Native Defect Tracking Cutover (Retire Redmine for Defects) | 📋 Planned | 2026-07-03 |
-| [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | 📋 Planned | 2026-07-04 |
+| [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | ✅ Deployed | 2026-07-04 |
 
 ---
 
