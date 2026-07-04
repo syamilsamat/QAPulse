@@ -31,6 +31,9 @@ interface ReqNode {
   reqStatus: string | null;
   parentId: number | null;
   milestoneId: number | null;
+  milestoneName: string | null;
+  milestoneTargetDate: string | null;
+  milestoneStatus: string | null;
   testCases: TcNode[];
   children: ReqNode[];
   directTcCount: number;
@@ -128,9 +131,13 @@ router.get("/traceability", async (req, res): Promise<void> => {
         p.name              AS project_name,
         r.status            AS req_status,
         r.parent_id         AS parent_id,
-        r.milestone_id      AS milestone_id
+        r.milestone_id      AS milestone_id,
+        m.name              AS milestone_name,
+        m.target_date       AS milestone_target_date,
+        m.status            AS milestone_status
       FROM requirements r
       LEFT JOIN projects p ON p.id = r.project_id
+      LEFT JOIN milestones m ON m.id = r.milestone_id
       ${reqWhere}
       ORDER BY r.id
       `,
@@ -149,6 +156,9 @@ router.get("/traceability", async (req, res): Promise<void> => {
         reqStatus: row.req_status,
         parentId: row.parent_id ?? null,
         milestoneId: row.milestone_id ?? null,
+        milestoneName: row.milestone_name ?? null,
+        milestoneTargetDate: row.milestone_target_date ? new Date(row.milestone_target_date).toISOString() : null,
+        milestoneStatus: row.milestone_status ?? null,
         testCases: [],
         children: [],
         directTcCount: 0,

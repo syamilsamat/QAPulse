@@ -555,7 +555,7 @@ export default function RequirementDetail() {
               </div>
               {req.release && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Release</span>
+                  <span className="text-muted-foreground">Release (legacy)</span>
                   <span className="font-medium">{req.release}</span>
                 </div>
               )}
