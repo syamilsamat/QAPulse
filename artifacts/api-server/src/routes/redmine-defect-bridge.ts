@@ -21,12 +21,13 @@ async function redmineFetch(path: string, apiKey: string, options: RequestInit =
 }
 
 // Tracker routing shared by every import path:
-// User Story → requirement · Prod Defect → production tab · QA Defect/Bug →
-// QA tab · anything else → Others tab (full details kept)
+// User Story / Change Request → requirement · Prod Defect → production tab ·
+// QA Defect/Bug → QA tab · anything else → Others tab (full details kept)
 export function routeForTracker(trackerName: string): "qa" | "production" | "requirement" | "other" {
-  const n = (trackerName ?? "").toLowerCase();
+  const n = (trackerName ?? "").toLowerCase().trim();
   if (n.includes("prod")) return "production";
   if (n.includes("user story") || n.includes("story")) return "requirement";
+  if (n.includes("change request") || n === "cr") return "requirement";
   if (n.includes("defect") || n.includes("bug")) return "qa";
   return "other";
 }
