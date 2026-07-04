@@ -30,7 +30,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR020](#cr020--production-defect-workflow-escape-analysis) | Production Defect Workflow (Escape Analysis) | ✅ Deployed | 2026-07-04 |
 | [CR021](#cr021--native-defect-tracking-cutover-retire-redmine-for-defects) | Native Defect Tracking Cutover (Retire Redmine for Defects) | 📋 Planned | 2026-07-03 |
 | [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | ✅ Deployed | 2026-07-04 |
-| [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | 📋 Planned | 2026-07-05 |
+| [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | ✅ Deployed | 2026-07-05 |
 
 ---
 
@@ -443,30 +443,26 @@ Full plan: `docs/change-requests/fa-workflow-enhancements.md`
 ---
 
 ### CR023 — Requirement Detail & Review Workflow Gaps
-**Status:** 📋 Planned (2026-07-05)
+**Status:** ✅ Deployed (2026-07-05, commits `9e70477`, `e82dd6a`, `cf25efb`, `225b678`) — 2 cosmetic list-view items open
 
-A follow-up audit comparing CR014/CR022's actual shipped implementation against the fuller design worked out in parallel (`docs/change-requests/pm-ba-onboarding.md`) found real gaps — some are missing features, two are actual security/consistency bugs in the review workflow that should be fixed regardless of priority.
+A follow-up audit comparing CR014/CR022's actual shipped implementation against the fuller design worked out in parallel (`docs/change-requests/pm-ba-onboarding.md`) found real gaps — some missing features, two actual security/consistency bugs in the review workflow. All four parts below shipped; verified against code 2026-07-05 (this register previously lagged the actual commits by a day).
 
-**Bugs (fix first — these break intended guarantees, not just missing polish)**
-- `PATCH /requirements/:id/review`'s segregation-of-duties check only guards the `approve` action — an author can currently reject their own requirement, since no equivalent check exists on that branch
-- Rejecting a requirement only notifies the author — the assignee and the milestone's PM (both part of the original design) never get notified
-- No restriction on editing a requirement while its `reviewStatus` is `rejected` — any authenticated user can `PATCH` it regardless of authorship, not just the author/assignee as designed
-- Redmine-imported requirements get `createdBy = null` (not even a fallback to the importer) — `syncRedmineTicket()` and `POST /requirements/resolve-redmine` never set it at all, so imported requirements have **zero** segregation-of-duties protection (nobody is ever blocked from approving them)
+**Part 1 — Bugs fixed** (`9e70477`)
+- Segregation-of-duties check now guards both `approve` and `reject` — an author can no longer reject their own requirement.
+- Reject notifications now fan out to author + assignee + the milestone's PM (approve stays author+assignee only — "routine progress, no PM needed").
+- Editing a `rejected` requirement is now restricted to its author/assignee (revise & resubmit).
+- Redmine imports resolve `createdBy` by matching the Redmine issue's author name against QAPulse users (`ilike` on name); on no match, falls back to the importing user rather than ever leaving it `null` — closes the segregation-of-duties bypass for imported requirements.
 
-**Missing from `RequirementDetail.tsx`**
-- Breadcrumb is generic ("Requirements › {title}") — doesn't trace the `parentId` ancestry chain
-- No Child Requirements section
-- No History journal (activity log) at all
-- No AI Requirement Analyzer entry point anywhere on this page
-- No test-coverage count in the metadata sidebar
+**Part 2 — `RequirementDetail.tsx` completed** (`e82dd6a`)
+- Breadcrumb now traces the real `parentId` ancestry chain (root first).
+- Child Requirements section, History journal (chronological activity log), "Analyze with AI" entry point, and a test-coverage count in the metadata sidebar all added.
 
-**Missing from `Requirements.tsx` (list view)**
-- No Milestone column
-- Title click still opens the old edit modal instead of navigating to `/requirements/:id` — the detail page is only reachable via the row's "⋮" → "View Detail"
-- Priority still rendered as pill badges, not the left-stripe convention
-- Filters still dropdowns, not chips
+**Part 3 — `Requirements.tsx` list view** (`cf25efb`)
+- Milestone column added; title click now navigates to `/requirements/:id` instead of opening the old edit modal.
+- **Still open (cosmetic, not scheduled):** priority still renders as pill badges, not the left-stripe convention; filters still dropdowns, not chips.
 
-**Missing entirely — requirement-change re-review flow**
-- No `requirementRevisedAt` on test cases or tasks, no `reviewAcknowledgedAt` on execution test cases, no alert UI anywhere, no "Revised" button. Editing a requirement's description today has zero effect on test cases or tasks already built against it.
+**Part 4 — Requirement-change re-review flow** (`225b678`)
+- New columns: `requirementRevisedAt` on `test_cases` and `tasks`, `reviewAcknowledgedAt` on `execution_test_cases`, `milestones.createdBy` (needed for Part 1's PM notification). **Requires `db push`** — not bootstrapped like CR014's tables.
+- Editing an approved requirement's description now flags every linked test case and task as needing re-review; an "Alert: Revised" badge + acknowledge/"Revised" action surfaces across all three consumers — Tasks page, TC Library, and every execution view (Tree/Spreadsheet/Focus) in `TestCasesExecutionProgressPage.tsx`.
 
 Full plan: `docs/change-requests/requirement-detail-gaps.md`
