@@ -216,7 +216,7 @@ router.post("/trackers/sync", async (req, res): Promise<void> => {
 
 router.post("/execution-files", async (req, res): Promise<void> => {
   try {
-    const { redmineTicketId, title, qaPic, remarks, selectedModules, tracker, projectId, requirementId } = req.body;
+    const { redmineTicketId, title, qaPic, remarks, selectedModules, tracker, projectId, requirementId, milestoneId, fileType } = req.body;
     if (!redmineTicketId || !redmineTicketId.trim()) {
       res.status(400).json({ error: "Redmine Ticket ID is required" });
       return;
@@ -232,7 +232,9 @@ router.post("/execution-files", async (req, res): Promise<void> => {
         tracker: tracker || null,
         projectId: projectId ? Number(projectId) : null,
         requirementId: requirementId ? Number(requirementId) : null,
-      })
+        milestoneId: milestoneId ? Number(milestoneId) : null,
+        fileType: fileType || "qa",
+      } as any)
       .returning();
     // Audit: log execution file creation
     let creatorName: string | null = null;
@@ -261,6 +263,8 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       tracker: file.tracker,
       projectId: file.projectId,
       requirementId: file.requirementId,
+      milestoneId: (file as any).milestoneId ?? null,
+      fileType: (file as any).fileType ?? "qa",
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });

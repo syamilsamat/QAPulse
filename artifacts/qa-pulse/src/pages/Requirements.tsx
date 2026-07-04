@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +66,12 @@ import {
   TestTube,
   LayoutList,
   List,
+  GripVertical,
+  X as XIcon,
+  ExternalLink as DetailIcon,
+  Clock,
+  CheckCircle2,
+  XCircle as XCircleIcon,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -130,7 +136,9 @@ export default function Requirements() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
-  const [form, setForm] = useState<Partial<RequirementInput> & { parentRedmineTicketId?: string }>({});
+  const [form, setForm] = useState<Partial<RequirementInput> & { parentRedmineTicketId?: string; milestoneId?: number | null }>({});
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState<string[]>([]);
+  const [newCriterion, setNewCriterion] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -185,6 +193,34 @@ export default function Requirements() {
     },
     enabled: !!token,
     staleTime: 5 * 60 * 1000,
+  });
+
+  const formProjectId = form.projectId;
+  const { data: milestonesForProject = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", formProjectId],
+    queryFn: async () => {
+      if (!formProjectId) return [];
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${formProjectId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!formProjectId && dialogOpen,
+  });
+
+  const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
+  const canReview = FA_REVIEW_ROLES.includes(user?.role ?? "");
+
+  const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({
+    queryKey: ["review-queue"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/requirements/review-queue`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : { waitingOnMe: [], awaitingMyRevision: [] };
+    },
+    enabled: canReview,
+    refetchInterval: 60000,
   });
 
   useEffect(() => {
@@ -375,6 +411,8 @@ export default function Requirements() {
   const openCreate = () => {
     setEditingReq(null);
     setForm({ priority: "normal", status: "draft" });
+    setAcceptanceCriteria([]);
+    setNewCriterion("");
     setReqFormModules([]);
     setErrors({});
     setDialogOpen(true);
@@ -398,7 +436,10 @@ export default function Requirements() {
       assigneeId: r.assigneeId ?? undefined,
       redmineTicketId: r.redmineTicketId ?? undefined,
       status: r.status,
+      milestoneId: r.milestoneId ?? null,
     });
+    setAcceptanceCriteria(Array.isArray(r.acceptanceCriteria) ? r.acceptanceCriteria : []);
+    setNewCriterion("");
     setReqFormModules(r.module ? r.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setDialogOpen(true);
   };
@@ -411,8 +452,11 @@ export default function Requirements() {
       projectId: parentReq.projectId ?? undefined,
       release: parentReq.release ?? undefined,
       priority: "normal",
-      status: "draft"
+      status: "draft",
+      milestoneId: parentReq.milestoneId ?? null,
     });
+    setAcceptanceCriteria([]);
+    setNewCriterion("");
     setReqFormModules(parentReq.module ? parentReq.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setErrors({});
     setDialogOpen(true);
@@ -450,8 +494,14 @@ export default function Requirements() {
       finalParentId = undefined;
     }
 
-    const { parentRedmineTicketId, ...restForm } = form;
-    const payload = { ...restForm, parentId: finalParentId, module: reqFormModules.join(",") || undefined };
+    const { parentRedmineTicketId, milestoneId, ...restForm } = form;
+    const payload = {
+      ...restForm,
+      parentId: finalParentId,
+      module: reqFormModules.join(",") || undefined,
+      milestoneId: milestoneId ?? undefined,
+      acceptanceCriteria: acceptanceCriteria.length > 0 ? JSON.stringify(acceptanceCriteria) : undefined,
+    };
 
     if (editingReq) updateMutation.mutate({ id: editingReq.id, data: payload as any });
     else createMutation.mutate({ data: payload as RequirementInput });
@@ -632,6 +682,50 @@ export default function Requirements() {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Review Queue — shown to FA roles */}
+      {canReview && reviewQueue && (reviewQueue.waitingOnMe.length > 0 || reviewQueue.awaitingMyRevision.length > 0) && (
+        <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-600" />
+              <span className="font-semibold text-sm text-blue-700 dark:text-blue-400">Review Queue</span>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            {reviewQueue.waitingOnMe.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Waiting on my review ({reviewQueue.waitingOnMe.length})</p>
+                <div className="space-y-1">
+                  {reviewQueue.waitingOnMe.slice(0, 5).map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-blue-100 dark:border-blue-900">
+                      <button className="hover:underline text-left flex-1 truncate" onClick={() => navigate(`/requirements/${r.id}`)}>
+                        {r.title}
+                      </button>
+                      {r.stale && <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0 ml-2" aria-label="Stale — waiting 3+ days" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {reviewQueue.awaitingMyRevision.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Awaiting my revision ({reviewQueue.awaitingMyRevision.length})</p>
+                <div className="space-y-1">
+                  {reviewQueue.awaitingMyRevision.slice(0, 5).map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-red-100 dark:border-red-900">
+                      <button className="hover:underline text-left flex-1 truncate" onClick={() => navigate(`/requirements/${r.id}`)}>
+                        {r.title}
+                      </button>
+                      <XCircleIcon className="w-3.5 h-3.5 text-red-500 shrink-0 ml-2" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <Card>
@@ -875,6 +969,9 @@ export default function Requirements() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => navigate(`/requirements/${r.id}`)}>
+                                <DetailIcon className="w-4 h-4 mr-2" /> View Detail
+                              </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => openCreateChild(r)}>
                                 <Plus className="w-4 h-4 mr-2" /> Add Child
                               </DropdownMenuItem>
@@ -1055,6 +1152,70 @@ export default function Requirements() {
               <div className="space-y-1.5">
                 <Label>Parent Redmine ID (Optional)</Label>
                 <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Milestone</Label>
+                <SearchableSelect
+                  value={form.milestoneId ? String(form.milestoneId) : ""}
+                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
+                  options={[{ value: "", label: "None" }, ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name }))]}
+                  placeholder="Select milestone…"
+                  searchPlaceholder="Search milestones…"
+                />
+              </div>
+            </div>
+
+            {/* Acceptance Criteria */}
+            <div className="space-y-2">
+              <Label>Acceptance Criteria</Label>
+              <div className="space-y-1.5">
+                {acceptanceCriteria.map((c, i) => (
+                  <div key={i} className="flex items-center gap-2 group">
+                    <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="flex-1 text-sm bg-muted/50 rounded px-2 py-1">{c}</span>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        disabled={i === 0}
+                        onClick={() => setAcceptanceCriteria(prev => { const a = [...prev]; [a[i-1], a[i]] = [a[i], a[i-1]]; return a; })}
+                        className="text-xs text-muted-foreground hover:text-foreground px-1 disabled:opacity-30"
+                      >↑</button>
+                      <button
+                        type="button"
+                        disabled={i === acceptanceCriteria.length - 1}
+                        onClick={() => setAcceptanceCriteria(prev => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a; })}
+                        className="text-xs text-muted-foreground hover:text-foreground px-1 disabled:opacity-30"
+                      >↓</button>
+                      <button
+                        type="button"
+                        onClick={() => setAcceptanceCriteria(prev => prev.filter((_, j) => j !== i))}
+                        className="text-muted-foreground hover:text-destructive"
+                      ><XIcon className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Add acceptance criterion…"
+                    value={newCriterion}
+                    onChange={(e) => setNewCriterion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newCriterion.trim()) {
+                        e.preventDefault();
+                        setAcceptanceCriteria(prev => [...prev, newCriterion.trim()]);
+                        setNewCriterion("");
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { if (newCriterion.trim()) { setAcceptanceCriteria(prev => [...prev, newCriterion.trim()]); setNewCriterion(""); } }}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

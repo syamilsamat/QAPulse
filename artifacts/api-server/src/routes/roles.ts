@@ -35,6 +35,7 @@ export const ALL_NAV_KEYS = [
   "nav:admin-search",
   "nav:team-hangouts",
   "nav:configurations",
+  "nav:milestones",
   "nav:audit-log", // CR011 — admin-only; endpoint is also role-gated server-side
 ];
 
@@ -42,14 +43,14 @@ export const ALL_NAV_KEYS = [
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin:      ALL_NAV_KEYS,
   cto:        ALL_NAV_KEYS,
-  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
-  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
-  hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
+  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
+  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
+  hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
   hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
-  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations"],
-  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts"],
-  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
-  fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts"],
+  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
+  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
+  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones"],
+  fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts"],
   pmo:        [],
@@ -126,6 +127,45 @@ export async function bootstrap() {
     INSERT INTO project_members (project_id, user_id)
     SELECT p.id, u.id FROM projects p CROSS JOIN users u
     ON CONFLICT DO NOTHING
+  `);
+
+  // CR014 Part 2 — milestones
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS milestones (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'cr',
+      status TEXT NOT NULL DEFAULT 'planned',
+      target_date TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
+
+  // CR022 Part 1 — acceptance criteria (JSON array of strings stored as text)
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT`);
+
+  // CR014 Part 4 — FA review workflow
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft'`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ`);
+
+  // CR022 Part 2 — discussion thread
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS requirement_comments (
+      id SERIAL PRIMARY KEY,
+      requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `);
 
   for (const role of DEFAULT_ROLES) {

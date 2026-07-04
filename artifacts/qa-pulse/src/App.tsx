@@ -31,6 +31,8 @@ import TraceabilityMatrix from "@/pages/TraceabilityMatrix";
 import AuditLog from "@/pages/AuditLog";
 import Defects from "@/pages/Defects";
 import Teams from "@/pages/Teams";
+import RequirementDetail from "@/pages/RequirementDetail";
+import Milestones from "@/pages/Milestones";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -130,6 +132,20 @@ function Router() {
       <Route path="/requirements">
         <ProtectedRoute
           component={Requirements}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      <Route path="/requirements/:id">
+        <ProtectedRoute
+          component={RequirementDetail}
+          roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      <Route path="/milestones">
+        <ProtectedRoute
+          component={Milestones}
           roles={["qa_member", "qa_lead", "admin"]}
         />
       </Route>

@@ -64,6 +64,7 @@ interface TraceabilityRow {
   projectName: string | null;
   reqStatus: string | null;
   parentId: number | null;
+  milestoneId: number | null;
   directTcCount: number;
   tcCount: number;
   passed: number;
@@ -147,6 +148,7 @@ export default function TraceabilityMatrix() {
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterMilestone, setFilterMilestone] = useState<string>("all");
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -158,13 +160,26 @@ export default function TraceabilityMatrix() {
     },
   });
 
+  const { data: milestones = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject],
+    queryFn: async () => {
+      if (filterProject === "all") return [];
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${filterProject}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
+  });
+
   const queryParams = new URLSearchParams();
   if (filterProject !== "all") queryParams.set("projectId", filterProject);
   if (filterModule !== "all") queryParams.set("module", filterModule);
   if (filterStatus !== "all") queryParams.set("status", filterStatus);
+  if (filterMilestone !== "all") queryParams.set("milestoneId", filterMilestone);
 
   const { data: rows = [], isLoading } = useQuery<TraceabilityRow[]>({
-    queryKey: ["traceability", filterProject, filterModule, filterStatus],
+    queryKey: ["traceability", filterProject, filterModule, filterStatus, filterMilestone],
     queryFn: async () => {
       const res = await fetch(`${getApiUrl()}/traceability?${queryParams.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -511,7 +526,28 @@ export default function TraceabilityMatrix() {
             <SelectItem value="no-tcs">No TCs</SelectItem>
           </SelectContent>
         </Select>
+
+        {filterProject !== "all" && milestones.length > 0 && (
+          <Select value={filterMilestone} onValueChange={(v) => setFilterMilestone(v)}>
+            <SelectTrigger className="w-52">
+              <SelectValue placeholder="All Milestones" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Milestones</SelectItem>
+              {milestones.map((m) => (
+                <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
+
+      {filterMilestone !== "all" && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-md px-3 py-2">
+          <span className="text-violet-600 dark:text-violet-400 font-medium">Milestone scope active</span>
+          <span>— execution results scoped to this milestone only. Requirements without TCs in this milestone may show "Not Run".</span>
+        </div>
+      )}
 
       {/* Table */}
       {isLoading ? (

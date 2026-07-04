@@ -29,6 +29,7 @@ interface ReqNode {
   projectName: string | null;
   reqStatus: string | null;
   parentId: number | null;
+  milestoneId: number | null;
   testCases: TcNode[];
   children: ReqNode[];
   directTcCount: number;
@@ -95,14 +96,15 @@ function rollup(node: ReqNode): Map<string, Classification> {
 
 router.get("/traceability", async (req, res): Promise<void> => {
   try {
-    const { projectId, module, status } = req.query;
+    const { projectId, module, status, milestoneId } = req.query;
+    const milestoneIdNum = milestoneId ? Number(milestoneId) : null;
 
-    let reqWhere = "";
+    const reqConditions: string[] = [];
     const reqParams: any[] = [];
-    if (projectId) {
-      reqWhere = "WHERE r.project_id = $1";
-      reqParams.push(Number(projectId));
-    }
+    let p = 1;
+    if (projectId) { reqConditions.push(`r.project_id = $${p++}`); reqParams.push(Number(projectId)); }
+    if (milestoneIdNum) { reqConditions.push(`r.milestone_id = $${p++}`); reqParams.push(milestoneIdNum); }
+    const reqWhere = reqConditions.length > 0 ? `WHERE ${reqConditions.join(" AND ")}` : "";
 
     const { rows: reqRows } = await pool.query(
       `
@@ -114,7 +116,8 @@ router.get("/traceability", async (req, res): Promise<void> => {
         r.project_id        AS project_id,
         p.name              AS project_name,
         r.status            AS req_status,
-        r.parent_id         AS parent_id
+        r.parent_id         AS parent_id,
+        r.milestone_id      AS milestone_id
       FROM requirements r
       LEFT JOIN projects p ON p.id = r.project_id
       ${reqWhere}
@@ -134,6 +137,7 @@ router.get("/traceability", async (req, res): Promise<void> => {
         projectName: row.project_name ?? null,
         reqStatus: row.req_status,
         parentId: row.parent_id ?? null,
+        milestoneId: row.milestone_id ?? null,
         testCases: [],
         children: [],
         directTcCount: 0,
@@ -167,14 +171,16 @@ router.get("/traceability", async (req, res): Promise<void> => {
           SELECT COALESCE(e.test_case_id, e.case_id) AS etc_case_id,
                  e.result, e.defect_number, e.executed_at
           FROM execution_test_cases e
+          JOIN execution_files ef ON ef.id = e.execution_file_id
           WHERE e.library_tc_id = tc.id
+            AND ($2::int IS NULL OR ef.milestone_id = $2::int)
           ORDER BY e.id DESC
           LIMIT 1
         ) latest_etc ON true
         WHERE tc.requirement_id = ANY($1)
         ORDER BY tc.id
         `,
-        [reqIds]
+        [reqIds, milestoneIdNum]
       );
 
       for (const row of libRows) {
@@ -213,10 +219,12 @@ router.get("/traceability", async (req, res): Promise<void> => {
           e.case_name      AS case_name,
           e.result, e.defect_number, e.executed_at
         FROM execution_test_cases e
+        JOIN execution_files ef ON ef.id = e.execution_file_id
         WHERE e.requirement_id = ANY($1)
+          AND ($2::int IS NULL OR ef.milestone_id = $2::int)
         ORDER BY e.id
         `,
-        [reqIds]
+        [reqIds, milestoneIdNum]
       );
 
       for (const row of execRows) {

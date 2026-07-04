@@ -21,6 +21,8 @@ import documentRegisterRouter from "./document-register";
 import auditLogRouter from "./audit-log";
 import defectsRouter from "./defects";
 import teamsRouter from "./teams";
+import milestonesRouter from "./milestones";
+import requirementCommentsRouter from "./requirement-comments";
 
 const router: IRouter = Router();
 
@@ -46,5 +48,7 @@ router.use(documentRegisterRouter);
 router.use(auditLogRouter);
 router.use(defectsRouter);
 router.use(teamsRouter);
+router.use(milestonesRouter);
+router.use(requirementCommentsRouter);
 
 export default router;
