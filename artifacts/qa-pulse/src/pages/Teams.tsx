@@ -61,6 +61,8 @@ interface Team {
   name: string;
   department: string;
   memberCount: number;
+  members: Array<{ id: number; name: string; teamRole: string }>;
+  projects: Array<{ id: number; name: string }>;
   createdAt: string;
 }
 
@@ -307,25 +309,63 @@ export default function Teams() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Team</TableHead>
-              <TableHead>Department</TableHead>
+              <TableHead className="w-40">Team</TableHead>
+              <TableHead className="w-24">Department</TableHead>
               <TableHead>Members</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>Projects</TableHead>
+              <TableHead className="text-right w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {teams.map((team) => (
               <TableRow
                 key={team.id}
-                className="cursor-pointer hover:bg-muted/50"
+                className="cursor-pointer hover:bg-muted/50 align-top"
                 onClick={() => loadTeamDetail(team)}
               >
-                <TableCell className="font-medium">{team.name}</TableCell>
-                <TableCell>
+                <TableCell className="font-medium pt-3">{team.name}</TableCell>
+                <TableCell className="pt-3">
                   <Badge variant="outline">{deptLabel(team.department)}</Badge>
                 </TableCell>
-                <TableCell>{team.memberCount}</TableCell>
-                <TableCell className="text-right">
+                <TableCell>
+                  {team.members.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1 py-1">
+                      {team.members.map((m) => (
+                        <span
+                          key={m.id}
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                            m.teamRole === "lead"
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {m.name}
+                          {m.teamRole === "lead" && <span className="ml-1 opacity-60">★</span>}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {team.projects.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1 py-1">
+                      {team.projects.map((p) => (
+                        <span
+                          key={p.id}
+                          className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs text-foreground"
+                        >
+                          {p.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="text-right pt-2">
                   <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                     <Button
                       size="icon"
