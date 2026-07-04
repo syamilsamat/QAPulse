@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, Pencil, Trash2, UserPlus, UserMinus, Link2, Unlink } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, UserMinus, Link2, Unlink, ChevronsUpDown, Check, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,6 +33,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -96,10 +110,11 @@ export default function Teams() {
   const [deleteTeam, setDeleteTeam] = useState<Team | null>(null);
   const [detailTeam, setDetailTeam] = useState<TeamDetail | null>(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [assignProjectOpen, setAssignProjectOpen] = useState(false);
 
   const [form, setForm] = useState({ name: "", department: "" });
-  const [memberForm, setMemberForm] = useState({ userId: "", role: "member" });
+  const [memberForm, setMemberForm] = useState({ userIds: [] as number[], role: "member" });
   const [assignProjectId, setAssignProjectId] = useState("");
 
   const { data: teams = [], isLoading } = useQuery<Team[]>({
@@ -186,19 +201,23 @@ export default function Teams() {
   });
 
   const addMemberMutation = useMutation({
-    mutationFn: async (data: { teamId: number; userId: number; role: string }) => {
-      const r = await fetch(api(`/teams/${data.teamId}/members`), {
-        method: "POST",
-        headers: authHeaders(token),
-        body: JSON.stringify({ userId: data.userId, role: data.role }),
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to add member");
+    mutationFn: async (data: { teamId: number; userIds: number[]; role: string }) => {
+      await Promise.all(data.userIds.map(async (userId) => {
+        const r = await fetch(api(`/teams/${data.teamId}/members`), {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify({ userId, role: data.role }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error ?? "Failed to add member");
+      }));
     },
     onSuccess: async () => {
       setAddMemberOpen(false);
-      setMemberForm({ userId: "", role: "member" });
+      setMemberPickerOpen(false);
+      setMemberForm({ userIds: [], role: "member" });
       if (detailTeam) await loadTeamDetail(detailTeam);
-      toast({ title: "Member added" });
+      const count = memberForm.userIds.length;
+      toast({ title: count === 1 ? "Member added" : `${count} members added` });
     },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
@@ -421,20 +440,81 @@ export default function Teams() {
       </Dialog>
 
       {/* ── Add Member Dialog ────────────────────────────────────────────────── */}
-      <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+      <Dialog open={addMemberOpen} onOpenChange={(o) => { if (!o) { setAddMemberOpen(false); setMemberPickerOpen(false); setMemberForm({ userIds: [], role: "member" }); } }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Add Member</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Add Members</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>User</Label>
-              <Select value={memberForm.userId} onValueChange={(v) => setMemberForm((f) => ({ ...f, userId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select user…" /></SelectTrigger>
-                <SelectContent>
-                  {availableUsers.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name} ({u.role})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Users</Label>
+              <Popover open={memberPickerOpen} onOpenChange={setMemberPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between min-h-10 h-auto"
+                  >
+                    <span className="flex flex-wrap gap-1 py-0.5">
+                      {memberForm.userIds.length === 0 ? (
+                        <span className="text-muted-foreground font-normal">Search and select users…</span>
+                      ) : (
+                        memberForm.userIds.map((uid) => {
+                          const u = availableUsers.find((x) => x.id === uid);
+                          return (
+                            <span
+                              key={uid}
+                              className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
+                            >
+                              {u?.name ?? uid}
+                              <button
+                                type="button"
+                                className="hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMemberForm((f) => ({ ...f, userIds: f.userIds.filter((id) => id !== uid) }));
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          );
+                        })
+                      )}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search by name or role…" />
+                    <CommandList>
+                      <CommandEmpty>No users found.</CommandEmpty>
+                      <CommandGroup>
+                        {availableUsers.map((u) => {
+                          const selected = memberForm.userIds.includes(u.id);
+                          return (
+                            <CommandItem
+                              key={u.id}
+                              value={`${u.name} ${u.role}`}
+                              onSelect={() => {
+                                setMemberForm((f) => ({
+                                  ...f,
+                                  userIds: selected
+                                    ? f.userIds.filter((id) => id !== u.id)
+                                    : [...f.userIds, u.id],
+                                }));
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
+                              <span>{u.name}</span>
+                              <Badge variant="outline" className="ml-auto text-xs">{u.role}</Badge>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <Label>Team Role</Label>
@@ -448,16 +528,16 @@ export default function Teams() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddMemberOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setAddMemberOpen(false); setMemberForm({ userIds: [], role: "member" }); }}>Cancel</Button>
             <Button
-              disabled={!memberForm.userId || addMemberMutation.isPending}
+              disabled={memberForm.userIds.length === 0 || addMemberMutation.isPending}
               onClick={() => addMemberMutation.mutate({
                 teamId: detailTeam!.id,
-                userId: Number(memberForm.userId),
+                userIds: memberForm.userIds,
                 role: memberForm.role,
               })}
             >
-              Add
+              Add {memberForm.userIds.length > 0 ? `(${memberForm.userIds.length})` : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
