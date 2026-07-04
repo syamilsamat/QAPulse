@@ -20,6 +20,7 @@ const DEFAULT_ROLES: Array<{ name: string; description: string; isSystem: boolea
   { name: "fa_member",  description: "Functional Analyst",       isSystem: false, department: "fa", tierRank: 1 },
   { name: "dev_lead",   description: "Dev Lead",                 isSystem: false, department: "dev", tierRank: 2 },
   { name: "dev_member", description: "Developer",                isSystem: false, department: "dev", tierRank: 1 },
+  { name: "pm_lead",    description: "PM Lead",                  isSystem: false, department: "pm", tierRank: 2 },
   { name: "pmo",        description: "PMO",                      isSystem: false, department: "pm", tierRank: 1 },
 ];
 
@@ -53,6 +54,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts"],
+  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
   pmo:        [],
 };
 
@@ -145,6 +147,8 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
+  // PM Dashboard prerequisite — ties tasks to a milestone (nullable; ad-hoc tasks stay unassigned)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
 
   // CR022 Part 1 — acceptance criteria (JSON array of strings stored as text)
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT`);
