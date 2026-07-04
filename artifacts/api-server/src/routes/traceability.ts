@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
+import { getAuthContext, scopeToUserProjects } from "../middleware/access";
 
 const router: IRouter = Router();
 
@@ -96,13 +97,23 @@ function rollup(node: ReqNode): Map<string, Classification> {
 
 router.get("/traceability", async (req, res): Promise<void> => {
   try {
+    const ctx = getAuthContext(req);
+    if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
     const { projectId, module, status, milestoneId } = req.query;
     const milestoneIdNum = milestoneId ? Number(milestoneId) : null;
+
+    if (projectId && accessible !== null && !accessible.includes(Number(projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
 
     const reqConditions: string[] = [];
     const reqParams: any[] = [];
     let p = 1;
     if (projectId) { reqConditions.push(`r.project_id = $${p++}`); reqParams.push(Number(projectId)); }
+    else if (accessible !== null) { reqConditions.push(`r.project_id = ANY($${p++})`); reqParams.push(accessible); }
     if (milestoneIdNum) { reqConditions.push(`r.milestone_id = $${p++}`); reqParams.push(milestoneIdNum); }
     const reqWhere = reqConditions.length > 0 ? `WHERE ${reqConditions.join(" AND ")}` : "";
 

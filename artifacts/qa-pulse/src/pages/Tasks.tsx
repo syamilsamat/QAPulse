@@ -468,7 +468,10 @@ export default function Tasks() {
   const { data: executionProgress = {} } = useQuery<Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }>>({
     queryKey: ["execution-progress"],
     queryFn: async () => {
-      const res = await fetch("/api/execution-progress");
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch("/api/execution-progress", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) return {};
       return res.json();
     },

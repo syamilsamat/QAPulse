@@ -782,7 +782,10 @@ export default function TestCases() {
   const { data: modules = [] } = useQuery({
     queryKey: ["modules"],
     queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/modules`);
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`${getApiUrl()}/modules`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) return [];
       return res.json();
     },
@@ -791,7 +794,10 @@ export default function TestCases() {
   const { data: trackers = [] } = useQuery({
     queryKey: ["trackers"],
     queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/trackers`);
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`${getApiUrl()}/trackers`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) return [];
       return res.json();
     },
