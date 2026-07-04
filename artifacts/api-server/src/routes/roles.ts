@@ -37,6 +37,7 @@ export const ALL_NAV_KEYS = [
   "nav:team-hangouts",
   "nav:configurations",
   "nav:milestones",
+  "nav:pm-dashboard", // CR014 Part 3
   "nav:audit-log", // CR011 — admin-only; endpoint is also role-gated server-side
 ];
 
@@ -45,7 +46,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin:      ALL_NAV_KEYS,
   cto:        ALL_NAV_KEYS,
   hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
-  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
+  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
   hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
   qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
@@ -54,7 +55,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts"],
-  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
+  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard"],
   pmo:        [],
 };
 
@@ -205,18 +206,37 @@ export async function bootstrap() {
     }
   }
 
-  // Admin always has every nav key — backfills keys added by later CRs
-  // (e.g. nav:audit-log) into DBs that were seeded before the key existed
-  const { rows: adminRows } = await pool.query<{ id: number }>(
-    `SELECT id FROM roles WHERE name = 'admin'`
-  );
-  if (adminRows[0]) {
+  // admin and cto always have every nav key — backfills keys added by later
+  // CRs (e.g. nav:audit-log, nav:pm-dashboard) into DBs seeded before the key
+  // existed. NOT generalized to every role: PUT /roles/:id/permissions lets
+  // admins deliberately remove a default key from a role, and a blanket
+  // backfill across all DEFAULT_PERMISSIONS would silently undo that on
+  // every restart.
+  for (const roleName of ["admin", "cto"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
     for (const key of ALL_NAV_KEYS) {
       await pool.query(
         `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [adminRows[0].id, key]
+        [rows[0].id, key]
       );
     }
+  }
+
+  // nav:pm-dashboard specifically for hod_pm/pm_lead — narrow, single-key
+  // backfill (not their whole DEFAULT_PERMISSIONS list) so any deliberate
+  // customization on their other keys survives a restart.
+  for (const roleName of ["hod_pm", "pm_lead"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
+    await pool.query(
+      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:pm-dashboard') ON CONFLICT DO NOTHING`,
+      [rows[0].id]
+    );
   }
 
   bootstrapped = true;
