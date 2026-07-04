@@ -32,6 +32,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR022](#cr022--fa-requirement-workflow-enhancements) | FA Requirement Workflow Enhancements | ✅ Deployed | 2026-07-04 |
 | [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | ✅ Deployed | 2026-07-05 |
 | [CR024](#cr024--tc-library-requirement-filter-includes-descendants) | TC Library: Requirement Filter Includes Descendants | ✅ Deployed | 2026-07-05 |
+| [CR025](#cr025--tc-library-milestone-filter) | TC Library: Milestone Filter | ✅ Deployed | 2026-07-05 |
 
 ---
 
@@ -489,5 +490,18 @@ Filtering the TC Library by requirement previously matched only test cases linke
 - Filtering by a requirement now includes every descendant in the subtree (child, grandchild, and beyond), not just direct children.
 - Extracted the recursive `getAllDescendants(parentId, allReqs, depth)` walk to module scope in `TestCases.tsx` — it previously existed only as an inline closure inside the AI Generate dialog's requirement picker. Both the filter and the AI dialog now share one implementation.
 - Client-side only: the filter builds a `Set` of {selected requirement id} ∪ all descendant ids and checks membership instead of strict equality, in both the normal and NL-search filter branches.
+
+**Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
+
+---
+
+### CR025 — TC Library: Milestone Filter
+**Status:** ✅ Deployed (2026-07-05)
+
+Requirements and Tasks both gained a Milestone filter earlier the same day; TC Library had Project/Module/Source/Requirement filters but no Milestone filter, an inconsistency spotted from the deployed page.
+
+- New Milestone filter, scoped to the selected Project filter (same `GET /milestones?projectId=` dependency as the Requirements page filter and the create/edit forms' Milestone pickers) — resets to "all" when the Project filter changes.
+- `test_cases` has no `milestoneId` column of its own; a TC's milestone is derived through its linked requirement (`requirements.milestoneId`, mandatory per CR023 Part 3). A memoized `requirementId → milestoneId` lookup map drives the filter — a direct lookup, not a tree-expansion like CR024's requirement filter (each requirement, including children, already carries its own milestone value).
+- `?projectId=` and `?milestoneId=` URL params now pre-fill the Project and Milestone filters on load, extending the `?requirementId=` deep-link convention this page already had — enables future deep-links (e.g. from PM Dashboard or Milestones page) straight into a milestone-scoped TC list.
 
 **Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
