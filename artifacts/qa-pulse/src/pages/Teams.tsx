@@ -112,10 +112,11 @@ export default function Teams() {
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [assignProjectOpen, setAssignProjectOpen] = useState(false);
+  const [assignProjectPickerOpen, setAssignProjectPickerOpen] = useState(false);
 
   const [form, setForm] = useState({ name: "", department: "" });
   const [memberForm, setMemberForm] = useState({ userIds: [] as number[], role: "member" });
-  const [assignProjectId, setAssignProjectId] = useState("");
+  const [assignProjectIds, setAssignProjectIds] = useState<number[]>([]);
 
   const { data: teams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["teams"],
@@ -238,19 +239,23 @@ export default function Teams() {
   });
 
   const assignProjectMutation = useMutation({
-    mutationFn: async (data: { projectId: number; teamId: number }) => {
-      const r = await fetch(api(`/projects/${data.projectId}/teams`), {
-        method: "POST",
-        headers: authHeaders(token),
-        body: JSON.stringify({ teamId: data.teamId }),
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to assign project");
+    mutationFn: async (data: { projectIds: number[]; teamId: number }) => {
+      await Promise.all(data.projectIds.map(async (projectId) => {
+        const r = await fetch(api(`/projects/${projectId}/teams`), {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify({ teamId: data.teamId }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error ?? "Failed to assign project");
+      }));
     },
     onSuccess: async () => {
       setAssignProjectOpen(false);
-      setAssignProjectId("");
+      setAssignProjectPickerOpen(false);
+      const count = assignProjectIds.length;
+      setAssignProjectIds([]);
       if (detailTeam) await loadTeamDetail(detailTeam);
-      toast({ title: "Project assigned" });
+      toast({ title: count === 1 ? "Project assigned" : `${count} projects assigned` });
     },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
@@ -544,30 +549,87 @@ export default function Teams() {
       </Dialog>
 
       {/* ── Assign Project Dialog ─────────────────────────────────────────────── */}
-      <Dialog open={assignProjectOpen} onOpenChange={setAssignProjectOpen}>
+      <Dialog open={assignProjectOpen} onOpenChange={(o) => { if (!o) { setAssignProjectOpen(false); setAssignProjectPickerOpen(false); setAssignProjectIds([]); } }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Assign Project</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Assign Projects</DialogTitle></DialogHeader>
           <div>
-            <Label>Project</Label>
-            <Select value={assignProjectId} onValueChange={setAssignProjectId}>
-              <SelectTrigger><SelectValue placeholder="Select project…" /></SelectTrigger>
-              <SelectContent>
-                {availableProjects.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Projects</Label>
+            <Popover open={assignProjectPickerOpen} onOpenChange={setAssignProjectPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between min-h-10 h-auto"
+                >
+                  <span className="flex flex-wrap gap-1 py-0.5">
+                    {assignProjectIds.length === 0 ? (
+                      <span className="text-muted-foreground font-normal">Search and select projects…</span>
+                    ) : (
+                      assignProjectIds.map((pid) => {
+                        const p = availableProjects.find((x) => x.id === pid);
+                        return (
+                          <span
+                            key={pid}
+                            className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
+                          >
+                            {p?.name ?? pid}
+                            <button
+                              type="button"
+                              className="hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssignProjectIds((ids) => ids.filter((id) => id !== pid));
+                              }}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        );
+                      })
+                    )}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search project…" />
+                  <CommandList>
+                    <CommandEmpty>No projects found.</CommandEmpty>
+                    <CommandGroup>
+                      {availableProjects.map((p) => {
+                        const selected = assignProjectIds.includes(p.id);
+                        return (
+                          <CommandItem
+                            key={p.id}
+                            value={p.name}
+                            onSelect={() => {
+                              setAssignProjectIds((ids) =>
+                                selected ? ids.filter((id) => id !== p.id) : [...ids, p.id]
+                              );
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
+                            {p.name}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignProjectOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setAssignProjectOpen(false); setAssignProjectIds([]); }}>Cancel</Button>
             <Button
-              disabled={!assignProjectId || assignProjectMutation.isPending}
+              disabled={assignProjectIds.length === 0 || assignProjectMutation.isPending}
               onClick={() => assignProjectMutation.mutate({
-                projectId: Number(assignProjectId),
+                projectIds: assignProjectIds,
                 teamId: detailTeam!.id,
               })}
             >
-              Assign
+              Assign {assignProjectIds.length > 0 ? `(${assignProjectIds.length})` : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
