@@ -221,8 +221,12 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 - **Role tiers seeded** (Parts 3/5/6 role definitions): `cto` (tier 5), `hod_qa`/`hod_pm`/`hod_fa`/`hod_dev` (tier 4), FA/Dev lead + member roles, all with department/tierRank and nav permissions; Department + Tier Rank admin-editable on the Roles page.
 - **Part 1 completion — `traceability`, `test-execution`, `defects` routes scoped** *(2026-07-04, second pass)*: all three now require auth (previously traceability had **no auth check at all**, and the other two only parsed tokens opportunistically) and enforce project scoping — list endpoints filter to accessible projects, entity endpoints 403 on inaccessible projects, project moves also check the target project. Rows with `projectId = null` (legacy files / Redmine pulls without a project) stay visible to any authenticated user. The `/execution-events` SSE stream stays deliberately unauthenticated (EventSource can't send headers; it only emits `{ticketId, type}` pings — revisit if the payload grows). Three token-less frontend fetches fixed along the way (`TestCases.tsx` modules/trackers, `Tasks.tsx` execution-progress).
 
+**Part 3 prerequisites landed** *(2026-07-05, ahead of building the dashboard itself)*:
+- **`pm_lead` role added** (tier 2, department `pm`) — closes the gap where PM was the only department with just an IC (`pmo`, tier 1) and an HOD (`hod_pm`, tier 4) and no mid tier, unlike QA/FA which both have a Lead tier. Nav permissions mirror `hod_pm`'s set.
+- **`tasks.milestone_id`** column added (nullable, `ON DELETE SET NULL`, bootstrapped like the other CR014 milestone FKs — no manual `db push` needed). `tasks` previously had no milestone linkage at all — only `requirements` and `execution_files` did — which would have forced the PM dashboard's resource-capacity view to live at the project level only. `GET /tasks` now takes a `milestoneId` filter; `formatTask` resolves `milestoneName`; the task form has a Milestone picker (optional — ad-hoc tasks can stay unassigned) that resets when the project changes.
+
 **Still outstanding:**
-- **Part 3 — PM dashboard** (`GET /dashboard/pm-summary` + `PmDashboard.tsx`) not built.
+- **Part 3 — PM dashboard** (`GET /dashboard/pm-summary` + `PmDashboard.tsx`) not built yet — prerequisites above are in place for it.
 - See CR023 for review-workflow gaps found when auditing the shipped FA track against the full design.
 
 ---

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable, milestonesTable } from "@workspace/db";
 import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
@@ -31,6 +31,7 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
   let projectName = null;
   let requirementTitle = null;
   let moduleName = null;
+  let milestoneName = null;
 
   if (task.assigneeIds && task.assigneeIds.length > 0) {
     const users = await db.select().from(usersTable).where(inArray(usersTable.id, task.assigneeIds));
@@ -45,6 +46,11 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
   if (task.requirementId) {
     const [req] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, task.requirementId));
     requirementTitle = req?.title ?? null;
+  }
+
+  if (task.milestoneId) {
+    const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, task.milestoneId));
+    milestoneName = milestone?.name ?? null;
   }
 
   // Resolve module names — prefer moduleIds (multi), fall back to moduleId (single)
@@ -67,6 +73,7 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
     requirementTitle,
     moduleName,
     moduleNames,
+    milestoneName,
     environmentNames,
     isOverdue: isOverdue(task),
     createdAt: task.createdAt.toISOString(),
@@ -101,6 +108,8 @@ router.get("/tasks", async (req, res): Promise<void> => {
     if (requirementId) tasks = tasks.filter(t => t.requirementId === Number(requirementId));
     if (overdue) tasks = tasks.filter(t => isOverdue(t));
     if (assigneeId) tasks = tasks.filter(t => t.assigneeIds?.includes(Number(assigneeId)));
+    const milestoneId = (parsed.data as any).milestoneId;
+    if (milestoneId) tasks = tasks.filter(t => t.milestoneId === Number(milestoneId));
   } else if (accessible !== null) {
     tasks = tasks.filter(t => t.projectId !== null && accessible.includes(t.projectId));
   }

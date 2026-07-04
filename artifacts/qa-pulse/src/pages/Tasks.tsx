@@ -465,6 +465,20 @@ export default function Tasks() {
     queryFn: () => fetchModules(),
   });
 
+  const formProjectId = form.projectId;
+  const { data: milestonesForProject = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", formProjectId],
+    queryFn: async () => {
+      if (!formProjectId) return [];
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`/api/milestones?projectId=${formProjectId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!formProjectId && dialogOpen,
+  });
+
   const { data: executionProgress = {} } = useQuery<Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }>>({
     queryKey: ["execution-progress"],
     queryFn: async () => {
@@ -798,6 +812,7 @@ export default function Tasks() {
       redmineId: t.redmineId ?? undefined,
       requirementId: t.requirementId ?? undefined,
       projectId: t.projectId ?? undefined,
+      milestoneId: t.milestoneId ?? null,
       moduleId: t.moduleId ?? undefined,
       assigneeIds: t.assigneeIds ?? [],
       environmentIds: t.environmentIds ?? [],
@@ -898,6 +913,7 @@ export default function Tasks() {
       ...form,
       moduleId: taskFormModules[0],
       moduleIds: taskFormModules.join(","),
+      milestoneId: form.milestoneId ?? null,
     };
     if (editingTask) {
       updateMutation.mutate({ id: editingTask.id, data: submitData as any });
@@ -1639,10 +1655,20 @@ export default function Tasks() {
                 <Label>Project <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
+                  onValueChange={(v) => setForm({ ...form, projectId: Number(v), milestoneId: null })}
                   options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
                   placeholder="Select Project..."
                   searchPlaceholder="Search project..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Milestone</Label>
+                <SearchableSelect
+                  value={form.milestoneId ? String(form.milestoneId) : ""}
+                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
+                  options={milestonesForProject.map((m) => ({ value: String(m.id), label: m.name }))}
+                  placeholder={form.projectId ? "Select milestone (optional)..." : "Select a project first"}
+                  searchPlaceholder="Search milestones..."
                 />
               </div>
               <div className="space-y-1.5">
