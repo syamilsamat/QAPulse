@@ -27,6 +27,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     status: m.status,
     targetDate: m.targetDate?.toISOString() ?? null,
     createdBy: m.createdBy ?? null,
+    completedAt: m.completedAt?.toISOString() ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
   };
@@ -89,6 +90,8 @@ router.post("/milestones", async (req, res): Promise<void> => {
     status,
     targetDate: targetDate ? new Date(targetDate) : null,
     createdBy: (ctx as any).id ?? ctx.userId,
+    // Edge case: importing a historical milestone already marked completed.
+    completedAt: status === "completed" ? new Date() : null,
   }).returning();
 
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: ctx.id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
@@ -135,8 +138,18 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   const update: Partial<typeof milestonesTable.$inferInsert> = {};
   if (req.body.name !== undefined) update.name = req.body.name.trim();
   if (req.body.type !== undefined) update.type = req.body.type;
-  if (req.body.status !== undefined) update.status = req.body.status;
   if (req.body.targetDate !== undefined) update.targetDate = req.body.targetDate ? new Date(req.body.targetDate) : null;
+  if (req.body.status !== undefined) {
+    update.status = req.body.status;
+    // Auto-stamp the authoritative end-of-QA-phase boundary (PM Dashboard
+    // phase breakdown) — set on the transition into 'completed', cleared if
+    // it moves away again, same pattern as requirements' approvedAt/rejectedAt.
+    if (req.body.status === "completed" && m.status !== "completed") {
+      update.completedAt = new Date();
+    } else if (req.body.status !== "completed" && m.status === "completed") {
+      update.completedAt = null;
+    }
+  }
 
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
   await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone" });

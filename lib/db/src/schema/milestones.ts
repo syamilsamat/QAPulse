@@ -9,6 +9,11 @@ export const milestonesTable = pgTable("milestones", {
   targetDate: timestamp("target_date", { withTimezone: true }),
   // CR023p1.2 — needed to notify the milestone's PM on a linked requirement's rejection
   createdBy: integer("created_by"),
+  // Auto-stamped when status transitions to 'completed' (and cleared if it
+  // moves away again) — authoritative end-of-QA-phase boundary for the PM
+  // Dashboard's phase-breakdown report, instead of approximating from the
+  // last execution result timestamp.
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

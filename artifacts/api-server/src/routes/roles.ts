@@ -148,6 +148,12 @@ export async function bootstrap() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // CR023p1.2 — was added to the Drizzle schema but missed here; a brand-new
+  // database's bootstrap-created milestones table never got this column.
+  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS created_by INTEGER`);
+  // Auto-stamped end-of-QA-phase boundary for the PM Dashboard's phase
+  // breakdown — see PATCH /milestones/:id.
+  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
