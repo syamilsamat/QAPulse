@@ -825,7 +825,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     const patch: Record<string, any> = {};
-    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId"]) {
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source"]) {
       if (key in (req.body ?? {})) patch[key] = req.body[key];
     }
     if (Object.keys(patch).length === 0) {

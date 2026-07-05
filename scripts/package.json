@@ -7,6 +7,8 @@
     "hello": "tsx ./src/hello.ts",
     "backfill:case-ids": "tsx ./src/backfill-execution-case-ids.ts",
     "fix:orphaned-summaries": "tsx ./src/fix-orphaned-summaries.ts",
+    "seed:demo": "tsx ./src/seed-demo-data.ts",
+    "seed:demo:clear": "tsx ./src/clear-demo-data.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
