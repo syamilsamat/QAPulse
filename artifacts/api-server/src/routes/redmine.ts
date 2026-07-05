@@ -59,7 +59,7 @@ router.get("/pmo/redmine/:issueId", async (req, res): Promise<void> => {
   try {
     const apiKey = await resolveApiKey(req);
     const response = await redmineFetch(
-      `/issues/${issueId}.json?include=children,journals`,
+      `/issues/${issueId}.json?include=children,journals,attachments`,
       apiKey,
     );
     if (!response.ok) {

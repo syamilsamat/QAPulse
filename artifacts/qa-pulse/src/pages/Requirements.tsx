@@ -684,6 +684,15 @@ export default function Requirements() {
         savedReqId = (res as any).id;
       }
 
+      // Sync attachments (fire-and-forget — don't block import on download failures)
+      if (savedReqId && Array.isArray(data.issue.attachments) && data.issue.attachments.length > 0) {
+        fetch(`${getApiUrl()}/requirements/${savedReqId}/sync-redmine-attachments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ attachments: data.issue.attachments }),
+        }).catch(() => {});
+      }
+
       // Recursively handle children — filters applied inside each recursive call
       if (data.issue.children && Array.isArray(data.issue.children)) {
         for (const child of data.issue.children) {
