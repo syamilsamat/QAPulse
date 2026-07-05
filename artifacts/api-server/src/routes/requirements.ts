@@ -865,6 +865,22 @@ async function syncRequirementAttachments(
   }
 }
 
+// POST /requirements/:id/sync-redmine-attachments
+// Frontend passes the attachments[] it received from the Redmine proxy; server downloads and stores them.
+router.post("/requirements/:id/sync-redmine-attachments", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const attachments: any[] = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+  const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+
+  await syncRequirementAttachments(id, attachments, apiKey).catch(() => {});
+  res.json({ success: true });
+});
+
 // GET /requirements/:id/attachments
 router.get("/requirements/:id/attachments", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
