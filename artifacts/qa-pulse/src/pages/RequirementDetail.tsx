@@ -18,6 +18,10 @@ import {
   AlertTriangle,
   CheckSquare,
   Square,
+  Paperclip,
+  Download,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +83,7 @@ export default function RequirementDetail() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   const { data: req, isLoading } = useQuery<any>({
     queryKey: ["requirement", reqId],
@@ -150,6 +155,73 @@ export default function RequirementDetail() {
     },
     enabled: !!reqId,
   });
+
+  const { data: attachments = [], refetch: refetchAttachments } = useQuery<any[]>({
+    queryKey: ["requirement-attachments", reqId],
+    queryFn: async () => {
+      const res = await api(`/requirements/${reqId}/attachments`, token);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!reqId,
+  });
+
+  const uploadAttachment = (file: File): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(",")[1];
+          const res = await api(`/requirements/${reqId}/attachments`, token, {
+            method: "POST",
+            body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/octet-stream", data: base64 }),
+          });
+          if (res.ok) { await refetchAttachments(); resolve(); }
+          else reject(new Error("Upload failed"));
+        } catch (err) { reject(err); }
+      };
+      reader.onerror = () => reject(new Error("File read failed"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    e.target.value = "";
+    setUploadingFiles(true);
+    try {
+      const results = await Promise.allSettled(files.map(f => uploadAttachment(f)));
+      const failed = results.filter(r => r.status === "rejected").length;
+      if (failed > 0) toast({ variant: "destructive", title: `${failed} file(s) failed to upload` });
+      else toast({ title: `${files.length} file(s) attached` });
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const deleteAttachment = async (attachmentId: number) => {
+    try {
+      const res = await api(`/requirements/attachments/${attachmentId}`, token, { method: "DELETE" });
+      if (res.ok) { await refetchAttachments(); toast({ title: "Attachment deleted" }); }
+      else toast({ variant: "destructive", title: "Failed to delete attachment" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to delete attachment" });
+    }
+  };
+
+  const downloadAttachment = (attachmentId: number, filename: string) => {
+    const url = `${getApiUrl()}/requirements/attachments/${attachmentId}/download`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    fetch(url, { headers }).then(res => res.blob()).then(blob => {
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    }).catch(() => toast({ variant: "destructive", title: "Download failed" }));
+  };
 
   const submitComment = async () => {
     if (!commentBody.trim() || !reqId) return;
@@ -423,6 +495,57 @@ export default function RequirementDetail() {
               </CardContent>
             </Card>
           )}
+
+          {/* Attachments */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Paperclip className="w-4 h-4" /> Attachments
+                  {attachments.length > 0 && <span className="text-xs font-normal text-muted-foreground">({attachments.length})</span>}
+                </CardTitle>
+                <label className={`cursor-pointer ${uploadingFiles ? "pointer-events-none opacity-60" : ""}`}>
+                  {uploadingFiles
+                    ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    : <span className="text-xs text-primary hover:underline flex items-center gap-1"><Paperclip className="w-3 h-3" />Attach file</span>
+                  }
+                  <input type="file" multiple className="hidden" onChange={handleFileSelect} disabled={uploadingFiles} />
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {attachments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No attachments yet.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {attachments.map((a: any) => (
+                    <li key={a.id} className="flex items-center gap-2 text-sm group">
+                      <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate">{a.filename}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ""}</span>
+                      {a.redmineAttachmentId && (
+                        <span className="text-[10px] px-1 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 shrink-0">Redmine</span>
+                      )}
+                      <button
+                        title="Download"
+                        onClick={() => downloadAttachment(a.id, a.filename)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Download className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
+                      </button>
+                      <button
+                        title="Delete"
+                        onClick={() => deleteAttachment(a.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Child Requirements */}
           {children.length > 0 && (

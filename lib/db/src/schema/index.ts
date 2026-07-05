@@ -20,3 +20,4 @@ export * from "./project-teams";
 export * from "./project-members";
 export * from "./milestones";
 export * from "./requirement-comments";
+export * from "./requirement-attachments";
