@@ -36,6 +36,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR026](#cr026--qa-analytics-dashboard) | QA Analytics Dashboard | 📋 Planned | — |
 | [CR027](#cr027--notification-center-ux) | Notification Center UX | 📋 Planned | — |
 | [CR028](#cr028--client-demo-data-toolkit) | Client Demo Data Toolkit | ✅ Deployed | 2026-07-05 |
+| [CR029](#cr029--defect-category-classification) | Defect Category Classification | ✅ Deployed | 2026-07-05 |
 
 ---
 
@@ -720,3 +721,17 @@ Dev tooling, not an in-app feature: a reversible seed/clear script pair producin
 - **Scope estimate:** `scripts/src/demo-data.ts` (pure content — projects/teams/users/milestones/requirements/test cases/execution results/defects/tasks), `scripts/src/seed-client.ts` (login, authenticated fetch, manifest helpers), `scripts/src/seed-demo-data.ts`, `scripts/src/clear-demo-data.ts`, `scripts/package.json` (`seed:demo` / `seed:demo:clear`), `scripts/DEMO_DATA.md` (run instructions), `artifacts/api-server/src/routes/defects.ts` (the one product fix). No new tables.
 
 **Known limitation, by design:** seeded defects show a "pending sync" badge — the write-through push to Redmine fails with no real Redmine connection in a sandbox, which is CR019's "never block on Redmine" behavior working as intended, not a bug to fix here.
+
+---
+
+### CR029 — Defect Category Classification
+**Status:** ✅ Deployed (2026-07-05)
+
+A fixed, QAPulse-native defect taxonomy (Functional, UI/UX, Usability, Performance, Security, Data/Database, Compatibility, Integration/API, Configuration/Environment, Localization), settable on both defect-creation paths (the Defects page's "New Defect" dialog and the execution fail pill's "Create Defect" modal) and gated to Lead-tier and above.
+
+- **New column, not a repurpose of the existing `category` field:** `defects.category` already existed, but it's a Redmine-mirror (whatever a given Redmine project's own issue-category field happens to say — freeform, only populated on production-defect pulls). Overloading it with a fixed QAPulse taxonomy would have collided with that unrelated existing meaning, so a new `defectCategory` column was added instead. Requires a `db push` (the `defects` table has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL at all — it was created via `drizzle-kit push` originally, unlike `milestones`/`requirements`, which have hand-written idempotent bootstrap statements).
+- **Lead-tier+ gate, enforced server-side, not just hidden in the UI:** added `getRoleTierRank(role)` to `middleware/access.ts` (admin → unrestricted, everyone else looked up from `roles.tier_rank`; Lead = 2 across every department by the existing tier convention). `POST /defects`, `POST /defects/register`, and `PATCH /defects/:id` all silently drop an incoming `defectCategory` if the caller's tier is below 2, rather than rejecting the whole request — a lower-tier caller hitting the API directly (bypassing the UI, which simply doesn't render the field for them) can't set it, but their otherwise-valid defect still gets created.
+- **`GET /auth/me` (and login/refresh) now return `tierRank`** so the frontend can decide whether to render the field at all — `formatUser()` in `auth.ts` was made async to join `roles.tier_rank` by the user's role name (admin hardcoded to a finite sentinel, 99, since `Infinity` doesn't survive `JSON.stringify`).
+- **Shared `DefectCategoryField` component** (dropdown + an (i) info button opening a dialog with all 10 categories and their descriptions) used identically by both creation dialogs — "all dialogs regarding defects" now means exactly these two, since a separate "Edit Defect" dialog doesn't exist (edits happen via small inline controls for `escapeStatus`/`escapeClass`/`escapeNotes` only). `PATCH /defects/:id` accepts `defectCategory` too, ahead of any future edit UI needing it.
+- **Scope estimate:** `lib/db/src/schema/defects.ts` (new column), `artifacts/api-server/src/middleware/access.ts` (`getRoleTierRank`), `artifacts/api-server/src/routes/auth.ts` (`tierRank` on the user payload), `artifacts/api-server/src/routes/defects.ts` (taxonomy constant + tier gate on all three write endpoints), `artifacts/qa-pulse/src/lib/defect-categories.ts` (taxonomy + label lookup, new), `artifacts/qa-pulse/src/components/DefectCategoryField.tsx` (new), `artifacts/qa-pulse/src/pages/Defects.tsx` + `DefectCreationModal.tsx` (both creation dialogs, plus a list-row display), `artifacts/qa-pulse/src/lib/execution-api.ts` (`registerLocalDefect` payload).
+- **Not done:** no filter-by-category on the Defects list, and it isn't fed into CR026's planned defect-density dashboard yet — both natural follow-ups once real category data exists to look at.
