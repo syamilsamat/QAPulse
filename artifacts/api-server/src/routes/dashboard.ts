@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable } from "@workspace/db";
+import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
@@ -375,6 +375,220 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
     entityType: a.entityType,
     createdAt: a.createdAt.toISOString(),
   })));
+});
+
+// ── CR026: QA Analytics Dashboard ────────────────────────────────────────────
+
+const QA_ANALYTICS_ROLES = ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"];
+
+function toIsoWeek(d: Date): string {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function weeksBetween(start: Date, end: Date): string[] {
+  const weeks: string[] = [];
+  const d = new Date(start);
+  // Snap to start of week (Monday)
+  const dow = d.getDay();
+  d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+  d.setHours(0, 0, 0, 0);
+  while (d <= end) {
+    weeks.push(toIsoWeek(d));
+    d.setDate(d.getDate() + 7);
+  }
+  // Cap at 26 weeks to avoid oversized responses
+  return weeks.slice(-26);
+}
+
+router.get("/dashboard/qa-analytics", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!QA_ANALYTICS_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA lead role or higher required" }); return; }
+
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId || isNaN(projectId)) { res.status(400).json({ error: "projectId is required" }); return; }
+
+  const ok = await canAccessProject(ctx.userId, ctx.role, projectId);
+  if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+
+  const milestoneId = req.query.milestoneId ? Number(req.query.milestoneId) : null;
+  const now = new Date();
+  const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const endDate = req.query.endDate ? new Date(String(req.query.endDate)) : now;
+
+  // Load all execution files for the project
+  const projectFiles = await db.select().from(executionFilesTable).where(eq(executionFilesTable.projectId, projectId));
+
+  // Files scoped by milestone filter (if active)
+  const scopedFiles = milestoneId ? projectFiles.filter(f => f.milestoneId === milestoneId) : projectFiles;
+  const scopedFileIds = scopedFiles.map(f => f.id);
+
+  // Execution test cases for the scoped files
+  const etcs = scopedFileIds.length > 0
+    ? await db.select().from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, scopedFileIds))
+    : [];
+
+  // Defects for the project
+  const defects = await db.select().from(defectsTable).where(eq(defectsTable.projectId, projectId));
+
+  // Recent milestones for the project (last 6, for cross-milestone panels)
+  const allMilestones = await db.select().from(milestonesTable)
+    .where(eq(milestonesTable.projectId, projectId))
+    .orderBy(desc(milestonesTable.createdAt));
+  const recentMilestones = allMilestones.slice(0, 6).reverse();
+
+  // Requirements for coverage (scoped by milestone if active)
+  const reqFilter = milestoneId
+    ? and(eq(requirementsTable.projectId, projectId), eq(requirementsTable.milestoneId, milestoneId))
+    : eq(requirementsTable.projectId, projectId);
+  const reqs = await db.select({ id: requirementsTable.id }).from(requirementsTable).where(reqFilter);
+  const reqIds = reqs.map(r => r.id);
+
+  // Library test cases linked to those requirements
+  const tcs = reqIds.length > 0
+    ? await db.select({ id: testCasesTable.id, requirementId: testCasesTable.requirementId })
+        .from(testCasesTable).where(inArray(testCasesTable.requirementId, reqIds))
+    : [];
+
+  // ── Panel 1: Execution Trend ──────────────────────────────────────────────
+  const weeks = weeksBetween(startDate, endDate);
+  const executionTrend = weeks.map(week => {
+    const wEtcs = etcs.filter(e => e.executedAt && toIsoWeek(e.executedAt) === week);
+    let passed = 0, failed = 0, blocked = 0, notRun = 0;
+    for (const e of wEtcs) {
+      const c = classifyResult(e.result);
+      if (c === "passed") passed++;
+      else if (c === "failed") failed++;
+      else if (c === "blocked") blocked++;
+      else notRun++;
+    }
+    return { week, passed, failed, blocked, notRun };
+  });
+
+  // ── Panel 2: Velocity ────────────────────────────────────────────────────
+  const velocity = weeks.map(week => {
+    const executed = etcs.filter(e =>
+      e.executedAt && toIsoWeek(e.executedAt) === week && classifyResult(e.result) !== "notRun"
+    ).length;
+    return { week, executed };
+  });
+
+  // ── Panel 3: Pass Rate by Milestone ──────────────────────────────────────
+  const passByMilestone: { milestoneId: number; milestoneName: string; total: number; passed: number; pct: number }[] = [];
+  for (const m of recentMilestones) {
+    const mFileIds = projectFiles.filter(f => f.milestoneId === m.id).map(f => f.id);
+    const mEtcs = mFileIds.length > 0
+      ? await db.select({ result: executionTestCasesTable.result })
+          .from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, mFileIds))
+      : [];
+    const total = mEtcs.length;
+    const passed = mEtcs.filter(e => classifyResult(e.result) === "passed").length;
+    passByMilestone.push({ milestoneId: m.id, milestoneName: m.name, total, passed, pct: total > 0 ? Math.round((passed / total) * 100) : 0 });
+  }
+
+  // ── Panel 4: Defect Density by Module ────────────────────────────────────
+  const moduleMap = new Map<string, { critical: number; high: number; medium: number; low: number }>();
+  for (const d of defects) {
+    const mod = d.module ?? "Unassigned";
+    if (!moduleMap.has(mod)) moduleMap.set(mod, { critical: 0, high: 0, medium: 0, low: 0 });
+    const entry = moduleMap.get(mod)!;
+    const sev = d.severity ?? "medium";
+    if (sev === "critical") entry.critical++;
+    else if (sev === "high") entry.high++;
+    else if (sev === "low") entry.low++;
+    else entry.medium++;
+  }
+  const defectByModule = Array.from(moduleMap.entries())
+    .map(([module, c]) => ({ module, ...c, _total: c.critical + c.high + c.medium + c.low }))
+    .sort((a, b) => b._total - a._total)
+    .slice(0, 10)
+    .map(({ _total: _, ...rest }) => rest);
+
+  // ── Panel 5: Defect Trend ─────────────────────────────────────────────────
+  const closedStatuses = new Set(["Closed", "Resolved", "Verified"]);
+  const defectTrend = weeks.map(week => {
+    const opened = defects.filter(d => d.createdAt && toIsoWeek(d.createdAt) === week).length;
+    const closed = defects.filter(d => d.updatedAt && toIsoWeek(d.updatedAt) === week && closedStatuses.has(d.status)).length;
+    return { week, opened, closed };
+  });
+
+  // ── Panel 6: Escape Funnel by Milestone ──────────────────────────────────
+  // Resolve defect → milestone via defect_links → execution_test_cases → execution_files
+  const allLinks = await db.select({ defectId: defectLinksTable.defectId, executionTcId: defectLinksTable.executionTcId })
+    .from(defectLinksTable);
+
+  // Build executionTcId → milestoneId from all project execution files
+  const allProjectEtcIds = scopedFileIds.length > 0
+    ? await db.select({ id: executionTestCasesTable.id, executionFileId: executionTestCasesTable.executionFileId })
+        .from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, projectFiles.map(f => f.id)))
+    : [];
+  const etcToFileId = new Map<number, number>(allProjectEtcIds.map(e => [e.id, e.executionFileId]));
+  const fileToMilestoneId = new Map<number, number | null>(projectFiles.map(f => [f.id, f.milestoneId]));
+
+  const defectToMilestone = new Map<number, number>();
+  for (const link of allLinks) {
+    if (!link.executionTcId) continue;
+    const fileId = etcToFileId.get(link.executionTcId);
+    if (!fileId) continue;
+    const mId = fileToMilestoneId.get(fileId);
+    if (mId) defectToMilestone.set(link.defectId, mId);
+  }
+
+  const escapeFunnel = recentMilestones.map(m => {
+    const mDefects = defects.filter(d => defectToMilestone.get(d.id) === m.id);
+    return {
+      milestoneId: m.id,
+      milestoneName: m.name,
+      sit: mDefects.filter(d => d.foundIn === "SIT").length,
+      uat: mDefects.filter(d => d.foundIn === "UAT").length,
+      production: mDefects.filter(d => d.foundIn === "Production").length,
+    };
+  });
+
+  // ── Panel 7: Coverage Snapshot ────────────────────────────────────────────
+  const tcCoveredReqIds = new Set(tcs.map(tc => tc.requirementId).filter((id): id is number => id != null));
+
+  // Map libraryTcId → results from scoped execution files
+  const execResultsByTcId = new Map<number, string[]>();
+  for (const e of etcs) {
+    if (!e.libraryTcId) continue;
+    if (!execResultsByTcId.has(e.libraryTcId)) execResultsByTcId.set(e.libraryTcId, []);
+    execResultsByTcId.get(e.libraryTcId)!.push(e.result ?? "");
+  }
+  const tcsByReqId = new Map<number, number[]>();
+  for (const tc of tcs) {
+    if (!tc.requirementId) continue;
+    if (!tcsByReqId.has(tc.requirementId)) tcsByReqId.set(tc.requirementId, []);
+    tcsByReqId.get(tc.requirementId)!.push(tc.id);
+  }
+
+  let executedReqs = 0, passedReqs = 0;
+  for (const rid of reqIds) {
+    const linkedTcIds = tcsByReqId.get(rid) ?? [];
+    const allResults = linkedTcIds.flatMap(id => execResultsByTcId.get(id) ?? []);
+    if (allResults.some(r => classifyResult(r) !== "notRun")) executedReqs++;
+    if (allResults.some(r => classifyResult(r) === "passed")) passedReqs++;
+  }
+
+  res.json({
+    executionTrend,
+    velocity,
+    passByMilestone,
+    defectByModule,
+    defectTrend,
+    escapeFunnel,
+    coverage: {
+      totalReqs: reqIds.length,
+      tcCoveredReqs: tcCoveredReqIds.size,
+      executedReqs,
+      passedReqs,
+    },
+  });
 });
 
 export default router;

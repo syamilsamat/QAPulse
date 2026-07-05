@@ -34,6 +34,7 @@ import Teams from "@/pages/Teams";
 import RequirementDetail from "@/pages/RequirementDetail";
 import Milestones from "@/pages/Milestones";
 import PmDashboard from "@/pages/PmDashboard";
+import QAAnalytics from "@/pages/QAAnalytics";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -162,6 +163,13 @@ function Router() {
         <ProtectedRoute
           component={TraceabilityMatrix}
           roles={["qa_member", "qa_lead", "admin"]}
+        />
+      </Route>
+
+      <Route path="/qa-analytics">
+        <ProtectedRoute
+          component={QAAnalytics}
+          roles={["qa_lead", "qa_manager", "hod_qa", "admin", "cto"]}
         />
       </Route>
 

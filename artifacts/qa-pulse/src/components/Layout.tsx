@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout, listNotifications } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Columns3Cog, Shield, GitMerge, ScrollText, Bug, LayoutDashboard } from 'lucide-react';
+import { NotificationDropdown } from "@/components/NotificationDropdown";
 
 import {
   HoverPulse,
@@ -23,6 +24,7 @@ import {
   HoverBell,
   HoverSparkles,
   HoverChart,
+  HoverBarChart,
   HoverList,
   HoverPlay,
   HoverHistory,
@@ -341,6 +343,14 @@ const NAV_ITEMS: NavItem[] = [
     permKey: "nav:traceability",
   },
   {
+    href: "/qa-analytics",
+    label: "QA Analytics",
+    icon: HoverBarChart,
+    activeColor: "text-indigo-500",
+    roles: ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
+    permKey: "nav:qa-analytics",
+  },
+  {
     href: "/defects",
     label: "Defects",
     icon: Bug,
@@ -462,6 +472,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, token, logout: localLogout } = useAuth();
   const [location, setLocation] = useLocation();
   const logoutMutation = useLogout();
+  const qc = useQueryClient();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -490,6 +501,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
   });
 
   const unreadCount = unreadNotifs.filter((n) => !n.read).length;
+
+  // SSE real-time ping — invalidates notification queries when the server
+  // writes a new notification for this user. The 30s poll above stays as a
+  // correctness fallback in case the SSE stream silently stalls.
+  useEffect(() => {
+    if (!user?.id || user.role === "pmo") return;
+    const es = new EventSource(`${getApiUrl()}/notifications/stream?userId=${user.id}`);
+    es.onmessage = () => {
+      qc.invalidateQueries({ queryKey: ["notifications-unread", user.id] });
+    };
+    return () => es.close();
+  }, [user?.id, user?.role, qc]);
 
   const handleLogout = () => {
     setLogoutOpen(false);
@@ -551,6 +574,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             const isParentActive =
               location === item.href ||
               item.subItems?.some((sub) => location === sub.href);
+
+            // Inbox is replaced by the bell dropdown popover (CR027)
+            if (item.href === "/inbox") {
+              return (
+                <div key={item.href} className="flex flex-col">
+                  <NotificationDropdown collapsed={show} unreadCount={unreadCount} />
+                </div>
+              );
+            }
 
             return (
               <div
