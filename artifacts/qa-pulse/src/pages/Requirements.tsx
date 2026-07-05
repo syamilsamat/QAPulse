@@ -72,6 +72,7 @@ import {
   Clock,
   CheckCircle2,
   XCircle as XCircleIcon,
+  Paperclip,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -148,6 +149,8 @@ export default function Requirements() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
   const [form, setForm] = useState<Partial<RequirementInput> & { parentRedmineTicketId?: string; milestoneId?: number | null }>({});
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
   const [acceptanceCriteria, setAcceptanceCriteria] = useState<string[]>([]);
   const [newCriterion, setNewCriterion] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -297,29 +300,8 @@ export default function Requirements() {
     setSelectedReqs([]);
   }, [search, filterPriority, filterProject, filterModule, filterMilestone, sortBy]);
 
-  const createMutation = useCreateRequirement({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
-        setDialogOpen(false);
-        setForm({});
-        setErrors({});
-        toast({ title: "Requirement created" });
-      },
-    },
-  });
-
-  const updateMutation = useUpdateRequirement({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
-        setDialogOpen(false);
-        setEditingReq(null);
-        setErrors({});
-        toast({ title: "Requirement updated", description: "Changes saved (and cascaded to subtasks if applicable)." });
-      },
-    },
-  });
+  const createMutation = useCreateRequirement();
+  const updateMutation = useUpdateRequirement();
 
   const deleteMutation = useDeleteRequirement({
     mutation: {
@@ -472,6 +454,7 @@ export default function Requirements() {
     setNewCriterion("");
     setReqFormModules([]);
     setErrors({});
+    setPendingFiles([]);
     setDialogOpen(true);
   };
 
@@ -498,6 +481,7 @@ export default function Requirements() {
     setAcceptanceCriteria(Array.isArray(r.acceptanceCriteria) ? r.acceptanceCriteria : []);
     setNewCriterion("");
     setReqFormModules(r.module ? r.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
+    setPendingFiles([]);
     setDialogOpen(true);
   };
 
@@ -517,6 +501,7 @@ export default function Requirements() {
     setNewCriterion("");
     setReqFormModules(parentReq.module ? parentReq.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setErrors({});
+    setPendingFiles([]);
     setDialogOpen(true);
   };
 
@@ -531,7 +516,31 @@ export default function Requirements() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = () => {
+  const uploadAttachment = (requirementId: number, file: File): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(",")[1];
+          const res = await fetch(`${getApiUrl()}/requirements/${requirementId}/attachments`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/octet-stream", data: base64 }),
+          });
+          if (res.ok) resolve();
+          else reject(new Error("Upload failed"));
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error("File read failed"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleSubmit = async () => {
     if (!validate()) {
       toast({ variant: "destructive", title: "Please fill in all required fields" });
       return;
@@ -543,10 +552,10 @@ export default function Requirements() {
       const parentReq = requirements.find((r: any) => String(r.redmineTicketId) === form.parentRedmineTicketId?.trim());
 
       if (!parentReq) {
-        toast({ 
-          variant: "destructive", 
-          title: "Parent not exist", 
-          description: "Please create redmine as parent." 
+        toast({
+          variant: "destructive",
+          title: "Parent not exist",
+          description: "Please create redmine as parent."
         });
         return;
       }
@@ -564,8 +573,34 @@ export default function Requirements() {
       acceptanceCriteria: acceptanceCriteria.length > 0 ? JSON.stringify(acceptanceCriteria) : undefined,
     };
 
-    if (editingReq) updateMutation.mutate({ id: editingReq.id, data: payload as any });
-    else createMutation.mutate({ data: payload as RequirementInput });
+    try {
+      let savedId: number | undefined;
+      if (editingReq) {
+        await updateMutation.mutateAsync({ id: editingReq.id, data: payload as any });
+        savedId = editingReq.id;
+      } else {
+        const created: any = await createMutation.mutateAsync({ data: payload as RequirementInput });
+        savedId = created?.id;
+      }
+
+      if (savedId && pendingFiles.length > 0) {
+        setUploadingFiles(true);
+        const results = await Promise.allSettled(pendingFiles.map(f => uploadAttachment(savedId!, f)));
+        setUploadingFiles(false);
+        const failed = results.filter(r => r.status === "rejected").length;
+        if (failed > 0) toast({ variant: "destructive", title: `${failed} file(s) failed to upload` });
+      }
+
+      queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+      setDialogOpen(false);
+      setForm({});
+      setErrors({});
+      setEditingReq(null);
+      setPendingFiles([]);
+      toast({ title: editingReq ? "Requirement updated" : "Requirement created" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to save requirement" });
+    }
   };
 
   const handleCreateProject = () => {
@@ -1321,11 +1356,49 @@ export default function Requirements() {
                 </div>
               </div>
             </div>
+
+            {/* Attachments */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Attachments</Label>
+              <label className="flex flex-col items-center gap-1.5 cursor-pointer border-2 border-dashed rounded-lg p-3 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/20 transition-colors">
+                <Paperclip className="w-4 h-4" />
+                <span>Click to attach files</span>
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    setPendingFiles(prev => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {pendingFiles.length > 0 && (
+                <ul className="space-y-1">
+                  {pendingFiles.map((f, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2 text-sm bg-muted/50 rounded px-2 py-1">
+                      <Paperclip className="w-3 h-3 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate">{f.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                      <button type="button" onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}>
+                        <XIcon className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {editingReq && (
+                <p className="text-xs text-muted-foreground">Existing attachments can be viewed and managed from the requirement detail page.</p>
+              )}
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="w-full sm:w-auto">
-              {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingReq ? "Save Changes" : "Create"}
+            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+              {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
+               createMutation.isPending || updateMutation.isPending ? "Saving..." :
+               editingReq ? "Save Changes" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>

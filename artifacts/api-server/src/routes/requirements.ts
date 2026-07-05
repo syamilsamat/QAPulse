@@ -7,6 +7,7 @@ import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middle
 import {
   db,
   requirementsTable,
+  requirementAttachmentsTable,
   usersTable,
   projectsTable,
   milestonesTable,
@@ -16,6 +17,9 @@ import {
   executionTestCasesTable,
   tasksTable,
 } from "@workspace/db";
+import path from "path";
+import fs from "fs";
+import crypto from "crypto";
 import {
   GetRequirementParams,
   UpdateRequirementParams,
@@ -660,7 +664,7 @@ export async function syncRedmineTicket(
   importingUserId: number,
   isRoot = true,
 ): Promise<number | undefined> {
-  const resp = await redmineFetchLocal(`/issues/${encodeURIComponent(ticketId)}.json?include=children,journals`, apiKey);
+  const resp = await redmineFetchLocal(`/issues/${encodeURIComponent(ticketId)}.json?include=children,journals,attachments`, apiKey);
   if (!resp.ok) throw new Error(`Could not fetch Redmine issue #${ticketId}`);
   const data = await resp.json();
   const issue = data.issue;
@@ -704,6 +708,11 @@ export async function syncRedmineTicket(
     mappedData.createdBy = await resolveRedmineCreatedBy(issue.author?.name, importingUserId, fetchedId);
     const [created] = await db.insert(requirementsTable).values(mappedData).returning();
     savedId = created.id;
+  }
+
+  // Sync Redmine attachments — download any not already stored locally
+  if (savedId) {
+    await syncRequirementAttachments(savedId, issue.attachments ?? [], apiKey).catch(() => {});
   }
 
   if (issue.children && Array.isArray(issue.children)) {
@@ -803,6 +812,176 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
   } catch (err: any) {
     res.status(502).json({ error: err?.message || `Failed to fetch Redmine issue #${ticketId}` });
   }
+});
+
+// ─── Requirement Attachments ──────────────────────────────────────────────────
+
+const UPLOADS_DIR = path.join(process.cwd(), "uploads", "requirements");
+
+async function ensureUploadsDir() {
+  await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
+}
+
+// Download attachments from Redmine and store locally (dedup by redmineAttachmentId)
+async function syncRequirementAttachments(
+  requirementId: number,
+  attachments: any[],
+  apiKey: string,
+) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return;
+  await ensureUploadsDir();
+
+  for (const att of attachments) {
+    const redmineId = String(att.id);
+    const [existing] = await db
+      .select({ id: requirementAttachmentsTable.id })
+      .from(requirementAttachmentsTable)
+      .where(eq(requirementAttachmentsTable.redmineAttachmentId, redmineId));
+    if (existing) continue;
+
+    try {
+      const resp = await fetch(att.content_url, {
+        headers: { "X-Redmine-API-Key": apiKey },
+      });
+      if (!resp.ok) continue;
+
+      const buffer = Buffer.from(await resp.arrayBuffer());
+      const ext = path.extname(att.filename || "") || "";
+      const storageFilename = `${crypto.randomUUID()}${ext}`;
+      await fs.promises.writeFile(path.join(UPLOADS_DIR, storageFilename), buffer);
+
+      await db.insert(requirementAttachmentsTable).values({
+        requirementId,
+        filename: att.filename ?? "attachment",
+        mimeType: att.content_type ?? "application/octet-stream",
+        size: buffer.length,
+        storagePath: storageFilename,
+        redmineAttachmentId: redmineId,
+        redmineFileUrl: att.content_url ?? null,
+      });
+    } catch {
+      // Skip failed individual downloads — don't abort the whole import
+    }
+  }
+}
+
+// GET /requirements/:id/attachments
+router.get("/requirements/:id/attachments", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const attachments = await db
+    .select()
+    .from(requirementAttachmentsTable)
+    .where(eq(requirementAttachmentsTable.requirementId, id))
+    .orderBy(requirementAttachmentsTable.createdAt);
+
+  res.json(attachments.map(a => ({
+    id: a.id,
+    filename: a.filename,
+    mimeType: a.mimeType,
+    size: a.size,
+    redmineAttachmentId: a.redmineAttachmentId,
+    redmineFileUrl: a.redmineFileUrl,
+    uploadedBy: a.uploadedBy,
+    createdAt: a.createdAt,
+  })));
+});
+
+// POST /requirements/:id/attachments  — upload a file (base64 JSON body)
+// Body: { filename: string, mimeType: string, data: string (base64) }
+router.post("/requirements/:id/attachments", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [requirement] = await db
+    .select({ id: requirementsTable.id })
+    .from(requirementsTable)
+    .where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+  const { filename, mimeType, data } = req.body ?? {};
+  if (!filename || !data) {
+    res.status(400).json({ error: "filename and data (base64) are required" });
+    return;
+  }
+
+  try {
+    await ensureUploadsDir();
+    const buffer = Buffer.from(data, "base64");
+    const ext = path.extname(filename) || "";
+    const storageFilename = `${crypto.randomUUID()}${ext}`;
+    await fs.promises.writeFile(path.join(UPLOADS_DIR, storageFilename), buffer);
+
+    const [attachment] = await db.insert(requirementAttachmentsTable).values({
+      requirementId: id,
+      filename,
+      mimeType: mimeType ?? "application/octet-stream",
+      size: buffer.length,
+      storagePath: storageFilename,
+      uploadedBy: ctx.userId,
+    }).returning();
+
+    res.status(201).json(attachment);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Upload failed" });
+  }
+});
+
+// GET /requirements/attachments/:attachmentId/download
+router.get("/requirements/attachments/:attachmentId/download", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const attachmentId = parseInt(req.params.attachmentId);
+  if (isNaN(attachmentId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [attachment] = await db
+    .select()
+    .from(requirementAttachmentsTable)
+    .where(eq(requirementAttachmentsTable.id, attachmentId));
+  if (!attachment) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+  const filePath = path.join(UPLOADS_DIR, attachment.storagePath);
+  try {
+    await fs.promises.access(filePath);
+  } catch {
+    res.status(404).json({ error: "File not found on disk" });
+    return;
+  }
+
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(attachment.filename)}"`);
+  res.setHeader("Content-Type", attachment.mimeType);
+  const stream = fs.createReadStream(filePath);
+  stream.pipe(res as any);
+});
+
+// DELETE /requirements/attachments/:attachmentId
+router.delete("/requirements/attachments/:attachmentId", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const attachmentId = parseInt(req.params.attachmentId);
+  if (isNaN(attachmentId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [attachment] = await db
+    .select()
+    .from(requirementAttachmentsTable)
+    .where(eq(requirementAttachmentsTable.id, attachmentId));
+  if (!attachment) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+  await db.delete(requirementAttachmentsTable).where(eq(requirementAttachmentsTable.id, attachmentId));
+
+  // Best-effort file removal — don't fail if file is missing
+  fs.promises.unlink(path.join(UPLOADS_DIR, attachment.storagePath)).catch(() => {});
+
+  res.sendStatus(204);
 });
 
 export default router;
