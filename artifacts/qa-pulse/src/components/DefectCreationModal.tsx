@@ -11,6 +11,9 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Loader2, Search, Upload, X, ExternalLink, AlertCircle, Link2,
 } from "lucide-react";
 import {
@@ -21,6 +24,7 @@ import {
   searchRedmineIssues,
   createRedmineDefect,
   registerLocalDefect,
+  fetchQapulseProjects,
   type RedmineProjectItem,
   type RedmineProjectConfigItem,
   type RedmineTracker,
@@ -84,6 +88,13 @@ export default function DefectCreationModal({
   const [targetedStartDate, setTargetedStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [targetedCompletionDate, setTargetedCompletionDate] = useState("");
 
+  // QAPulse fields
+  const [severity, setSeverity] = useState("medium");
+  const [foundIn, setFoundIn] = useState("SIT");
+  const [defectModule, setDefectModule] = useState("");
+  const [qapulseProjectId, setQapulseProjectId] = useState<number | null>(null);
+  const [qapulseProjects, setQapulseProjects] = useState<{ id: number; name: string }[]>([]);
+
   // Duplicate check
   const [duplicates, setDuplicates] = useState<RedmineIssueMatch[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -96,6 +107,7 @@ export default function DefectCreationModal({
   useEffect(() => {
     if (!open) return;
     setExpectedResultValue(expectedResult ?? "");
+    fetchQapulseProjects().then(setQapulseProjects).catch(() => {});
     fetchRedmineProjects().then(setProjects).catch(() => {});
     fetchRedmineTrackers()
       .then((list) => {
@@ -177,6 +189,8 @@ export default function DefectCreationModal({
       redmineId: issue.id.toString(),
       title: issue.subject,
       actualResult,
+      severity,
+      module: defectModule.trim() || undefined,
       executionTcId: executionTcId ?? null,
     }).catch(() => {});
     onDefectCreated({
@@ -248,6 +262,8 @@ export default function DefectCreationModal({
         description: defectDescription.trim() || undefined,
         expectedResult: expectedResultValue.trim() || undefined,
         actualResult: actualResult.trim() || undefined,
+        severity,
+        module: defectModule.trim() || undefined,
         executionTcId: executionTcId ?? null,
       }).catch(() => {});
       onDefectCreated({
@@ -276,12 +292,16 @@ export default function DefectCreationModal({
     setTargetedCompletionDate("");
     setDuplicates([]);
     setLinkedIssueId(null);
+    setSeverity("medium");
+    setFoundIn("SIT");
+    setDefectModule("");
+    setQapulseProjectId(null);
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[75vw] w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <AlertCircle className="w-4 h-4 text-red-500" />
@@ -378,6 +398,51 @@ export default function DefectCreationModal({
               className="hidden"
               onChange={handleFileChange}
             />
+          </div>
+
+          <Separator />
+
+          {/* QAPulse Fields */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QAPulse</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Severity</Label>
+                <Select value={severity} onValueChange={setSeverity}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["critical", "high", "medium", "low"].map((s) => (
+                      <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Found in</Label>
+                <Select value={foundIn} onValueChange={setFoundIn}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["SIT", "UAT", "Production"].map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Module</Label>
+                <Input value={defectModule} onChange={(e) => setDefectModule(e.target.value)} placeholder="e.g. Authentication" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>QAPulse Project</Label>
+              <SearchableSelect
+                value={qapulseProjectId?.toString() ?? ""}
+                onValueChange={(v) => setQapulseProjectId(v ? Number(v) : null)}
+                options={qapulseProjects.map((p) => ({ value: p.id.toString(), label: p.name }))}
+                placeholder="Select project (optional)..."
+                searchPlaceholder="Search project..."
+              />
+            </div>
           </div>
 
           <Separator />

@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,9 @@ import {
   CheckCircle2,
   FlaskConical,
   Search,
+  Upload,
+  X,
+  Link2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Button } from "@/components/ui/button";
@@ -42,6 +45,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import {
+  fetchRedmineProjectConfig,
+  fetchRedmineProjectMembers,
+  fetchRedmineTrackers,
+  searchRedmineIssues,
+  type RedmineProjectConfigItem,
+  type RedmineMember,
+  type RedmineTracker,
+  type RedmineIssueMatch,
+} from "@/lib/execution-api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -852,6 +866,8 @@ function SyncRedmineDialog({
 
 // ─── Manual "New defect" dialog (secondary path; fail modal is primary) ──────
 
+const COMPLEXITY_OPTIONS = ["S", "M", "L", "XL"];
+
 function NewDefectDialog({
   open,
   onClose,
@@ -865,30 +881,101 @@ function NewDefectDialog({
 }) {
   const { token } = useAuth();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // QAPulse fields
   const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
+
+  // Redmine fields
   const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string }[]>([]);
+  const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
+  const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
+  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
+  const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
+  const [complexity, setComplexity] = useState("M");
+  const [targetedStartDate, setTargetedStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [targetedCompletionDate, setTargetedCompletionDate] = useState("");
+  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
+
+  // Duplicate check
+  const [duplicates, setDuplicates] = useState<RedmineIssueMatch[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
   const [isSaving, setIsSaving] = useState(false);
 
-  const loadRedmineProjects = async () => {
-    try {
-      const res = await fetch(`${getApiUrl()}/redmine/projects`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.ok) setRedmineProjects(await res.json());
-    } catch {}
+  // Load Redmine projects + trackers on open
+  useEffect(() => {
+    if (!open) return;
+    fetch(`${getApiUrl()}/redmine/projects`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => r.ok ? r.json() : []).then(setRedmineProjects).catch(() => {});
+    fetchRedmineTrackers()
+      .then((list) => {
+        setTrackers(list);
+        const qa = list.find((t) => t.name.toLowerCase().includes("qa defect") || t.name.toLowerCase().includes("defect"));
+        setQaDefectTrackerId(qa?.id ?? list[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, [open, token]);
+
+  // Load members + project config when Redmine project changes
+  useEffect(() => {
+    const pid = form.redmineProjectId;
+    if (!pid) { setMembers([]); setSelectedAssigneeId(null); setProjectConfig(null); return; }
+    fetchRedmineProjectMembers(pid).then(setMembers).catch(() => {});
+    fetchRedmineProjectConfig(pid).then(setProjectConfig).catch(() => {});
+  }, [form.redmineProjectId]);
+
+  // Auto duplicate check
+  useEffect(() => {
+    if (!form.redmineProjectId || !form.title?.trim()) { setDuplicates([]); return; }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try { setDuplicates(await searchRedmineIssues(form.title, form.redmineProjectId)); }
+      catch { setDuplicates([]); }
+      finally { setIsSearching(false); }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [form.redmineProjectId, form.title]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    Array.from(e.target.files ?? []).forEach((file) => {
+      if (file.size > 5 * 1024 * 1024) { toast({ variant: "destructive", title: `${file.name} exceeds 5MB` }); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = (ev.target?.result as string).split(",")[1];
+        setScreenshots((prev) => [...prev, { filename: file.name, contentType: file.type, base64 }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const handleClose = () => {
+    setForm({ severity: "medium", foundIn: "SIT" });
+    setSelectedAssigneeId(null);
+    setComplexity("M");
+    setTargetedStartDate(new Date().toISOString().slice(0, 10));
+    setTargetedCompletionDate("");
+    setScreenshots([]);
+    setDuplicates([]);
+    onClose();
   };
 
   const handleSubmit = async () => {
-    if (!form.title?.trim()) {
-      toast({ variant: "destructive", title: "Title is required" });
-      return;
-    }
+    if (!form.title?.trim()) { toast({ variant: "destructive", title: "Title is required" }); return; }
     setIsSaving(true);
     try {
       const res = await fetch(`${getApiUrl()}/defects`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          assigneeId: selectedAssigneeId,
+          complexity,
+          targetedStartDate: targetedStartDate || undefined,
+          targetedCompletionDate: targetedCompletionDate || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create defect");
@@ -898,7 +985,7 @@ function NewDefectDialog({
           : `${data.defectCode} created locally — Redmine sync pending`,
         description: data.syncOk ? undefined : data.syncError ?? undefined,
       });
-      setForm({ severity: "medium", foundIn: "SIT" });
+      handleClose();
       onCreated();
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
@@ -908,79 +995,192 @@ function NewDefectDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" onOpenAutoFocus={loadRedmineProjects}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <DialogContent className="sm:max-w-[75vw] w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">New defect</DialogTitle>
+          <DialogTitle className="text-base">New Defect</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="space-y-4">
+
+          {/* Title */}
           <div className="space-y-1.5">
             <Label>Title <span className="text-destructive">*</span></Label>
             <Input value={form.title ?? ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label>Severity</Label>
-              <Select value={form.severity} onValueChange={(v) => setForm({ ...form, severity: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["critical", "high", "medium", "low"].map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Found in</Label>
-              <Select value={form.foundIn} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Module</Label>
-              <Input value={form.module ?? ""} onChange={(e) => setForm({ ...form, module: e.target.value })} />
-            </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
+
+          {/* Expected / Actual */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>QAPulse project</Label>
-              <Select value={form.projectId ? String(form.projectId) : ""} onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}>
+              <Label>Expected Result</Label>
+              <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Actual Result</Label>
+              <Textarea rows={2} value={form.actualResult ?? ""} onChange={(e) => setForm({ ...form, actualResult: e.target.value })} />
+            </div>
+          </div>
+
+          {/* Screenshots */}
+          <div className="space-y-1.5">
+            <Label>Screenshots</Label>
+            <div className="flex flex-wrap gap-2">
+              {screenshots.map((s, i) => (
+                <div key={i} className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
+                  <span className="max-w-[120px] truncate">{s.filename}</span>
+                  <button onClick={() => setScreenshots((prev) => prev.filter((_, idx) => idx !== i))}>
+                    <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                  </button>
+                </div>
+              ))}
+              <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="w-3 h-3" /> Add Screenshot
+              </Button>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+          </div>
+
+          <Separator />
+
+          {/* QAPulse section */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QAPulse</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Severity</Label>
+                <Select value={form.severity} onValueChange={(v) => setForm({ ...form, severity: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["critical", "high", "medium", "low"].map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Found in</Label>
+                <Select value={form.foundIn} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Module</Label>
+                <Input value={form.module ?? ""} onChange={(e) => setForm({ ...form, module: e.target.value })} placeholder="e.g. Authentication" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>QAPulse Project</Label>
+              <Select value={form.projectId ? String(form.projectId) : ""} onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined })}>
                 <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                 <SelectContent>
                   {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Redmine project</Label>
-              <Select value={form.redmineProjectId ? String(form.redmineProjectId) : ""} onValueChange={(v) => setForm({ ...form, redmineProjectId: Number(v) })}>
-                <SelectTrigger><SelectValue placeholder="For the Redmine push" /></SelectTrigger>
-                <SelectContent>
-                  {redmineProjects.map((p) => <SelectItem key={p.redmineId} value={String(p.redmineId)}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Expected result</Label>
-              <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
+
+          <Separator />
+
+          {/* Redmine section */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Redmine Project</Label>
+                <Select value={form.redmineProjectId ? String(form.redmineProjectId) : ""} onValueChange={(v) => setForm({ ...form, redmineProjectId: v ? Number(v) : undefined })}>
+                  <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                  <SelectContent>
+                    {redmineProjects.map((p) => <SelectItem key={p.redmineId} value={String(p.redmineId)}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <Input value={trackers.find((t) => t.id === qaDefectTrackerId)?.name ?? "QA Defect"} disabled className="bg-muted/50" />
+              </div>
             </div>
+
             <div className="space-y-1.5">
-              <Label>Actual result</Label>
-              <Textarea rows={2} value={form.actualResult ?? ""} onChange={(e) => setForm({ ...form, actualResult: e.target.value })} />
+              <Label>Assignee</Label>
+              <SearchableSelect
+                value={selectedAssigneeId?.toString() ?? ""}
+                onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
+                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                placeholder={form.redmineProjectId ? "Select assignee..." : "Select a Redmine project first"}
+                searchPlaceholder="Search member..."
+                disabled={!form.redmineProjectId}
+                emptyText={form.redmineProjectId ? "No members found." : "Select a project first."}
+              />
             </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Complexity</Label>
+                <SearchableSelect
+                  value={complexity}
+                  onValueChange={setComplexity}
+                  options={COMPLEXITY_OPTIONS.map((c) => ({ value: c, label: c }))}
+                  searchPlaceholder="Search..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Targeted Start Date</Label>
+                <Input type="date" value={targetedStartDate} onChange={(e) => setTargetedStartDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Targeted Completion Date</Label>
+                <Input type="date" value={targetedCompletionDate} onChange={(e) => setTargetedCompletionDate(e.target.value)} />
+              </div>
+            </div>
+
+            {!projectConfig && form.redmineProjectId && (
+              <p className="text-xs text-amber-600">
+                No custom field config for this project. Complexity and dates won't be set. Configure in Settings → Redmine Integration.
+              </p>
+            )}
           </div>
+
+          {/* Duplicate check */}
+          {form.redmineProjectId && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <Search className="w-3.5 h-3.5" />
+                  Similar Open Issues
+                  {isSearching && <Loader2 className="w-3 h-3 animate-spin" />}
+                </div>
+                {duplicates.length === 0 && !isSearching && (
+                  <p className="text-xs text-muted-foreground">No similar open issues found.</p>
+                )}
+                {duplicates.map((issue) => (
+                  <div key={issue.id} className="flex items-center justify-between p-2 border rounded-md text-xs gap-2">
+                    <div className="min-w-0">
+                      <span className="font-mono text-primary mr-2">#{issue.id}</span>
+                      <span className="truncate">{issue.subject}</span>
+                      <span className="ml-2 text-muted-foreground">[{issue.status?.name}] {issue.project?.name}</span>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1 h-6 text-xs shrink-0">
+                      <Link2 className="w-3 h-3" /> Link
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
+
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
+          <Button variant="ghost" onClick={handleClose} disabled={isSaving}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={isSaving} className="gap-2">
-            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : "Create and push to Redmine"}
+            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><ExternalLink className="w-4 h-4" /> Create and push to Redmine</>}
           </Button>
         </DialogFooter>
       </DialogContent>

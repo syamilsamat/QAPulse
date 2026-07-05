@@ -1,5 +1,5 @@
 import { eq, inArray, isNotNull } from "drizzle-orm";
-import { db, defectsTable, trackersTable, redmineStatusesTable, requirementsTable, type Defect } from "@workspace/db";
+import { db, defectsTable, trackersTable, redmineStatusesTable, requirementsTable, redmineProjectConfigsTable, type Defect } from "@workspace/db";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CR019/CR020 Redmine defect bridge — DELIBERATELY the only file that knows
@@ -84,7 +84,15 @@ export interface PushResult {
 export async function pushDefectToRedmine(
   defect: Defect,
   apiKey: string,
-  opts: { redmineProjectId?: number | null; sourceIssueId?: string | null; trackerName?: string } = {},
+  opts: {
+    redmineProjectId?: number | null;
+    sourceIssueId?: string | null;
+    trackerName?: string;
+    assigneeId?: number | null;
+    complexity?: string | null;
+    targetedStartDate?: string | null;
+    targetedCompletionDate?: string | null;
+  } = {},
 ): Promise<PushResult> {
   if (defect.redmineId) return { ok: true, redmineId: defect.redmineId };
 
@@ -97,6 +105,13 @@ export async function pushDefectToRedmine(
   }
 
   const trackerId = await findDefectTrackerId(opts.trackerName);
+
+  // Look up custom field IDs from stored project config
+  const [config] = await db.select().from(redmineProjectConfigsTable).where(eq(redmineProjectConfigsTable.redmineProjectId, projectId)).catch(() => []);
+  const customFields: { id: number; value: string }[] = [];
+  if (config?.complexityFieldId && opts.complexity) customFields.push({ id: config.complexityFieldId, value: opts.complexity });
+  if (config?.targetedStartDateFieldId && opts.targetedStartDate) customFields.push({ id: config.targetedStartDateFieldId, value: opts.targetedStartDate });
+  if (config?.targetedCompletionDateFieldId && opts.targetedCompletionDate) customFields.push({ id: config.targetedCompletionDateFieldId, value: opts.targetedCompletionDate });
 
   const descriptionParts = [
     defect.description?.trim(),
@@ -115,6 +130,8 @@ export async function pushDefectToRedmine(
           ...(trackerId ? { tracker_id: trackerId } : {}),
           subject: defect.title,
           description: descriptionParts.join("\n\n"),
+          ...(opts.assigneeId ? { assigned_to_id: opts.assigneeId } : {}),
+          ...(customFields.length ? { custom_fields: customFields } : {}),
         },
       }),
     });

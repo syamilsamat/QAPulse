@@ -400,6 +400,12 @@ export const createRedmineDefect = async (
   return res.json();
 };
 
+export const fetchQapulseProjects = async (): Promise<{ id: number; name: string }[]> => {
+  const res = await fetch("/api/projects", { headers: getHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+};
+
 // CR019: record a Redmine-created defect in QAPulse's defects table so the
 // Defects page and retest tracking know about it. Best-effort — callers should
 // not block the fail flow on this.
