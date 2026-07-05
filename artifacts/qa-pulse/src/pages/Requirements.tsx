@@ -162,6 +162,7 @@ export default function Requirements() {
   const [redmineDialogOpen, setRedmineDialogOpen] = useState(false);
   const [redmineInput, setRedmineInput] = useState("");
   const [redmineSelectedProject, setRedmineSelectedProject] = useState<string>("");
+  const [redmineSelectedMilestone, setRedmineSelectedMilestone] = useState<string>("");
   const [reqFormModules, setReqFormModules] = useState<string[]>([]);
   const [redmineSelectedModules, setRedmineSelectedModules] = useState<string[]>([]);
   const [redmineSelectedTracker, setRedmineSelectedTracker] = useState<string>("");
@@ -217,6 +218,21 @@ export default function Requirements() {
       return res.ok ? res.json() : [];
     },
     enabled: !!formProjectId && dialogOpen,
+  });
+
+  // Milestone options for the "Import from Redmine" dialog — scoped to the
+  // selected import Project, mandatory so every imported requirement (and
+  // its children, which inherit it) is tagged with a milestone from the start.
+  const { data: milestonesForRedmineImport = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", redmineSelectedProject],
+    queryFn: async () => {
+      if (!redmineSelectedProject) return [];
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${redmineSelectedProject}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!redmineSelectedProject && redmineDialogOpen,
   });
 
   // Milestone filter options — scoped to the selected Project filter, same
@@ -579,7 +595,7 @@ export default function Requirements() {
     );
   };
 
-  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, isRoot: boolean = true) => {
+  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, milestoneId?: number, isRoot: boolean = true) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -614,6 +630,10 @@ export default function Requirements() {
         projectId: targetProjectId,
         parentId: parentId,
       };
+      // Only touch milestoneId when explicitly provided — a resync of an
+      // already-imported ticket (handleSingleSync) passes undefined so it
+      // doesn't clobber a milestone the user may have customized per-requirement.
+      if (milestoneId !== undefined) (mappedData as any).milestoneId = milestoneId;
 
       let savedReqId = existingReq?.id;
 
@@ -632,7 +652,7 @@ export default function Requirements() {
       // Recursively handle children — filters applied inside each recursive call
       if (data.issue.children && Array.isArray(data.issue.children)) {
         for (const child of data.issue.children) {
-          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, false);
+          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, milestoneId, false);
         }
       }
     } else {
@@ -642,17 +662,18 @@ export default function Requirements() {
 
   const handleImportFromRedmine = async () => {
     const clean = redmineInput.trim().replace(/^#/, "").replace(/.*\/issues\//, "");
-    if (!clean || redmineSelectedModules.length === 0 || !redmineSelectedProject) return;
+    if (!clean || redmineSelectedModules.length === 0 || !redmineSelectedProject || !redmineSelectedMilestone) return;
 
     setRedmineLoading(true);
     try {
-      await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined);
+      await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone));
       toast({ title: "Import Successful", description: "Successfully imported ticket and subtasks." });
       setRedmineDialogOpen(false);
       setRedmineInput("");
       setRedmineSelectedModules([]);
       setRedmineSelectedProject("");
       setRedmineSelectedTracker("");
+      setRedmineSelectedMilestone("");
     } catch (err: any) {
       const msg: string = err?.message ?? "";
       if (msg.startsWith("NO_RESULT:")) {
@@ -677,7 +698,7 @@ export default function Requirements() {
     });
 
     try {
-      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined, true);
+      await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined, undefined, true);
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
     } catch (err: any) {
       const msg: string = err?.message ?? "";
@@ -1310,7 +1331,7 @@ export default function Requirements() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); } }}>
+      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); setRedmineSelectedMilestone(""); } }}>
         <DialogContent className="w-[95vw] sm:w-full max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1329,11 +1350,25 @@ export default function Requirements() {
               <Label>Project <span className="text-destructive">*</span></Label>
               <SearchableSelect
                 value={redmineSelectedProject}
-                onValueChange={setRedmineSelectedProject}
+                onValueChange={(v) => { setRedmineSelectedProject(v); setRedmineSelectedMilestone(""); }}
                 options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
                 placeholder="Select project"
                 searchPlaceholder="Search project..."
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Milestone <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={redmineSelectedMilestone}
+                onValueChange={setRedmineSelectedMilestone}
+                options={milestonesForRedmineImport.map((m) => ({ value: String(m.id), label: m.name }))}
+                placeholder={redmineSelectedProject ? "Select milestone" : "Select a project first"}
+                searchPlaceholder="Search milestones..."
+              />
+              {redmineSelectedProject && milestonesForRedmineImport.length === 0 && (
+                <p className="text-xs text-muted-foreground">No milestones for this project — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
+              )}
+              <p className="text-xs text-muted-foreground">Applied to the root ticket and every subtask being imported.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Module <span className="text-destructive">*</span></Label>
@@ -1363,8 +1398,8 @@ export default function Requirements() {
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); }} className="w-full sm:w-auto">Cancel</Button>
-            <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || redmineSelectedModules.length === 0 || !redmineSelectedProject} className="w-full sm:w-auto">
+            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); setRedmineSelectedMilestone(""); }} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || redmineSelectedModules.length === 0 || !redmineSelectedProject || !redmineSelectedMilestone} className="w-full sm:w-auto">
               {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Fetching…</> : "Import"}
             </Button>
           </DialogFooter>
