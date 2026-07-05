@@ -77,7 +77,11 @@ export async function api<T = any>(path: string, token: string, opts: ApiCallOpt
     const body = await res.text().catch(() => "");
     throw new Error(`${opts.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
   }
-  if (res.status === 204) return undefined as unknown as T;
+  // A few endpoints reply with res.sendStatus(201) on success — that sends
+  // the plain-text HTTP reason phrase ("Created"), not JSON, not empty.
+  // Only parse when the server actually says it sent JSON.
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return undefined as unknown as T;
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
 }
