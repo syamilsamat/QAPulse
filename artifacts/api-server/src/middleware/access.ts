@@ -98,3 +98,18 @@ export async function canAccessProject(userId: number, role: string, projectId: 
   if (accessible === null) return true;
   return accessible.includes(projectId);
 }
+
+/**
+ * Numeric tier for a role name — admin is treated as unrestricted (Infinity),
+ * everything else is looked up from the roles table (Member=1, Lead=2,
+ * Manager=3, HOD=4, CTO=5). Defaults to 1 if the role row/table isn't found.
+ */
+export async function getRoleTierRank(role: string): Promise<number> {
+  if (role === "admin") return Infinity;
+  try {
+    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+    return roleRow?.tierRank ?? 1;
+  } catch {
+    return 1;
+  }
+}

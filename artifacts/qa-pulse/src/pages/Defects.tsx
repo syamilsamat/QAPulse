@@ -56,6 +56,8 @@ import {
   type RedmineTracker,
   type RedmineIssueMatch,
 } from "@/lib/execution-api";
+import { DefectCategoryField } from "@/components/DefectCategoryField";
+import { defectCategoryLabel } from "@/lib/defect-categories";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -92,6 +94,7 @@ interface DefectRow {
   foundIn: string;
   tracker: string | null;
   category: string | null;
+  defectCategory: string | null;
   redmineCreatedAt: string | null;
   escapeStatus: string;
   escapeClass: string | null;
@@ -550,6 +553,7 @@ export default function Defects() {
                     {[
                       d.module,
                       d.category && d.category !== d.module ? d.category : null,
+                      defectCategoryLabel(d.defectCategory),
                       d.projectName,
                       d.tracker,
                       `found in ${d.foundIn}`,
@@ -879,7 +883,8 @@ function NewDefectDialog({
   projects: { id: number; name: string }[];
   onCreated: () => void;
 }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1083,6 +1088,11 @@ function NewDefectDialog({
                 </SelectContent>
               </Select>
             </div>
+            <DefectCategoryField
+              value={form.defectCategory ?? ""}
+              onChange={(v) => setForm({ ...form, defectCategory: v })}
+              canSet={canSetCategory}
+            />
           </div>
 
           <Separator />

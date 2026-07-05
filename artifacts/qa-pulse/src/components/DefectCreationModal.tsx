@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { DefectCategoryField } from "@/components/DefectCategoryField";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -67,6 +69,8 @@ export default function DefectCreationModal({
   executionTcId,
 }: Props) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [scope, setScope] = useState<"step" | "testcase">("testcase");
@@ -92,6 +96,7 @@ export default function DefectCreationModal({
   const [severity, setSeverity] = useState("medium");
   const [foundIn, setFoundIn] = useState("SIT");
   const [defectModule, setDefectModule] = useState("");
+  const [defectCategory, setDefectCategory] = useState("");
   const [qapulseProjectId, setQapulseProjectId] = useState<number | null>(null);
   const [qapulseProjects, setQapulseProjects] = useState<{ id: number; name: string }[]>([]);
 
@@ -191,6 +196,7 @@ export default function DefectCreationModal({
       actualResult,
       severity,
       module: defectModule.trim() || undefined,
+      defectCategory: defectCategory || undefined,
       executionTcId: executionTcId ?? null,
     }).catch(() => {});
     onDefectCreated({
@@ -264,6 +270,7 @@ export default function DefectCreationModal({
         actualResult: actualResult.trim() || undefined,
         severity,
         module: defectModule.trim() || undefined,
+        defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
       }).catch(() => {});
       onDefectCreated({
@@ -295,6 +302,7 @@ export default function DefectCreationModal({
     setSeverity("medium");
     setFoundIn("SIT");
     setDefectModule("");
+    setDefectCategory("");
     setQapulseProjectId(null);
     onClose();
   };
@@ -443,6 +451,7 @@ export default function DefectCreationModal({
                 searchPlaceholder="Search project..."
               />
             </div>
+            <DefectCategoryField value={defectCategory} onChange={setDefectCategory} canSet={canSetCategory} />
           </div>
 
           <Separator />

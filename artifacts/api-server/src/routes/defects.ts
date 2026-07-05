@@ -12,7 +12,7 @@ import {
   redmineStatusesTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 import { resolveApiKeyFromToken } from "./requirements";
 import {
@@ -49,6 +49,18 @@ async function canAccessDefectProject(
 // Redmine statuses that mean "fix landed, QA should retest"
 const RETEST_STATUS = /fixed|resolved|ready/i;
 const CLOSED_STATUS = /closed|verified|rejected|cancelled/i;
+
+// QAPulse-native defect category taxonomy — fixed set, independent of
+// whatever a given Redmine project's own "category" field happens to hold.
+const DEFECT_CATEGORIES = [
+  "functional", "ui_ux", "usability", "performance", "security",
+  "data", "compatibility", "integration", "configuration", "localization",
+] as const;
+
+// Only Lead-tier and above may set a defect's category.
+async function canSetDefectCategory(role: string): Promise<boolean> {
+  return (await getRoleTierRank(role)) >= 2;
+}
 
 // Append the Redmine id to the execution row's defect_number exactly as if the
 // QA had typed it — keeps Pareto/CAPA/verdict Excel and link-out chips working.
@@ -255,12 +267,16 @@ router.post("/defects", async (req, res): Promise<void> => {
     const {
       title, description, stepsToReproduce, expectedResult, actualResult,
       severity, module, projectId, foundIn, executionTcId, requirementId,
-      sourceIssueId, redmineProjectId, trackerName,
+      sourceIssueId, redmineProjectId, trackerName, defectCategory,
       assigneeId, complexity, targetedStartDate, targetedCompletionDate,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
       res.status(400).json({ error: "title is required" });
+      return;
+    }
+    if (defectCategory != null && !DEFECT_CATEGORIES.includes(defectCategory)) {
+      res.status(400).json({ error: "Invalid defectCategory" });
       return;
     }
 
@@ -270,6 +286,9 @@ router.post("/defects", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
+    // Category is Lead-tier+ only — a lower-tier caller's value is silently
+    // dropped rather than failing the whole defect creation over it.
+    const categoryAllowed = defectCategory != null && (await canSetDefectCategory(ctx.role));
 
     const actorId = actorFromReq(req);
     const [defect] = await db
@@ -286,6 +305,7 @@ router.post("/defects", async (req, res): Promise<void> => {
         reporterId: actorId,
         source: "qa",
         foundIn: foundIn ?? "SIT",
+        defectCategory: categoryAllowed ? defectCategory : null,
         syncStatus: "pending",
       })
       .returning();
@@ -368,13 +388,18 @@ router.post("/defects/register", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId } = req.body ?? {};
+    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId, defectCategory } = req.body ?? {};
     if (!redmineId || !title) {
       res.status(400).json({ error: "redmineId and title are required" });
       return;
     }
+    if (defectCategory != null && !DEFECT_CATEGORIES.includes(defectCategory)) {
+      res.status(400).json({ error: "Invalid defectCategory" });
+      return;
+    }
 
     const actorId = actorFromReq(req);
+    const categoryAllowed = defectCategory != null && (await canSetDefectCategory(ctx.role));
 
     // derive project + environment from the execution row's file
     let projectId: number | null = null;
@@ -421,6 +446,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           syncStatus: "synced",
           source: "qa",
           foundIn,
+          defectCategory: categoryAllowed ? defectCategory : null,
           statusSyncedAt: null,
         })
         .returning();
@@ -830,8 +856,15 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     const patch: Record<string, any> = {};
-    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source"]) {
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory"]) {
       if (key in (req.body ?? {})) patch[key] = req.body[key];
+    }
+    if ("defectCategory" in patch) {
+      if (patch.defectCategory != null && !DEFECT_CATEGORIES.includes(patch.defectCategory)) {
+        res.status(400).json({ error: "Invalid defectCategory" });
+        return;
+      }
+      if (!(await canSetDefectCategory(ctx.role))) delete patch.defectCategory;
     }
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "Nothing to update" });

@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
-import { db, usersTable, refreshTokensTable } from "@workspace/db";
+import { db, usersTable, refreshTokensTable, rolesTable } from "@workspace/db";
 import { LoginBody } from "@workspace/api-zod";
 import { logger } from "../lib/logger";
 import bcrypt from "bcryptjs";
@@ -72,12 +72,24 @@ export async function getAuthUser(req: Request): Promise<typeof usersTable.$infe
   }
 }
 
-function formatUser(user: typeof usersTable.$inferSelect) {
+async function formatUser(user: typeof usersTable.$inferSelect) {
+  let tierRank: number | null = null;
+  if (user.role === "admin") {
+    tierRank = 99; // unrestricted — kept finite so it round-trips through JSON
+  } else {
+    try {
+      const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, user.role));
+      tierRank = roleRow?.tierRank ?? 1;
+    } catch {
+      tierRank = 1;
+    }
+  }
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
+    tierRank,
     team: user.team,
     avatarUrl: user.avatarUrl,
     mustChangePassword: user.mustChangePassword,
@@ -145,7 +157,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     newValue: { ip: clientIp(req) },
   });
 
-  res.json({ user: formatUser(user), token, refreshToken });
+  res.json({ user: await formatUser(user), token, refreshToken });
 });
 
 // CR007-4: Stateful logout — blacklist access token + revoke refresh token
@@ -230,7 +242,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       return;
     }
 
-    res.json(formatUser(user));
+    res.json(await formatUser(user));
   } catch (e) {
     if (e instanceof jwt.TokenExpiredError) {
       res.status(401).json({ error: "Token expired" });
@@ -280,7 +292,7 @@ router.post("/auth/change-password", async (req, res): Promise<void> => {
     .where(eq(usersTable.id, user.id))
     .returning();
 
-  res.json(formatUser(updated));
+  res.json(await formatUser(updated));
 });
 
 export default router;

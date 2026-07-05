@@ -32,6 +32,12 @@ export const defectsTable = pgTable(
     // now but keep their real tracker recorded (Sync from Redmine dialog)
     tracker: text("tracker"),
     category: text("category"), // Redmine category name, saved alongside the tracker
+    // QAPulse-native defect classification (independent of the Redmine category
+    // above, which is a freeform per-project Redmine field) — one of a fixed
+    // set: functional | ui_ux | usability | performance | security | data |
+    // compatibility | integration | configuration | localization. Settable
+    // only by Lead-tier+ users (see getRoleTierRank in middleware/access.ts).
+    defectCategory: text("defect_category"),
     redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }), // issue created_on
     // CR020 escape review (production defects only)
     escapeStatus: text("escape_status").notNull().default("pending"), // pending | analyzing | closed
