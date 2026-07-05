@@ -1,5 +1,5 @@
-import { eq, inArray, isNotNull } from "drizzle-orm";
-import { db, defectsTable, trackersTable, redmineStatusesTable, requirementsTable, redmineProjectConfigsTable, type Defect } from "@workspace/db";
+import { eq, ilike, inArray, isNotNull } from "drizzle-orm";
+import { db, defectsTable, trackersTable, redmineStatusesTable, requirementsTable, redmineProjectConfigsTable, usersTable, type Defect } from "@workspace/db";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CR019/CR020 Redmine defect bridge — DELIBERATELY the only file that knows
@@ -194,11 +194,67 @@ export async function pushStatusToRedmine(
   }
 }
 
+// CR030 — QAPulse doesn't store a Redmine user id for its own accounts, so
+// pushing a native assignment out requires a best-effort name search against
+// Redmine's own user list. Silent miss (no match / Redmine down) just means
+// the push doesn't happen this cycle — the native assignment still stands
+// locally and the next refresh retries via the same recency comparison.
+async function resolveRedmineUserIdByName(name: string, apiKey: string): Promise<number | null> {
+  try {
+    const res = await redmineFetch(`/users.json?name=${encodeURIComponent(name)}`, apiKey);
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const users: any[] = data?.users ?? [];
+    const exact = users.find(
+      (u: any) => `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim().toLowerCase() === name.trim().toLowerCase(),
+    );
+    return (exact ?? users[0])?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Push a native (QAPulse) defect assignee to Redmine. Non-fatal on failure —
+// callers treat this as best-effort, same as pushDefectToRedmine's philosophy
+// of never blocking a QAPulse-side action on Redmine being reachable.
+export async function pushAssigneeToRedmine(
+  redmineIssueId: string,
+  qaPulseUserId: number,
+  apiKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, qaPulseUserId));
+    if (!user?.name) return { ok: false, error: "Assignee not found" };
+    const redmineUserId = await resolveRedmineUserIdByName(user.name, apiKey);
+    if (!redmineUserId) return { ok: false, error: `No matching Redmine user for "${user.name}"` };
+    const res = await redmineFetch(`/issues/${encodeURIComponent(redmineIssueId)}.json`, apiKey, {
+      method: "PUT",
+      body: JSON.stringify({ issue: { assigned_to_id: redmineUserId } }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Redmine ${res.status}: ${body.slice(0, 300)}` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
 // Refresh cached lifecycle fields (status, assignee) from Redmine for every
-// defect that has a Redmine id. One-way read; QAPulse never writes status back.
+// defect that has a Redmine id. Status stays a one-way read (Redmine is still
+// the record until CR021). Assignee is reconciled both ways (CR030): whichever
+// side changed more recently wins — Redmine's issue.updated_on vs our own
+// assigneeAssignedAt — since native in-app assignment is now a first-class
+// QAPulse action, not just a Redmine-side fact QAPulse mirrors.
 export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed: number }> {
   const rows = await db
-    .select({ id: defectsTable.id, redmineId: defectsTable.redmineId })
+    .select({
+      id: defectsTable.id,
+      redmineId: defectsTable.redmineId,
+      assigneeId: defectsTable.assigneeId,
+      assigneeAssignedAt: defectsTable.assigneeAssignedAt,
+    })
     .from(defectsTable)
     .where(isNotNull(defectsTable.redmineId));
   if (rows.length === 0) return { refreshed: 0 };
@@ -214,14 +270,38 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
       for (const issue of data?.issues ?? []) {
         const local = chunk.find((r: any) => r.redmineId === String(issue.id));
         if (!local) continue;
-        await db
-          .update(defectsTable)
-          .set({
-            status: issue.status?.name ?? "Unknown",
-            assigneeName: issue.assigned_to?.name ?? null,
-            statusSyncedAt: new Date(),
-          })
-          .where(eq(defectsTable.id, local.id));
+
+        const update: Record<string, any> = {
+          status: issue.status?.name ?? "Unknown",
+          statusSyncedAt: new Date(),
+        };
+
+        const redmineUpdatedAt = issue.updated_on ? new Date(issue.updated_on) : null;
+        const localIsNewer =
+          !!local.assigneeAssignedAt && (!redmineUpdatedAt || local.assigneeAssignedAt > redmineUpdatedAt);
+
+        if (localIsNewer) {
+          // Our native assignment is the more recent change — push it instead
+          // of letting this read clobber it. Fire-and-forget: the endpoint
+          // that made the assignment already reports its own push result.
+          if (local.assigneeId) {
+            pushAssigneeToRedmine(String(issue.id), local.assigneeId, apiKey).catch(() => {});
+          }
+        } else if (issue.assigned_to?.name) {
+          update.assigneeName = issue.assigned_to.name;
+          const [match] = await db
+            .select({ id: usersTable.id })
+            .from(usersTable)
+            .where(ilike(usersTable.name, issue.assigned_to.name));
+          if (match) {
+            update.assigneeId = match.id;
+            update.assigneeAssignedAt = redmineUpdatedAt ?? new Date();
+          }
+        } else {
+          update.assigneeName = null;
+        }
+
+        await db.update(defectsTable).set(update).where(eq(defectsTable.id, local.id));
         refreshed++;
       }
     } catch {

@@ -23,6 +23,12 @@ export const defectsTable = pgTable(
     projectId: integer("project_id"),
     reporterId: integer("reporter_id"),
     assigneeName: text("assignee_name"), // cached from Redmine
+    // CR030 — native dev assignment. assigneeId is the source of truth for
+    // in-app assignment; assigneeAssignedAt is compared against Redmine's own
+    // issue.updated_on on refresh so whichever side changed most recently wins
+    // (see reconcileDefectAssignee in redmine-defect-bridge.ts).
+    assigneeId: integer("assignee_id"),
+    assigneeAssignedAt: timestamp("assignee_assigned_at", { withTimezone: true }),
     redmineId: text("redmine_id"), // legacy id after CR021 cutover
     syncStatus: text("sync_status").notNull().default("pending"), // pending | synced | error
     syncError: text("sync_error"),

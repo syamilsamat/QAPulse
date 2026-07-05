@@ -87,6 +87,7 @@ interface DefectRow {
   projectId: number | null;
   projectName: string | null;
   assigneeName: string | null;
+  assigneeId: number | null;
   redmineId: string | null;
   syncStatus: string;
   syncError: string | null;
@@ -157,8 +158,11 @@ function TcResultBadge({ result }: { result: string | null }) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+const DEV_ROLES = new Set(["dev_member", "dev_lead", "hod_dev"]);
+
 export default function Defects() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canAssign = ((user as any)?.tierRank ?? 1) >= 2;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -180,6 +184,17 @@ export default function Defects() {
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
     queryFn: async () => (await fetch(`${getApiUrl()}/projects`, { headers: authHeaders })).json(),
+  });
+
+  const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["users-dev"],
+    enabled: canAssign,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/users`, { headers: authHeaders });
+      if (!res.ok) return [];
+      const all: { id: number; name: string; role: string }[] = await res.json();
+      return all.filter((u) => DEV_ROLES.has(u.role));
+    },
   });
 
   const { data: trackers = [] } = useQuery<{ id: number; name: string }[]>({
@@ -296,6 +311,25 @@ export default function Defects() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
       toast({ title: `Synced — Redmine #${data.redmineId}` });
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    }
+  };
+
+  const handleAssign = async (d: DefectRow, assigneeId: number | null) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}/assign`, {
+        method: "PATCH",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ assigneeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Assignment failed");
+      toast({
+        title: assigneeId ? "Defect assigned" : "Defect unassigned",
+        description: data.syncOk === false ? `Not synced to Redmine: ${data.syncError}` : undefined,
+      });
       invalidate();
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
@@ -446,12 +480,14 @@ export default function Defects() {
               { v: "open", label: "All open" },
               { v: "blocking", label: "Blocking TCs" },
               { v: "retest", label: "Awaiting retest" },
+              { v: "mine", label: "My Defects" },
               { v: "all", label: "All" },
             ]
           : [
               { v: "all", label: "All" },
               { v: "open", label: "Open" },
               { v: "retest", label: "Awaiting retest" },
+              { v: "mine", label: "My Defects" },
             ]
         ).map((o) => (
           <button
@@ -566,7 +602,9 @@ export default function Defects() {
                 </div>
                 <SeverityBadge severity={d.severity} />
                 <StatusBadge status={d.status} />
-                <span className="text-xs text-muted-foreground w-20 truncate hidden sm:block">{d.assigneeName ?? "—"}</span>
+                <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QAPulse" : d.assigneeName ? "Redmine-only (unassigned in QAPulse)" : undefined}>
+                  {d.assigneeName ?? "Unassigned"}
+                </span>
               </div>
 
               {expanded.has(d.id) && (
@@ -590,6 +628,29 @@ export default function Defects() {
                     <span className="text-[10px] text-muted-foreground">
                       {d.redmineId ? `saving pushes the change to Redmine #${d.redmineId}` : "local only until synced to Redmine"}
                     </span>
+                  </div>
+
+                  {/* Dev assignment — Lead-tier+ only (CR030) */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Assignee:</span>
+                    {canAssign ? (
+                      <Select
+                        value={d.assigneeId ? String(d.assigneeId) : "unassigned"}
+                        onValueChange={(v) => handleAssign(d, v === "unassigned" ? null : Number(v))}
+                      >
+                        <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                          <SelectValue placeholder="Unassigned" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {devUsers.map((u) => (
+                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="text-xs">{d.assigneeName ?? "Unassigned"}</span>
+                    )}
                   </div>
 
                   {/* Linked TCs */}
