@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc } from "drizzle-orm";
 import { db, notificationsTable } from "@workspace/db";
+import { addSseConnection, removeSseConnection } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -17,6 +18,38 @@ function formatNotification(n: typeof notificationsTable.$inferSelect) {
     createdAt: n.createdAt.toISOString(),
   };
 }
+
+// SSE stream — one persistent connection per browser tab per user.
+// Sends a lightweight ping whenever logNotification() writes a new record,
+// so the frontend invalidates its query cache without waiting for the 30s poll.
+router.get("/notifications/stream", (req, res): void => {
+  const userId = req.query.userId ? Number(req.query.userId) : null;
+  if (!userId || isNaN(userId)) {
+    res.status(400).end();
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable nginx buffering
+  res.flushHeaders();
+
+  // Send an initial heartbeat so the browser knows the connection is live
+  res.write(": heartbeat\n\n");
+
+  addSseConnection(userId, res);
+
+  // Keep-alive ping every 25 seconds (browsers kill idle SSE after ~30s)
+  const keepAlive = setInterval(() => {
+    try { res.write(": ping\n\n"); } catch { clearInterval(keepAlive); }
+  }, 25_000);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    removeSseConnection(userId, res);
+  });
+});
 
 router.get("/notifications", async (req, res): Promise<void> => {
   const userId = req.query.userId ? Number(req.query.userId) : null;

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   listNotifications, getListNotificationsQueryKey,
@@ -9,22 +10,43 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
-  Bell, BellOff, CheckCheck, AlertTriangle, Clock, Users, Info, Sparkles,
+  Bell, BellOff, CheckCheck, AlertTriangle, Clock, Users, Info,
+  CheckCircle2, XCircle, RefreshCcw, Bug, MessageSquare, Calendar,
+  ArrowRight,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { resolveNotifRoute } from "@/components/NotificationDropdown";
 
-const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
-  task:    { icon: CheckCheck, color: "text-blue-600", bg: "bg-blue-50" },
-  overdue: { icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
-  social:  { icon: Users, color: "text-purple-600", bg: "bg-purple-50" },
-  warning: { icon: Clock, color: "text-orange-600", bg: "bg-orange-50" },
-  info:    { icon: Info, color: "text-slate-600", bg: "bg-slate-50" },
+// ── Type config ───────────────────────────────────────────────────────────────
+
+const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
+  task:                  { icon: CheckCheck,    color: "text-blue-600",   bg: "bg-blue-50",   label: "Task" },
+  overdue:               { icon: AlertTriangle, color: "text-red-600",    bg: "bg-red-50",    label: "Overdue" },
+  social:                { icon: Users,         color: "text-purple-600", bg: "bg-purple-50", label: "Social" },
+  warning:               { icon: Clock,         color: "text-orange-600", bg: "bg-orange-50", label: "Warning" },
+  info:                  { icon: Info,          color: "text-slate-600",  bg: "bg-slate-50",  label: "Info" },
+  review_request:        { icon: Clock,         color: "text-amber-600",  bg: "bg-amber-50",  label: "Review" },
+  review_approved:       { icon: CheckCircle2,  color: "text-green-600",  bg: "bg-green-50",  label: "Approved" },
+  review_rejected:       { icon: XCircle,       color: "text-red-600",    bg: "bg-red-50",    label: "Rejected" },
+  revision_required:     { icon: RefreshCcw,    color: "text-orange-600", bg: "bg-orange-50", label: "Revision" },
+  defect_opened:         { icon: Bug,           color: "text-red-600",    bg: "bg-red-50",    label: "Defect" },
+  defect_status_changed: { icon: Bug,           color: "text-amber-600",  bg: "bg-amber-50",  label: "Defect" },
+  retest_needed:         { icon: RefreshCcw,    color: "text-orange-600", bg: "bg-orange-50", label: "Retest" },
+  uat_milestone_ready:   { icon: Calendar,      color: "text-green-600",  bg: "bg-green-50",  label: "UAT" },
+  comment_posted:        { icon: MessageSquare, color: "text-blue-600",   bg: "bg-blue-50",   label: "Comment" },
 };
+
+// Entity-type filter chips
+const ENTITY_FILTERS: { label: string; entityTypes: string[] | null }[] = [
+  { label: "All",          entityTypes: null },
+  { label: "Requirements", entityTypes: ["requirement"] },
+  { label: "Defects",      entityTypes: ["defect"] },
+  { label: "Tasks",        entityTypes: ["task"] },
+  { label: "Milestones",   entityTypes: ["milestone"] },
+];
 
 function NotifIcon({ type }: { type: string }) {
   const cfg = TYPE_CONFIG[type] ?? TYPE_CONFIG.info;
@@ -36,11 +58,24 @@ function NotifIcon({ type }: { type: string }) {
   );
 }
 
+function TypeBadge({ type }: { type: string }) {
+  const cfg = TYPE_CONFIG[type] ?? TYPE_CONFIG.info;
+  return (
+    <span className={`inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.color} shrink-0`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function Inbox() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [entityFilter, setEntityFilter] = useState<string[] | null>(null);
 
   const params = { userId: user?.id ?? 0, unreadOnly };
 
@@ -70,11 +105,24 @@ export default function Inbox() {
     },
   });
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-  const displayed = unreadOnly ? notifications.filter((n) => !n.read) : notifications;
+  const handleNavigate = (notif: NotificationItem) => {
+    const route = resolveNotifRoute(notif.entityType ?? null, notif.entityId ?? null);
+    if (!notif.read) markReadMutation.mutate(notif.id);
+    if (route) setLocation(route);
+  };
+
+  // Apply filters
+  const filtered = notifications.filter(n => {
+    if (unreadOnly && n.read) return false;
+    if (entityFilter !== null && !entityFilter.includes(n.entityType ?? "")) return false;
+    return true;
+  });
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-3xl">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -83,9 +131,7 @@ export default function Inbox() {
           </h1>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-muted-foreground">Your notifications and alerts</span>
-            {unreadCount > 0 && (
-              <Badge variant="destructive">{unreadCount} unread</Badge>
-            )}
+            {unreadCount > 0 && <Badge variant="destructive">{unreadCount} unread</Badge>}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -94,12 +140,7 @@ export default function Inbox() {
             <Label htmlFor="unread" className="text-sm cursor-pointer">Unread only</Label>
           </div>
           {unreadCount > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => markAllMutation.mutate()}
-              disabled={markAllMutation.isPending}
-            >
+            <Button variant="outline" size="sm" onClick={() => markAllMutation.mutate()} disabled={markAllMutation.isPending}>
               <CheckCheck className="w-4 h-4 mr-1" />
               Mark all read
             </Button>
@@ -107,31 +148,50 @@ export default function Inbox() {
         </div>
       </div>
 
+      {/* Entity-type filter chips */}
+      <div className="flex flex-wrap gap-2">
+        {ENTITY_FILTERS.map(f => (
+          <button
+            key={f.label}
+            onClick={() => setEntityFilter(f.entityTypes)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              JSON.stringify(entityFilter) === JSON.stringify(f.entityTypes)
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
       {isLoading ? (
         <div className="space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
-          ))}
+          {[...Array(5)].map((_, i) => <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />)}
         </div>
-      ) : displayed.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <BellOff className="w-12 h-12 text-muted-foreground/40 mb-4" />
           <p className="text-lg font-medium text-muted-foreground">
-            {unreadOnly ? "No unread notifications" : "Your inbox is empty"}
+            {unreadOnly ? "No unread notifications" : "All caught up"}
           </p>
           <p className="text-sm text-muted-foreground mt-1">
-            {unreadOnly ? "Switch off the filter to see all notifications" : "Notifications about tasks, tags, and team events appear here"}
+            {unreadOnly
+              ? "Switch off the filter to see all notifications"
+              : entityFilter !== null
+              ? "No notifications in this category"
+              : "Notifications about tasks, reviews, defects, and team events appear here"}
           </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {displayed.map((notif, i) => (
-            <NotificationCard
+          {filtered.map((notif, i) => (
+            <NotificationRow
               key={`${notif.id}-${i}`}
               notification={notif}
-              onMarkRead={(id) => {
-                if (id > 0 && !notif.read) markReadMutation.mutate(id);
-              }}
+              onMarkRead={id => { if (id > 0 && !notif.read) markReadMutation.mutate(id); }}
+              onNavigate={() => handleNavigate(notif)}
             />
           ))}
         </div>
@@ -140,16 +200,22 @@ export default function Inbox() {
   );
 }
 
-function NotificationCard({
+// ── Notification row ──────────────────────────────────────────────────────────
+
+function NotificationRow({
   notification,
   onMarkRead,
+  onNavigate,
 }: {
   notification: NotificationItem;
   onMarkRead: (id: number) => void;
+  onNavigate: () => void;
 }) {
+  const route = resolveNotifRoute(notification.entityType ?? null, notification.entityId ?? null);
+
   return (
     <div
-      className={`flex items-start gap-3 p-4 rounded-lg border transition-colors cursor-default ${
+      className={`flex items-start gap-3 p-4 rounded-lg border transition-colors group ${
         notification.read ? "bg-card" : "bg-primary/5 border-primary/20"
       }`}
       onClick={() => onMarkRead(notification.id)}
@@ -157,13 +223,12 @@ function NotificationCard({
       <NotifIcon type={notification.type} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <p className={`font-medium text-sm ${notification.read ? "text-foreground" : "text-foreground"}`}>
-            {notification.title}
-          </p>
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="font-medium text-sm truncate">{notification.title}</p>
+            <TypeBadge type={notification.type} />
+          </div>
           <div className="flex items-center gap-2 shrink-0">
-            {!notification.read && (
-              <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
-            )}
+            {!notification.read && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
             </span>
@@ -171,6 +236,16 @@ function NotificationCard({
         </div>
         <p className="text-sm text-muted-foreground mt-0.5 leading-relaxed">{notification.message}</p>
       </div>
+      {/* Explicit navigate button — separate from mark-read click target */}
+      {route && (
+        <button
+          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1 p-1 rounded hover:bg-muted"
+          title="Go to"
+          onClick={e => { e.stopPropagation(); onNavigate(); }}
+        >
+          <ArrowRight className="w-4 h-4 text-muted-foreground" />
+        </button>
+      )}
     </div>
   );
 }

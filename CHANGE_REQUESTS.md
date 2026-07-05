@@ -33,6 +33,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | ✅ Deployed | 2026-07-05 |
 | [CR024](#cr024--tc-library-requirement-filter-includes-descendants) | TC Library: Requirement Filter Includes Descendants | ✅ Deployed | 2026-07-05 |
 | [CR025](#cr025--tc-library-milestone-filter) | TC Library: Milestone Filter | ✅ Deployed | 2026-07-05 |
+| [CR026](#cr026--qa-analytics-dashboard) | QA Analytics Dashboard | 📋 Planned | — |
+| [CR027](#cr027--notification-center-ux) | Notification Center UX | 📋 Planned | — |
 
 ---
 
@@ -512,3 +514,184 @@ Requirements and Tasks both gained a Milestone filter earlier the same day; TC L
 - `?projectId=` and `?milestoneId=` URL params now pre-fill the Project and Milestone filters on load, extending the `?requirementId=` deep-link convention this page already had — enables future deep-links (e.g. from PM Dashboard or Milestones page) straight into a milestone-scoped TC list.
 
 **Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
+
+---
+
+### CR026 — QA Analytics Dashboard
+**Status:** 📋 Planned
+
+A dedicated analytics page giving QA leads and managers trend visibility across milestones. Today the Traceability Matrix answers "what is the current state?" — CR026 answers "how has quality moved over time, and where are the risks?". All source data already exists in the DB; this CR is pure query + visualisation work, no schema changes.
+
+**Problem statement:** A QA Lead preparing a milestone handover today must manually cross-reference the execution file, defect tracker, and the traceability matrix to answer basic questions — "are we improving sprint over sprint?", "which module keeps failing?", "how does our defect leakage look?". No single view answers these.
+
+---
+
+**Target metrics (seven panels, three filter controls)**
+
+Filters at the top of the page:
+- **Project** (dropdown, required — scoped to user's accessible projects)
+- **Milestone** (dropdown, optional — "All Milestones" default; scoped to selected project)
+- **Date range** (start/end date picker, defaults to last 90 days; ignored when a specific milestone is selected — the milestone's own date range takes over)
+
+**Panel 1 — Execution Trend (line chart)**
+X-axis: week (ISO week, last N weeks based on date range). Y-axis: TC count. Four series: Passed / Failed / Blocked / Not Run. Source: `execution_test_cases.result` + `executed_at` (rows where `executed_at IS NOT NULL`). Milestone filter restricts to execution files with `milestone_id = ?`. Shows whether quality is improving week-over-week — the primary "are we headed in the right direction?" chart.
+
+**Panel 2 — Execution Velocity (bar chart)**
+X-axis: week. Y-axis: TCs executed (any result other than Not Run). Single bar per week. Optional overlay line: planned TCs (total in milestone's files ÷ weeks remaining — a rough pace guide, not a committed forecast). Answers "are we picking up speed or stalling?"
+
+**Panel 3 — Pass Rate by Milestone (horizontal bar chart)**
+One bar per milestone (last 6 milestones for the selected project, newest at top). Bar = pass % of all executed TCs. Color: green ≥ 80%, amber 60–79%, red < 60%. Gives instant cross-sprint quality comparison without drilling into each execution file.
+
+**Panel 4 — Defect Density by Module (bar chart)**
+X-axis: module name (top 10 by defect count). Y-axis: defect count. Stacked by severity (critical / high / medium / low). Source: `defects.module` + `defects.severity`, filtered by `project_id` and date range. Answers "which module needs the most QA attention next sprint?"
+
+**Panel 5 — Defect Trend (dual-line chart)**
+X-axis: week. Two lines: New defects opened vs Defects closed/resolved. Area between them = open backlog growth. Source: `defects.created_at` for opened, `defects.updated_at` + status ∈ {Closed, Resolved, Verified} for closed. Shows whether defects are being resolved faster than they're created — the "burning down" check.
+
+**Panel 6 — Defect Escape Funnel (stacked bar per milestone)**
+Three buckets per milestone: Found in SIT / Found in UAT / Escaped to Production. Source: `defects.found_in` grouped by milestone (join via `defect_links.execution_test_case_id → execution_test_cases.execution_file_id → execution_files.milestone_id`; production defects with no execution link resolved by `defects.project_id` + `created_at` falling within the milestone's date window). The goal: the "Escaped to Production" bar should shrink sprint over sprint. If it doesn't, that's the signal for CAPA. Absent from all existing dashboards today.
+
+**Panel 7 — Requirement Coverage Snapshot (summary cards + mini-funnel bar)**
+Four cards: Total Requirements / TC Coverage % (≥1 TC linked) / Execution Coverage % (≥1 TC run) / Pass Coverage % (≥1 TC passed). Values scoped to selected project + milestone. Below the cards: a proportional horizontal bar showing the three-layer funnel (requirements → covered → executed → passed) as color segments. Not a trend — a current-state summary complementing the Traceability Matrix, placed here so the page is self-contained.
+
+---
+
+**Backend — new endpoint `GET /dashboard/qa-analytics`**
+
+Auth: requires auth, scoped to user's accessible projects via `scopeToUserProjects`. Role gate: `qa_lead` / `qa_manager` / `hod_qa` / `admin` / `cto` (QA tier 2+, admin, CTO). `qa_member` excluded — analytics is a lead-and-above concern.
+
+Query params: `projectId` (required), `milestoneId` (optional), `startDate` / `endDate` (optional ISO strings, default last 90 days).
+
+Response shape:
+```json
+{
+  "executionTrend": [{ "week": "2026-W25", "passed": 0, "failed": 0, "blocked": 0, "notRun": 0 }],
+  "velocity":       [{ "week": "2026-W25", "executed": 0 }],
+  "passByMilestone":[{ "milestoneId": 0, "milestoneName": "", "total": 0, "passed": 0, "pct": 0 }],
+  "defectByModule": [{ "module": "", "critical": 0, "high": 0, "medium": 0, "low": 0 }],
+  "defectTrend":    [{ "week": "2026-W25", "opened": 0, "closed": 0 }],
+  "escapeFunnel":   [{ "milestoneId": 0, "milestoneName": "", "sit": 0, "uat": 0, "production": 0 }],
+  "coverage":       { "totalReqs": 0, "tcCoveredReqs": 0, "executedReqs": 0, "passedReqs": 0 }
+}
+```
+
+All aggregates in one request (7 grouped queries, all on indexed columns). No N+1. Response cached in Redis (CR012) with a 5-minute TTL keyed on `projectId:milestoneId:startDate:endDate`. Analytics data changes only when executions are saved or defects are updated.
+
+Key query patterns:
+- Execution trend: `SELECT DATE_TRUNC('week', etc.executed_at) AS week, etc.result, COUNT(*) FROM execution_test_cases etc JOIN execution_files ef ON etc.execution_file_id = ef.id WHERE ef.project_id = ? AND etc.executed_at BETWEEN ? AND ? GROUP BY 1, 2`
+- Defect escape funnel: `defects` left-joined to `defect_links` → `execution_test_cases` → `execution_files` for `found_in` + `milestone_id` resolution; production defects (no execution link) resolved by `defects.project_id` + `created_at` within the milestone's `start_date`/`end_date` window.
+- Coverage: reuse the `WITH RECURSIVE` CTE already in `traceability.ts` for requirement tree expansion, then aggregate.
+
+---
+
+**Frontend — `QAAnalytics.tsx` at `/qa-analytics`**
+
+Nav entry: label "QA Analytics", icon `HoverBarChart` (new animated icon), permission key `nav:qa-analytics`, roles `qa_lead` / `qa_manager` / `hod_qa` / `admin` / `cto`, `activeColor` `text-indigo-500`. Positioned after "Traceability" in the nav sidebar.
+
+Layout: top filter bar (Project / Milestone / Date range), then a 2-column responsive grid for the 7 panels. Panel 1 (Execution Trend) spans full width; panels 2–7 in pairs. Each panel: white card with title. Loading skeleton while fetching.
+
+Chart components (all recharts, already installed):
+- Panels 1, 5: `LineChart` with `ResponsiveContainer`
+- Panels 2, 4: `BarChart` (stacked for Panel 4)
+- Panel 3: `BarChart` `layout="horizontal"`
+- Panel 6: `BarChart` stacked per milestone (X-axis = milestone names)
+- Panel 7: summary `div` cards + CSS flexbox proportional bar (no chart component needed)
+
+Export: "Export CSV" for the whole page (one CSV per panel, client-side). PNG export deferred — `html2canvas` not yet a dependency; add only if requested.
+
+URL params: `?projectId=&milestoneId=&start=&end=` — persisted on filter change so the view is shareable and bookmarkable. Same convention as PM Dashboard's `?projectId=`.
+
+**Permission bootstrap:** add `nav:qa-analytics` to `admin` + `cto` backfill list and seed into `qa_lead` / `qa_manager` / `hod_qa` in the nav-permissions bootstrap — same narrow single-key pattern used for `hod_pm`'s `nav:pm-dashboard` backfill (does not blanket-reapply full permission sets).
+
+**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (new endpoint), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/QAAnalytics.tsx` (new page), `artifacts/qa-pulse/src/components/Layout.tsx` (nav entry), `artifacts/qa-pulse/src/components/icons/animated.tsx` (HoverBarChart icon). No schema changes. No DB migration.
+
+**Delivery order:** backend endpoint first (verify all 7 queries), then frontend panel-by-panel: Panel 1 Execution Trend → Panel 3 Pass by Milestone → Panels 4–5 Defect panels → Panel 2 Velocity → Panel 6 Escape Funnel → Panel 7 Coverage snapshot → CSV export.
+
+---
+
+### CR027 — Notification Center UX
+**Status:** 📋 Planned
+
+The notification infrastructure is already built: `notifications` table, three API routes (`GET /notifications`, `PATCH /:id/read`, `POST /mark-all-read`), `Inbox.tsx` page, and a bell badge in the nav with 30-second polling. What's missing is the quality layer: notifications don't route you anywhere when clicked, 30-second polling introduces meaningful latency for review-workflow events, and most business events fall through as the generic `info` type — making the Inbox a flat chronological dump rather than an actionable feed.
+
+**This CR does not add notification preferences** (opt-in/out per event type) — explicitly deferred as phase 2. Focus: make existing notifications useful through routing, latency, and type structure.
+
+---
+
+**Part 1 — Deep-link routing (highest value, zero schema change)**
+
+`notifications.entityType` and `notifications.entityId` are already stored. `Inbox.tsx` currently renders them display-only — clicking a row marks it read but does not navigate. Fix: map `(entityType, entityId)` to a route and call `setLocation()` (wouter) after mark-read.
+
+Routing table:
+| entityType | navigation target |
+|---|---|
+| `requirement` | `/requirements/:id` (RequirementDetail) |
+| `execution_file` | `/test-execution/:id` |
+| `defect` | `/defects?highlight=:id` |
+| `task` | `/tasks?highlight=:id` |
+| `milestone` | `/milestones?highlight=:id` |
+| `test_case` | `/test-cases?tc=:id` |
+| `audit_log` | `/audit-log?entityId=:id` |
+| null / unknown | no navigation (stays on Inbox) |
+
+`highlight=:id` convention: target pages scroll the matching row into view and apply a brief yellow-flash highlight (2s fade). Requires threading a `highlight` URL param reader into each list page — low-effort, one `useEffect` per page.
+
+**Part 2 — Notification type taxonomy (coarse → structured)**
+
+Current types: `task`, `overdue`, `social`, `warning`, `info`. Review workflow events, defect events, and revision alerts all land as `info`. New types added alongside the existing set (existing rows untouched, no migration):
+
+| type | when written | who receives | entityType |
+|---|---|---|---|
+| `review_request` | requirement status → `pending_review` | all FAs + `fa_lead`+ in project | `requirement` |
+| `review_approved` | review action = approve | requirement author + assignee | `requirement` |
+| `review_rejected` | review action = reject | author + assignee + milestone PM | `requirement` |
+| `revision_required` | approved requirement description/AC edited (CR023 Part 4) | linked TC owners + task assignees | `requirement` |
+| `defect_opened` | defect created | project's `qa_lead`+ | `defect` |
+| `defect_status_changed` | defect status write-through updated | defect reporter + linked TC's executor | `defect` |
+| `retest_needed` | defect resolved but linked TC still Failed | TC's last executor (`qaPic`) | `defect` |
+| `uat_milestone_ready` | milestone UAT execution file pass % ≥ 80% | milestone's PM (`milestones.createdBy`) | `milestone` |
+| `comment_posted` | new comment on requirement thread | requirement author + prior commenters (deduped, minus commenter) | `requirement` |
+
+Inbox icon/color map updated for all new types. Title + message remain free-text from the notification writer — no Inbox structure changes beyond the icon/color lookup expansion.
+
+**Part 3 — Real-time delivery via SSE**
+
+Current: `useQuery({ refetchInterval: 30000 })` in `Layout.tsx` — up to 30s before a reject notification appears.
+
+New endpoint: `GET /notifications/stream` — a per-user SSE stream that pushes a lightweight ping `{ type: "new_notification", unreadCount: N }` whenever a notification is written for the connected user. The Inbox and bell badge respond by invalidating the `listNotifications` query cache — actual notification data still comes from `GET /notifications` REST (no payload duplication in the stream).
+
+Implementation: mirrors the existing `/execution-events` SSE endpoint pattern. In-process `Map<userId, Set<Response>>` tracks live connections (sufficient for a single-process server; upgrades to Redis pub/sub under CR012 multi-process). New `logNotification(db, {...})` helper in `lib/notifications.ts` wraps the `db.insert(notificationsTable)` + SSE ping. All existing `db.insert(notificationsTable)` call sites across routes refactored to use the helper (approximately 6–8 call sites; grep-findable).
+
+Frontend: `Layout.tsx` opens `new EventSource('/api/notifications/stream')` on mount; on `message` event calls `queryClient.invalidateQueries(['notifications'])`. The existing 30s poll remains as a correctness fallback (SSE reconnects automatically on disconnect, but the poll catches stalls).
+
+**Part 4 — Bell dropdown (quick glance without leaving the page)**
+
+Currently the bell icon is a plain nav link to `/inbox`. Replace with a Radix `Popover` that opens on bell click and shows the 5 most recent unread notifications — icon + title + relative time + deep-link arrow button. Footer: "Mark all read" + "See all" link to `/inbox`. Clicking a notification row: marks it read + navigates (Part 1 routing). Popover closes on outside-click.
+
+New component: `NotificationDropdown.tsx`. Uses the same `listNotifications` query data already loaded in `Layout.tsx` — no extra API call. Unread count badge stays on the bell icon unchanged.
+
+**Part 5 — Inbox UX polish (minor, bundled)**
+
+- **Entity-type filter chips:** All / Requirements / Defects / Tasks / Milestones — client-side filter on loaded data (no new API call). Complements the existing unread-only toggle.
+- **Explicit navigation button:** small `→` icon button on hover per row for the deep-link, so "mark read" (row click) and "navigate" (arrow button) are separate — avoids accidental navigation when just clearing the inbox.
+- **Empty state:** "You're all caught up" illustration when no notifications match the current filter (currently blank).
+- **Type badge:** icon + label in a dedicated column so the feed is scannable by event type.
+
+---
+
+**Scope:**
+
+Backend:
+- `artifacts/api-server/src/routes/notifications.ts` — new `GET /notifications/stream` SSE endpoint
+- `lib/notifications.ts` (new) — `logNotification()` helper + in-process SSE connection registry
+- `artifacts/api-server/src/routes/requirements.ts` — update notification writes to use `logNotification()` + new type values (`review_request`, `review_approved`, `review_rejected`, `revision_required`)
+- `artifacts/api-server/src/routes/defects.ts` — `defect_opened`, `defect_status_changed`, `retest_needed`
+- `artifacts/api-server/src/routes/milestones.ts` — `uat_milestone_ready`
+- `artifacts/api-server/src/routes/requirement_comments.ts` — `comment_posted`
+
+Frontend:
+- `artifacts/qa-pulse/src/components/Layout.tsx` — replace bell link with `NotificationDropdown`; open SSE `EventSource` on mount; keep 30s poll as fallback
+- `artifacts/qa-pulse/src/components/NotificationDropdown.tsx` (new) — 5-item quick-glance popover with Part 1 routing
+- `artifacts/qa-pulse/src/pages/Inbox.tsx` — deep-link routing on click, entity-type filter chips, type badge column, explicit `→` nav button, empty state
+
+No schema changes. No DB migration. `entityType` and `entityId` columns already exist on `notificationsTable`.

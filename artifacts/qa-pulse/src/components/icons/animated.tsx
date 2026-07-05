@@ -14,6 +14,7 @@ import {
   Bell,
   Sparkles,
   FileBarChart2,
+  TrendingUp,
   List,
   Play,
   History,
@@ -197,6 +198,18 @@ export function HoverChart({ className, ...props }: LucideProps) {
     <FileBarChart2
       className={cn(
         "transition-all duration-300 group-hover:-translate-y-1 group-hover:scale-105 group-hover:text-pink-500",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function HoverBarChart({ className, ...props }: LucideProps) {
+  return (
+    <TrendingUp
+      className={cn(
+        "transition-all duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:scale-105 group-hover:text-indigo-500",
         className,
       )}
       {...props}
