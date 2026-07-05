@@ -78,6 +78,13 @@ interface PhaseTrendEntry {
   uatDays: number | null;
 }
 
+interface RequirementPhaseEntry {
+  id: number;
+  title: string;
+  status: string;
+  phases: PhaseBreakdown | null;
+}
+
 interface PhaseReport {
   milestone: { id: number; name: string; status: string; targetDate?: string | null };
   phases: PhaseBreakdown | null;
@@ -89,6 +96,7 @@ interface PhaseReport {
     avgUatDays: number | null;
     milestones: PhaseTrendEntry[];
   } | null;
+  requirements: RequirementPhaseEntry[];
 }
 
 function api(path: string, token: string | null) {
@@ -233,16 +241,19 @@ function phasesToSegments(phases: PhaseBreakdown): PhaseSegment[] {
   return segments;
 }
 
-function PhaseTimelineBar({ phases }: { phases: PhaseBreakdown }) {
+function PhaseTimelineBar({ phases, compact = false, onClick }: { phases: PhaseBreakdown; compact?: boolean; onClick?: () => void }) {
   const segments = phasesToSegments(phases);
   if (segments.length === 0) {
-    return <p className="text-sm text-muted-foreground">Not enough data yet — this milestone has no requirements.</p>;
+    return <p className="text-sm text-muted-foreground">Not enough data yet — no requirements linked.</p>;
   }
   const total = segments.reduce((sum, s) => sum + s.days, 0) || 1;
 
   return (
     <div>
-      <div className="flex h-7 rounded-md overflow-hidden mb-2">
+      <div
+        onClick={onClick}
+        className={`flex ${compact ? "h-5" : "h-7"} rounded-md overflow-hidden ${compact ? "mb-0" : "mb-2"} ${onClick ? "cursor-pointer" : ""}`}
+      >
         {segments.map((s, i) => (
           <div
             key={i}
@@ -250,18 +261,20 @@ function PhaseTimelineBar({ phases }: { phases: PhaseBreakdown }) {
             style={{ width: `${(s.days / total) * 100}%` }}
             title={`${s.label}: ${s.days}d${s.ongoing ? " (ongoing)" : ""}`}
           >
-            {(s.days / total) > 0.08 && <span className="text-[11px] text-white font-medium">{s.days}d</span>}
+            {(s.days / total) > 0.08 && <span className={`${compact ? "text-[10px]" : "text-[11px]"} text-white font-medium`}>{s.days}d</span>}
           </div>
         ))}
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {segments.map((s, i) => (
-          <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[s.key]}`} />
-            {s.label} &middot; {s.days}d{s.ongoing ? " (ongoing)" : ""}
-          </div>
-        ))}
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {segments.map((s, i) => (
+            <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[s.key]}`} />
+              {s.label} &middot; {s.days}d{s.ongoing ? " (ongoing)" : ""}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -319,10 +332,54 @@ function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }
   );
 }
 
+function RequirementStatusBadge({ status }: { status: string }) {
+  const cls = status.startsWith("Approved · in QA") || status.startsWith("Approved · in UAT")
+    ? "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400"
+    : status.startsWith("Approved")
+    ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400"
+    : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
+  return <Badge className={`text-[11px] font-normal ${cls}`} variant="outline">{status}</Badge>;
+}
+
+function RequirementStatusTable({ requirements }: { requirements: RequirementPhaseEntry[] }) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-xs text-muted-foreground">
+          <th className="text-left font-normal pb-1">Requirement</th>
+          <th className="text-left font-normal pb-1">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {requirements.map((r) => (
+          <tr key={r.id} className="border-t">
+            <td className="py-1.5 pr-3">{r.title}</td>
+            <td className="py-1.5"><RequirementStatusBadge status={r.status} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function RequirementTimelineList({ requirements }: { requirements: RequirementPhaseEntry[] }) {
+  return (
+    <div className="space-y-3">
+      {requirements.map((r) => (
+        <div key={r.id}>
+          <p className="text-xs font-medium mb-1">{r.title}</p>
+          {r.phases ? <PhaseTimelineBar phases={r.phases} compact /> : <p className="text-xs text-muted-foreground">No data yet.</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PmDashboard() {
   const { token } = useAuth();
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterMilestone, setFilterMilestone] = useState<string>("all");
+  const [showTimelines, setShowTimelines] = useState(false);
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -389,7 +446,7 @@ export default function PmDashboard() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={filterMilestone} onValueChange={setFilterMilestone} disabled={filterProject === "all"}>
+          <Select value={filterMilestone} onValueChange={(v) => { setFilterMilestone(v); setShowTimelines(false); }} disabled={filterProject === "all"}>
             <SelectTrigger className="w-full sm:w-56">
               <SelectValue placeholder={filterProject === "all" ? "Select a project first" : "Where did the time go?"} />
             </SelectTrigger>
@@ -416,7 +473,21 @@ export default function PmDashboard() {
               </div>
             ) : phaseReport?.phases ? (
               <>
-                <PhaseTimelineBar phases={phaseReport.phases} />
+                <PhaseTimelineBar phases={phaseReport.phases} onClick={() => setShowTimelines((v) => !v)} />
+                {phaseReport.requirements.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTimelines((v) => !v)}
+                      className="text-xs text-primary hover:underline mb-2"
+                    >
+                      {showTimelines ? "← Back to status list" : `${phaseReport.requirements.length} requirements — click bar for per-requirement timeline →`}
+                    </button>
+                    {showTimelines
+                      ? <RequirementTimelineList requirements={phaseReport.requirements} />
+                      : <RequirementStatusTable requirements={phaseReport.requirements} />}
+                  </div>
+                )}
                 {phaseReport.trend && (
                   <div className="border-t pt-4">
                     <p className="text-sm font-medium mb-2">Is this a pattern?</p>

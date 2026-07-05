@@ -210,9 +210,49 @@ interface PhaseBreakdown {
   uat: PhaseBoundary | null;
 }
 
-async function computeMilestonePhases(milestoneId: number, milestoneCompletedAt: Date | null): Promise<PhaseBreakdown | null> {
+const minOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b < a ? b : a)) : null);
+const maxOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b > a ? b : a)) : null);
+
+// Shared core: given a resolved "requirements settled" boundary and a set of
+// execution timestamps, build the phase breakdown. Used both for the
+// milestone-wide aggregate (input = all requirements in the milestone) and
+// the per-requirement drill-down (input = exactly one requirement) — a
+// single requirement never has the "wait for every requirement to approve"
+// ambiguity the aggregate does, so this same function is unambiguous there.
+function buildPhaseBreakdown(
+  reqCreatedMin: Date | null,
+  reqApprovedMax: Date | null,
+  qaExecuted: Date[],
+  uatExecuted: Date[],
+  uatFileExists: boolean,
+  milestoneCompletedAt: Date | null,
+): PhaseBreakdown | null {
+  if (!reqCreatedMin) return null;
   const now = new Date();
 
+  const qaExecutedMin = minOf(qaExecuted);
+  const qaExecutedMax = maxOf(qaExecuted);
+  const uatExecutedMin = minOf(uatExecuted);
+
+  const requirementsPhase = makePhase(reqCreatedMin, reqApprovedMax, now);
+  const gapBeforeQaPhase = makePhase(reqApprovedMax, qaExecutedMin, now);
+
+  // QA's own bounded window when a UAT lane exists; otherwise QA absorbs
+  // everything up to milestone completion since there's no handoff to split on.
+  const qaPhaseEnd = uatFileExists ? qaExecutedMax : milestoneCompletedAt;
+  const qaPhase = makePhase(qaExecutedMin, qaPhaseEnd, now);
+
+  let gapBeforeUatPhase: PhaseBoundary | null = null;
+  let uatPhase: PhaseBoundary | null = null;
+  if (uatFileExists) {
+    gapBeforeUatPhase = makePhase(qaExecutedMax, uatExecutedMin, now);
+    uatPhase = makePhase(uatExecutedMin, milestoneCompletedAt, now);
+  }
+
+  return { requirements: requirementsPhase, gapBeforeQa: gapBeforeQaPhase, qa: qaPhase, gapBeforeUat: gapBeforeUatPhase, uat: uatPhase };
+}
+
+async function computeMilestonePhases(milestoneId: number, milestoneCompletedAt: Date | null): Promise<PhaseBreakdown | null> {
   const reqs = await db
     .select({ createdAt: requirementsTable.createdAt, approvedAt: requirementsTable.approvedAt })
     .from(requirementsTable)
@@ -238,29 +278,55 @@ async function computeMilestonePhases(milestoneId: number, milestoneCompletedAt:
 
   const qaExecuted = execRows.filter((r) => r.fileType === "qa" && r.executedAt).map((r) => r.executedAt!);
   const uatExecuted = execRows.filter((r) => r.fileType === "uat" && r.executedAt).map((r) => r.executedAt!);
-  const minOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b < a ? b : a)) : null);
-  const maxOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b > a ? b : a)) : null);
 
-  const qaExecutedMin = minOf(qaExecuted);
-  const qaExecutedMax = maxOf(qaExecuted);
-  const uatExecutedMin = minOf(uatExecuted);
+  return buildPhaseBreakdown(reqCreatedMin, reqApprovedMax, qaExecuted, uatExecuted, uatFileExists, milestoneCompletedAt);
+}
 
-  const requirementsPhase = makePhase(reqCreatedMin, reqApprovedMax, now);
-  const gapBeforeQaPhase = makePhase(reqApprovedMax, qaExecutedMin, now);
+interface RequirementPhaseEntry {
+  id: number;
+  title: string;
+  status: string;
+  phases: PhaseBreakdown | null;
+}
 
-  // QA's own bounded window when a UAT lane exists; otherwise QA absorbs
-  // everything up to milestone completion since there's no handoff to split on.
-  const qaPhaseEnd = uatFileExists ? qaExecutedMax : milestoneCompletedAt;
-  const qaPhase = makePhase(qaExecutedMin, qaPhaseEnd, now);
+async function computeRequirementBreakdowns(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementPhaseEntry[]> {
+  const reqs = await db
+    .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, createdAt: requirementsTable.createdAt, approvedAt: requirementsTable.approvedAt })
+    .from(requirementsTable)
+    .where(eq(requirementsTable.milestoneId, milestoneId));
+  if (reqs.length === 0) return [];
 
-  let gapBeforeUatPhase: PhaseBoundary | null = null;
-  let uatPhase: PhaseBoundary | null = null;
-  if (uatFileExists) {
-    gapBeforeUatPhase = makePhase(qaExecutedMax, uatExecutedMin, now);
-    uatPhase = makePhase(uatExecutedMin, milestoneCompletedAt, now);
-  }
+  const execRows = await db
+    .select({ requirementId: executionTestCasesTable.requirementId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
+    .from(executionTestCasesTable)
+    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+    .where(eq(executionFilesTable.milestoneId, milestoneId));
 
-  return { requirements: requirementsPhase, gapBeforeQa: gapBeforeQaPhase, qa: qaPhase, gapBeforeUat: gapBeforeUatPhase, uat: uatPhase };
+  const uatFileExists = (
+    await db.select({ id: executionFilesTable.id }).from(executionFilesTable)
+      .where(and(eq(executionFilesTable.milestoneId, milestoneId), eq(executionFilesTable.fileType, "uat")))
+  ).length > 0;
+
+  return reqs.map((r) => {
+    const ownRows = execRows.filter((e) => e.requirementId === r.id);
+    const qaExecuted = ownRows.filter((e) => e.fileType === "qa" && e.executedAt).map((e) => e.executedAt!);
+    const uatExecuted = ownRows.filter((e) => e.fileType === "uat" && e.executedAt).map((e) => e.executedAt!);
+
+    const phases = buildPhaseBreakdown(r.createdAt, r.approvedAt, qaExecuted, uatExecuted, uatFileExists, milestoneCompletedAt);
+
+    let status: string;
+    if (r.reviewStatus !== "approved") {
+      status = r.reviewStatus === "in_review" ? "In review" : r.reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Not yet approved";
+    } else if (uatExecuted.length > 0) {
+      status = "Approved · in UAT";
+    } else if (qaExecuted.length > 0) {
+      status = "Approved · in QA testing";
+    } else {
+      status = "Approved · awaiting QA";
+    }
+
+    return { id: r.id, title: r.title, status, phases };
+  });
 }
 
 router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<void> => {
@@ -279,9 +345,11 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 
   const phases = await computeMilestonePhases(milestoneId, milestone.completedAt);
   if (!phases) {
-    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status }, phases: null, trend: null });
+    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status }, phases: null, trend: null, requirements: [] });
     return;
   }
+
+  const requirements = await computeRequirementBreakdowns(milestoneId, milestone.completedAt);
 
   // Trend: last 5 completed milestones in the same project (this one included,
   // if it's itself completed), each given the same phase computation.
@@ -318,6 +386,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
       avgUatDays: avg(trendEntries.map((e) => e.uatDays)),
       milestones: trendEntries,
     },
+    requirements,
   });
 });
 
