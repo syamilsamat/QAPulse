@@ -145,23 +145,40 @@ async function syncFromRedmineAPI(overrideKey?: string): Promise<{ users: Array<
   }
 
   // Non-admin key — fall back to project memberships (names only, no email)
-  const projectsData = await fetchJson(`${baseUrl}/projects.json?limit=100`, headers);
-  const projects: any[] = projectsData?.projects ?? [];
+  const projects: any[] = [];
+  {
+    const limit = 100;
+    let offset = 0;
+    while (true) {
+      const data = await fetchJson(`${baseUrl}/projects.json?limit=${limit}&offset=${offset}`, headers);
+      const batch: any[] = data?.projects ?? [];
+      projects.push(...batch);
+      if (batch.length < limit) break;
+      offset += limit;
+    }
+  }
 
   const userMap = new Map<number, { fullName: string; email: string; redmineId: number; redmineLogin: string }>();
   await Promise.all(
     projects.map(async (p: any) => {
       try {
-        const data = await fetchJson(`${baseUrl}/projects/${p.id}/memberships.json?limit=100`, headers);
-        for (const m of data?.memberships ?? []) {
-          if (m.user && !userMap.has(m.user.id)) {
-            userMap.set(m.user.id, {
-              fullName: m.user.name ?? "",
-              email: "",
-              redmineId: m.user.id,
-              redmineLogin: "",
-            });
+        const limit = 100;
+        let offset = 0;
+        while (true) {
+          const data = await fetchJson(`${baseUrl}/projects/${p.id}/memberships.json?limit=${limit}&offset=${offset}`, headers);
+          const batch: any[] = data?.memberships ?? [];
+          for (const m of batch) {
+            if (m.user && !userMap.has(m.user.id)) {
+              userMap.set(m.user.id, {
+                fullName: m.user.name ?? "",
+                email: "",
+                redmineId: m.user.id,
+                redmineLogin: "",
+              });
+            }
           }
+          if (batch.length < limit) break;
+          offset += limit;
         }
       } catch { /* skip inaccessible projects */ }
     }),
