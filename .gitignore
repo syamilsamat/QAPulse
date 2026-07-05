@@ -48,3 +48,8 @@ Thumbs.db
 .cache/
 .local/
 .env
+
+# Demo-data seed/clear scripts (scripts/src/seed-demo-data.ts) — runtime
+# state tracking what was seeded, so it can be cleanly reversed. Regenerated
+# every seed run; never meant to be committed.
+scripts/demo-seed-manifest.json

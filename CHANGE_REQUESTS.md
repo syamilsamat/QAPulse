@@ -35,6 +35,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR025](#cr025--tc-library-milestone-filter) | TC Library: Milestone Filter | ✅ Deployed | 2026-07-05 |
 | [CR026](#cr026--qa-analytics-dashboard) | QA Analytics Dashboard | 📋 Planned | — |
 | [CR027](#cr027--notification-center-ux) | Notification Center UX | 📋 Planned | — |
+| [CR028](#cr028--client-demo-data-toolkit) | Client Demo Data Toolkit | ✅ Deployed | 2026-07-05 |
 
 ---
 
@@ -695,3 +696,17 @@ Frontend:
 - `artifacts/qa-pulse/src/pages/Inbox.tsx` — deep-link routing on click, entity-type filter chips, type badge column, explicit `→` nav button, empty state
 
 No schema changes. No DB migration. `entityType` and `entityId` columns already exist on `notificationsTable`.
+
+---
+
+### CR028 — Client Demo Data Toolkit
+**Status:** ✅ Deployed (2026-07-05)
+
+Dev tooling, not an in-app feature: a reversible seed/clear script pair producing a realistic, fully-linked dataset for client demos — two projects with a full sprint/release history, real requirement hierarchy and FA review states, test cases, execution results, defects (including a production escape with escape analysis and an auto-created regression TC), and tasks across a 6-person team.
+
+- **Everything is created through the real API**, not raw SQL — so validation, the FA review workflow (submit/reject/revise/resubmit/approve), defect code generation, and audit logging all fire exactly as they would for a real user. The one place this mattered enough to require a product fix: `PATCH /defects/:id` only allowed `escapeStatus`/`escapeClass`/`escapeNotes`/`severity`/`module`/`projectId` — `source` wasn't editable, meaning a production-escape defect (created via `POST /defects`, which always hardcodes `source: "qa"`) could never actually become `source: "production"` afterward. Added `source` to the allowed PATCH fields — a small, permanent, generally-useful fix (reclassifying a mis-filed defect is a legitimate QA action), not just a script workaround.
+- **Reversible via a manifest**, not name-pattern matching: `seed-demo-data.ts` writes `scripts/demo-seed-manifest.json` (gitignored) incrementally as it creates each entity, so a failed run leaves a safe, partial manifest. `clear-demo-data.ts` deletes only IDs recorded there — never guesses by project name or email domain — so it can't accidentally touch real data added alongside the demo set.
+- **Cascade behavior mapped before writing the clear script**: confirmed which FKs actually cascade (`execution_test_cases`→file, `defect_links`→defect, `user_teams`/`project_teams`/`project_members`→team/project/user) versus which don't (`requirements`/`test_cases`/`tasks`/`defects`/`execution_files`.`project_id` are plain integers with no FK constraint at all — deleting a project does **not** clean these up). Defects have no `DELETE` endpoint at all (native defect lifecycle is CR021, not built) — cleared via one direct SQL statement, the only raw-SQL step in either script.
+- **Scope estimate:** `scripts/src/demo-data.ts` (pure content — projects/teams/users/milestones/requirements/test cases/execution results/defects/tasks), `scripts/src/seed-client.ts` (login, authenticated fetch, manifest helpers), `scripts/src/seed-demo-data.ts`, `scripts/src/clear-demo-data.ts`, `scripts/package.json` (`seed:demo` / `seed:demo:clear`), `scripts/DEMO_DATA.md` (run instructions), `artifacts/api-server/src/routes/defects.ts` (the one product fix). No new tables.
+
+**Known limitation, by design:** seeded defects show a "pending sync" badge — the write-through push to Redmine fails with no real Redmine connection in a sandbox, which is CR019's "never block on Redmine" behavior working as intended, not a bug to fix here.
