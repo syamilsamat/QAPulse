@@ -41,23 +41,24 @@ export const ALL_NAV_KEYS = [
   "nav:pm-dashboard", // CR014 Part 3
   "nav:audit-log", // CR011 — admin-only; endpoint is also role-gated server-side
   "nav:qa-analytics", // CR026 — QA lead+ analytics dashboard
+  "nav:defects", // CR030 — was role-gated only; now also opens Defects to the dev department
 ];
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin:      ALL_NAV_KEYS,
   cto:        ALL_NAV_KEYS,
-  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics"],
+  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects"],
   hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones"],
-  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
-  qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics"],
-  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics"],
-  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
+  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects"],
+  qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects"],
+  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects"],
+  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
   fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
-  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts"],
-  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts"],
+  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects"],
+  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts", "nav:defects"],
   pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard"],
   pmo:        [],
 };
@@ -171,6 +172,19 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ`);
 
+  // CR030 — native dev assignment on defects (defects table itself predates
+  // bootstrap coverage — created via drizzle-kit push in CR019 — so these are
+  // the first bootstrap-owned columns on it)
+  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assignee_assigned_at TIMESTAMPTZ`);
+
+  // CR030 — requirement dev handoff (approved requirement → dev → ready for QA)
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_status TEXT`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS ready_for_qa_at TIMESTAMPTZ`);
+
   // CR022 Part 2 — discussion thread
   await pool.query(`
     CREATE TABLE IF NOT EXISTS requirement_comments (
@@ -256,6 +270,21 @@ export async function bootstrap() {
     if (!rows[0]) continue;
     await pool.query(
       `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:qa-analytics') ON CONFLICT DO NOTHING`,
+      [rows[0].id]
+    );
+  }
+
+  // nav:defects for roles that already had Defects via the static role-array
+  // fallback (qa_member/qa_lead were role-gated with no permKey before CR030)
+  // plus the newly-onboarded dev department — narrow single-key backfill so
+  // no role's other customizations get reapplied.
+  for (const roleName of ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
+    await pool.query(
+      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:defects') ON CONFLICT DO NOTHING`,
       [rows[0].id]
     );
   }

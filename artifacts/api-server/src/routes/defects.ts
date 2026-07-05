@@ -10,10 +10,12 @@ import {
   executionTestCasesTable,
   executionFilesTable,
   redmineStatusesTable,
+  usersTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
+import { notifyUser } from "./_notify";
 import { resolveApiKeyFromToken } from "./requirements";
 import {
   pushDefectToRedmine,
@@ -23,6 +25,7 @@ import {
   severityFromPriority,
   syncIssueStatuses,
   pushStatusToRedmine,
+  pushAssigneeToRedmine,
   routeForTracker,
   defectCodePrefix,
 } from "./redmine-defect-bridge";
@@ -203,6 +206,10 @@ router.get("/defects", async (req, res): Promise<void> => {
       result = result.filter((d: any) => d.retestNeeded);
     } else if (view === "open") {
       result = result.filter((d: any) => !CLOSED_STATUS.test(d.status));
+    } else if (view === "mine") {
+      // CR030 — "My Defects": native assignment only (Redmine-only cached
+      // assignee names aren't matched back to a QAPulse user id).
+      result = result.filter((d: any) => d.assigneeId === ctx.userId);
     }
 
     res.json(result);
@@ -618,6 +625,94 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
   } catch (err: any) {
     console.error("[PATCH /defects/:id/status]", err);
     res.status(500).json({ error: err?.message ?? "Status update failed" });
+  }
+});
+
+// ─── CR030: native dev assignment (Lead-tier+ gate) ──────────────────────────
+// assigneeId is the source of truth going forward; assigneeName stays in sync
+// so existing display code (and the Redmine-cache fallback) keeps working.
+
+router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    if ((await getRoleTierRank(ctx.role)) < 2) {
+      res.status(403).json({ error: "Lead-tier role required to assign a defect" });
+      return;
+    }
+
+    const id = Number(req.params.id);
+    const rawAssigneeId = req.body?.assigneeId;
+    const assigneeId = rawAssigneeId == null ? null : Number(rawAssigneeId);
+    if (assigneeId != null && !Number.isInteger(assigneeId)) {
+      res.status(400).json({ error: "assigneeId must be an integer or null" });
+      return;
+    }
+
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    let assigneeName: string | null = null;
+    if (assigneeId != null) {
+      const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, assigneeId));
+      if (!user) {
+        res.status(400).json({ error: "Assignee not found" });
+        return;
+      }
+      assigneeName = user.name;
+    }
+
+    const now = new Date();
+    const [updated] = await db
+      .update(defectsTable)
+      .set({ assigneeId, assigneeName, assigneeAssignedAt: assigneeId != null ? now : null })
+      .where(eq(defectsTable.id, id))
+      .returning();
+
+    // Best-effort write-through — a defect already in Redmine gets its
+    // assignment pushed there too; failure never blocks the native assignment.
+    let syncOk: boolean | null = null;
+    let syncError: string | null = null;
+    if (assigneeId != null && defect.redmineId) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      const push = await pushAssigneeToRedmine(defect.redmineId, assigneeId, apiKey);
+      syncOk = push.ok;
+      syncError = push.ok ? null : push.error ?? null;
+    }
+
+    await logActivity({
+      type: "defect_assigned",
+      description: `Defect ${defect.defectCode ?? `#${id}`} ${assigneeId != null ? `assigned to ${assigneeName}` : "unassigned"}`,
+      userId: ctx.userId,
+      entityId: id,
+      entityType: "defect",
+      oldValue: { assigneeId: defect.assigneeId ?? null },
+      newValue: { assigneeId, assigneeName },
+    });
+
+    if (assigneeId != null) {
+      await notifyUser(
+        assigneeId,
+        "Defect assigned",
+        `${defect.defectCode ?? `Defect #${id}`} "${defect.title}" has been assigned to you.`,
+        "defect_assigned",
+        "defect",
+        id,
+        ctx.userId,
+      ).catch(() => {});
+    }
+
+    res.json({ ...updated, syncOk, syncError });
+  } catch (err: any) {
+    console.error("[PATCH /defects/:id/assign]", err);
+    res.status(500).json({ error: err?.message ?? "Assignment failed" });
   }
 });
 

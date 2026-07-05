@@ -630,6 +630,27 @@ export default function Requirements() {
     );
   };
 
+  // CR030 — dev handoff status, only rendered once a requirement has been
+  // handed to dev (devStatus is null until then)
+  const devStatusBadge = (devStatus?: string | null) => {
+    if (!devStatus) return null;
+    const cls: Record<string, string> = {
+      assigned: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700",
+      in_progress: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
+      ready_for_qa: "bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800",
+    };
+    const label: Record<string, string> = {
+      assigned: "Dev: Assigned",
+      in_progress: "Dev: In Progress",
+      ready_for_qa: "Dev: Ready for QA",
+    };
+    return (
+      <span className={`text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${cls[devStatus] ?? "bg-muted text-muted-foreground border-border"}`}>
+        {label[devStatus] ?? devStatus}
+      </span>
+    );
+  };
+
   const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, milestoneId?: number, isRoot: boolean = true) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -1018,6 +1039,7 @@ export default function Requirements() {
                                   <span className="text-xs text-muted-foreground">#{r.redmineTicketId}</span>
                                 )}
                                 {trackerBadge(r.tracker)}
+                                {devStatusBadge(r.devStatus)}
                                 {(r.tcCount ?? 0) > 0 && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
@@ -1050,6 +1072,7 @@ export default function Requirements() {
                                     </a>
                                   )}
                                   {trackerBadge(r.tracker)}
+                                {devStatusBadge(r.devStatus)}
                                   {(r.tcCount ?? 0) > 0 && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
