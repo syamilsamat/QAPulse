@@ -180,6 +180,147 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
   res.json({ portfolio, projects: resultProjects });
 });
 
+// ─── Milestone phase breakdown ───────────────────────────────────────────────
+// "Where did the time go" report: Requirements -> Gap before QA -> QA testing
+// -> [Gap before UAT -> UAT], so a PM can see which phase actually consumed
+// the schedule instead of QA absorbing blame for delays upstream of testing.
+
+type PhaseBoundary = { start: string | null; end: string | null; days: number | null; ongoing: boolean };
+
+function daysBetween(start: Date, end: Date): number {
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000 * 10) / 10;
+}
+
+function makePhase(start: Date | null, end: Date | null, now: Date): PhaseBoundary {
+  if (!start) return { start: null, end: null, days: null, ongoing: false };
+  const effectiveEnd = end ?? now;
+  return {
+    start: start.toISOString(),
+    end: end ? end.toISOString() : null,
+    days: daysBetween(start, effectiveEnd),
+    ongoing: !end,
+  };
+}
+
+interface PhaseBreakdown {
+  requirements: PhaseBoundary;
+  gapBeforeQa: PhaseBoundary;
+  qa: PhaseBoundary;
+  gapBeforeUat: PhaseBoundary | null; // null when this milestone has no UAT file at all
+  uat: PhaseBoundary | null;
+}
+
+async function computeMilestonePhases(milestoneId: number, milestoneCompletedAt: Date | null): Promise<PhaseBreakdown | null> {
+  const now = new Date();
+
+  const reqs = await db
+    .select({ createdAt: requirementsTable.createdAt, approvedAt: requirementsTable.approvedAt })
+    .from(requirementsTable)
+    .where(eq(requirementsTable.milestoneId, milestoneId));
+  if (reqs.length === 0) return null;
+
+  const reqCreatedMin = reqs.reduce((min, r) => (!min || r.createdAt < min ? r.createdAt : min), null as Date | null);
+  const allApproved = reqs.every((r) => r.approvedAt !== null);
+  const reqApprovedMax = allApproved
+    ? reqs.reduce((max, r) => (!max || r.approvedAt! > max ? r.approvedAt! : max), null as Date | null)
+    : null;
+
+  const execRows = await db
+    .select({ fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
+    .from(executionTestCasesTable)
+    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+    .where(eq(executionFilesTable.milestoneId, milestoneId));
+
+  const uatFileExists = (
+    await db.select({ id: executionFilesTable.id }).from(executionFilesTable)
+      .where(and(eq(executionFilesTable.milestoneId, milestoneId), eq(executionFilesTable.fileType, "uat")))
+  ).length > 0;
+
+  const qaExecuted = execRows.filter((r) => r.fileType === "qa" && r.executedAt).map((r) => r.executedAt!);
+  const uatExecuted = execRows.filter((r) => r.fileType === "uat" && r.executedAt).map((r) => r.executedAt!);
+  const minOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b < a ? b : a)) : null);
+  const maxOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b > a ? b : a)) : null);
+
+  const qaExecutedMin = minOf(qaExecuted);
+  const qaExecutedMax = maxOf(qaExecuted);
+  const uatExecutedMin = minOf(uatExecuted);
+
+  const requirementsPhase = makePhase(reqCreatedMin, reqApprovedMax, now);
+  const gapBeforeQaPhase = makePhase(reqApprovedMax, qaExecutedMin, now);
+
+  // QA's own bounded window when a UAT lane exists; otherwise QA absorbs
+  // everything up to milestone completion since there's no handoff to split on.
+  const qaPhaseEnd = uatFileExists ? qaExecutedMax : milestoneCompletedAt;
+  const qaPhase = makePhase(qaExecutedMin, qaPhaseEnd, now);
+
+  let gapBeforeUatPhase: PhaseBoundary | null = null;
+  let uatPhase: PhaseBoundary | null = null;
+  if (uatFileExists) {
+    gapBeforeUatPhase = makePhase(qaExecutedMax, uatExecutedMin, now);
+    uatPhase = makePhase(uatExecutedMin, milestoneCompletedAt, now);
+  }
+
+  return { requirements: requirementsPhase, gapBeforeQa: gapBeforeQaPhase, qa: qaPhase, gapBeforeUat: gapBeforeUatPhase, uat: uatPhase };
+}
+
+router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const milestoneId = req.query.milestoneId ? Number(req.query.milestoneId) : null;
+  if (!milestoneId) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+  const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, milestoneId));
+  if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const phases = await computeMilestonePhases(milestoneId, milestone.completedAt);
+  if (!phases) {
+    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status }, phases: null, trend: null });
+    return;
+  }
+
+  // Trend: last 5 completed milestones in the same project (this one included,
+  // if it's itself completed), each given the same phase computation.
+  const completedMilestones = await db
+    .select().from(milestonesTable)
+    .where(and(eq(milestonesTable.projectId, milestone.projectId), eq(milestonesTable.status, "completed")))
+    .orderBy(desc(milestonesTable.targetDate))
+    .limit(5);
+
+  const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; qaDays: number | null; uatDays: number | null }[] = [];
+  for (const m of completedMilestones) {
+    const p = await computeMilestonePhases(m.id, m.completedAt);
+    if (!p) continue;
+    trendEntries.push({
+      id: m.id, name: m.name,
+      requirementsDays: p.requirements.days, gapDays: p.gapBeforeQa.days,
+      qaDays: p.qa.days, uatDays: p.uat?.days ?? null,
+    });
+  }
+
+  const avg = (vals: (number | null)[]) => {
+    const present = vals.filter((v): v is number => v !== null);
+    return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
+  };
+
+  res.json({
+    milestone: { id: milestone.id, name: milestone.name, status: milestone.status, targetDate: milestone.targetDate?.toISOString() ?? null },
+    phases,
+    trend: {
+      count: trendEntries.length,
+      avgRequirementsDays: avg(trendEntries.map((e) => e.requirementsDays)),
+      avgGapDays: avg(trendEntries.map((e) => e.gapDays)),
+      avgQaDays: avg(trendEntries.map((e) => e.qaDays)),
+      avgUatDays: avg(trendEntries.map((e) => e.uatDays)),
+      milestones: trendEntries,
+    },
+  });
+});
+
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const now = new Date();
 

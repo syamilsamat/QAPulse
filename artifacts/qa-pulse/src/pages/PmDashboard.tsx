@@ -54,6 +54,43 @@ interface PmSummary {
   projects: ProjectSummary[];
 }
 
+interface PhaseBoundary {
+  start: string | null;
+  end: string | null;
+  days: number | null;
+  ongoing: boolean;
+}
+
+interface PhaseBreakdown {
+  requirements: PhaseBoundary;
+  gapBeforeQa: PhaseBoundary;
+  qa: PhaseBoundary;
+  gapBeforeUat: PhaseBoundary | null;
+  uat: PhaseBoundary | null;
+}
+
+interface PhaseTrendEntry {
+  id: number;
+  name: string;
+  requirementsDays: number | null;
+  gapDays: number | null;
+  qaDays: number | null;
+  uatDays: number | null;
+}
+
+interface PhaseReport {
+  milestone: { id: number; name: string; status: string; targetDate?: string | null };
+  phases: PhaseBreakdown | null;
+  trend: {
+    count: number;
+    avgRequirementsDays: number | null;
+    avgGapDays: number | null;
+    avgQaDays: number | null;
+    avgUatDays: number | null;
+    milestones: PhaseTrendEntry[];
+  } | null;
+}
+
 function api(path: string, token: string | null) {
   return fetch(`${getApiUrl()}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -160,9 +197,132 @@ function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
   );
 }
 
+// Requirements = purple, both gap phases = amber ("nobody owns this time,
+// someone should look into it"), QA and UAT are separate testing lanes with
+// separate owners so they get distinct (not alarming) colors — QA's bar
+// being short is the point, not something to visually flag as bad.
+const PHASE_COLOR: Record<string, string> = {
+  requirements: "bg-purple-500",
+  gap: "bg-amber-400",
+  qa: "bg-teal-500",
+  uat: "bg-blue-500",
+};
+const PHASE_TEXT_COLOR: Record<string, string> = {
+  requirements: "text-purple-700 dark:text-purple-400",
+  gap: "text-amber-700 dark:text-amber-400",
+  qa: "text-teal-700 dark:text-teal-400",
+  uat: "text-blue-700 dark:text-blue-400",
+};
+
+interface PhaseSegment {
+  key: string;
+  label: string;
+  days: number;
+  ongoing: boolean;
+}
+
+function phasesToSegments(phases: PhaseBreakdown): PhaseSegment[] {
+  const segments: PhaseSegment[] = [];
+  if (phases.requirements.days !== null) segments.push({ key: "requirements", label: "Requirements", days: phases.requirements.days, ongoing: phases.requirements.ongoing });
+  if (phases.gapBeforeQa.days !== null) segments.push({ key: "gap", label: "Gap before QA", days: phases.gapBeforeQa.days, ongoing: phases.gapBeforeQa.ongoing });
+  if (phases.qa.days !== null) segments.push({ key: "qa", label: "QA testing", days: phases.qa.days, ongoing: phases.qa.ongoing });
+  if (phases.gapBeforeUat && phases.gapBeforeUat.days !== null && phases.gapBeforeUat.days > 0) {
+    segments.push({ key: "gap", label: "Gap before UAT", days: phases.gapBeforeUat.days, ongoing: phases.gapBeforeUat.ongoing });
+  }
+  if (phases.uat && phases.uat.days !== null) segments.push({ key: "uat", label: "UAT", days: phases.uat.days, ongoing: phases.uat.ongoing });
+  return segments;
+}
+
+function PhaseTimelineBar({ phases }: { phases: PhaseBreakdown }) {
+  const segments = phasesToSegments(phases);
+  if (segments.length === 0) {
+    return <p className="text-sm text-muted-foreground">Not enough data yet — this milestone has no requirements.</p>;
+  }
+  const total = segments.reduce((sum, s) => sum + s.days, 0) || 1;
+
+  return (
+    <div>
+      <div className="flex h-7 rounded-md overflow-hidden mb-2">
+        {segments.map((s, i) => (
+          <div
+            key={i}
+            className={`${PHASE_COLOR[s.key]} flex items-center justify-center ${s.ongoing ? "opacity-70" : ""}`}
+            style={{ width: `${(s.days / total) * 100}%` }}
+            title={`${s.label}: ${s.days}d${s.ongoing ? " (ongoing)" : ""}`}
+          >
+            {(s.days / total) > 0.08 && <span className="text-[11px] text-white font-medium">{s.days}d</span>}
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {segments.map((s, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[s.key]}`} />
+            {s.label} &middot; {s.days}d{s.ongoing ? " (ongoing)" : ""}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }) {
+  if (trend.count === 0) {
+    return <p className="text-xs text-muted-foreground">No completed milestones yet for this project — trend needs at least one.</p>;
+  }
+  const maxTotal = Math.max(
+    ...trend.milestones.map((m) => (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0)),
+    1,
+  );
+
+  return (
+    <div>
+      <div className="flex items-end gap-3 h-24 mb-2 px-1">
+        {trend.milestones.map((m) => {
+          const total = (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0);
+          const barHeight = Math.max((total / maxTotal) * 100, 4);
+          return (
+            <div key={m.id} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+              <div className="w-full rounded overflow-hidden flex flex-col-reverse" style={{ height: `${barHeight}%` }}>
+                {m.requirementsDays !== null && <div className="bg-purple-500" style={{ height: `${(m.requirementsDays / total) * 100}%` }} />}
+                {m.gapDays !== null && <div className="bg-amber-400" style={{ height: `${(m.gapDays / total) * 100}%` }} />}
+                {m.qaDays !== null && <div className="bg-teal-500" style={{ height: `${(m.qaDays / total) * 100}%` }} />}
+                {m.uatDays !== null && <div className="bg-blue-500" style={{ height: `${(m.uatDays / total) * 100}%` }} />}
+              </div>
+              <span className="text-[10px] text-muted-foreground truncate w-full text-center">{m.name}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 border-t pt-2">
+        <div>
+          <p className="text-[11px] text-muted-foreground">Requirements avg</p>
+          <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.requirements}`}>{trend.avgRequirementsDays ?? "—"}d</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-muted-foreground">Gap avg</p>
+          <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.gap}`}>{trend.avgGapDays ?? "—"}d</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-muted-foreground">QA avg</p>
+          <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.qa}`}>{trend.avgQaDays ?? "—"}d</p>
+        </div>
+        {trend.avgUatDays !== null && (
+          <div>
+            <p className="text-[11px] text-muted-foreground">UAT avg</p>
+            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.uat}`}>{trend.avgUatDays}d</p>
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-2">Based on the last {trend.count} completed milestone{trend.count !== 1 ? "s" : ""} in this project.</p>
+    </div>
+  );
+}
+
 export default function PmDashboard() {
   const { token } = useAuth();
   const [filterProject, setFilterProject] = useState<string>("all");
+  const [filterMilestone, setFilterMilestone] = useState<string>("all");
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -170,6 +330,16 @@ export default function PmDashboard() {
       const res = await api("/projects", token);
       return res.ok ? res.json() : [];
     },
+  });
+
+  const { data: milestonesForFilter = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject],
+    queryFn: async () => {
+      if (filterProject === "all") return [];
+      const res = await api(`/milestones?projectId=${filterProject}`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
   });
 
   const { data, isLoading } = useQuery<PmSummary>({
@@ -180,6 +350,16 @@ export default function PmDashboard() {
       if (!res.ok) throw new Error("Failed to load PM summary");
       return res.json();
     },
+  });
+
+  const { data: phaseReport, isLoading: phaseLoading } = useQuery<PhaseReport>({
+    queryKey: ["milestone-phase-breakdown", filterMilestone],
+    queryFn: async () => {
+      const res = await api(`/dashboard/milestone-phase-breakdown?milestoneId=${filterMilestone}`, token);
+      if (!res.ok) throw new Error("Failed to load phase breakdown");
+      return res.json();
+    },
+    enabled: filterMilestone !== "all",
   });
 
   if (isLoading) {
@@ -197,18 +377,59 @@ export default function PmDashboard() {
           <h1 className="text-2xl font-bold tracking-tight">PM Dashboard</h1>
           <p className="text-sm text-muted-foreground">Milestone health and team capacity across your projects.</p>
         </div>
-        <Select value={filterProject} onValueChange={setFilterProject}>
-          <SelectTrigger className="w-full sm:w-56">
-            <SelectValue placeholder="All projects" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All projects</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Select value={filterProject} onValueChange={(v) => { setFilterProject(v); setFilterMilestone("all"); }}>
+            <SelectTrigger className="w-full sm:w-56">
+              <SelectValue placeholder="All projects" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All projects</SelectItem>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterMilestone} onValueChange={setFilterMilestone} disabled={filterProject === "all"}>
+            <SelectTrigger className="w-full sm:w-56">
+              <SelectValue placeholder={filterProject === "all" ? "Select a project first" : "Where did the time go?"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Select a milestone…</SelectItem>
+              {milestonesForFilter.map((m) => (
+                <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
+
+      {filterMilestone !== "all" && (
+        <Card>
+          <CardContent className="p-4 sm:p-5 space-y-5">
+            <div>
+              <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
+              <p className="text-xs text-muted-foreground">Requirements review, an unattributed gap before testing, QA, and UAT — each measured from real activity, not guessed.</p>
+            </div>
+            {phaseLoading ? (
+              <div className="h-16 flex items-center justify-center">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : phaseReport?.phases ? (
+              <>
+                <PhaseTimelineBar phases={phaseReport.phases} />
+                {phaseReport.trend && (
+                  <div className="border-t pt-4">
+                    <p className="text-sm font-medium mb-2">Is this a pattern?</p>
+                    <PhaseTrendStrip trend={phaseReport.trend} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Not enough data yet — this milestone has no requirements linked.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {data && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
