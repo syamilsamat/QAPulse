@@ -256,6 +256,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       title, description, stepsToReproduce, expectedResult, actualResult,
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName,
+      assigneeId, complexity, targetedStartDate, targetedCompletionDate,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -320,6 +321,10 @@ router.post("/defects", async (req, res): Promise<void> => {
       redmineProjectId: redmineProjectId ?? null,
       sourceIssueId: sourceIssueId ?? null,
       trackerName,
+      assigneeId: assigneeId ?? null,
+      complexity: complexity ?? null,
+      targetedStartDate: targetedStartDate ?? null,
+      targetedCompletionDate: targetedCompletionDate ?? null,
     });
 
     if (push.ok && push.redmineId) {
