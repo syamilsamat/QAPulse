@@ -203,7 +203,6 @@ router.post("/contacts/sync-redmine", express.json(), async (req, res) => {
       nameOnly = result.nameOnly;
     }
 
-    // Load existing redmine contacts so we can preserve manually added emails
     const existing = await db.select().from(contactsTable).where(eq(contactsTable.source, "redmine"));
     const byRedmineId = new Map(existing.filter((c) => c.redmineId).map((c) => [c.redmineId!, c]));
     const byName     = new Map(existing.map((c) => [c.fullName.toLowerCase(), c]));
@@ -217,29 +216,41 @@ router.post("/contacts/sync-redmine", express.json(), async (req, res) => {
       const found = (u.redmineId ? byRedmineId.get(u.redmineId) : null)
                  ?? byName.get(u.fullName.toLowerCase());
 
-      // Keep existing email when the incoming sync has no email (name-only fallback)
-      const email = u.email?.trim() || found?.email || "";
-
-      if (found) {
-        await db.update(contactsTable)
-          .set({
+      if (nameOnly) {
+        // Name-only path (non-admin key): only insert missing contacts, never update existing ones
+        if (!found) {
+          await db.insert(contactsTable).values({
+            fullName:  u.fullName,
+            email:     "",
+            source:    "redmine" as const,
+            isGroup:   false,
+            redmineId: u.redmineId,
+            syncedAt:  now,
+          });
+        }
+      } else {
+        const email = u.email?.trim() || found?.email || "";
+        if (found) {
+          await db.update(contactsTable)
+            .set({
+              fullName:     u.fullName,
+              email,
+              redmineId:    u.redmineId    || found.redmineId,
+              redmineLogin: u.redmineLogin || found.redmineLogin,
+              syncedAt:     now,
+            })
+            .where(eq(contactsTable.id, found.id));
+        } else {
+          await db.insert(contactsTable).values({
             fullName:     u.fullName,
             email,
-            redmineId:    u.redmineId    || found.redmineId,
-            redmineLogin: u.redmineLogin || found.redmineLogin,
+            source:       "redmine" as const,
+            isGroup:      false,
+            redmineId:    u.redmineId,
+            redmineLogin: u.redmineLogin,
             syncedAt:     now,
-          })
-          .where(eq(contactsTable.id, found.id));
-      } else {
-        await db.insert(contactsTable).values({
-          fullName:     u.fullName,
-          email,
-          source:       "redmine" as const,
-          isGroup:      false,
-          redmineId:    u.redmineId,
-          redmineLogin: u.redmineLogin,
-          syncedAt:     now,
-        });
+          });
+        }
       }
     }
 
