@@ -355,8 +355,10 @@ const NAV_ITEMS: NavItem[] = [
     label: "Defects",
     icon: Bug,
     activeColor: "text-red-500",
-    // no permKey — role-gated only, so existing DBs don't hide it (CR019)
-    roles: ["qa_member", "qa_lead", "admin"],
+    // CR030 — permKey added so the dev department (assignees on native defect
+    // assignment) can see it too; static roles kept as the pre-permKey fallback.
+    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "admin", "cto"],
+    permKey: "nav:defects",
   },
   {
     href: "/tasks",

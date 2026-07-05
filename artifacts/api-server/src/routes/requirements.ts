@@ -3,7 +3,7 @@ import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
-import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank } from "../middleware/access";
 import {
   db,
   requirementsTable,
@@ -33,10 +33,15 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
   let assigneeName: string | null = null;
   let projectName: string | null = null;
   let milestoneName: string | null = null;
+  let devAssigneeName: string | null = null;
 
   if (req.assigneeId) {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.assigneeId));
     assigneeName = user?.name ?? null;
+  }
+  if ((req as any).devAssigneeId) {
+    const [devUser] = await db.select().from(usersTable).where(eq(usersTable.id, (req as any).devAssigneeId));
+    devAssigneeName = devUser?.name ?? null;
   }
   if (req.projectId) {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, req.projectId));
@@ -75,6 +80,13 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     approvedAt: (req as any).approvedAt ? new Date((req as any).approvedAt).toISOString() : null,
     rejectedBy: (req as any).rejectedBy ?? null,
     rejectedAt: (req as any).rejectedAt ? new Date((req as any).rejectedAt).toISOString() : null,
+    // CR030 — dev handoff
+    devStatus: (req as any).devStatus ?? null,
+    devAssigneeId: (req as any).devAssigneeId ?? null,
+    devAssigneeName,
+    devAssignedAt: (req as any).devAssignedAt ? new Date((req as any).devAssignedAt).toISOString() : null,
+    devAssignedBy: (req as any).devAssignedBy ?? null,
+    readyForQaAt: (req as any).readyForQaAt ? new Date((req as any).readyForQaAt).toISOString() : null,
     createdAt: req.createdAt.toISOString(),
     updatedAt: req.updatedAt.toISOString(),
   };
@@ -250,10 +262,15 @@ router.get("/requirements/:id/test-cases", async (req, res): Promise<void> => {
   })));
 });
 
-router.get("/requirements/:id", async (req, res): Promise<void> => {
+router.get("/requirements/:id", async (req, res, next): Promise<void> => {
   const params = GetRequirementParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    // A non-numeric segment means this wasn't really a "get by id" request —
+    // fall through to later routes (review-queue, dev-queue, …) instead of
+    // 400ing, since this route is registered before those single-segment
+    // static paths and would otherwise shadow them (Express matches
+    // registration order, not path specificity).
+    next();
     return;
   }
 
@@ -607,6 +624,141 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
       [...recipients].map((uid) =>
         notifyUser(uid, title, msg, `requirement_${action}`, "requirement", id, ctx.userId).catch(() => {})
       )
+    );
+  }
+
+  res.json(await formatRequirement(updated));
+});
+
+// ─── Dev Handoff Workflow (CR030) ────────────────────────────────────────────
+// Once FA-approved, a requirement can be handed to Dev. A Lead-tier user
+// assigns a developer; the assignee (or a Lead) walks it through
+// assigned → in_progress → ready_for_qa. ready_for_qa is the terminal dev-side
+// state — QA picking the work back up for testing is tracked by the existing
+// execution tables, not a further status here.
+
+// GET /requirements/dev-queue — "Unassigned" (approved, no dev assignee yet —
+// for a Lead to triage) + "My Dev Work" (assigned to me, any dev status)
+router.get("/requirements/dev-queue", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const isLead = (await getRoleTierRank(ctx.role)) >= 2;
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const allReqs = await db.select().from(requirementsTable);
+  const scoped = allReqs.filter(r => accessible === null || (r.projectId != null && accessible.includes(r.projectId)));
+
+  const unassigned = isLead
+    ? scoped.filter(r => ((r as any).reviewStatus ?? "draft") === "approved" && !(r as any).devAssigneeId)
+    : [];
+  const myDevWork = scoped.filter(r => (r as any).devAssigneeId === ctx.userId);
+
+  function withMeta(reqs: typeof allReqs) {
+    return reqs.map(r => ({
+      id: r.id,
+      title: r.title,
+      module: r.module,
+      projectId: r.projectId,
+      reviewStatus: (r as any).reviewStatus ?? "draft",
+      devStatus: (r as any).devStatus ?? null,
+      devAssigneeId: (r as any).devAssigneeId ?? null,
+      updatedAt: r.updatedAt.toISOString(),
+    }));
+  }
+
+  res.json({ unassigned: withMeta(unassigned), myDevWork: withMeta(myDevWork) });
+});
+
+// PATCH /requirements/:id/dev — action: 'assign' | 'start' | 'ready_for_qa'
+router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+  const { action, devAssigneeId } = req.body ?? {};
+  if (!["assign", "start", "ready_for_qa"].includes(action)) {
+    res.status(400).json({ error: "action must be assign, start, or ready_for_qa" }); return;
+  }
+
+  if (((requirement as any).reviewStatus ?? "draft") !== "approved") {
+    res.status(409).json({ error: "Requirement must be FA-approved before dev handoff" }); return;
+  }
+
+  const currentDevAssigneeId: number | null = (requirement as any).devAssigneeId ?? null;
+  const currentDevStatus: string | null = (requirement as any).devStatus ?? null;
+  const isLead = (await getRoleTierRank(ctx.role)) >= 2;
+
+  const update: Record<string, any> = {};
+  const now = new Date();
+  let assignedDevName: string | null = null;
+
+  if (action === "assign") {
+    if (!isLead) { res.status(403).json({ error: "Lead-tier role required to assign a developer" }); return; }
+    const targetId = Number(devAssigneeId);
+    if (!Number.isInteger(targetId)) { res.status(400).json({ error: "devAssigneeId is required" }); return; }
+    const [devUser] = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, targetId));
+    if (!devUser) { res.status(400).json({ error: "Assignee not found" }); return; }
+    assignedDevName = devUser.name;
+    update.devAssigneeId = targetId;
+    update.devStatus = "assigned";
+    update.devAssignedAt = now;
+    update.devAssignedBy = ctx.userId;
+  } else {
+    if (!currentDevAssigneeId) { res.status(409).json({ error: "Requirement has no dev assignee yet" }); return; }
+    if (ctx.userId !== currentDevAssigneeId && !isLead) {
+      res.status(403).json({ error: "Only the assignee or a Lead can update dev status" }); return;
+    }
+    if (currentDevStatus === "ready_for_qa") { res.status(409).json({ error: "Already marked ready for QA" }); return; }
+    if (action === "start") {
+      update.devStatus = "in_progress";
+    } else {
+      update.devStatus = "ready_for_qa";
+      update.readyForQaAt = now;
+    }
+  }
+
+  const [updated] = await db.update(requirementsTable).set(update).where(eq(requirementsTable.id, id)).returning();
+
+  await logActivity({
+    type: `requirement_dev_${action}`,
+    description: action === "assign"
+      ? `Requirement "${requirement.title}" assigned to ${assignedDevName} for development`
+      : action === "start"
+        ? `Requirement "${requirement.title}" — development started`
+        : `Requirement "${requirement.title}" marked ready for QA`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "requirement",
+    oldValue: { devStatus: currentDevStatus, devAssigneeId: currentDevAssigneeId },
+    newValue: { devStatus: update.devStatus, devAssigneeId: update.devAssigneeId ?? currentDevAssigneeId },
+  });
+
+  if (action === "assign") {
+    await notifyUser(
+      update.devAssigneeId,
+      "Requirement assigned for development",
+      `"${requirement.title}" has been assigned to you for development.`,
+      "requirement_dev_assigned",
+      "requirement",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+  } else if (action === "ready_for_qa") {
+    const recipients = new Set<number>();
+    if (requirement.assigneeId) recipients.add(requirement.assigneeId);
+    if (requirement.milestoneId) {
+      const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, requirement.milestoneId));
+      if (milestone?.createdBy) recipients.add(milestone.createdBy);
+    }
+    await Promise.all(
+      [...recipients].map((uid) =>
+        notifyUser(uid, "Ready for QA", `"${requirement.title}" is ready for QA testing.`, "requirement_ready_for_qa", "requirement", id, ctx.userId).catch(() => {}),
+      ),
     );
   }
 

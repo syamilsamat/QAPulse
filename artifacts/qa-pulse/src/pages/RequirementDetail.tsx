@@ -28,6 +28,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { format } from "date-fns";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
@@ -68,6 +75,20 @@ function ReviewStatusBadge({ status }: { status: string }) {
   }
 }
 
+// CR030 — dev handoff status
+function DevStatusBadge({ status }: { status: string | null }) {
+  switch (status) {
+    case "assigned":
+      return <Badge className="bg-slate-100 text-slate-700 border-slate-200">Assigned</Badge>;
+    case "in_progress":
+      return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> In Progress</Badge>;
+    case "ready_for_qa":
+      return <Badge className="gap-1 bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3" /> Ready for QA</Badge>;
+    default:
+      return <Badge variant="outline">Not started</Badge>;
+  }
+}
+
 export default function RequirementDetail() {
   const [, params] = useRoute("/requirements/:id");
   const [, navigate] = useLocation();
@@ -75,6 +96,8 @@ export default function RequirementDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const reqId = params?.id ? parseInt(params.id) : null;
+  // CR030 — dev handoff: Lead-tier+ can assign a developer
+  const isLeadTier = ((user as any)?.tierRank ?? 1) >= 2;
 
   const [commentBody, setCommentBody] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -84,6 +107,7 @@ export default function RequirementDetail() {
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [devLoading, setDevLoading] = useState(false);
 
   const { data: req, isLoading } = useQuery<any>({
     queryKey: ["requirement", reqId],
@@ -154,6 +178,17 @@ export default function RequirementDetail() {
       return res.json();
     },
     enabled: !!reqId,
+  });
+
+  const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["users-dev"],
+    enabled: isLeadTier,
+    queryFn: async () => {
+      const res = await api(`/users`, token);
+      if (!res.ok) return [];
+      const all: { id: number; name: string; role: string }[] = await res.json();
+      return all.filter((u) => ["dev_member", "dev_lead", "hod_dev"].includes(u.role));
+    },
   });
 
   const { data: attachments = [], refetch: refetchAttachments } = useQuery<any[]>({
@@ -260,6 +295,27 @@ export default function RequirementDetail() {
       toast({ variant: "destructive", title: "Review action failed" });
     } finally {
       setReviewLoading(false);
+    }
+  };
+
+  const doDevAction = async (action: "assign" | "start" | "ready_for_qa", devAssigneeId?: number) => {
+    if (!reqId) return;
+    setDevLoading(true);
+    try {
+      const res = await api(`/requirements/${reqId}/dev`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ action, ...(devAssigneeId != null ? { devAssigneeId } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Action failed" }); return; }
+      toast({
+        title: action === "assign" ? "Assigned for development" : action === "start" ? "Marked in progress" : "Marked ready for QA",
+      });
+      queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Action failed" });
+    } finally {
+      setDevLoading(false);
     }
   };
 
@@ -729,6 +785,69 @@ export default function RequirementDetail() {
                   <span className="text-muted-foreground">Rejected</span>
                   <span className="text-xs text-red-600">{format(new Date(req.rejectedAt), "dd MMM yyyy")}</span>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Development — dev handoff workflow (CR030) */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Development</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {req.reviewStatus !== "approved" ? (
+                <p className="text-xs text-muted-foreground">Awaiting FA approval before dev handoff.</p>
+              ) : (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Status</span>
+                    <DevStatusBadge status={req.devStatus} />
+                  </div>
+
+                  {isLeadTier ? (
+                    <div className="space-y-1.5">
+                      <span className="text-xs text-muted-foreground">Assignee</span>
+                      <Select
+                        value={req.devAssigneeId ? String(req.devAssigneeId) : ""}
+                        onValueChange={(v) => doDevAction("assign", Number(v))}
+                        disabled={devLoading}
+                      >
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Assign a developer…" /></SelectTrigger>
+                        <SelectContent>
+                          {devUsers.map((u) => (
+                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    req.devAssigneeName && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Assignee</span>
+                        <span className="font-medium">{req.devAssigneeName}</span>
+                      </div>
+                    )
+                  )}
+
+                  {req.devAssigneeId && (isLeadTier || req.devAssigneeId === user?.id) && req.devStatus !== "ready_for_qa" && (
+                    <div className="flex gap-2">
+                      {req.devStatus === "assigned" && (
+                        <Button size="sm" variant="outline" disabled={devLoading} onClick={() => doDevAction("start")}>
+                          Start Work
+                        </Button>
+                      )}
+                      {(req.devStatus === "assigned" || req.devStatus === "in_progress") && (
+                        <Button size="sm" disabled={devLoading} onClick={() => doDevAction("ready_for_qa")}>
+                          Mark Ready for QA
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {req.readyForQaAt && (
+                    <p className="text-xs text-green-600">Ready for QA since {format(new Date(req.readyForQaAt), "dd MMM yyyy")}</p>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 import { pgTable, text, varchar, serial, timestamp, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 export const requirementsTable = pgTable("requirements", {
   id: serial("id").primaryKey(),
@@ -27,6 +27,15 @@ export const requirementsTable = pgTable("requirements", {
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   rejectedBy: integer("rejected_by"),
   rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+  // CR030 — dev handoff. Only meaningful once reviewStatus = 'approved'; null
+  // means dev work hasn't started. Terminal state is 'ready_for_qa' — QA
+  // picking it back up for execution is tracked by the existing execution
+  // tables, not a further dev-side state.
+  devStatus: text("dev_status"), // 'assigned' | 'in_progress' | 'ready_for_qa' | null
+  devAssigneeId: integer("dev_assignee_id"),
+  devAssignedAt: timestamp("dev_assigned_at", { withTimezone: true }),
+  devAssignedBy: integer("dev_assigned_by"),
+  readyForQaAt: timestamp("ready_for_qa_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
