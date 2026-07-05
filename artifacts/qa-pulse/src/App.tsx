@@ -73,10 +73,9 @@ function ProtectedRoute({
     return <Redirect to="/dashboard" />;
   }
 
-  if (user.role === "pmo") {
-    return <PmoReport />;
-  }
-
+  // pmo is a minimal, two-page role (PMO Report + PM Dashboard) — routes
+  // that explicitly allow pmo (passed the check above) render normally with
+  // Layout; anything not explicitly allowed already redirected above.
   return (
     <Layout>
       <Component />
@@ -155,7 +154,7 @@ function Router() {
       <Route path="/pm-dashboard">
         <ProtectedRoute
           component={PmDashboard}
-          roles={["hod_pm", "pm_lead", "admin", "cto"]}
+          roles={["hod_pm", "pm_lead", "admin", "cto", "pmo"]}
         />
       </Route>
 
@@ -295,8 +294,6 @@ function Router() {
       <Route path="/pmo-report">
         {!user ? (
           <Redirect to="/login" />
-        ) : user.role === "pmo" ? (
-          <PmoReport />
         ) : (
           <Layout>
             <PmoReport />
@@ -306,13 +303,9 @@ function Router() {
 
       <Route>
         {user ? (
-          user.role === "pmo" ? (
-            <PmoReport />
-          ) : (
-            <Layout>
-              <NotFound />
-            </Layout>
-          )
+          <Layout>
+            <NotFound />
+          </Layout>
         ) : (
           <NotFound />
         )}

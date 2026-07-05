@@ -543,7 +543,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!user) return false;
-    if (user.role === "pmo") return item.href === "/pmo-report";
+    if (user.role === "pmo") return item.href === "/pmo-report" || item.href === "/pm-dashboard";
     if (item.alwaysVisible) return true;
     // Use dynamic permissions when available, fall back to static roles
     if (navPermissions && item.permKey) return navPermissions.includes(item.permKey);
