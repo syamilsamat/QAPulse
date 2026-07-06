@@ -44,6 +44,7 @@ interface ReqNode {
   notRun: number;
   coveragePct: number;
   overallStatus: string;
+  inMilestone: boolean;
 }
 
 type Classification = "passed" | "failed" | "blocked" | "notRun";
@@ -169,6 +170,7 @@ router.get("/traceability", async (req, res): Promise<void> => {
         notRun: 0,
         coveragePct: 0,
         overallStatus: "no-tcs",
+        inMilestone: true,
       });
     }
 
@@ -276,6 +278,84 @@ router.get("/traceability", async (req, res): Promise<void> => {
           displayCaseId: row.etc_case_id ?? `#${row.etc_id}`,
           results: [result],
         });
+      }
+    }
+
+    // CR017 target #3 — when a milestone filter is active, walk up parent_id
+    // chains for the matched requirements and pull in any out-of-milestone
+    // ancestors purely as grayed context rows (no test cases fetched for
+    // them), so a matched child doesn't lose its place in the tree and the
+    // rollup stays scoped to only the in-sprint descendants already fetched
+    // above.
+    if (milestoneIdNum && reqIds.length > 0) {
+      const { rows: ancestorIdRows } = await pool.query(
+        `
+        WITH RECURSIVE ancestors AS (
+          SELECT r.id, r.parent_id FROM requirements r WHERE r.id = ANY($1::int[])
+          UNION
+          SELECT r.id, r.parent_id FROM requirements r JOIN ancestors a ON r.id = a.parent_id
+        )
+        SELECT id FROM ancestors
+        `,
+        [reqIds]
+      );
+      const extraIds = ancestorIdRows.map((r: any) => r.id).filter((id: number) => !nodes.has(id));
+
+      if (extraIds.length > 0) {
+        const extraConditions = [`r.id = ANY($1::int[])`];
+        const extraParams: any[] = [extraIds];
+        if (accessible !== null) { extraConditions.push(`r.project_id = ANY($2::int[])`); extraParams.push(accessible); }
+
+        const { rows: ancestorRows } = await pool.query(
+          `
+          SELECT
+            r.id                AS req_id,
+            r.redmine_ticket_id AS req_redmine_id,
+            r.title             AS req_title,
+            r.module            AS req_module,
+            r.project_id        AS project_id,
+            p.name              AS project_name,
+            r.status            AS req_status,
+            r.parent_id         AS parent_id,
+            r.milestone_id      AS milestone_id,
+            m.name              AS milestone_name,
+            m.target_date       AS milestone_target_date,
+            m.status            AS milestone_status
+          FROM requirements r
+          LEFT JOIN projects p ON p.id = r.project_id
+          LEFT JOIN milestones m ON m.id = r.milestone_id
+          WHERE ${extraConditions.join(" AND ")}
+          `,
+          extraParams
+        );
+
+        for (const row of ancestorRows) {
+          nodes.set(row.req_id, {
+            reqId: row.req_id,
+            reqRedmineId: row.req_redmine_id ?? null,
+            reqTitle: row.req_title,
+            reqModule: row.req_module,
+            projectId: row.project_id,
+            projectName: row.project_name ?? null,
+            reqStatus: row.req_status,
+            parentId: row.parent_id ?? null,
+            milestoneId: row.milestone_id ?? null,
+            milestoneName: row.milestone_name ?? null,
+            milestoneTargetDate: row.milestone_target_date ? new Date(row.milestone_target_date).toISOString() : null,
+            milestoneStatus: row.milestone_status ?? null,
+            testCases: [],
+            children: [],
+            directTcCount: 0,
+            tcCount: 0,
+            passed: 0,
+            failed: 0,
+            blocked: 0,
+            notRun: 0,
+            coveragePct: 0,
+            overallStatus: "no-tcs",
+            inMilestone: false,
+          });
+        }
       }
     }
 

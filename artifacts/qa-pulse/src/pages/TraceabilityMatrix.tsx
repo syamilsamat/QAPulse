@@ -76,6 +76,7 @@ interface TraceabilityRow {
   notRun: number;
   coveragePct: number;
   overallStatus: string;
+  inMilestone: boolean;
   testCases: TraceabilityTC[];
   children: TraceabilityRow[];
 }
@@ -407,14 +408,20 @@ export default function TraceabilityMatrix() {
 
   // ─── Recursive requirement rows ───────────────────────────────────────────
   const renderReqRows = (req: TraceabilityRow, depth: number): JSX.Element => {
-    const expandable = req.testCases.length > 0 || req.children.length > 0;
+    // CR017 target #3 — an out-of-milestone ancestor exists purely to show
+    // context for an in-sprint descendant, so it's always expanded (not
+    // independently collapsible) and its rollup is already scoped to just
+    // that descendant, since no out-of-scope siblings were ever fetched.
+    const isContextRow = !req.inMilestone;
+    const expandable = !isContextRow && (req.testCases.length > 0 || req.children.length > 0);
     const expanded = expandedReqs.has(req.reqId);
+    const isOpen = expanded || isContextRow;
     const rolledFromChildren = req.tcCount - req.directTcCount;
 
     return (
       <Fragment key={req.reqId}>
         <TableRow
-          className="cursor-pointer hover:bg-muted/50"
+          className={isContextRow ? "bg-muted/30 opacity-70" : "cursor-pointer hover:bg-muted/50"}
           onClick={() => expandable && toggleExpand(req.reqId)}
         >
           <TableCell>
@@ -433,7 +440,10 @@ export default function TraceabilityMatrix() {
               )}
               <span className="text-xs text-muted-foreground font-mono">#{req.reqRedmineId ?? req.reqId}</span>
               <span className={depth === 0 ? "font-medium text-sm" : "text-sm"}>{req.reqTitle}</span>
-              {req.overallStatus === "no-tcs" && (
+              {isContextRow && (
+                <span className="text-xs text-muted-foreground italic">(out of sprint — context only)</span>
+              )}
+              {req.overallStatus === "no-tcs" && !isContextRow && (
                 <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
               )}
             </div>
@@ -467,7 +477,7 @@ export default function TraceabilityMatrix() {
         </TableRow>
 
         {/* Expanded TC rows (direct links on this requirement) */}
-        {expanded &&
+        {isOpen &&
           req.testCases.map((tc) => {
             const latest = tc.results[tc.results.length - 1];
             return (
@@ -502,7 +512,7 @@ export default function TraceabilityMatrix() {
           })}
 
         {/* Expanded child requirements */}
-        {expanded && req.children.map((child) => renderReqRows(child, depth + 1))}
+        {isOpen && req.children.map((child) => renderReqRows(child, depth + 1))}
       </Fragment>
     );
   };
