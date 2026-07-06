@@ -24,7 +24,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | 🟡 Partially Deployed | 2026-07-04 |
 | [CR015](#cr015--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | ✅ Deployed | 2026-07-04 |
 | [CR016](#cr016--traceability-matrix-requirement-hierarchy) | Traceability Matrix Requirement Hierarchy | ✅ Deployed | 2026-07-03 |
-| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | 🟡 Partially Deployed | 2026-07-04 |
+| [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | ✅ Deployed | 2026-07-06 |
 | [CR018](#cr018--tc-library-execution-file-drill-down) | TC Library: Execution File Drill-Down | ✅ Deployed | 2026-07-03 |
 | [CR019](#cr019--defect-tracking-write-through-to-redmine--defects-page) | Defect Tracking: Write-Through to Redmine + Defects Page | ✅ Deployed | 2026-07-04 |
 | [CR020](#cr020--production-defect-workflow-escape-analysis) | Production Defect Workflow (Escape Analysis) | ✅ Deployed | 2026-07-04 |
@@ -38,6 +38,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR028](#cr028--client-demo-data-toolkit) | Client Demo Data Toolkit | ✅ Deployed | 2026-07-05 |
 | [CR029](#cr029--defect-category-classification) | Defect Category Classification | ✅ Deployed | 2026-07-05 |
 | [CR030](#cr030--developer-workflow-requirement-handoff--defect-assignment) | Developer Workflow: Requirement Handoff & Defect Assignment | ✅ Deployed | 2026-07-05 |
+| [CR031](#cr031--requirement-defect-workflow) | Requirement Defect Workflow | 📋 Planned | — |
+| [CR032](#cr032--pm-dashboard-multi-cycle-phase-timeline) | PM Dashboard: Multi-Cycle Phase Timeline | 📋 Planned | — |
 
 ---
 
@@ -336,7 +338,7 @@ Follow-up to CR005. Now that child requirements carry their own test case links,
 ---
 
 ### CR017 — Milestone/Sprint-Aware Traceability Matrix
-**Status:** 🟡 Partially Deployed (2026-07-04 PR #293 core change; targets #2/#4 + release deprecation added 2026-07-05 — target #3 remains deferred)
+**Status:** ✅ Deployed (2026-07-04 PR #293 core change; targets #2/#4 + release deprecation added 2026-07-05; target #3 added 2026-07-06)
 
 **Deployed 2026-07-04:** milestone filter dropdown on the matrix (shown when a project is selected) + **sprint-scoped result resolution** — the core change (target #1): with a `milestoneId` filter active, requirements are scoped by `r.milestone_id` and the latest-result join only considers execution files belonging to that milestone, with a "Milestone scope active" banner explaining that unrun TCs show Not Run instead of stale green.
 
@@ -346,7 +348,7 @@ Follow-up to CR005. Now that child requirements carry their own test case links,
 
 **Deployed 2026-07-05 — `requirements.release` deprecation:** the free-text Release field is removed from the create/edit form for new data entry; the DB column is *not* dropped, and existing values are still shown read-only (relabeled "Release (legacy)") on the form and on `RequirementDetail.tsx` wherever a requirement already has one, so historical data isn't silently lost. No automatic migration of `release` strings into milestone rows — inferring which milestone an arbitrary legacy string like "v3.0" corresponds to isn't safe to automate (risks fabricating duplicate/junk milestones); every requirement already carries a mandatory `milestoneId` since CR023 Part 3, so the field it was meant to replace is already populated going forward.
 
-**Still deferred — target #3, grayed out-of-sprint parent context rows:** when a specific milestone filter is active, a matched requirement whose parent isn't itself tagged to that milestone still renders as a standalone root (loses visual parent context) rather than showing the parent as a grayed row with rollup scoped to only its in-sprint descendants. Requires the backend to additionally fetch out-of-milestone ancestors and mark them for special rendering — a real, scoped follow-up, not done here. Current behavior isn't incorrect (no bad data, just less rich context), so this was deprioritized in favor of targets #2/#4.
+**Deployed 2026-07-06 — target #3, grayed out-of-sprint parent context rows:** `traceability.ts` now walks the `parent_id` chain up from every milestone-matched requirement (`WITH RECURSIVE` over `requirements`) and pulls in any out-of-milestone ancestors purely as context — no test cases fetched for them, so a parent's own rollup stays scoped to exactly its in-sprint descendants (never its unrelated siblings, since only the ancestor chain is fetched, not the whole subtree). Each `ReqNode`/`TraceabilityRow` gains `inMilestone: boolean`. On `TraceabilityMatrix.tsx`, a context row (`inMilestone === false`) renders grayed (`bg-muted/30 opacity-70`) with an "(out of sprint — context only)" label, is always expanded (not independently collapsible, since it exists purely to show its descendant), and is excluded from the "No TCs" warning icon. A matched requirement no longer loses its parent context or renders as a misleading standalone root.
 
 Extends the traceability matrix (CR005/CR016) now that milestones exist as a first-class entity (CR014 Part 2 landed the data model).
 
@@ -773,3 +775,92 @@ Redmine assignment was previously read-only cache (`defects.assigneeName`, a pla
 **Scope:** `lib/db/src/schema/defects.ts`, `lib/db/src/schema/requirements.ts` (new columns), `artifacts/api-server/src/routes/roles.ts` (bootstrap `ALTER TABLE`s, `nav:defects` permission key + narrow backfill), `artifacts/api-server/src/routes/redmine-defect-bridge.ts` (`pushAssigneeToRedmine`, `resolveRedmineUserIdByName`, reconciliation in `refreshDefectStatuses`), `artifacts/api-server/src/routes/defects.ts` (`PATCH /defects/:id/assign`, `view=mine`), `artifacts/api-server/src/routes/requirements.ts` (`PATCH /requirements/:id/dev`, `GET /requirements/dev-queue`, the route-ordering fix), `artifacts/qa-pulse/src/components/Layout.tsx` (nav), `artifacts/qa-pulse/src/pages/Defects.tsx`, `artifacts/qa-pulse/src/pages/RequirementDetail.tsx`, `artifacts/qa-pulse/src/pages/Requirements.tsx`.
 
 **DB change:** new columns only, all bootstrapped (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — no manual `db push` required, unlike CR029's `defects.defectCategory` (that table predates bootstrap coverage; these are the first bootstrap-owned columns added to it).
+
+---
+
+### CR031 — Requirement Defect Workflow
+**Status:** 📋 Planned
+
+Today "something is wrong with this requirement" has exactly one outlet — flipping `reviewStatus` to `rejected` during the CR023 FA review — and that outlet closes the moment a requirement is approved. Once CR030's dev handoff starts (Lead assigns dev → dev works → Ready for QA), a developer or QA engineer who discovers the requirement itself is ambiguous, contradictory, or wrong has nothing structured to raise: no severity, no assignee, no record on the Defects page, no metric. CR031 gives requirement-authoring problems the same first-class treatment code defects already have, by routing them through the existing `defects` entity instead of inventing a parallel one.
+
+**Explicitly out of scope:** raising a requirement defect *during* the review action itself (approve/reject already covers that moment — CR031 is for problems discovered after review, at any later phase).
+
+---
+
+**Flow**
+
+1. `dev_member` / `dev_lead` / `qa_member` / `qa_lead` (plus `hod_dev` / `hod_qa` / `admin` implicitly, same tier-and-above convention used elsewhere) raises a requirement defect against a specific requirement, any time after it has been approved.
+2. It auto-routes to the requirement's own author (`requirements.createdBy`) — no Lead-tier+ assign action needed for this hop, since it's deterministic routing to the accountable person, not a discretionary assignment.
+3. The author (FA) triages: edits the requirement to fix the ambiguity/error, then calls the existing `PATCH /requirements/:id/review` with `action: 'submit'` — reusing the CR023 review workflow verbatim. The current code has no guard on the requirement's prior `reviewStatus` before accepting `submit`, so this works unmodified on an already-`approved` requirement.
+4. A non-author FA/QA-lead reviews and approves (or rejects) the correction — the existing segregation-of-duties check (`requirements.ts:573`) already forces a second pair of eyes with zero special-casing.
+5. Once re-approved, the author reassigns the *defect* — to a developer if code needs to change (rejoins the normal fix → retest → QA loop unchanged from CR019/CR020), or straight to QA if it was a pure spec correction with no code impact (QA re-verifies against the corrected requirement text).
+
+---
+
+**Data model — no schema changes, no migration**
+
+`defects.source` and `defects.foundIn` are free-text columns, not DB-level enums, so this needs zero `ALTER TABLE`s:
+- `source`: new value `"requirement"` alongside existing `qa` / `production`.
+- `foundIn`: new value `"Development"` for defects discovered outside a testing phase (e.g. a dev mid-implementation); `SIT` / `UAT` still apply when QA notices the issue during execution.
+- Link to the requirement via the existing `defectLinksTable` (`requirementId` + `linkType: 'requirement'`, already present and previously unused for this purpose — see comment at `defects.ts:63-75`).
+- `defectCategory` (the functional/ui_ux/... taxonomy) does not apply to this source and stays `null` — it's a product-defect classification, not a requirement-authoring one.
+- Requirement defects are QAPulse-native only: `redmineId` stays null, no Redmine push, consistent with the standing principle that Redmine integrations stay thin and disposable — this is a QAPulse concept with no Redmine tracker equivalent.
+- Status/retest lifecycle reuses the existing plain-string vocabulary and regex-based `retestNeeded` calculation (`New` → `In Progress` → `Fixed`/`Ready` → QA sees it needs retest → `Verified`/`Closed`) — no new state machine.
+
+---
+
+**Backend changes**
+
+- `POST /defects` — accept `source: 'requirement'` + `requirementId` (required for this source). On insert, auto-set `assigneeId = requirement.createdBy` and `assigneeAssignedAt = now()`; skip the Redmine push path entirely for this source.
+- `PATCH /defects/:id/assign` — add a self-handoff exception: when `defect.source === 'requirement'` and the caller is the *current* assignee, allow reassignment regardless of tier (mirrors CR030's precedent of letting the dev assignee self-drive `start`/`ready_for_qa` without a Lead gate). Falls back to the existing tier ≥ 2 gate for anyone else. This matters because the auto-routed first assignee is often an `fa_member` (tier 1), who must still be able to hand the defect off to dev or QA without escalating to `fa_lead`.
+- No changes needed to `PATCH /requirements/:id/review` — confirmed it already accepts `submit` on any prior `reviewStatus`, including `approved`.
+
+**Frontend changes**
+
+- `RequirementDetail.tsx` — new "Requirement Defect" card (same visual pattern as CR030's Development card): open defect count, a "Raise Requirement Defect" button for the raiser roles above, and once raised, assignee + status + a reassign control visible only to the current assignee.
+- `Requirements.tsx` — small "N open defects" badge next to the existing tracker/dev-status badges.
+- `Defects.tsx` — `source: 'requirement'` becomes a filterable value; no new tab required for v1 (the existing "Mine" view already works since it filters on `assigneeId` regardless of source).
+
+**Stretch, not v1 scope:** a new `escapeClass` value (e.g. `bad_requirement`) on *production* defects, settable during CR020 escape review, to distinguish "QA missed a real code bug" from "the requirement itself was wrong" — and ideally auto-suggesting raising a requirement defect against the culprit requirement when that class is picked. Deferred until requirement defects have shipped and there's a production incident to validate the linkage against.
+
+**Scope:** `artifacts/api-server/src/routes/defects.ts` (`POST /defects` source handling + auto-assign, self-handoff exception on `PATCH /defects/:id/assign`), `artifacts/qa-pulse/src/pages/RequirementDetail.tsx` (Requirement Defect card), `artifacts/qa-pulse/src/pages/Requirements.tsx` (badge), `artifacts/qa-pulse/src/pages/Defects.tsx` (source filter). No schema files, no migration.
+
+**Open decisions before build starts:** (1) confirm the raiser role list above is complete — should `hod_dev`/`hod_qa` be explicit rather than implicit-via-tier; (2) confirm the self-handoff exception on `PATCH /defects/:id/assign` is the right mechanism vs. a dedicated `PATCH /defects/:id/route` action kept separate from Lead-tier assignment semantics.
+
+---
+
+### CR032 — PM Dashboard: Multi-Cycle Phase Timeline
+**Status:** 📋 Planned
+**Depends on:** CR014 Part 3 (built the "Where did the time go" phase-breakdown report this CR rewrites the internals of), CR030 (`devAssignedAt`/`readyForQaAt` columns on `requirements`, currently unused by the dashboard), CR031 (Requirement Defect Workflow — the primary motivating case for a requirement bouncing through a second review cycle, though the same gap already exists today via CR023's plain reject→revise→resubmit).
+
+Today's phase-breakdown report (`GET /dashboard/milestone-phase-breakdown`) computes each named phase as a single `min(start) → max(end)` window: Requirements is `createdAt → approvedAt`, one value each, full stop. Two consequences follow directly from that:
+
+1. **"Develop" isn't represented at all.** The bar goes straight from Requirements to Gap-before-QA to QA testing — CR030's `devAssignedAt`/`readyForQaAt` columns exist but this dashboard never reads them.
+2. **A second review cycle doesn't add a segment — it silently corrupts the first one.** `PATCH /requirements/:id/review`'s `approve` branch sets `approvedAt = now()` unconditionally every time it fires (`requirements.ts:582-587`), including a resubmit-and-reapprove. Since the milestone aggregate takes the *max* `approvedAt` across all requirements, one late-discovered problem on a single requirement drags the whole milestone's "Requirements" bucket out to that later date — misattributing dev/QA time as slow requirements review. This already happens today via CR023's reject→revise→resubmit loop; CR031 adds a second, more frequent reason for the same cycle to occur.
+
+**Target:** a repeating sequence — Requirement → Develop → Testing → Requirement → Develop → Testing → ... — as many times as a given requirement actually cycled, reconstructed from data that already exists (no new tracking).
+
+---
+
+**Data model — no new tables or columns**
+
+Everything needed is already logged:
+- `requirement_submit` / `requirement_approve` / `requirement_reject` activity-log entries (`requirements.ts:596-604`) — ordered, one row per event, unlike the single overwritten `approvedAt` column.
+- `requirement_dev_assign` / `requirement_dev_start` / `requirement_dev_ready_for_qa` activity-log entries (CR030, `requirements.ts` dev-handoff endpoint).
+- `executionTestCasesTable.executedAt`, scoped per file type (`qa`/`uat`) — same source the dashboard already queries, just needs bucketing into whichever cycle's time window each timestamp falls in rather than one continuous min/max.
+
+**Backend changes — `artifacts/api-server/src/routes/dashboard.ts`**
+
+Replace the fixed-named-phase model (`buildPhaseBreakdown`, `computeMilestonePhases`, `computeRequirementBreakdowns`, lines 190-391) with an event-timeline reconstruction per requirement:
+1. Pull the requirement's ordered activity-log rows for the event types above, plus `createdAt`.
+2. Walk them in order, opening/closing segments: `createdAt` opens Requirement #1; the next `requirement_approve` closes it; the next `requirement_dev_assign` opens Develop #1; the next `requirement_dev_ready_for_qa` closes it and opens Testing #1 (bounded by execution timestamps in that window); a subsequent `requirement_submit` (a resubmission — reviewStatus was already `approved`) closes Testing #1 and opens Requirement #2; repeat for as many cycles as actually occurred.
+3. Return a flat ordered array (`{ key, cycle, label, start, end, days }`) instead of a fixed named object — `key` stays one of `requirements`/`develop`/`gap`/`qa`/`uat` for color-mapping purposes, `cycle` distinguishes the 1st occurrence from the 2nd/3rd for labeling ("Requirements (round 2)").
+4. Milestone-level aggregation: **sum a requirement's own per-cycle durations for a given phase key before averaging across requirements/milestones** (e.g. a requirement with two Requirements-phase cycles contributes their total, not two separate data points) — this answers "how much total time did requirements churn cost," which is the report's whole purpose, rather than diluting the average with cycle-count noise.
+
+**Frontend changes — `artifacts/qa-pulse/src/pages/PmDashboard.tsx`**
+
+`PhaseTimelineBar`/`phasesToSegments` (lines 225-280) already renders an arbitrary number of segments — it just needs to accept the new flat array shape instead of the fixed named object, plus a `develop` entry in `PHASE_COLOR` (lines 212-217). Repeated cycles of the same phase key can reuse that key's color (a repeating pattern reads more clearly than inventing new colors per cycle) with the round number available on hover/tooltip.
+
+**Stretch, not core scope:** labeling a Requirements-phase restart with *why* it reopened (CR031 requirement defect vs. a plain CR023 reject) by cross-referencing `defectLinksTable` for a `linkType: "requirement"` row created around that `requirement_submit` timestamp. Deferred — the phase timeline is useful without it, and the linkage is a nice-to-have, not required to fix the core distortion.
+
+**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (phase reconstruction rewrite), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (segment shape + Develop color). No schema files, no migration.
