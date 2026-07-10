@@ -180,21 +180,47 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
   res.json({ portfolio, projects: resultProjects });
 });
 
-// ─── Milestone phase breakdown ───────────────────────────────────────────────
-// "Where did the time go" report: Requirements -> Gap before QA -> QA testing
-// -> [Gap before UAT -> UAT], so a PM can see which phase actually consumed
-// the schedule instead of QA absorbing blame for delays upstream of testing.
+// ─── Milestone phase breakdown (CR032 — multi-cycle) ─────────────────────────
+// "Where did the time go" report. Each requirement's lifecycle is
+// reconstructed as a repeating Requirements -> Gap -> [Develop] -> QA/UAT
+// sequence from its ordered activity-log events plus execution timestamps —
+// not a single min/max window per fixed phase. Two problems that fixed-window
+// model had: (1) Develop was never represented even though CR030's dev-handoff
+// events exist; (2) a resubmit-and-reapprove cycle (CR023 reject/revise, or a
+// CR031 requirement defect raised after approval) silently dragged the single
+// "Requirements" window out to the later date instead of appearing as its own
+// segment — misattributing dev/QA time as slow requirements review.
 
-type PhaseBoundary = { start: string | null; end: string | null; days: number | null; ongoing: boolean };
+type PhaseKey = "requirements" | "gap" | "develop" | "qa" | "uat";
 
-function daysBetween(start: Date, end: Date): number {
-  return Math.round((end.getTime() - start.getTime()) / 86_400_000 * 10) / 10;
+const PHASE_LABELS: Record<PhaseKey, string> = {
+  requirements: "Requirements",
+  gap: "Gap",
+  develop: "Develop",
+  qa: "QA testing",
+  uat: "UAT",
+};
+
+interface PhaseSegment {
+  key: PhaseKey;
+  cycle: number;
+  label: string;
+  start: string;
+  end: string | null;
+  days: number;
+  ongoing: boolean;
 }
 
-function makePhase(start: Date | null, end: Date | null, now: Date): PhaseBoundary {
-  if (!start) return { start: null, end: null, days: null, ongoing: false };
+function daysBetween(start: Date, end: Date): number {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000 * 10) / 10);
+}
+
+function makeSegment(key: PhaseKey, cycle: number, start: Date, end: Date | null, now: Date): PhaseSegment {
   const effectiveEnd = end ?? now;
   return {
+    key,
+    cycle,
+    label: cycle > 1 ? `${PHASE_LABELS[key]} (round ${cycle})` : PHASE_LABELS[key],
     start: start.toISOString(),
     end: end ? end.toISOString() : null,
     days: daysBetween(start, effectiveEnd),
@@ -202,131 +228,214 @@ function makePhase(start: Date | null, end: Date | null, now: Date): PhaseBounda
   };
 }
 
-interface PhaseBreakdown {
-  requirements: PhaseBoundary;
-  gapBeforeQa: PhaseBoundary;
-  qa: PhaseBoundary;
-  gapBeforeUat: PhaseBoundary | null; // null when this milestone has no UAT file at all
-  uat: PhaseBoundary | null;
-}
+const RELEVANT_EVENT_TYPES = [
+  "requirement_submit",
+  "requirement_approve",
+  "requirement_dev_assign",
+  "requirement_dev_ready_for_qa",
+];
 
-const minOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b < a ? b : a)) : null);
-const maxOf = (arr: Date[]) => (arr.length ? arr.reduce((a, b) => (b > a ? b : a)) : null);
-
-// Shared core: given a resolved "requirements settled" boundary and a set of
-// execution timestamps, build the phase breakdown. Used both for the
-// milestone-wide aggregate (input = all requirements in the milestone) and
-// the per-requirement drill-down (input = exactly one requirement) — a
-// single requirement never has the "wait for every requirement to approve"
-// ambiguity the aggregate does, so this same function is unambiguous there.
-function buildPhaseBreakdown(
-  reqCreatedMin: Date | null,
-  reqApprovedMax: Date | null,
-  qaExecuted: Date[],
-  uatExecuted: Date[],
-  uatFileExists: boolean,
+// Look-ahead state machine, not a single reactive pass over events — at each
+// state we find the earliest of the possible next boundary events (which
+// differs per state) and jump straight to it. This is what makes the
+// "resubmit while still churning inside Requirements" case fall out for
+// free: requirement_submit only ends a cycle from the "gap" or "testing"
+// states below, never from "requirements" itself — only requirement_approve
+// closes that segment, no matter how many reject/revise/resubmit loops
+// (CR023) happened first. requirement_reject and requirement_dev_start are
+// intentionally not queried anywhere here — neither one moves a boundary.
+function computeTimelineFromEvents(
+  requirementCreatedAt: Date,
+  events: { type: string; createdAt: Date }[], // pre-filtered to RELEVANT_EVENT_TYPES, ascending
+  qaExecTimes: Date[], // ascending
+  uatExecTimes: Date[], // ascending
   milestoneCompletedAt: Date | null,
-): PhaseBreakdown | null {
-  if (!reqCreatedMin) return null;
+): PhaseSegment[] {
   const now = new Date();
+  const segments: PhaseSegment[] = [];
 
-  const qaExecutedMin = minOf(qaExecuted);
-  const qaExecutedMax = maxOf(qaExecuted);
-  const uatExecutedMin = minOf(uatExecuted);
+  const nextEventOfType = (types: string[], after: Date) =>
+    events.find((e) => types.includes(e.type) && e.createdAt > after) ?? null;
+  const nextExecAfter = (after: Date): Date | null => {
+    const all = [...qaExecTimes, ...uatExecTimes].filter((d) => d > after).sort((a, b) => a.getTime() - b.getTime());
+    return all[0] ?? null;
+  };
+  // Bounded by [windowStart, windowEnd) — emits a qa segment, then a uat
+  // segment, back to back, using whichever execution timestamps actually
+  // fall in this cycle's testing window.
+  const emitTesting = (windowStart: Date, windowEnd: Date | null, cycle: number) => {
+    const inWindow = (d: Date) => d >= windowStart && (windowEnd === null || d < windowEnd);
+    const qaTimes = qaExecTimes.filter(inWindow);
+    const uatTimes = uatExecTimes.filter(inWindow);
+    if (qaTimes.length === 0 && uatTimes.length === 0) return;
+    if (qaTimes.length > 0) {
+      const qaEnd = uatTimes.length > 0 ? uatTimes[0] : windowEnd;
+      segments.push(makeSegment("qa", cycle, qaTimes[0], qaEnd, now));
+    }
+    if (uatTimes.length > 0) {
+      segments.push(makeSegment("uat", cycle, uatTimes[0], windowEnd, now));
+    }
+  };
 
-  const requirementsPhase = makePhase(reqCreatedMin, reqApprovedMax, now);
-  const gapBeforeQaPhase = makePhase(reqApprovedMax, qaExecutedMin, now);
+  let cycle = 1;
+  let phaseStart = requirementCreatedAt;
+  let state: "requirements" | "gap" | "develop" | "testing" = "requirements";
+  let testingWindowStart: Date | null = null;
+  let guard = 0;
 
-  // QA's own bounded window when a UAT lane exists; otherwise QA absorbs
-  // everything up to milestone completion since there's no handoff to split on.
-  const qaPhaseEnd = uatFileExists ? qaExecutedMax : milestoneCompletedAt;
-  const qaPhase = makePhase(qaExecutedMin, qaPhaseEnd, now);
-
-  let gapBeforeUatPhase: PhaseBoundary | null = null;
-  let uatPhase: PhaseBoundary | null = null;
-  if (uatFileExists) {
-    gapBeforeUatPhase = makePhase(qaExecutedMax, uatExecutedMin, now);
-    uatPhase = makePhase(uatExecutedMin, milestoneCompletedAt, now);
+  while (guard++ < 100) {
+    if (state === "requirements") {
+      const approveEv = nextEventOfType(["requirement_approve"], phaseStart);
+      if (!approveEv) { segments.push(makeSegment("requirements", cycle, phaseStart, milestoneCompletedAt, now)); break; }
+      segments.push(makeSegment("requirements", cycle, phaseStart, approveEv.createdAt, now));
+      phaseStart = approveEv.createdAt;
+      state = "gap";
+    } else if (state === "gap") {
+      // Whichever comes first — a dev handoff (CR030), the first execution
+      // recorded (projects that skip dev handoff go straight from approval
+      // to QA, same as the old model's gapBeforeQa->qa boundary), or a
+      // resubmit before either of those ever happened — decides how the
+      // gap closes.
+      const devAssignEv = nextEventOfType(["requirement_dev_assign"], phaseStart);
+      const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      const execTime = nextExecAfter(phaseStart);
+      const candidates: { at: Date; kind: "dev" | "exec" | "submit" }[] = [];
+      if (devAssignEv) candidates.push({ at: devAssignEv.createdAt, kind: "dev" });
+      if (execTime) candidates.push({ at: execTime, kind: "exec" });
+      if (submitEv) candidates.push({ at: submitEv.createdAt, kind: "submit" });
+      if (candidates.length === 0) { segments.push(makeSegment("gap", cycle, phaseStart, milestoneCompletedAt, now)); break; }
+      candidates.sort((a, b) => a.at.getTime() - b.at.getTime());
+      const winner = candidates[0];
+      segments.push(makeSegment("gap", cycle, phaseStart, winner.at, now));
+      if (winner.kind === "submit") {
+        cycle += 1;
+        phaseStart = winner.at;
+        state = "requirements";
+      } else if (winner.kind === "dev") {
+        phaseStart = winner.at;
+        state = "develop";
+      } else {
+        phaseStart = winner.at;
+        testingWindowStart = winner.at;
+        state = "testing";
+      }
+    } else if (state === "develop") {
+      const readyEv = nextEventOfType(["requirement_dev_ready_for_qa"], phaseStart);
+      if (!readyEv) { segments.push(makeSegment("develop", cycle, phaseStart, milestoneCompletedAt, now)); break; }
+      segments.push(makeSegment("develop", cycle, phaseStart, readyEv.createdAt, now));
+      phaseStart = readyEv.createdAt;
+      testingWindowStart = readyEv.createdAt;
+      state = "testing";
+    } else {
+      const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      const windowEnd = submitEv ? submitEv.createdAt : milestoneCompletedAt;
+      emitTesting(testingWindowStart!, windowEnd, cycle);
+      if (!submitEv) break;
+      cycle += 1;
+      phaseStart = submitEv.createdAt;
+      state = "requirements";
+    }
   }
 
-  return { requirements: requirementsPhase, gapBeforeQa: gapBeforeQaPhase, qa: qaPhase, gapBeforeUat: gapBeforeUatPhase, uat: uatPhase };
+  return segments;
 }
 
-async function computeMilestonePhases(milestoneId: number, milestoneCompletedAt: Date | null): Promise<PhaseBreakdown | null> {
-  const reqs = await db
-    .select({ createdAt: requirementsTable.createdAt, approvedAt: requirementsTable.approvedAt })
-    .from(requirementsTable)
-    .where(eq(requirementsTable.milestoneId, milestoneId));
-  if (reqs.length === 0) return null;
-
-  const reqCreatedMin = reqs.reduce((min, r) => (!min || r.createdAt < min ? r.createdAt : min), null as Date | null);
-  const allApproved = reqs.every((r) => r.approvedAt !== null);
-  const reqApprovedMax = allApproved
-    ? reqs.reduce((max, r) => (!max || r.approvedAt! > max ? r.approvedAt! : max), null as Date | null)
-    : null;
-
-  const execRows = await db
-    .select({ fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
-    .from(executionTestCasesTable)
-    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
-    .where(eq(executionFilesTable.milestoneId, milestoneId));
-
-  const uatFileExists = (
-    await db.select({ id: executionFilesTable.id }).from(executionFilesTable)
-      .where(and(eq(executionFilesTable.milestoneId, milestoneId), eq(executionFilesTable.fileType, "uat")))
-  ).length > 0;
-
-  const qaExecuted = execRows.filter((r) => r.fileType === "qa" && r.executedAt).map((r) => r.executedAt!);
-  const uatExecuted = execRows.filter((r) => r.fileType === "uat" && r.executedAt).map((r) => r.executedAt!);
-
-  return buildPhaseBreakdown(reqCreatedMin, reqApprovedMax, qaExecuted, uatExecuted, uatFileExists, milestoneCompletedAt);
-}
-
-interface RequirementPhaseEntry {
+interface RequirementTimelineEntry {
   id: number;
   title: string;
   status: string;
-  phases: PhaseBreakdown | null;
+  timeline: PhaseSegment[];
 }
 
-async function computeRequirementBreakdowns(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementPhaseEntry[]> {
+// Batches activity-log and execution rows for the whole milestone in two
+// queries (not one per requirement) and partitions them in memory — same
+// no-N+1 discipline as the CR026 analytics endpoint.
+async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
   const reqs = await db
-    .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, createdAt: requirementsTable.createdAt, approvedAt: requirementsTable.approvedAt })
+    .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, createdAt: requirementsTable.createdAt })
     .from(requirementsTable)
     .where(eq(requirementsTable.milestoneId, milestoneId));
   if (reqs.length === 0) return [];
+  const reqIds = reqs.map((r) => r.id);
+
+  const activityRows = await db
+    .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+    .from(activityTable)
+    .where(and(eq(activityTable.entityType, "requirement"), inArray(activityTable.entityId, reqIds)))
+    .orderBy(activityTable.createdAt);
 
   const execRows = await db
     .select({ requirementId: executionTestCasesTable.requirementId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
     .from(executionTestCasesTable)
     .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
-    .where(eq(executionFilesTable.milestoneId, milestoneId));
+    .where(inArray(executionTestCasesTable.requirementId, reqIds));
 
-  const uatFileExists = (
-    await db.select({ id: executionFilesTable.id }).from(executionFilesTable)
-      .where(and(eq(executionFilesTable.milestoneId, milestoneId), eq(executionFilesTable.fileType, "uat")))
-  ).length > 0;
+  const activityByReq = new Map<number, { type: string; createdAt: Date }[]>();
+  for (const row of activityRows) {
+    if (row.entityId == null || !RELEVANT_EVENT_TYPES.includes(row.type)) continue;
+    if (!activityByReq.has(row.entityId)) activityByReq.set(row.entityId, []);
+    activityByReq.get(row.entityId)!.push({ type: row.type, createdAt: row.createdAt });
+  }
+  const execByReq = new Map<number, { qa: Date[]; uat: Date[] }>();
+  for (const row of execRows) {
+    if (row.requirementId == null || !row.executedAt) continue;
+    if (!execByReq.has(row.requirementId)) execByReq.set(row.requirementId, { qa: [], uat: [] });
+    const bucket = execByReq.get(row.requirementId)!;
+    if (row.fileType === "qa") bucket.qa.push(row.executedAt);
+    else if (row.fileType === "uat") bucket.uat.push(row.executedAt);
+  }
 
   return reqs.map((r) => {
-    const ownRows = execRows.filter((e) => e.requirementId === r.id);
-    const qaExecuted = ownRows.filter((e) => e.fileType === "qa" && e.executedAt).map((e) => e.executedAt!);
-    const uatExecuted = ownRows.filter((e) => e.fileType === "uat" && e.executedAt).map((e) => e.executedAt!);
-
-    const phases = buildPhaseBreakdown(r.createdAt, r.approvedAt, qaExecuted, uatExecuted, uatFileExists, milestoneCompletedAt);
+    const events = activityByReq.get(r.id) ?? [];
+    const exec = execByReq.get(r.id) ?? { qa: [], uat: [] };
+    const qaExecTimes = [...exec.qa].sort((a, b) => a.getTime() - b.getTime());
+    const uatExecTimes = [...exec.uat].sort((a, b) => a.getTime() - b.getTime());
+    const timeline = computeTimelineFromEvents(r.createdAt, events, qaExecTimes, uatExecTimes, milestoneCompletedAt);
 
     let status: string;
-    if (r.reviewStatus !== "approved") {
-      status = r.reviewStatus === "in_review" ? "In review" : r.reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Not yet approved";
-    } else if (uatExecuted.length > 0) {
+    const reviewStatus = (r as any).reviewStatus ?? "draft";
+    if (reviewStatus !== "approved") {
+      status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Not yet approved";
+    } else if (uatExecTimes.length > 0) {
       status = "Approved · in UAT";
-    } else if (qaExecuted.length > 0) {
+    } else if (qaExecTimes.length > 0) {
       status = "Approved · in QA testing";
+    } else if (r.devStatus) {
+      status = "Approved · in development";
     } else {
       status = "Approved · awaiting QA";
     }
 
-    return { id: r.id, title: r.title, status, phases };
+    return { id: r.id, title: r.title, status, timeline };
   });
+}
+
+interface PhaseSummaryEntry {
+  key: PhaseKey;
+  label: string;
+  avgDays: number | null;
+  ongoing: false;
+}
+
+// Sums a requirement's own per-cycle durations for a given phase key first,
+// then averages that per-requirement total across requirements — so a
+// requirement with two Requirements-phase cycles contributes their combined
+// total, not two diluting data points. This is what makes the milestone
+// number answer "how much total time did requirements churn cost."
+function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEntry[] {
+  const perReqTotals = entries.map((e) => {
+    const totals: Partial<Record<PhaseKey, number>> = {};
+    for (const seg of e.timeline) totals[seg.key] = (totals[seg.key] ?? 0) + seg.days;
+    return totals;
+  });
+  const avg = (vals: (number | undefined)[]) => {
+    const present = vals.filter((v): v is number => v !== undefined);
+    return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
+  };
+  const keys: PhaseKey[] = ["requirements", "gap", "develop", "qa", "uat"];
+  return keys
+    .map((key) => ({ key, label: PHASE_LABELS[key], avgDays: avg(perReqTotals.map((t) => t[key])), ongoing: false as const }))
+    .filter((entry) => entry.avgDays !== null);
 }
 
 router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<void> => {
@@ -343,13 +452,13 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     res.status(403).json({ error: "Access denied to this project" }); return;
   }
 
-  const phases = await computeMilestonePhases(milestoneId, milestone.completedAt);
-  if (!phases) {
-    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status }, phases: null, trend: null, requirements: [] });
+  const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
+  if (requirementTimelines.length === 0) {
+    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status }, phaseSummary: null, trend: null, requirements: [] });
     return;
   }
 
-  const requirements = await computeRequirementBreakdowns(milestoneId, milestone.completedAt);
+  const phaseSummary = summarizeTimelines(requirementTimelines);
 
   // Trend: last 5 completed milestones in the same project (this one included,
   // if it's itself completed), each given the same phase computation.
@@ -359,14 +468,16 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     .orderBy(desc(milestonesTable.targetDate))
     .limit(5);
 
-  const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; qaDays: number | null; uatDays: number | null }[] = [];
+  const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; developDays: number | null; qaDays: number | null; uatDays: number | null }[] = [];
   for (const m of completedMilestones) {
-    const p = await computeMilestonePhases(m.id, m.completedAt);
-    if (!p) continue;
+    const entries = await computeRequirementTimelines(m.id, m.completedAt);
+    if (entries.length === 0) continue;
+    const summary = summarizeTimelines(entries);
+    const byKey = Object.fromEntries(summary.map((s) => [s.key, s.avgDays])) as Partial<Record<PhaseKey, number | null>>;
     trendEntries.push({
       id: m.id, name: m.name,
-      requirementsDays: p.requirements.days, gapDays: p.gapBeforeQa.days,
-      qaDays: p.qa.days, uatDays: p.uat?.days ?? null,
+      requirementsDays: byKey.requirements ?? null, gapDays: byKey.gap ?? null,
+      developDays: byKey.develop ?? null, qaDays: byKey.qa ?? null, uatDays: byKey.uat ?? null,
     });
   }
 
@@ -377,16 +488,17 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 
   res.json({
     milestone: { id: milestone.id, name: milestone.name, status: milestone.status, targetDate: milestone.targetDate?.toISOString() ?? null },
-    phases,
+    phaseSummary,
     trend: {
       count: trendEntries.length,
       avgRequirementsDays: avg(trendEntries.map((e) => e.requirementsDays)),
       avgGapDays: avg(trendEntries.map((e) => e.gapDays)),
+      avgDevelopDays: avg(trendEntries.map((e) => e.developDays)),
       avgQaDays: avg(trendEntries.map((e) => e.qaDays)),
       avgUatDays: avg(trendEntries.map((e) => e.uatDays)),
       milestones: trendEntries,
     },
-    requirements,
+    requirements: requirementTimelines,
   });
 });
 

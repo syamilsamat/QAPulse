@@ -54,19 +54,37 @@ interface PmSummary {
   projects: ProjectSummary[];
 }
 
-interface PhaseBoundary {
-  start: string | null;
+// CR032 — a requirement's lifecycle as a repeating Requirements -> Gap ->
+// [Develop] -> QA/UAT sequence, one entry per cycle it actually went through
+// (cycle > 1 means it looped back through Requirements again — a CR023
+// reject/revise or a CR031 requirement defect raised after approval).
+interface PhaseSegment {
+  key: string;
+  cycle: number;
+  label: string;
+  start: string;
   end: string | null;
-  days: number | null;
+  days: number;
   ongoing: boolean;
 }
 
-interface PhaseBreakdown {
-  requirements: PhaseBoundary;
-  gapBeforeQa: PhaseBoundary;
-  qa: PhaseBoundary;
-  gapBeforeUat: PhaseBoundary | null;
-  uat: PhaseBoundary | null;
+// The milestone-level rollup: a requirement's own per-cycle days for a given
+// phase key are summed first, then averaged across requirements — so this is
+// not a literal timeline (no start/end), just a proportional stat per key.
+interface PhaseSummaryEntry {
+  key: string;
+  label: string;
+  avgDays: number | null;
+  ongoing: false;
+}
+
+// What PhaseTimelineBar actually needs to render a bar — both PhaseSegment
+// and a mapped PhaseSummaryEntry satisfy this.
+interface TimelineBarSegment {
+  key: string;
+  label: string;
+  days: number;
+  ongoing: boolean;
 }
 
 interface PhaseTrendEntry {
@@ -74,6 +92,7 @@ interface PhaseTrendEntry {
   name: string;
   requirementsDays: number | null;
   gapDays: number | null;
+  developDays: number | null;
   qaDays: number | null;
   uatDays: number | null;
 }
@@ -82,16 +101,17 @@ interface RequirementPhaseEntry {
   id: number;
   title: string;
   status: string;
-  phases: PhaseBreakdown | null;
+  timeline: PhaseSegment[];
 }
 
 interface PhaseReport {
   milestone: { id: number; name: string; status: string; targetDate?: string | null };
-  phases: PhaseBreakdown | null;
+  phaseSummary: PhaseSummaryEntry[] | null;
   trend: {
     count: number;
     avgRequirementsDays: number | null;
     avgGapDays: number | null;
+    avgDevelopDays: number | null;
     avgQaDays: number | null;
     avgUatDays: number | null;
     milestones: PhaseTrendEntry[];
@@ -205,44 +225,30 @@ function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
   );
 }
 
-// Requirements = purple, both gap phases = amber ("nobody owns this time,
-// someone should look into it"), QA and UAT are separate testing lanes with
-// separate owners so they get distinct (not alarming) colors — QA's bar
-// being short is the point, not something to visually flag as bad.
+// Requirements = purple, gap = amber ("nobody owns this time, someone should
+// look into it"), Develop is its own lane now that CR030's handoff events are
+// read, QA and UAT are separate testing lanes with separate owners so they
+// get distinct (not alarming) colors — QA's bar being short is the point,
+// not something to visually flag as bad.
 const PHASE_COLOR: Record<string, string> = {
   requirements: "bg-purple-500",
   gap: "bg-amber-400",
+  develop: "bg-indigo-500",
   qa: "bg-teal-500",
   uat: "bg-blue-500",
 };
 const PHASE_TEXT_COLOR: Record<string, string> = {
   requirements: "text-purple-700 dark:text-purple-400",
   gap: "text-amber-700 dark:text-amber-400",
+  develop: "text-indigo-700 dark:text-indigo-400",
   qa: "text-teal-700 dark:text-teal-400",
   uat: "text-blue-700 dark:text-blue-400",
 };
 
-interface PhaseSegment {
-  key: string;
-  label: string;
-  days: number;
-  ongoing: boolean;
-}
-
-function phasesToSegments(phases: PhaseBreakdown): PhaseSegment[] {
-  const segments: PhaseSegment[] = [];
-  if (phases.requirements.days !== null) segments.push({ key: "requirements", label: "Requirements", days: phases.requirements.days, ongoing: phases.requirements.ongoing });
-  if (phases.gapBeforeQa.days !== null) segments.push({ key: "gap", label: "Gap before QA", days: phases.gapBeforeQa.days, ongoing: phases.gapBeforeQa.ongoing });
-  if (phases.qa.days !== null) segments.push({ key: "qa", label: "QA testing", days: phases.qa.days, ongoing: phases.qa.ongoing });
-  if (phases.gapBeforeUat && phases.gapBeforeUat.days !== null && phases.gapBeforeUat.days > 0) {
-    segments.push({ key: "gap", label: "Gap before UAT", days: phases.gapBeforeUat.days, ongoing: phases.gapBeforeUat.ongoing });
-  }
-  if (phases.uat && phases.uat.days !== null) segments.push({ key: "uat", label: "UAT", days: phases.uat.days, ongoing: phases.uat.ongoing });
-  return segments;
-}
-
-function PhaseTimelineBar({ phases, compact = false, onClick }: { phases: PhaseBreakdown; compact?: boolean; onClick?: () => void }) {
-  const segments = phasesToSegments(phases);
+// segments already comes pre-shaped from the caller — either a requirement's
+// real per-cycle PhaseSegment[] timeline, or a milestone-level PhaseSummaryEntry[]
+// mapped down to this same minimal shape (see call sites below).
+function PhaseTimelineBar({ segments, compact = false, onClick }: { segments: TimelineBarSegment[]; compact?: boolean; onClick?: () => void }) {
   if (segments.length === 0) {
     return <p className="text-sm text-muted-foreground">Not enough data yet — no requirements linked.</p>;
   }
@@ -284,7 +290,7 @@ function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }
     return <p className="text-xs text-muted-foreground">No completed milestones yet for this project — trend needs at least one.</p>;
   }
   const maxTotal = Math.max(
-    ...trend.milestones.map((m) => (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0)),
+    ...trend.milestones.map((m) => (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.developDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0)),
     1,
   );
 
@@ -292,13 +298,14 @@ function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }
     <div>
       <div className="flex items-end gap-3 h-24 mb-2 px-1">
         {trend.milestones.map((m) => {
-          const total = (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0);
+          const total = (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.developDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0);
           const barHeight = Math.max((total / maxTotal) * 100, 4);
           return (
             <div key={m.id} className="flex flex-col items-center gap-1 flex-1 min-w-0">
               <div className="w-full rounded overflow-hidden flex flex-col-reverse" style={{ height: `${barHeight}%` }}>
                 {m.requirementsDays !== null && <div className="bg-purple-500" style={{ height: `${(m.requirementsDays / total) * 100}%` }} />}
                 {m.gapDays !== null && <div className="bg-amber-400" style={{ height: `${(m.gapDays / total) * 100}%` }} />}
+                {m.developDays !== null && <div className="bg-indigo-500" style={{ height: `${(m.developDays / total) * 100}%` }} />}
                 {m.qaDays !== null && <div className="bg-teal-500" style={{ height: `${(m.qaDays / total) * 100}%` }} />}
                 {m.uatDays !== null && <div className="bg-blue-500" style={{ height: `${(m.uatDays / total) * 100}%` }} />}
               </div>
@@ -316,6 +323,12 @@ function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }
           <p className="text-[11px] text-muted-foreground">Gap avg</p>
           <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.gap}`}>{trend.avgGapDays ?? "—"}d</p>
         </div>
+        {trend.avgDevelopDays !== null && (
+          <div>
+            <p className="text-[11px] text-muted-foreground">Develop avg</p>
+            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.develop}`}>{trend.avgDevelopDays}d</p>
+          </div>
+        )}
         <div>
           <p className="text-[11px] text-muted-foreground">QA avg</p>
           <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.qa}`}>{trend.avgQaDays ?? "—"}d</p>
@@ -368,7 +381,7 @@ function RequirementTimelineList({ requirements }: { requirements: RequirementPh
       {requirements.map((r) => (
         <div key={r.id}>
           <p className="text-xs font-medium mb-1">{r.title}</p>
-          {r.phases ? <PhaseTimelineBar phases={r.phases} compact /> : <p className="text-xs text-muted-foreground">No data yet.</p>}
+          {r.timeline.length > 0 ? <PhaseTimelineBar segments={r.timeline} compact /> : <p className="text-xs text-muted-foreground">No data yet.</p>}
         </div>
       ))}
     </div>
@@ -471,9 +484,12 @@ export default function PmDashboard() {
               <div className="h-16 flex items-center justify-center">
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
-            ) : phaseReport?.phases ? (
+            ) : phaseReport?.phaseSummary ? (
               <>
-                <PhaseTimelineBar phases={phaseReport.phases} onClick={() => setShowTimelines((v) => !v)} />
+                <PhaseTimelineBar
+                  segments={phaseReport.phaseSummary.map((s) => ({ key: s.key, label: s.label, days: s.avgDays ?? 0, ongoing: false }))}
+                  onClick={() => setShowTimelines((v) => !v)}
+                />
                 {phaseReport.requirements.length > 0 && (
                   <div>
                     <button

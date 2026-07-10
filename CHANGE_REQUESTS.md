@@ -39,7 +39,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR029](#cr029--defect-category-classification) | Defect Category Classification | ✅ Deployed | 2026-07-05 |
 | [CR030](#cr030--developer-workflow-requirement-handoff--defect-assignment) | Developer Workflow: Requirement Handoff & Defect Assignment | ✅ Deployed | 2026-07-05 |
 | [CR031](#cr031--requirement-defect-workflow) | Requirement Defect Workflow | ✅ Deployed | 2026-07-10 |
-| [CR032](#cr032--pm-dashboard-multi-cycle-phase-timeline) | PM Dashboard: Multi-Cycle Phase Timeline | 📋 Planned | — |
+| [CR032](#cr032--pm-dashboard-multi-cycle-phase-timeline) | PM Dashboard: Multi-Cycle Phase Timeline | ✅ Deployed | 2026-07-10 |
 
 ---
 
@@ -841,8 +841,10 @@ Today "something is wrong with this requirement" has exactly one outlet — flip
 ---
 
 ### CR032 — PM Dashboard: Multi-Cycle Phase Timeline
-**Status:** 📋 Planned
+**Status:** ✅ Deployed (2026-07-10)
 **Depends on:** CR014 Part 3 (built the "Where did the time go" phase-breakdown report this CR rewrites the internals of), CR030 (`devAssignedAt`/`readyForQaAt` columns on `requirements`, currently unused by the dashboard), CR031 (Requirement Defect Workflow — the primary motivating case for a requirement bouncing through a second review cycle, though the same gap already exists today via CR023's plain reject→revise→resubmit).
+
+**Deployment note:** Backend rewrite in `dashboard.ts` uses activity-log events directly (`requirement_submit`/`requirement_approve`/`requirement_dev_assign`/`requirement_dev_ready_for_qa`) rather than the `devAssignedAt`/`readyForQaAt` columns cited above — those columns get overwritten on every cycle the same way `approvedAt` does, so they can't distinguish cycle 1 from cycle 2; the activity log is the only append-only source of truth for multi-cycle reconstruction. Implemented as a look-ahead state machine per requirement (`computeTimelineFromEvents`) rather than a single reactive pass — at each state (`requirements`/`gap`/`develop`/`testing`) it finds the earliest of the possible next boundary events and jumps to it, which is what makes "resubmit while still churning inside Requirements" (CR023 reject/revise loop) correctly *not* open a new cycle, while "resubmit after Testing has opened" correctly does. Also handles milestones that never use the CR030 dev-handoff flow at all: the `gap` state closes on whichever comes first — a `requirement_dev_assign` event, or the first execution timestamp recorded (same boundary the old model used). Batches activity-log and execution rows in 2 queries for the whole milestone (not per-requirement) to avoid N+1, same discipline as CR026.
 
 Today's phase-breakdown report (`GET /dashboard/milestone-phase-breakdown`) computes each named phase as a single `min(start) → max(end)` window: Requirements is `createdAt → approvedAt`, one value each, full stop. Two consequences follow directly from that:
 
