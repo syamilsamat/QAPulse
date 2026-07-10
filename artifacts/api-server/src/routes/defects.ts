@@ -337,7 +337,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName, defectCategory,
       assigneeId, complexity, targetedStartDate, targetedCompletionDate,
-      source,
+      source, milestoneId,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -391,6 +391,36 @@ router.post("/defects", async (req, res): Promise<void> => {
     // apply to requirement defects at all (product taxonomy, not authoring).
     const categoryAllowed = !isRequirementDefect && defectCategory != null && (await canSetDefectCategory(ctx.role));
 
+    // Resolve the link target *before* inserting the defect, so milestoneId
+    // can be set directly on defectsTable at creation time — explicit param
+    // wins, then the linked requirement's own milestone, then the linked
+    // execution file's milestone. Direct storage instead of relying solely
+    // on the defect_links -> execution chain is what makes milestone-scoped
+    // analytics (e.g. the CR026 escape funnel) work regardless of how the
+    // defect came to exist.
+    let effectiveMilestoneId: number | null = milestoneId ? Number(milestoneId) : null;
+    let execRow: { libraryTcId: number | null; requirementId: number | null; executionFileMilestoneId: number | null } | undefined;
+    let linkedRequirementMilestoneId: number | null = null;
+    if (!isRequirementDefect && executionTcId != null) {
+      [execRow] = await db
+        .select({
+          libraryTcId: executionTestCasesTable.libraryTcId,
+          requirementId: executionTestCasesTable.requirementId,
+          executionFileMilestoneId: executionFilesTable.milestoneId,
+        })
+        .from(executionTestCasesTable)
+        .leftJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+        .where(eq(executionTestCasesTable.id, Number(executionTcId)));
+      if (effectiveMilestoneId == null) effectiveMilestoneId = execRow?.executionFileMilestoneId ?? null;
+    } else if (!isRequirementDefect && requirementId != null) {
+      const [linkedReq] = await db.select({ milestoneId: requirementsTable.milestoneId }).from(requirementsTable).where(eq(requirementsTable.id, Number(requirementId)));
+      linkedRequirementMilestoneId = linkedReq?.milestoneId ?? null;
+      if (effectiveMilestoneId == null) effectiveMilestoneId = linkedRequirementMilestoneId;
+    }
+    if (isRequirementDefect && effectiveMilestoneId == null) {
+      effectiveMilestoneId = requirementRow?.milestoneId ?? null;
+    }
+
     const actorId = actorFromReq(req);
     const [defect] = await db
       .insert(defectsTable)
@@ -403,6 +433,7 @@ router.post("/defects", async (req, res): Promise<void> => {
         severity: severity ?? "medium",
         module: module ?? null,
         projectId: effectiveProjectId,
+        milestoneId: effectiveMilestoneId,
         reporterId: actorId,
         source: isRequirementDefect ? "requirement" : "qa",
         foundIn: foundIn ?? (isRequirementDefect ? "Development" : "SIT"),
@@ -419,11 +450,6 @@ router.post("/defects", async (req, res): Promise<void> => {
     defect.defectCode = defectCode;
 
     if (executionTcId != null) {
-      // also capture the library TC / requirement behind the execution row
-      const [execRow] = await db
-        .select({ libraryTcId: executionTestCasesTable.libraryTcId, requirementId: executionTestCasesTable.requirementId })
-        .from(executionTestCasesTable)
-        .where(eq(executionTestCasesTable.id, Number(executionTcId)));
       await db.insert(defectLinksTable).values({
         defectId: defect.id,
         executionTcId: Number(executionTcId),
@@ -1057,6 +1083,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             severity: severityFromPriority(issue.priority?.name),
             module: module ?? issue.category?.name ?? null,
             projectId: projectId ?? null,
+            milestoneId: requirement.milestoneId ?? null,
             reporterId: actorId,
             redmineId: rid,
             syncStatus: "synced",

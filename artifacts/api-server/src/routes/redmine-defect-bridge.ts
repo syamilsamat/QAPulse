@@ -439,6 +439,7 @@ export async function pullTrackerIssues(apiKey: string, trackerName: string, mil
         syncStatus: "synced",
         source: route,
         foundIn: route === "production" ? "Production" : "SIT",
+        milestoneId,
         redmineCreatedAt: issue.created_on ? new Date(issue.created_on) : null,
         status: issue.status?.name ?? "Unknown",
         assigneeName: issue.assigned_to?.name ?? null,

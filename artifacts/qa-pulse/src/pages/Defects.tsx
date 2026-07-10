@@ -1056,6 +1056,25 @@ function NewDefectDialog({
     fetchRedmineProjectConfig(pid).then(setProjectConfig).catch(() => {});
   }, [form.redmineProjectId]);
 
+  // Requirement + milestone — a QA defect should link to both; picking a
+  // requirement suggests its own milestone by default (still overridable).
+  const { data: requirementsForLink = [] } = useQuery<{ id: number; title: string; milestoneId: number | null }[]>({
+    queryKey: ["requirements-for-defect-link", form.projectId],
+    enabled: open && !!form.projectId,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/requirements?projectId=${form.projectId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      return res.ok ? res.json() : [];
+    },
+  });
+  const { data: milestonesForLink = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", form.projectId],
+    enabled: open && !!form.projectId,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${form.projectId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      return res.ok ? res.json() : [];
+    },
+  });
+
   // Auto duplicate check
   useEffect(() => {
     if (!form.redmineProjectId || !form.title?.trim()) { setDuplicates([]); return; }
@@ -1206,12 +1225,40 @@ function NewDefectDialog({
             </div>
             <div className="space-y-1.5">
               <Label>QAPulse Project</Label>
-              <Select value={form.projectId ? String(form.projectId) : ""} onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined })}>
+              <Select
+                value={form.projectId ? String(form.projectId) : ""}
+                onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, requirementId: undefined, milestoneId: undefined })}
+              >
                 <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                 <SelectContent>
                   {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Requirement</Label>
+                <SearchableSelect
+                  value={form.requirementId ? String(form.requirementId) : ""}
+                  onValueChange={(v) => {
+                    const linked = requirementsForLink.find((r) => String(r.id) === v);
+                    setForm({ ...form, requirementId: v ? Number(v) : undefined, milestoneId: linked?.milestoneId ?? form.milestoneId });
+                  }}
+                  options={requirementsForLink.map((r) => ({ value: String(r.id), label: r.title }))}
+                  placeholder={form.projectId ? "Optional" : "Pick a project first"}
+                  searchPlaceholder="Search requirements..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Milestone</Label>
+                <SearchableSelect
+                  value={form.milestoneId ? String(form.milestoneId) : ""}
+                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : undefined })}
+                  options={milestonesForLink.map((m) => ({ value: String(m.id), label: m.name }))}
+                  placeholder={form.projectId ? "Optional" : "Pick a project first"}
+                  searchPlaceholder="Search milestones..."
+                />
+              </div>
             </div>
             <DefectCategoryField
               value={form.defectCategory ?? ""}

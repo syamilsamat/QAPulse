@@ -21,6 +21,11 @@ export const defectsTable = pgTable(
     status: text("status").notNull().default("New"),
     module: text("module"),
     projectId: integer("project_id"),
+    // Direct milestone link — unlike the transitive defect_links -> execution
+    // chain, this is set on every creation path (manual, fail-modal, Redmine
+    // pull, sync-from-redmine) so milestone-scoped analytics (e.g. the CR026
+    // escape funnel) work regardless of how the defect came to exist.
+    milestoneId: integer("milestone_id"),
     reporterId: integer("reporter_id"),
     assigneeName: text("assignee_name"), // cached from Redmine
     // CR030 — native dev assignment. assigneeId is the source of truth for

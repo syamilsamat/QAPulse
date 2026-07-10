@@ -840,7 +840,12 @@ router.get("/dashboard/qa-analytics", async (req, res): Promise<void> => {
   });
 
   // ── Panel 6: Escape Funnel by Milestone ──────────────────────────────────
-  // Resolve defect → milestone via defect_links → execution_test_cases → execution_files
+  // Resolve defect → milestone primarily from defects.milestoneId directly
+  // (set at creation time on every path since the milestone-traceability
+  // fix — manual QA defect, fail-modal, Redmine pull, sync-from-redmine).
+  // Falls back to the old defect_links → execution_test_cases →
+  // execution_files chain for defects created before that column existed,
+  // so historical data doesn't just disappear from the panel.
   const allLinks = await db.select({ defectId: defectLinksTable.defectId, executionTcId: defectLinksTable.executionTcId })
     .from(defectLinksTable);
 
@@ -853,7 +858,11 @@ router.get("/dashboard/qa-analytics", async (req, res): Promise<void> => {
   const fileToMilestoneId = new Map<number, number | null>(projectFiles.map(f => [f.id, f.milestoneId]));
 
   const defectToMilestone = new Map<number, number>();
+  for (const d of defects) {
+    if (d.milestoneId) defectToMilestone.set(d.id, d.milestoneId);
+  }
   for (const link of allLinks) {
+    if (defectToMilestone.has(link.defectId)) continue; // direct milestoneId already resolved it
     if (!link.executionTcId) continue;
     const fileId = etcToFileId.get(link.executionTcId);
     if (!fileId) continue;
