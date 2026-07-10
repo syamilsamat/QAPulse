@@ -33,8 +33,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR023](#cr023--requirement-detail--review-workflow-gaps) | Requirement Detail & Review Workflow Gaps | ✅ Deployed | 2026-07-05 |
 | [CR024](#cr024--tc-library-requirement-filter-includes-descendants) | TC Library: Requirement Filter Includes Descendants | ✅ Deployed | 2026-07-05 |
 | [CR025](#cr025--tc-library-milestone-filter) | TC Library: Milestone Filter | ✅ Deployed | 2026-07-05 |
-| [CR026](#cr026--qa-analytics-dashboard) | QA Analytics Dashboard | 📋 Planned | — |
-| [CR027](#cr027--notification-center-ux) | Notification Center UX | 📋 Planned | — |
+| [CR026](#cr026--qa-analytics-dashboard) | QA Analytics Dashboard | ✅ Deployed | 2026-07-05 |
+| [CR027](#cr027--notification-center-ux) | Notification Center UX | ✅ Deployed | 2026-07-10 |
 | [CR028](#cr028--client-demo-data-toolkit) | Client Demo Data Toolkit | ✅ Deployed | 2026-07-05 |
 | [CR029](#cr029--defect-category-classification) | Defect Category Classification | ✅ Deployed | 2026-07-05 |
 | [CR030](#cr030--developer-workflow-requirement-handoff--defect-assignment) | Developer Workflow: Requirement Handoff & Defect Assignment | ✅ Deployed | 2026-07-05 |
@@ -533,7 +533,7 @@ Requirements and Tasks both gained a Milestone filter earlier the same day; TC L
 ---
 
 ### CR026 — QA Analytics Dashboard
-**Status:** 📋 Planned
+**Status:** ✅ Deployed (2026-07-05)
 
 A dedicated analytics page giving QA leads and managers trend visibility across milestones. Today the Traceability Matrix answers "what is the current state?" — CR026 answers "how has quality moved over time, and where are the risks?". All source data already exists in the DB; this CR is pure query + visualisation work, no schema changes.
 
@@ -625,11 +625,20 @@ URL params: `?projectId=&milestoneId=&start=&end=` — persisted on filter chang
 ---
 
 ### CR027 — Notification Center UX
-**Status:** 📋 Planned
+**Status:** ✅ Deployed (2026-07-10)
 
 The notification infrastructure is already built: `notifications` table, three API routes (`GET /notifications`, `PATCH /:id/read`, `POST /mark-all-read`), `Inbox.tsx` page, and a bell badge in the nav with 30-second polling. What's missing is the quality layer: notifications don't route you anywhere when clicked, 30-second polling introduces meaningful latency for review-workflow events, and most business events fall through as the generic `info` type — making the Inbox a flat chronological dump rather than an actionable feed.
 
 **This CR does not add notification preferences** (opt-in/out per event type) — explicitly deferred as phase 2. Focus: make existing notifications useful through routing, latency, and type structure.
+
+**Deployment note (2026-07-10):** Parts 1, 3, 4, 5 (deep-link routing, SSE, bell dropdown, Inbox polish) shipped 2026-07-05 in commit `9c7c089` alongside CR026. Part 2's 9 structured types had frontend icon/color mappings from that same commit but were never actually emitted by any backend route — `requirements.ts` had zero `logNotification`/`notifyUser` calls for review events, `defects.ts` used old type names (`defect_created` instead of `defect_opened`, no `retest_needed`), `milestones.ts` had no `uat_milestone_ready`, and `requirement-comments.ts` both used the old `requirement_comment` type **and** called `notifyUser()` with a mismatched signature (object literal instead of positional args) — a live TypeScript error (`Expected 6-7 arguments, but got 2`) that silently broke comment notifications entirely. This session (2026-07-10) closed all of those gaps:
+- `_notify.ts`'s `notifyUser()` now wraps `logNotification()` internally, so all pre-existing call sites (tasks.ts, calendar.ts, test-execution.ts, etc.) get SSE delivery for free, not just new ones.
+- `requirements.ts`: added `review_request` fan-out to FA-review-tier users with project access on submit; renamed `requirement_approve`/`requirement_reject` → `review_approved`/`review_rejected`; renamed `requirement_revised` → `revision_required`.
+- `defects.ts`: added `defect_opened` (fan-out to project's `qa_lead`+) on both `POST /defects` and `POST /defects/register`; added `defect_status_changed` notification (previously activity-logged only, never notified) to reporter + linked TC's executor; added `retest_needed` to the TC's last executor when a defect moves to a "fixed" status while its linked execution row is still Failed.
+- `test-execution.ts`: added `uat_milestone_ready`, firing once per milestone (deduped via existing `notifications` rows, no schema change) when a UAT execution file's pass rate crosses 80%.
+- `requirement-comments.ts`: fixed the broken `notifyUser()` call and renamed the type to `comment_posted`.
+
+All 9 types are now genuinely wired end-to-end. No schema changes.
 
 ---
 

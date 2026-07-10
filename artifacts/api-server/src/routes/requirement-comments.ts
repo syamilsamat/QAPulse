@@ -54,12 +54,15 @@ router.post("/requirements/:id/comments", async (req, res): Promise<void> => {
     if (p.authorId !== ctx.userId) toNotify.add(p.authorId);
   }
   for (const uid of toNotify) {
-    notifyUser(uid, {
-      type: "requirement_comment",
-      message: `New comment on requirement "${req_.title}"`,
-      entityId: reqId,
-      entityType: "requirement",
-    }).catch(() => {});
+    notifyUser(
+      uid,
+      "New comment",
+      `New comment on requirement "${req_.title}"`,
+      "comment_posted",
+      "requirement",
+      reqId,
+      ctx.userId,
+    ).catch(() => {});
   }
 
   const [author] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId));

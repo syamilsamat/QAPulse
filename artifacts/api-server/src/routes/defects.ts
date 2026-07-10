@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, inArray, desc } from "drizzle-orm";
+import { eq, inArray, desc, ilike } from "drizzle-orm";
 import {
   db,
   defectsTable,
@@ -52,6 +52,57 @@ async function canAccessDefectProject(
 // Redmine statuses that mean "fix landed, QA should retest"
 const RETEST_STATUS = /fixed|resolved|ready/i;
 const CLOSED_STATUS = /closed|verified|rejected|cancelled/i;
+
+// CR027 — defect_opened: fan out to the project's qa_lead+ users so quality
+// leads see new defects without needing to check the Defects page.
+const QA_LEAD_ROLES = ["qa_lead", "hod_qa", "admin", "cto"];
+
+async function notifyQaLeads(defect: typeof defectsTable.$inferSelect, actorId: number | null): Promise<void> {
+  if (defect.projectId == null) return;
+  const candidates = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable);
+  const eligible = candidates.filter((u) => QA_LEAD_ROLES.includes(u.role));
+  const projectId = defect.projectId;
+  const recipients: number[] = [];
+  for (const u of eligible) {
+    if (await canAccessProject(u.id, u.role, projectId)) recipients.push(u.id);
+  }
+  await Promise.all(
+    recipients.map((uid) =>
+      notifyUser(
+        uid,
+        "New defect opened",
+        `${defect.defectCode ?? `Defect #${defect.id}`} "${defect.title}" was opened.`,
+        "defect_opened",
+        "defect",
+        defect.id,
+        actorId,
+      ).catch(() => {}),
+    ),
+  );
+}
+
+// The execution row (qaPic + result) behind a defect's "found_by" link, if any.
+async function findLinkedExecutionTc(defectId: number): Promise<{ qaPic: string | null; result: string | null } | null> {
+  const [link] = await db
+    .select({ executionTcId: defectLinksTable.executionTcId })
+    .from(defectLinksTable)
+    .where(eq(defectLinksTable.defectId, defectId));
+  if (!link?.executionTcId) return null;
+  const [row] = await db
+    .select({ qaPic: executionTestCasesTable.qaPic, result: executionTestCasesTable.result })
+    .from(executionTestCasesTable)
+    .where(eq(executionTestCasesTable.id, link.executionTcId));
+  return row ?? null;
+}
+
+// qaPic is stored as a free-text name, not a user id — best-effort resolve
+// against the users table (same convention used for Redmine-imported names
+// elsewhere in this codebase).
+async function resolveUserIdByName(name: string | null): Promise<number | null> {
+  if (!name?.trim()) return null;
+  const [user] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, name.trim()));
+  return user?.id ?? null;
+}
 
 // QAPulse-native defect category taxonomy — fixed set, independent of
 // whatever a given Redmine project's own "category" field happens to hold.
@@ -379,6 +430,8 @@ router.post("/defects", async (req, res): Promise<void> => {
       newValue: { title: defect.title, severity: defect.severity, foundIn: defect.foundIn, redmineId: push.redmineId ?? null },
     });
 
+    await notifyQaLeads(defect, actorId);
+
     res.status(201).json({ ...defect, syncOk: push.ok, syncError: push.ok ? null : push.error });
   } catch (err: any) {
     console.error("[POST /defects]", err);
@@ -469,6 +522,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
         entityType: "defect",
         newValue: { title: created.title, redmineId: String(redmineId), foundIn },
       });
+      await notifyQaLeads(created, actorId);
     }
 
     if (executionTcId != null && defect) {
@@ -611,15 +665,51 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       .where(eq(defectsTable.id, id))
       .returning();
 
+    const actorId = actorFromReq(req);
     await logActivity({
       type: "defect_status_changed",
       description: `Defect ${defect.defectCode ?? `#${id}`} status changed from ${oldStatus} to ${statusRow.name}${defect.redmineId ? ` (synced to Redmine #${defect.redmineId})` : " (local only — not yet in Redmine)"}`,
-      userId: actorFromReq(req),
+      userId: actorId,
       entityId: id,
       entityType: "defect",
       oldValue: { status: oldStatus },
       newValue: { status: statusRow.name },
     });
+
+    // CR027 — defect_status_changed to the reporter + the linked TC's last
+    // executor, and retest_needed to that same executor when the new status
+    // reads as "fixed" but the execution row is still sitting on Failed.
+    const linkedExec = await findLinkedExecutionTc(id);
+    const executorId = linkedExec ? await resolveUserIdByName(linkedExec.qaPic) : null;
+
+    const statusRecipients = new Set<number>();
+    if (defect.reporterId) statusRecipients.add(defect.reporterId);
+    if (executorId) statusRecipients.add(executorId);
+    await Promise.all(
+      [...statusRecipients].map((uid) =>
+        notifyUser(
+          uid,
+          "Defect status changed",
+          `${defect.defectCode ?? `Defect #${id}`} moved from ${oldStatus} to ${statusRow.name}.`,
+          "defect_status_changed",
+          "defect",
+          id,
+          actorId,
+        ).catch(() => {}),
+      ),
+    );
+
+    if (executorId && RETEST_STATUS.test(statusRow.name) && linkedExec?.result && /fail/i.test(linkedExec.result)) {
+      await notifyUser(
+        executorId,
+        "Retest needed",
+        `${defect.defectCode ?? `Defect #${id}`} is now ${statusRow.name} — the linked test case is still marked Failed and needs a retest.`,
+        "retest_needed",
+        "defect",
+        id,
+        actorId,
+      ).catch(() => {});
+    }
 
     res.json(updated);
   } catch (err: any) {

@@ -430,7 +430,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
             uid,
             "Requirement revised",
             `"${requirement.title}" was revised — linked test cases/tasks need re-review.`,
-            "requirement_revised",
+            "revision_required",
             "requirement",
             requirement.id,
             actorId,
@@ -603,6 +603,23 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
     newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
   });
 
+  // Notify on submit: every FA-review-tier user with access to this project,
+  // excluding the submitter — mirrors the review-queue's own eligibility check.
+  if (action === "submit" && req_.projectId != null) {
+    const reviewers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable);
+    const eligible = reviewers.filter((u) => u.id !== ctx.userId && FA_REVIEW_ROLES.includes(u.role));
+    const projectId = req_.projectId;
+    const recipients: number[] = [];
+    for (const u of eligible) {
+      if (await canAccessProject(u.id, u.role, projectId)) recipients.push(u.id);
+    }
+    await Promise.all(
+      recipients.map((uid) =>
+        notifyUser(uid, "Requirement submitted for review", `"${req_.title}" is waiting on your review.`, "review_request", "requirement", id, ctx.userId).catch(() => {})
+      )
+    );
+  }
+
   // Notify on approve: author + assignee ("routine progress", no PM needed)
   // Notify on reject: author + assignee + the milestone's PM ("needs visibility because of a stall")
   if (action === "approve" || action === "reject") {
@@ -610,6 +627,7 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
     const msg = action === "approve"
       ? `Your requirement "${req_.title}" has been approved.`
       : `Requirement "${req_.title}" was rejected${comment ? `: ${comment}` : ""}.`;
+    const notifType = action === "approve" ? "review_approved" : "review_rejected";
 
     const recipients = new Set<number>();
     if (createdBy) recipients.add(createdBy);
@@ -622,7 +640,7 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
 
     await Promise.all(
       [...recipients].map((uid) =>
-        notifyUser(uid, title, msg, `requirement_${action}`, "requirement", id, ctx.userId).catch(() => {})
+        notifyUser(uid, title, msg, notifType, "requirement", id, ctx.userId).catch(() => {})
       )
     );
   }

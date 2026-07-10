@@ -12,6 +12,8 @@ import {
   usersTable,
   requirementsTable,
   testCasesTable,
+  milestonesTable,
+  notificationsTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
@@ -1119,6 +1121,41 @@ router.post(
             notExecuted: row.notExec,
           })),
         );
+      }
+
+      // CR027 — uat_milestone_ready: a UAT file's overall pass rate crossing
+      // 80% is the signal a PM is waiting on. Deduped against the notifications
+      // table itself (no schema change) so it fires once per milestone, not on
+      // every save once the file is already sitting above threshold.
+      if (file.fileType === "uat" && file.milestoneId) {
+        const totalAll = aggregated.reduce((sum, r) => sum + r.total, 0);
+        const totalPassed = aggregated.reduce((sum, r) => sum + r.passed, 0);
+        if (totalAll > 0 && totalPassed / totalAll >= 0.8) {
+          const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, file.milestoneId));
+          if (milestone?.createdBy) {
+            const [already] = await db
+              .select({ id: notificationsTable.id })
+              .from(notificationsTable)
+              .where(
+                and(
+                  eq(notificationsTable.type, "uat_milestone_ready"),
+                  eq(notificationsTable.entityType, "milestone"),
+                  eq(notificationsTable.entityId, file.milestoneId),
+                ),
+              );
+            if (!already) {
+              await notifyUser(
+                milestone.createdBy,
+                "UAT milestone ready",
+                `"${milestone.name}" has reached ${Math.round((totalPassed / totalAll) * 100)}% UAT pass rate.`,
+                "uat_milestone_ready",
+                "milestone",
+                file.milestoneId,
+                changedBy,
+              ).catch(() => {});
+            }
+          }
+        }
       }
 
       // 6. Trigger live update to dashboard
