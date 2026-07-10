@@ -181,6 +181,27 @@ export default function Requirements() {
     queryFn: () => listRequirements(),
   });
 
+  // CR031 — open requirement-defect count per requirement, for the list badge
+  const { data: reqDefectCounts = {} } = useQuery<Record<number, number>>({
+    queryKey: ["requirement-defect-counts"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/defects?source=requirement&view=open`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return {};
+      const all: any[] = await res.json();
+      const counts: Record<number, number> = {};
+      for (const d of all) {
+        for (const l of d.links ?? []) {
+          if (l.linkType === "requirement" && l.requirementId != null) {
+            counts[l.requirementId] = (counts[l.requirementId] ?? 0) + 1;
+          }
+        }
+      }
+      return counts;
+    },
+  });
+
   const { data: projects = [] } = useQuery({
     queryKey: getListProjectsQueryKey(),
     queryFn: () => listProjects(),
@@ -651,6 +672,17 @@ export default function Requirements() {
     );
   };
 
+  // CR031 — open requirement-defect count badge
+  const reqDefectBadge = (requirementId: number) => {
+    const count = reqDefectCounts[requirementId] ?? 0;
+    if (count === 0) return null;
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800">
+        {count} open defect{count !== 1 ? "s" : ""}
+      </span>
+    );
+  };
+
   const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, milestoneId?: number, isRoot: boolean = true) => {
     const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -1040,6 +1072,7 @@ export default function Requirements() {
                                 )}
                                 {trackerBadge(r.tracker)}
                                 {devStatusBadge(r.devStatus)}
+                                {reqDefectBadge(r.id)}
                                 {(r.tcCount ?? 0) > 0 && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
@@ -1073,6 +1106,7 @@ export default function Requirements() {
                                   )}
                                   {trackerBadge(r.tracker)}
                                 {devStatusBadge(r.devStatus)}
+                                {reqDefectBadge(r.id)}
                                   {(r.tcCount ?? 0) > 0 && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}

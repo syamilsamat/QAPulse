@@ -108,6 +108,12 @@ export default function RequirementDetail() {
   const [aiLoading, setAiLoading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [devLoading, setDevLoading] = useState(false);
+  // CR031 — requirement defect raise/reassign
+  const [raiseDefectOpen, setRaiseDefectOpen] = useState(false);
+  const [defectTitle, setDefectTitle] = useState("");
+  const [defectDescription, setDefectDescription] = useState("");
+  const [defectSeverity, setDefectSeverity] = useState("medium");
+  const [defectLoading, setDefectLoading] = useState(false);
 
   const { data: req, isLoading } = useQuery<any>({
     queryKey: ["requirement", reqId],
@@ -188,6 +194,33 @@ export default function RequirementDetail() {
       if (!res.ok) return [];
       const all: { id: number; name: string; role: string }[] = await res.json();
       return all.filter((u) => ["dev_member", "dev_lead", "hod_dev"].includes(u.role));
+    },
+  });
+
+  // CR031 — requirement defects raised against this requirement
+  const { data: reqDefects = [], refetch: refetchReqDefects } = useQuery<any[]>({
+    queryKey: ["requirement-defects", reqId],
+    enabled: !!reqId,
+    queryFn: async () => {
+      const res = await api(`/defects?source=requirement`, token);
+      if (!res.ok) return [];
+      const all: any[] = await res.json();
+      return all.filter((d) =>
+        d.links?.some((l: any) => l.linkType === "requirement" && l.requirementId === reqId),
+      );
+    },
+  });
+
+  // CR031 — dev+QA users a requirement defect can be handed off to
+  const { data: handoffUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["users-handoff"],
+    queryFn: async () => {
+      const res = await api(`/users`, token);
+      if (!res.ok) return [];
+      const all: { id: number; name: string; role: string }[] = await res.json();
+      return all.filter((u) =>
+        ["dev_member", "dev_lead", "hod_dev", "qa_member", "qa_lead", "hod_qa"].includes(u.role),
+      );
     },
   });
 
@@ -319,6 +352,55 @@ export default function RequirementDetail() {
     }
   };
 
+  // CR031 — raise a requirement defect (auto-routes to the requirement author)
+  const raiseDefect = async () => {
+    if (!reqId || !defectTitle.trim()) return;
+    setDefectLoading(true);
+    try {
+      const res = await api(`/defects`, token, {
+        method: "POST",
+        body: JSON.stringify({
+          source: "requirement",
+          requirementId: reqId,
+          title: defectTitle.trim(),
+          description: defectDescription.trim() || undefined,
+          severity: defectSeverity,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Failed to raise defect" }); return; }
+      toast({ title: `${data.defectCode ?? "Defect"} raised against this requirement` });
+      setRaiseDefectOpen(false);
+      setDefectTitle("");
+      setDefectDescription("");
+      setDefectSeverity("medium");
+      refetchReqDefects();
+    } catch {
+      toast({ variant: "destructive", title: "Failed to raise defect" });
+    } finally {
+      setDefectLoading(false);
+    }
+  };
+
+  // CR031 — the current assignee hands the defect off to dev or QA
+  const reassignDefect = async (defectId: number, assigneeId: number) => {
+    setDefectLoading(true);
+    try {
+      const res = await api(`/defects/${defectId}/assign`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ assigneeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Reassignment failed" }); return; }
+      toast({ title: "Defect reassigned" });
+      refetchReqDefects();
+    } catch {
+      toast({ variant: "destructive", title: "Reassignment failed" });
+    } finally {
+      setDefectLoading(false);
+    }
+  };
+
   const runAiAnalysis = async () => {
     if (!reqId || !req) return;
     setAiLoading(true);
@@ -346,6 +428,16 @@ export default function RequirementDetail() {
   const FA_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_ROLES.includes(role);
   const isAuthor = req?.createdBy === user?.id;
+
+  // CR031 — who may raise a requirement defect (must mirror
+  // REQUIREMENT_DEFECT_RAISER_ROLES in artifacts/api-server/src/routes/defects.ts)
+  const REQUIREMENT_DEFECT_RAISER_ROLES = [
+    "dev_member", "dev_lead", "hod_dev",
+    "qa_member", "qa_lead", "hod_qa",
+    "admin", "cto",
+  ];
+  const canRaiseDefect = REQUIREMENT_DEFECT_RAISER_ROLES.includes(role) && req?.reviewStatus === "approved";
+  const openReqDefects = reqDefects.filter((d) => !/closed|verified|rejected|cancelled/i.test(d.status));
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64 text-muted-foreground">Loading…</div>
@@ -846,6 +938,96 @@ export default function RequirementDetail() {
 
                   {req.readyForQaAt && (
                     <p className="text-xs text-green-600">Ready for QA since {format(new Date(req.readyForQaAt), "dd MMM yyyy")}</p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Requirement Defect — flag a problem with this requirement after approval (CR031) */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                Requirement Defect
+                {openReqDefects.length > 0 && (
+                  <Badge variant="outline" className="text-[10px]">{openReqDefects.length} open</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {req.reviewStatus !== "approved" ? (
+                <p className="text-xs text-muted-foreground">Available once this requirement is approved.</p>
+              ) : (
+                <>
+                  {reqDefects.length === 0 && !raiseDefectOpen && (
+                    <p className="text-xs text-muted-foreground">No defects raised against this requirement.</p>
+                  )}
+
+                  {reqDefects.map((d) => (
+                    <div key={d.id} className="rounded-md border px-3 py-2 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-semibold">{d.defectCode ?? `DEF-${d.id}`}</span>
+                        <Badge variant="outline" className="text-[10px]">{d.status}</Badge>
+                      </div>
+                      <p className="text-xs">{d.title}</p>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">Assignee</span>
+                        <span className="font-medium">{d.assigneeName ?? "Unassigned"}</span>
+                      </div>
+                      {d.assigneeId === user?.id && (
+                        <Select
+                          value=""
+                          onValueChange={(v) => reassignDefect(d.id, Number(v))}
+                          disabled={defectLoading}
+                        >
+                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Hand off to…" /></SelectTrigger>
+                          <SelectContent>
+                            {handoffUsers.map((u) => (
+                              <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  ))}
+
+                  {canRaiseDefect && (
+                    raiseDefectOpen ? (
+                      <div className="space-y-2 rounded-md border px-3 py-2">
+                        <input
+                          className="w-full text-xs border rounded px-2 py-1.5"
+                          placeholder="What's wrong with this requirement?"
+                          value={defectTitle}
+                          onChange={(e) => setDefectTitle(e.target.value)}
+                        />
+                        <Textarea
+                          className="text-xs min-h-16"
+                          placeholder="Details (optional)"
+                          value={defectDescription}
+                          onChange={(e) => setDefectDescription(e.target.value)}
+                        />
+                        <Select value={defectSeverity} onValueChange={setDefectSeverity}>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {["critical", "high", "medium", "low"].map((s) => (
+                              <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex gap-2 justify-end">
+                          <Button size="sm" variant="outline" disabled={defectLoading} onClick={() => setRaiseDefectOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button size="sm" disabled={defectLoading || !defectTitle.trim()} onClick={raiseDefect}>
+                            Raise Defect
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setRaiseDefectOpen(true)}>
+                        Raise Requirement Defect
+                      </Button>
+                    )
                   )}
                 </>
               )}

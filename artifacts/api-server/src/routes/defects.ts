@@ -57,6 +57,13 @@ const CLOSED_STATUS = /closed|verified|rejected|cancelled/i;
 // leads see new defects without needing to check the Defects page.
 const QA_LEAD_ROLES = ["qa_lead", "hod_qa", "admin", "cto"];
 
+// CR031 — who may raise a defect against an already-approved requirement.
+const REQUIREMENT_DEFECT_RAISER_ROLES = [
+  "dev_member", "dev_lead", "hod_dev",
+  "qa_member", "qa_lead", "hod_qa",
+  "admin", "cto",
+];
+
 async function notifyQaLeads(defect: typeof defectsTable.$inferSelect, actorId: number | null): Promise<void> {
   if (defect.projectId == null) return;
   const candidates = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable);
@@ -294,6 +301,7 @@ router.get("/defects/metrics", async (req, res): Promise<void> => {
     const qa = defects.filter((d: any) => d.source === "qa");
     const prod = defects.filter((d: any) => d.source === "production");
     const others = defects.filter((d: any) => d.source === "other");
+    const reqDefects = defects.filter((d: any) => d.source === "requirement");
     const open = (list: typeof defects) => list.filter((d: any) => !CLOSED_STATUS.test(d.status)).length;
     const retest = defects.filter((d: any) => RETEST_STATUS.test(d.status) && !CLOSED_STATUS.test(d.status)).length;
     const total = defects.length;
@@ -303,9 +311,11 @@ router.get("/defects/metrics", async (req, res): Promise<void> => {
       qaCount: qa.length,
       prodCount: prod.length,
       othersCount: others.length,
+      reqCount: reqDefects.length,
       openQa: open(qa),
       openProd: open(prod),
       openOthers: open(others),
+      openReq: open(reqDefects),
       otherTrackers: new Set(others.map((d: any) => d.tracker).filter(Boolean)).size,
       awaitingRetest: retest,
       leakageRate: total > 0 ? Math.round((prod.length / total) * 100) : 0,
@@ -327,6 +337,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName, defectCategory,
       assigneeId, complexity, targetedStartDate, targetedCompletionDate,
+      source,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -337,16 +348,48 @@ router.post("/defects", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid defectCategory" });
       return;
     }
+    const isRequirementDefect = source === "requirement";
+    if (source != null && !["qa", "requirement"].includes(source)) {
+      res.status(400).json({ error: "source must be 'qa' or 'requirement'" });
+      return;
+    }
 
     const ctx = requireAuth(req, res);
     if (!ctx) return;
-    if (projectId != null && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
+
+    // CR031 — a requirement defect auto-routes to the requirement's own
+    // author; everything else about the flow (severity, description) is
+    // caller-supplied same as a normal defect.
+    let requirementRow: typeof requirementsTable.$inferSelect | undefined;
+    if (isRequirementDefect) {
+      if (!REQUIREMENT_DEFECT_RAISER_ROLES.includes(ctx.role)) {
+        res.status(403).json({ error: "Not authorized to raise a requirement defect" });
+        return;
+      }
+      if (requirementId == null) {
+        res.status(400).json({ error: "requirementId is required for a requirement defect" });
+        return;
+      }
+      [requirementRow] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, Number(requirementId)));
+      if (!requirementRow) {
+        res.status(404).json({ error: "Requirement not found" });
+        return;
+      }
+      if (((requirementRow as any).reviewStatus ?? "draft") !== "approved") {
+        res.status(400).json({ error: "Requirement defects can only be raised against an approved requirement" });
+        return;
+      }
+    }
+
+    const effectiveProjectId = projectId ?? requirementRow?.projectId ?? null;
+    if (effectiveProjectId != null && !(await canAccessProject(ctx.userId, ctx.role, Number(effectiveProjectId)))) {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
     // Category is Lead-tier+ only — a lower-tier caller's value is silently
-    // dropped rather than failing the whole defect creation over it.
-    const categoryAllowed = defectCategory != null && (await canSetDefectCategory(ctx.role));
+    // dropped rather than failing the whole defect creation over it. Doesn't
+    // apply to requirement defects at all (product taxonomy, not authoring).
+    const categoryAllowed = !isRequirementDefect && defectCategory != null && (await canSetDefectCategory(ctx.role));
 
     const actorId = actorFromReq(req);
     const [defect] = await db
@@ -359,12 +402,15 @@ router.post("/defects", async (req, res): Promise<void> => {
         actualResult: actualResult ?? null,
         severity: severity ?? "medium",
         module: module ?? null,
-        projectId: projectId ?? null,
+        projectId: effectiveProjectId,
         reporterId: actorId,
-        source: "qa",
-        foundIn: foundIn ?? "SIT",
+        source: isRequirementDefect ? "requirement" : "qa",
+        foundIn: foundIn ?? (isRequirementDefect ? "Development" : "SIT"),
         defectCategory: categoryAllowed ? defectCategory : null,
-        syncStatus: "pending",
+        syncStatus: isRequirementDefect ? "not_applicable" : "pending",
+        assigneeId: isRequirementDefect ? requirementRow!.createdBy : null,
+        assigneeName: isRequirementDefect ? (await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, requirementRow!.createdBy!)))[0]?.name ?? null : null,
+        assigneeAssignedAt: isRequirementDefect ? new Date() : null,
       })
       .returning();
 
@@ -391,6 +437,35 @@ router.post("/defects", async (req, res): Promise<void> => {
         requirementId: Number(requirementId),
         linkType: "requirement",
       });
+    }
+
+    // Requirement defects are QAPulse-native only — no Redmine tracker
+    // equivalent, so skip the write-through entirely (consistent with the
+    // standing principle that Redmine integrations stay thin/disposable).
+    if (isRequirementDefect) {
+      await logActivity({
+        type: "defect_created",
+        description: `Requirement defect ${defectCode} "${defect.title}" raised against "${requirementRow!.title}" — routed to ${defect.assigneeName ?? "the requirement author"}`,
+        userId: actorId,
+        entityId: defect.id,
+        entityType: "defect",
+        newValue: { title: defect.title, severity: defect.severity, foundIn: defect.foundIn, requirementId: Number(requirementId) },
+      });
+
+      if (defect.assigneeId) {
+        await notifyUser(
+          defect.assigneeId,
+          "Requirement defect assigned to you",
+          `${defectCode} "${defect.title}" was raised against your requirement "${requirementRow!.title}".`,
+          "defect_opened",
+          "defect",
+          defect.id,
+          actorId,
+        ).catch(() => {});
+      }
+
+      res.status(201).json({ ...defect, syncOk: true, syncError: null });
+      return;
     }
 
     // Write-through push — never blocks defect creation (pending-sync fallback)
@@ -726,11 +801,6 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    if ((await getRoleTierRank(ctx.role)) < 2) {
-      res.status(403).json({ error: "Lead-tier role required to assign a defect" });
-      return;
-    }
-
     const id = Number(req.params.id);
     const rawAssigneeId = req.body?.assigneeId;
     const assigneeId = rawAssigneeId == null ? null : Number(rawAssigneeId);
@@ -744,6 +814,17 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
       res.status(404).json({ error: "Defect not found" });
       return;
     }
+
+    // CR031 — a requirement defect's current assignee can hand it off to dev
+    // or QA without a Lead gate (it was auto-routed to them, not discretionarily
+    // assigned; mirrors CR030's precedent of letting the dev assignee self-drive
+    // start/ready_for_qa). Everyone else falls back to the normal Lead-tier gate.
+    const isSelfHandoff = defect.source === "requirement" && defect.assigneeId === ctx.userId;
+    if (!isSelfHandoff && (await getRoleTierRank(ctx.role)) < 2) {
+      res.status(403).json({ error: "Lead-tier role required to assign a defect" });
+      return;
+    }
+
     if (!(await canAccessDefectProject(ctx, defect.projectId))) {
       res.status(403).json({ error: "Access denied to this project" });
       return;

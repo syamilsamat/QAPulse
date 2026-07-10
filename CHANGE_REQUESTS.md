@@ -38,7 +38,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR028](#cr028--client-demo-data-toolkit) | Client Demo Data Toolkit | ✅ Deployed | 2026-07-05 |
 | [CR029](#cr029--defect-category-classification) | Defect Category Classification | ✅ Deployed | 2026-07-05 |
 | [CR030](#cr030--developer-workflow-requirement-handoff--defect-assignment) | Developer Workflow: Requirement Handoff & Defect Assignment | ✅ Deployed | 2026-07-05 |
-| [CR031](#cr031--requirement-defect-workflow) | Requirement Defect Workflow | 📋 Planned | — |
+| [CR031](#cr031--requirement-defect-workflow) | Requirement Defect Workflow | ✅ Deployed | 2026-07-10 |
 | [CR032](#cr032--pm-dashboard-multi-cycle-phase-timeline) | PM Dashboard: Multi-Cycle Phase Timeline | 📋 Planned | — |
 
 ---
@@ -788,7 +788,9 @@ Redmine assignment was previously read-only cache (`defects.assigneeName`, a pla
 ---
 
 ### CR031 — Requirement Defect Workflow
-**Status:** 📋 Planned
+**Status:** ✅ Deployed (2026-07-10)
+
+**Deployment note:** Both open decisions flagged below were resolved during build: (1) raiser roles — went with the explicit list (`dev_member`/`dev_lead`/`hod_dev`/`qa_member`/`qa_lead`/`hod_qa`/`admin`/`cto`), matching the codebase's existing explicit-list convention (e.g. `FA_REVIEW_ROLES`) rather than a dynamic tier check; (2) self-handoff — implemented as an exception on the existing `PATCH /defects/:id/assign` (not a separate `/route` endpoint), consistent with CR030's precedent. One deviation from the original "no new tab required" plan: `Defects.tsx`'s three tabs are hard-mapped 1:1 to `source` values (`tab` is sent directly as the `source` query param), so a `source: 'requirement'` defect would have been invisible under any existing tab. Added a 4th "Requirement defects" tab instead — same low-risk pattern already used to add the "Others" tab.
 
 Today "something is wrong with this requirement" has exactly one outlet — flipping `reviewStatus` to `rejected` during the CR023 FA review — and that outlet closes the moment a requirement is approved. Once CR030's dev handoff starts (Lead assigns dev → dev works → Ready for QA), a developer or QA engineer who discovers the requirement itself is ambiguous, contradictory, or wrong has nothing structured to raise: no severity, no assignee, no record on the Defects page, no metric. CR031 gives requirement-authoring problems the same first-class treatment code defects already have, by routing them through the existing `defects` entity instead of inventing a parallel one.
 

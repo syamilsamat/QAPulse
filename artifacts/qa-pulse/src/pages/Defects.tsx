@@ -112,9 +112,11 @@ interface Metrics {
   qaCount: number;
   prodCount: number;
   othersCount: number;
+  reqCount: number;
   openQa: number;
   openProd: number;
   openOthers: number;
+  openReq: number;
   otherTrackers: number;
   awaitingRetest: number;
   leakageRate: number;
@@ -167,7 +169,7 @@ export default function Defects() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
-  const [tab, setTab] = useState<"qa" | "production" | "other">("qa");
+  const [tab, setTab] = useState<"qa" | "production" | "other" | "requirement">("qa");
   const [view, setView] = useState<string>("open");
   const [filterProject, setFilterProject] = useState("all");
   const [filterSeverity, setFilterSeverity] = useState("all");
@@ -194,6 +196,19 @@ export default function Defects() {
       if (!res.ok) return [];
       const all: { id: number; name: string; role: string }[] = await res.json();
       return all.filter((u) => DEV_ROLES.has(u.role));
+    },
+  });
+
+  // CR031 — dev+QA users a requirement defect can be handed off to
+  const { data: handoffUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["users-handoff"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/users`, { headers: authHeaders });
+      if (!res.ok) return [];
+      const all: { id: number; name: string; role: string }[] = await res.json();
+      return all.filter((u) =>
+        DEV_ROLES.has(u.role) || ["qa_member", "qa_lead", "hod_qa"].includes(u.role),
+      );
     },
   });
 
@@ -401,12 +416,17 @@ export default function Defects() {
             { label: "Escapes analyzed", value: `${metrics?.escapesAnalyzed ?? 0} / ${metrics?.prodCount ?? 0}`, cls: "text-amber-600" },
             { label: "Regression TCs added", value: metrics?.regressionTcs ?? 0, cls: "text-green-600" },
           ]
-        : [
-            { label: "Other issues", value: metrics?.othersCount ?? 0, cls: "" },
-            { label: "Open", value: metrics?.openOthers ?? 0, cls: "text-red-600" },
-            { label: "Awaiting retest", value: metrics?.awaitingRetest ?? 0, cls: "text-amber-600" },
-            { label: "Distinct trackers", value: metrics?.otherTrackers ?? 0, cls: "text-blue-600" },
-          ];
+        : tab === "other"
+          ? [
+              { label: "Other issues", value: metrics?.othersCount ?? 0, cls: "" },
+              { label: "Open", value: metrics?.openOthers ?? 0, cls: "text-red-600" },
+              { label: "Awaiting retest", value: metrics?.awaitingRetest ?? 0, cls: "text-amber-600" },
+              { label: "Distinct trackers", value: metrics?.otherTrackers ?? 0, cls: "text-blue-600" },
+            ]
+          : [
+              { label: "Requirement defects", value: metrics?.reqCount ?? 0, cls: "" },
+              { label: "Open", value: metrics?.openReq ?? 0, cls: "text-red-600" },
+            ];
 
   return (
     <div className="space-y-6">
@@ -456,6 +476,12 @@ export default function Defects() {
           onClick={() => { setTab("other"); setView("all"); setExpanded(new Set()); }}
         >
           Others
+        </button>
+        <button
+          className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "requirement" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setTab("requirement"); setView("all"); setExpanded(new Set()); }}
+        >
+          Requirement defects
         </button>
       </div>
 
@@ -547,7 +573,9 @@ export default function Defects() {
               ? "No production defects yet — pick the incident tracker above and pull from Redmine."
               : tab === "other"
                 ? "No other-tracker issues yet — pull a tracker above or use Sync from Redmine."
-                : "No defects match the selected filters."}
+                : tab === "requirement"
+                  ? "No requirement defects raised yet — these come from the \"Raise Requirement Defect\" button on a requirement's detail page."
+                  : "No defects match the selected filters."}
           </p>
         </div>
       ) : (
@@ -569,6 +597,10 @@ export default function Defects() {
                       >
                         RM #{d.redmineId} <ExternalLink className="w-2.5 h-2.5" />
                       </a>
+                    ) : d.source === "requirement" ? (
+                      <Badge variant="outline" className="text-[10px]" title="Requirement defects are QAPulse-native — no Redmine tracker equivalent">
+                        QAPulse-native
+                      </Badge>
                     ) : (
                       <Badge
                         className="bg-amber-100 text-amber-700 hover:bg-amber-200 text-[10px] cursor-pointer gap-1"
@@ -630,28 +662,37 @@ export default function Defects() {
                     </span>
                   </div>
 
-                  {/* Dev assignment — Lead-tier+ only (CR030) */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Assignee:</span>
-                    {canAssign ? (
-                      <Select
-                        value={d.assigneeId ? String(d.assigneeId) : "unassigned"}
-                        onValueChange={(v) => handleAssign(d, v === "unassigned" ? null : Number(v))}
-                      >
-                        <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
-                          <SelectValue placeholder="Unassigned" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">Unassigned</SelectItem>
-                          {devUsers.map((u) => (
-                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="text-xs">{d.assigneeName ?? "Unassigned"}</span>
-                    )}
-                  </div>
+                  {/* Dev assignment — Lead-tier+ only (CR030), plus a CR031 self-handoff
+                      exception: a requirement defect's current assignee can hand it off
+                      to dev or QA without a Lead gate. */}
+                  {(() => {
+                    const isSelfHandoff = d.source === "requirement" && d.assigneeId === user?.id;
+                    const canEditAssignee = canAssign || isSelfHandoff;
+                    const assignOptions = d.source === "requirement" ? handoffUsers : devUsers;
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-muted-foreground">Assignee:</span>
+                        {canEditAssignee ? (
+                          <Select
+                            value={d.assigneeId ? String(d.assigneeId) : "unassigned"}
+                            onValueChange={(v) => handleAssign(d, v === "unassigned" ? null : Number(v))}
+                          >
+                            <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                              <SelectValue placeholder="Unassigned" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                              {assignOptions.map((u) => (
+                                <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs">{d.assigneeName ?? "Unassigned"}</span>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Linked TCs */}
                   {d.links.length === 0 ? (
