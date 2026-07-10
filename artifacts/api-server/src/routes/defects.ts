@@ -910,8 +910,9 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
       res.status(400).json({ error: "trackerName is required" });
       return;
     }
+    const milestoneId = req.body?.milestoneId ? Number(req.body.milestoneId) : null;
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-    const result = await pullTrackerIssues(apiKey, trackerName);
+    const result = await pullTrackerIssues(apiKey, trackerName, milestoneId);
     if (result.error) {
       res.status(502).json(result);
       return;
@@ -1017,6 +1018,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
               description: issue.description ?? null,
               module: module ?? requirement.module,
               projectId: projectId ?? requirement.projectId,
+              milestoneId: requirement.milestoneId ?? null,
               parentId: anchorReqId,
               redmineTicketId: rid,
               tracker: issueTracker || null,

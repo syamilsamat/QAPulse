@@ -830,6 +830,7 @@ export async function syncRedmineTicket(
   targetProjectId: number | undefined,
   parentId: number | undefined,
   trackerFilter: string | undefined,
+  milestoneId: number | undefined,
   apiKey: string,
   importingUserId: number,
   isRoot = true,
@@ -862,6 +863,9 @@ export async function syncRedmineTicket(
     projectId: targetProjectId ?? null,
     parentId: parentId ?? null,
   };
+  // Only touch milestoneId when explicitly provided — undefined means "the
+  // caller has no milestone context," not "clear the requirement's milestone."
+  if (milestoneId !== undefined) mappedData.milestoneId = milestoneId;
 
   let savedId: number | undefined;
   if (existing) {
@@ -887,7 +891,7 @@ export async function syncRedmineTicket(
 
   if (issue.children && Array.isArray(issue.children)) {
     for (const child of issue.children) {
-      await syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, apiKey, importingUserId, false);
+      await syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, milestoneId, apiKey, importingUserId, false);
     }
   }
 
@@ -895,12 +899,12 @@ export async function syncRedmineTicket(
 }
 
 // POST /requirements/import-redmine
-// Body: { ticketId, module, projectId, trackerFilter? }
+// Body: { ticketId, module, projectId, trackerFilter?, milestoneId? }
 router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { ticketId, module, projectId, trackerFilter } = req.body;
+  const { ticketId, module, projectId, trackerFilter, milestoneId } = req.body;
   if (!ticketId || !module) {
     res.status(400).json({ error: "ticketId and module are required" });
     return;
@@ -914,6 +918,7 @@ router.post("/requirements/import-redmine", async (req, res): Promise<void> => {
       projectId ? Number(projectId) : undefined,
       undefined,
       trackerFilter || undefined,
+      milestoneId ? Number(milestoneId) : undefined,
       apiKey,
       ctx.userId,
     );
@@ -938,6 +943,7 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const ticketId = String(req.body?.ticketId ?? "").trim();
+  const milestoneId = req.body?.milestoneId ? Number(req.body.milestoneId) : null;
   if (!ticketId) {
     res.status(400).json({ error: "ticketId is required" });
     return;
@@ -973,6 +979,7 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
         priority: PRIORITY_MAP[issue.priority?.name?.toLowerCase()] ?? "normal",
         redmineTicketId: ticketId,
         tracker: issue.tracker?.name ?? "Task",
+        milestoneId,
         status: "draft",
         createdBy,
       })

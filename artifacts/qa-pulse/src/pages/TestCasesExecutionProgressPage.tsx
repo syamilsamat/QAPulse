@@ -1524,6 +1524,10 @@ export default function TestCasesExecutionProgressPage() {
   const [requirementsList, setRequirementsList] = useState<RequirementOption[]>([]);
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
+  // This file's own milestone, so an Excel import that auto-creates a
+  // requirement (via resolveRequirementByRedmine) can inherit it instead of
+  // leaving the new requirement milestone-less.
+  const [currentFileMilestoneId, setCurrentFileMilestoneId] = useState<number | null>(null);
 
   // Dirty tracking — only changed rows go out on auto-save
   const [dirtyRowIds, setDirtyRowIds] = useState<Set<string | number>>(new Set());
@@ -1713,6 +1717,7 @@ export default function TestCasesExecutionProgressPage() {
         setLibraryTestCases(libraryTcs || []);
         const testCases = result?.testCases || [];
         const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
+        setCurrentFileMilestoneId(file?.milestoneId ?? null);
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
@@ -2754,7 +2759,7 @@ export default function TestCasesExecutionProgressPage() {
         if (uniqueTicketIds.length > 0) {
           const resolved = await Promise.all(
             uniqueTicketIds.map((tid) =>
-              resolveRequirementByRedmine(tid)
+              resolveRequirementByRedmine(tid, currentFileMilestoneId)
                 .catch(() => null)
                 .then((req) => [tid, req] as const),
             ),

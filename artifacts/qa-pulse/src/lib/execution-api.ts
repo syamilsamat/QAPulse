@@ -23,6 +23,7 @@ export interface ExecutionFile {
   tracker?: string | null;
   projectId?: number | null;
   requirementId?: number | null;
+  milestoneId?: number | null;
   updatedAt: string;
 }
 
@@ -129,11 +130,12 @@ export const fetchRequirements = async (): Promise<RequirementOption[]> => {
 // Redmine and creates one. Returns null if the ticket can't be resolved.
 export const resolveRequirementByRedmine = async (
   ticketId: string,
+  milestoneId?: number | null,
 ): Promise<RequirementOption | null> => {
   const res = await fetch("/api/requirements/resolve-redmine", {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ ticketId }),
+    body: JSON.stringify({ ticketId, milestoneId: milestoneId ?? undefined }),
   });
   if (!res.ok) return null;
   const data = await res.json();

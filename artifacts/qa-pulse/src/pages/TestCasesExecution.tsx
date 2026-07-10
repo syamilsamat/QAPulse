@@ -869,6 +869,7 @@ export default function TestCasesExecution() {
               module: selectedModuleNames || "",
               projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
               trackerFilter: fileForm.tracker || undefined,
+              milestoneId: fileForm.milestoneId ? Number(fileForm.milestoneId) : undefined,
             }),
           });
           if (importRes.ok) {

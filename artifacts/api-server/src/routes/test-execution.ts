@@ -410,6 +410,13 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
                   .from(executionFilesTable).where(eq(executionFilesTable.id, id))
                 ).at(0)?.selectedModules ?? null;
 
+            // The execution file already carries its own milestone (required
+            // at creation) — the auto-imported requirement inherits it too.
+            const effectiveMilestoneId = (
+              await db.select({ milestoneId: executionFilesTable.milestoneId })
+                .from(executionFilesTable).where(eq(executionFilesTable.id, id))
+            ).at(0)?.milestoneId ?? undefined;
+
             const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
             const savedId = await syncRedmineTicket(
               effectiveTicketId,
@@ -417,6 +424,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
               effectiveProjectId ?? undefined,
               undefined,
               tracker || undefined,
+              effectiveMilestoneId ?? undefined,
               apiKey,
               importingUserId,
             );
@@ -598,6 +606,7 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
           Number(targetProjectId),
           undefined,
           trackerFilter || undefined,
+          sourceFile.milestoneId ?? undefined,
           apiKey,
           importingUserId,
         );

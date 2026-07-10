@@ -178,6 +178,7 @@ export default function Defects() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [pullTracker, setPullTracker] = useState<string>(() => localStorage.getItem("qa_pulse_prod_tracker") ?? "");
+  const [pullMilestone, setPullMilestone] = useState<string>("");
   const [newOpen, setNewOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
 
@@ -186,6 +187,19 @@ export default function Defects() {
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
     queryFn: async () => (await fetch(`${getApiUrl()}/projects`, { headers: authHeaders })).json(),
+  });
+
+  // Milestone for the pull-tracker bar — a pulled tracker occasionally
+  // includes a User Story / Change Request issue, which becomes a
+  // requirement; this is where it inherits a milestone from since a flat
+  // tracker-wide pull has no single anchor requirement to inherit from.
+  const { data: milestonesForPull = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${filterProject}`, { headers: authHeaders });
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
   });
 
   const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
@@ -297,7 +311,7 @@ export default function Defects() {
       const res = await fetch(`${getApiUrl()}/defects/pull-production`, {
         method: "POST",
         headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ trackerName: pullTracker }),
+        body: JSON.stringify({ trackerName: pullTracker, milestoneId: pullMilestone ? Number(pullMilestone) : undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Pull failed");
@@ -525,7 +539,7 @@ export default function Defects() {
           </button>
         ))}
         <div className="flex-1" />
-        <Select value={filterProject} onValueChange={setFilterProject}>
+        <Select value={filterProject} onValueChange={(v) => { setFilterProject(v); setPullMilestone(""); }}>
           <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All projects" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All projects</SelectItem>
@@ -547,13 +561,22 @@ export default function Defects() {
 
       {/* Pull sync bar — each pulled issue routes by its own tracker */}
       {(tab === "production" || tab === "other") && (
-        <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+        <div className="flex items-center gap-2 flex-wrap rounded-md border bg-muted/30 px-3 py-2">
           <CloudUpload className="w-4 h-4 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">Pull issues from Redmine tracker:</span>
           <Select value={pullTracker} onValueChange={setPullTracker}>
             <SelectTrigger className="w-44 h-7 text-xs"><SelectValue placeholder="Select tracker..." /></SelectTrigger>
             <SelectContent>
               {trackers.map((t) => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">Milestone (for any requirements pulled):</span>
+          <Select value={pullMilestone} onValueChange={setPullMilestone} disabled={filterProject === "all"}>
+            <SelectTrigger className="w-44 h-7 text-xs">
+              <SelectValue placeholder={filterProject === "all" ? "Pick a project filter first" : "None"} />
+            </SelectTrigger>
+            <SelectContent>
+              {milestonesForPull.map((m) => <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={handlePull} disabled={isPulling}>

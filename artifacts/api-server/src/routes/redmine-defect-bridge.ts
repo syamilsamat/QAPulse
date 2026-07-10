@@ -365,7 +365,7 @@ export interface PullResultCounts {
   error?: string;
 }
 
-export async function pullTrackerIssues(apiKey: string, trackerName: string): Promise<PullResultCounts> {
+export async function pullTrackerIssues(apiKey: string, trackerName: string, milestoneId: number | null = null): Promise<PullResultCounts> {
   const empty: PullResultCounts = { imported: 0, ignored: 0, qaDefects: 0, prodDefects: 0, others: 0, requirements: 0 };
   const trackers = await db.select().from(trackersTable);
   const tracker = trackers.find((t: any) => t.name.toLowerCase() === trackerName.toLowerCase());
@@ -409,6 +409,7 @@ export async function pullTrackerIssues(apiKey: string, trackerName: string): Pr
         redmineTicketId: rid,
         tracker: issueTracker,
         status: "open",
+        milestoneId,
         redmineCreatedAt: issue.created_on ? new Date(issue.created_on) : null,
       });
       counts.imported++;
