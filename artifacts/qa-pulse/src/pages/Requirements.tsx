@@ -288,8 +288,33 @@ export default function Requirements() {
     if (milestoneIdParam) setFilterMilestone(milestoneIdParam);
   }, [searchString]);
 
+  // ?edit=<id> deep link (from RequirementDetail's Edit button) — auto-opens
+  // the edit dialog once the requirement is loaded. Waits for requirements
+  // to load since openEdit needs the full row, not just the id.
+  const hasAppliedEditDeepLink = useRef(false);
+  useEffect(() => {
+    if (hasAppliedEditDeepLink.current || requirements.length === 0) return;
+    const params = new URLSearchParams(searchString);
+    const editIdParam = params.get("edit");
+    if (!editIdParam) return;
+    const target = requirements.find((r: any) => String(r.id) === editIdParam);
+    if (!target) return;
+    hasAppliedEditDeepLink.current = true;
+    openEdit(target);
+  }, [searchString, requirements]);
+
   const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_REVIEW_ROLES.includes(user?.role ?? "");
+
+  // Edit permission mirrors the backend check in PATCH /requirements/:id:
+  // author/assignee always can; a Redmine-imported requirement can also be
+  // edited by any FA-tier reviewer, since its "author" is often just a
+  // Redmine-resolved fallback rather than a real accountable QAPulse user.
+  const canEditReq = (r: any) =>
+    ["admin", "cto"].includes(user?.role ?? "") ||
+    r.createdBy === user?.id ||
+    r.assigneeId === user?.id ||
+    (!!r.redmineTicketId && canReview);
 
   const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({
     queryKey: ["review-queue"],
@@ -1168,9 +1193,11 @@ export default function Requirements() {
                                   <Download className="w-4 h-4 mr-2" /> Sync from Redmine
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem onClick={() => openEdit(r)}>
-                                <Pencil className="w-4 h-4 mr-2" /> Edit
-                              </DropdownMenuItem>
+                              {canEditReq(r) && (
+                                <DropdownMenuItem onClick={() => openEdit(r)}>
+                                  <Pencil className="w-4 h-4 mr-2" /> Edit
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem className="text-destructive" onClick={() => confirmDelete([r.id])}>
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                               </DropdownMenuItem>

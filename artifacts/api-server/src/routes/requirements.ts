@@ -363,13 +363,19 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
 
   const [before] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
 
-  // CR023p1.3 — a rejected requirement can only be edited by its author/assignee (revise & resubmit)
-  if (before && ((before as any).reviewStatus ?? "draft") === "rejected") {
+  // Edit permission: the author/assignee always can. A Redmine-imported
+  // requirement's "author" is often a Redmine-resolved fallback rather than
+  // a real accountable QAPulse user, so any FA-tier reviewer may edit it too
+  // — otherwise a whole team could be locked out of a requirement nobody
+  // among them technically "owns." Native (non-Redmine) requirements stay
+  // author/assignee-only.
+  if (before) {
     const ctx = getAuthContext(req);
     const privileged = !!ctx && ["admin", "cto"].includes(ctx.role);
     const isOwner = !!ctx && (ctx.userId === (before as any).createdBy || ctx.userId === before.assigneeId);
-    if (!ctx || (!privileged && !isOwner)) {
-      res.status(403).json({ error: "Only the author or assignee may edit a rejected requirement" });
+    const isFaOnRedmineSourced = !!ctx && !!before.redmineTicketId && FA_REVIEW_ROLES.includes(ctx.role);
+    if (!ctx || (!privileged && !isOwner && !isFaOnRedmineSourced)) {
+      res.status(403).json({ error: "Only the author/assignee may edit this requirement" });
       return;
     }
   }

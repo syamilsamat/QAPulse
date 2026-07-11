@@ -22,6 +22,7 @@ import {
   Download,
   Trash2,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -429,6 +430,16 @@ export default function RequirementDetail() {
   const canReview = FA_ROLES.includes(role);
   const isAuthor = req?.createdBy === user?.id;
 
+  // Edit permission mirrors PATCH /requirements/:id on the backend:
+  // author/assignee always can; a Redmine-imported requirement can also be
+  // edited by any FA-tier reviewer, since its "author" is often just a
+  // Redmine-resolved fallback rather than a real accountable QAPulse user.
+  const canEditReq =
+    ["admin", "cto"].includes(role) ||
+    isAuthor ||
+    req?.assigneeId === user?.id ||
+    (!!req?.redmineTicketId && canReview);
+
   // CR031 — who may raise a requirement defect (must mirror
   // REQUIREMENT_DEFECT_RAISER_ROLES in artifacts/api-server/src/routes/defects.ts)
   const REQUIREMENT_DEFECT_RAISER_ROLES = [
@@ -495,6 +506,12 @@ export default function RequirementDetail() {
 
         {/* Review actions + AI Analyzer (available to author and approver alike) */}
         <div className="flex gap-2 flex-wrap shrink-0">
+          {canEditReq && (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`/requirements?edit=${req.id}`)}>
+              <Pencil className="w-3.5 h-3.5" />
+              Edit
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="gap-1.5" disabled={aiLoading} onClick={runAiAnalysis}>
             <Brain className="w-3.5 h-3.5" />
             {aiLoading ? "Analyzing…" : "Analyze with AI"}
