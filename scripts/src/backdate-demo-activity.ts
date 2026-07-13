@@ -1,11 +1,17 @@
 /**
- * Backdates requirements.createdAt AND activity-log timestamps for seeded
- * demo requirements so the PM Dashboard phase timeline shows realistic bars.
+ * Backdates requirements.createdAt, activity-log timestamps, AND execution
+ * test case executedAt values so the PM Dashboard phase timeline shows all
+ * phase bars (Requirements → Gap → Develop → QA testing).
  *
- * The root issue: requirements.createdAt stays at "now" (when seed ran), but
- * the phase state machine starts from requirementCreatedAt. If activity events
- * are backdated but the requirement itself isn't, the approve event appears to
- * pre-date creation → 0d segment. Both must move together.
+ * What was missing:
+ *  1. requirements.createdAt was still "now" — making all backdated events
+ *     appear to pre-date the requirement's creation → 0d segments
+ *  2. requirement_dev_assign and requirement_dev_ready_for_qa activity events
+ *     were never created by the seed (seed only does review flows) — without
+ *     these the machine stays in "gap" forever, never reaching "develop" or
+ *     "testing"
+ *  3. execution_test_cases.executedAt was null — even when the machine reaches
+ *     "testing", emitTesting() returns nothing if there are no exec timestamps
  *
  * Run AFTER seed-demo-data.ts:
  *   cd /home/runner/workspace/scripts
@@ -14,7 +20,7 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { eq, inArray, and } from "drizzle-orm";
+import { eq, inArray, and, isNull, isNotNull } from "drizzle-orm";
 import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { loadManifest } from "./seed-client.js";
 
@@ -23,6 +29,8 @@ import { loadManifest } from "./seed-client.js";
 const activityTable = pgTable("activity", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(),
+  description: text("description").notNull(),
+  userId: integer("user_id"),
   entityId: integer("entity_id"),
   entityType: text("entity_type"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -41,24 +49,37 @@ const milestonesTable = pgTable("milestones", {
   name: text("name").notNull(),
 });
 
+const executionFilesTable = pgTable("execution_files", {
+  id: serial("id").primaryKey(),
+  fileType: text("file_type").notNull().default("qa"),
+});
+
+const executionTestCasesTable = pgTable("execution_test_cases", {
+  id: serial("id").primaryKey(),
+  executionFileId: integer("execution_file_id").notNull(),
+  requirementId: integer("requirement_id"),
+  result: text("result"),
+  executedAt: timestamp("executed_at"),
+});
+
 // ── Timeline config per milestone ─────────────────────────────────────────
-// All values are "days before today". Sequence must be strictly decreasing
-// (further back = larger number):
-//   created > submitted > approved > devAssigned > readyForQA
+// All values are "days before today". Must be strictly decreasing down each
+// column — created > submit > approve > devAssign > readyForQA > qaExec
 
 const ANCHORS: Record<string, {
-  created: number;     // requirement created
-  submit: number;      // submitted for review
-  approve: number;     // approved
-  gap: number;         // days from approve until dev assigned
-  devDuration: number; // days from dev-assign until ready-for-qa
+  created: number;
+  submit: number;
+  approve: number;
+  devAssign: number;
+  readyForQA: number;
+  qaExec: number;    // when first QA execution result was recorded
 }> = {
-  "Sprint 12":   { created: 60, submit: 57, approve: 54, gap: 3, devDuration: 14 },
-  "Sprint 13":   { created: 28, submit: 26, approve: 24, gap: 2, devDuration: 8  },
-  "Sprint 14":   { created: 12, submit: 10, approve: 8,  gap: 2, devDuration: 4  },
-  "Release 2.0": { created: 48, submit: 45, approve: 42, gap: 3, devDuration: 18 },
-  "Release 2.1": { created: 14, submit: 12, approve: 10, gap: 2, devDuration: 5  },
-  "UAT Phase 1": { created: 80, submit: 77, approve: 73, gap: 4, devDuration: 20 },
+  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 51, readyForQA: 37, qaExec: 34 },
+  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 22, readyForQA: 14, qaExec: 11 },
+  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 6,  readyForQA: 2,  qaExec: 1  },
+  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 39, readyForQA: 21, qaExec: 18 },
+  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 8,  readyForQA: 4,  qaExec: 2  },
+  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 69, readyForQA: 49, qaExec: 45 },
 };
 
 function daysAgo(n: number): Date {
@@ -67,8 +88,8 @@ function daysAgo(n: number): Date {
   return d;
 }
 
-// Small random jitter so requirements in the same milestone aren't all
-// identical timestamps — makes the per-requirement timeline view look natural.
+// Small jitter so requirements in the same milestone have slightly different
+// timestamps — looks natural in the per-requirement timeline view.
 function jitter(base: number, max = 2): number {
   return base + Math.floor(Math.random() * (max + 1));
 }
@@ -83,7 +104,7 @@ async function main() {
     console.log("No demo requirements in manifest. Run seed-demo-data.ts first.");
     return;
   }
-  console.log(`Backdating ${reqIds.length} requirements from manifest...`);
+  console.log(`Backdating ${reqIds.length} requirements from manifest...\n`);
 
   const pool = new Pool({ connectionString: dbUrl });
   const db = drizzle(pool);
@@ -100,6 +121,7 @@ async function main() {
       : [];
     const milestoneById = new Map(milestones.map((m) => [m.id, m]));
 
+    // Existing activity events for these requirements
     const events = await db
       .select()
       .from(activityTable)
@@ -108,10 +130,22 @@ async function main() {
         inArray(activityTable.entityId, reqIds),
       ));
 
-    console.log(`Found ${events.length} activity events across ${reqIds.length} requirements.\n`);
+    // Execution test cases linked to these requirements (for executedAt)
+    const execCases = await db
+      .select({
+        id: executionTestCasesTable.id,
+        requirementId: executionTestCasesTable.requirementId,
+        executionFileId: executionTestCasesTable.executionFileId,
+      })
+      .from(executionTestCasesTable)
+      .where(inArray(executionTestCasesTable.requirementId, reqIds));
+
+    console.log(`Found ${events.length} activity events, ${execCases.length} linked execution test cases.\n`);
 
     let reqsUpdated = 0;
     let eventsUpdated = 0;
+    let eventsInserted = 0;
+    let execUpdated = 0;
 
     for (const req of reqs) {
       const milestone = req.milestoneId ? milestoneById.get(req.milestoneId) : null;
@@ -127,46 +161,88 @@ async function main() {
       }
 
       const a = ANCHORS[anchorKey];
-      // Apply small per-requirement jitter so they don't all land on the same second
       const createdAgo    = jitter(a.created);
       const submitAgo     = jitter(a.submit);
       const approveAgo    = jitter(a.approve);
-      const devAssignAgo  = approveAgo - a.gap;
-      const readyForQaAgo = devAssignAgo - a.devDuration;
+      const devAssignAgo  = jitter(a.devAssign);
+      const readyForQaAgo = jitter(a.readyForQA);
+      const qaExecAgo     = jitter(a.qaExec);
 
-      // 1. Backdate the requirement row itself
+      // 1. Backdate the requirement row
       await db
         .update(requirementsTable)
         .set({ createdAt: daysAgo(createdAgo), updatedAt: daysAgo(approveAgo) })
         .where(eq(requirementsTable.id, req.id));
       reqsUpdated++;
 
-      // 2. Backdate matching activity events
+      // 2. Backdate existing activity events
       const reqEvents = events.filter((e) => e.entityId === req.id);
       for (const ev of reqEvents) {
         let target: Date | null = null;
-
-        if (ev.type === "requirement_submit")          target = daysAgo(submitAgo);
-        else if (ev.type === "requirement_approve")    target = daysAgo(approveAgo);
-        else if (ev.type === "requirement_reject")     target = daysAgo(submitAgo - 1);
-        else if (ev.type === "requirement_dev_assign") target = daysAgo(devAssignAgo);
+        if (ev.type === "requirement_submit")               target = daysAgo(submitAgo);
+        else if (ev.type === "requirement_approve")         target = daysAgo(approveAgo);
+        else if (ev.type === "requirement_reject")          target = daysAgo(submitAgo - 1);
+        else if (ev.type === "requirement_dev_assign")      target = daysAgo(devAssignAgo);
         else if (ev.type === "requirement_dev_ready_for_qa") target = daysAgo(readyForQaAgo);
         else if (ev.type === "requirement_updated" || ev.type === "requirement_revised") {
           target = daysAgo(approveAgo + 1);
         }
-
         if (target) {
           await db.update(activityTable).set({ createdAt: target }).where(eq(activityTable.id, ev.id));
           eventsUpdated++;
         }
       }
 
-      console.log(`  [${milestone.name}] req ${req.id} "${req.title.slice(0, 38)}"`);
-      console.log(`    created=${createdAgo}d  submit=${submitAgo}d  approve=${approveAgo}d  devAssign=${devAssignAgo}d  readyForQA=${readyForQaAgo}d`);
+      // 3. Insert dev_assign event if none exists (seed never creates these)
+      const hasDevAssign = reqEvents.some((e) => e.type === "requirement_dev_assign");
+      if (!hasDevAssign) {
+        await db.insert(activityTable).values({
+          type: "requirement_dev_assign",
+          description: `Requirement "${req.title}" assigned to developer`,
+          entityId: req.id,
+          entityType: "requirement",
+          createdAt: daysAgo(devAssignAgo),
+        });
+        eventsInserted++;
+      }
+
+      // 4. Insert dev_ready_for_qa event if none exists
+      const hasReadyForQa = reqEvents.some((e) => e.type === "requirement_dev_ready_for_qa");
+      if (!hasReadyForQa) {
+        await db.insert(activityTable).values({
+          type: "requirement_dev_ready_for_qa",
+          description: `Requirement "${req.title}" marked ready for QA`,
+          entityId: req.id,
+          entityType: "requirement",
+          createdAt: daysAgo(readyForQaAgo),
+        });
+        eventsInserted++;
+      }
+
+      // 5. Update executedAt on linked execution test cases so the testing
+      //    phase has timestamps inside the testing window
+      const linkedCases = execCases.filter((tc) => tc.requirementId === req.id);
+      for (const tc of linkedCases) {
+        await db
+          .update(executionTestCasesTable)
+          .set({ executedAt: daysAgo(qaExecAgo), result: "pass" })
+          .where(eq(executionTestCasesTable.id, tc.id));
+        execUpdated++;
+      }
+
+      console.log(
+        `  [${milestone.name}] req ${req.id} "${req.title.slice(0, 35)}" ` +
+        `created=${createdAgo}d approve=${approveAgo}d devAssign=${devAssignAgo}d readyForQA=${readyForQaAgo}d qaExec=${qaExecAgo}d` +
+        (linkedCases.length > 0 ? ` (${linkedCases.length} exec TCs)` : ""),
+      );
     }
 
-    console.log(`\nDone — ${reqsUpdated} requirements + ${eventsUpdated} events backdated.`);
-    console.log("Refresh the PM Dashboard to see phase timeline bars.");
+    console.log(`\nDone:`);
+    console.log(`  ${reqsUpdated} requirements backdated`);
+    console.log(`  ${eventsUpdated} activity events backdated`);
+    console.log(`  ${eventsInserted} dev_assign/ready_for_qa events inserted`);
+    console.log(`  ${execUpdated} execution test case executedAt values set`);
+    console.log("\nRefresh the PM Dashboard to see all phase bars.");
   } finally {
     await pool.end();
   }
