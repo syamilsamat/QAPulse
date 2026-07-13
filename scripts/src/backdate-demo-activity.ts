@@ -253,12 +253,17 @@ async function main() {
       }
 
       // 5. Update executedAt on linked execution test cases so the testing
-      //    phase has timestamps inside the testing window
+      //    phase has timestamps inside the testing window. Only the
+      //    timestamp — result is untouched so the deliberate Passed/Failed/
+      //    Blocked mix seeded in demo-data.ts survives (an earlier version
+      //    of this script blanket-set result: "pass" on every row here,
+      //    which silently erased every seeded defect scenario and also
+      //    rendered as a lowercase "pass" pill instead of "Passed").
       const linkedCases = execCases.filter((tc) => tc.requirementId === req.id);
       for (const tc of linkedCases) {
         await db
           .update(executionTestCasesTable)
-          .set({ executedAt: daysAgo(qaExecAgo), result: "pass" })
+          .set({ executedAt: daysAgo(qaExecAgo) })
           .where(eq(executionTestCasesTable.id, tc.id));
         execUpdated++;
       }

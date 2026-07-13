@@ -16,6 +16,13 @@ import { Loader2, Users2 } from "lucide-react";
 interface MilestoneRef {
   id: number;
   name: string;
+  projectId: number | null;
+  projectName: string | null;
+}
+
+interface ProjectRef {
+  id: number;
+  name: string;
 }
 
 interface ResourceRow {
@@ -23,8 +30,7 @@ interface ResourceRow {
   name: string;
   role: string;
   department: string | null;
-  projectId: number;
-  projectName: string;
+  projects: ProjectRef[];
   signal: "execution_pic" | "requirement_author" | "task" | null;
   activeMilestones: MilestoneRef[];
   hasNoActiveMilestone: boolean;
@@ -56,26 +62,40 @@ function DeptBadge({ department }: { department: string | null }) {
   return <Badge variant="outline" className={`text-[10px] font-semibold ${DEPT_CLASS[department]}`}>{DEPT_LABEL[department]}</Badge>;
 }
 
+function projectSummary(projects: ProjectRef[]): string {
+  if (projects.length === 0) return "";
+  if (projects.length === 1) return projects[0].name;
+  return `${projects.length} projects`;
+}
+
+function milestoneChipLabel(m: MilestoneRef, projects: ProjectRef[]): string {
+  // Only disambiguate with the project name when this person spans more
+  // than one project — otherwise it's redundant with the header line.
+  return projects.length > 1 && m.projectName ? `${m.name} · ${m.projectName}` : m.name;
+}
+
 function PersonRow({ r }: { r: ResourceRow }) {
   const initials = r.name.split(" ").map(w => w[0]).join("").slice(0, 2);
   const multi = r.activeMilestones.length > 1;
   return (
-    <div className={`flex items-start gap-3 py-2.5 border-t first:border-t-0 ${multi ? "bg-green-50/60 dark:bg-green-950/20 rounded-lg px-2 -mx-2" : ""}`}>
-      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground shrink-0 mt-0.5">
-        {initials}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium">{r.name}</span>
-          <DeptBadge department={r.department} />
-          <span className="text-xs text-muted-foreground">{r.role} &middot; {r.projectName}</span>
-          {multi && <span className="text-xs font-medium text-green-600 dark:text-green-400">on {r.activeMilestones.length} milestones</span>}
+    <div className={`py-2.5 border-t first:border-t-0 ${multi ? "bg-green-50/60 dark:bg-green-950/20 rounded-lg px-2 -mx-2" : ""}`}>
+      <div className="flex items-start gap-3">
+        <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground shrink-0 mt-0.5">
+          {initials}
         </div>
-        {r.signal && <p className="text-[11px] text-muted-foreground mt-0.5">{SIGNAL_LABEL[r.signal]}</p>}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium">{r.name}</span>
+            <DeptBadge department={r.department} />
+            <span className="text-xs text-muted-foreground">{r.role} &middot; {projectSummary(r.projects)}</span>
+            {multi && <span className="text-xs font-medium text-green-600 dark:text-green-400">on {r.activeMilestones.length} milestones</span>}
+          </div>
+          {r.signal && <p className="text-[11px] text-muted-foreground mt-0.5">{SIGNAL_LABEL[r.signal]}</p>}
+        </div>
       </div>
-      <div className="flex gap-1.5 flex-wrap justify-end max-w-[200px] shrink-0">
+      <div className="flex gap-1.5 flex-wrap mt-2 ml-10">
         {r.activeMilestones.map(m => (
-          <Badge key={m.id} variant="outline" className={`text-[10px] ${ACTIVE_CHIP_CLASS}`}>{m.name}</Badge>
+          <Badge key={m.id} variant="outline" className={`text-[10px] ${ACTIVE_CHIP_CLASS}`}>{milestoneChipLabel(m, r.projects)}</Badge>
         ))}
       </div>
     </div>
@@ -85,14 +105,16 @@ function PersonRow({ r }: { r: ResourceRow }) {
 function ClosedRow({ r }: { r: ResourceRow }) {
   const initials = r.name.split(" ").map(w => w[0]).join("").slice(0, 2);
   return (
-    <div className="flex items-center gap-3 py-2 border-t first:border-t-0">
-      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
-        {initials}
+    <div className="py-2 border-t first:border-t-0">
+      <div className="flex items-center gap-3">
+        <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
+          {initials}
+        </div>
+        <span className="text-xs flex-1">{r.name} <span className="text-muted-foreground">&middot; {projectSummary(r.projects)}</span></span>
       </div>
-      <span className="text-xs flex-1">{r.name} <span className="text-muted-foreground">&middot; {r.projectName}</span></span>
-      <div className="flex gap-1.5 flex-wrap justify-end">
+      <div className="flex gap-1.5 flex-wrap mt-1.5 ml-9">
         {r.closedMilestones.map(m => (
-          <Badge key={m.id} variant="outline" className="text-[10px] text-muted-foreground font-normal">{m.name}</Badge>
+          <Badge key={m.id} variant="outline" className="text-[10px] text-muted-foreground font-normal">{milestoneChipLabel(m, r.projects)}</Badge>
         ))}
       </div>
     </div>
@@ -129,7 +151,7 @@ export default function Resources() {
 
   const projectOptions = useMemo(() => {
     const map = new Map<number, string>();
-    for (const r of rows) map.set(r.projectId, r.projectName);
+    for (const r of rows) for (const p of r.projects) map.set(p.id, p.name);
     return Array.from(map.entries()).map(([id, name]) => ({ value: String(id), label: name }));
   }, [rows]);
 
@@ -140,7 +162,7 @@ export default function Resources() {
   }, [rows]);
 
   const filtered = rows.filter(r =>
-    (filterProject === "all" || String(r.projectId) === filterProject) &&
+    (filterProject === "all" || r.projects.some(p => String(p.id) === filterProject)) &&
     (filterDept === "all" || r.department === filterDept),
   );
 
@@ -192,19 +214,19 @@ export default function Resources() {
         <>
           <SectionCard title="Active" count={active.length}>
             {active.length > 0
-              ? active.map(r => <PersonRow key={`${r.userId}-${r.projectId}`} r={r} />)
+              ? active.map(r => <PersonRow key={r.userId} r={r} />)
               : <p className="text-xs text-muted-foreground py-2">Nobody currently focused on an active milestone.</p>}
           </SectionCard>
 
           <SectionCard title="No active milestone" count={idle.length}>
             {idle.length > 0
-              ? idle.map(r => <PersonRow key={`${r.userId}-${r.projectId}`} r={r} />)
+              ? idle.map(r => <PersonRow key={r.userId} r={r} />)
               : <p className="text-xs text-muted-foreground py-2">Everyone visible here is currently on an active milestone.</p>}
           </SectionCard>
 
           <SectionCard title="Closed history" count={withHistory.length}>
             {withHistory.length > 0
-              ? withHistory.map(r => <ClosedRow key={`${r.userId}-${r.projectId}`} r={r} />)
+              ? withHistory.map(r => <ClosedRow key={r.userId} r={r} />)
               : <p className="text-xs text-muted-foreground py-2">No closed-milestone history yet.</p>}
           </SectionCard>
         </>

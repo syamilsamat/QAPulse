@@ -842,10 +842,31 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
     }
   }
 
+  // Each milestone ID is globally unique and already carries its own
+  // projectId (via milestoneById) — so a milestone chip's project comes
+  // from the milestone itself, never from whichever roster row we're on.
+  // The qa/fa/dev/pm signal maps above are already aggregated per person
+  // across every project in scope, not per membership row, so there's
+  // nothing project-specific left to loop over here.
   const milestoneRefs = (ids: Set<number> | undefined) =>
-    ids ? [...ids].map(id => ({ id, name: milestoneById.get(id)?.name ?? `Milestone #${id}` })) : [];
+    ids ? [...ids].map(id => {
+      const m = milestoneById.get(id);
+      return { id, name: m?.name ?? `Milestone #${id}`, projectId: m?.projectId ?? null, projectName: m ? (projectNameById.get(m.projectId) ?? `Project #${m.projectId}`) : null };
+    }) : [];
 
-  const result = roster.map(r => {
+  // One row per person (deduped) — a project-membership row only
+  // contributes that project to the person's project list, never a
+  // duplicate row of the same person.
+  const byUser = new Map<number, { userId: number; name: string; role: string; department: string | null; projects: { id: number; name: string }[] }>();
+  for (const r of roster) {
+    if (!byUser.has(r.userId)) byUser.set(r.userId, { userId: r.userId, name: r.name, role: r.role, department: r.department, projects: [] });
+    const entry = byUser.get(r.userId)!;
+    if (!entry.projects.some(p => p.id === r.projectId)) {
+      entry.projects.push({ id: r.projectId, name: projectNameById.get(r.projectId) ?? `Project #${r.projectId}` });
+    }
+  }
+
+  const result = Array.from(byUser.values()).map(r => {
     let activeIds: Set<number> | undefined;
     let closedIds: Set<number> | undefined;
     let signal: "execution_pic" | "requirement_author" | "task" | null = null;
@@ -863,8 +884,7 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
       name: r.name,
       role: r.role,
       department: r.department,
-      projectId: r.projectId,
-      projectName: projectNameById.get(r.projectId) ?? `Project #${r.projectId}`,
+      projects: r.projects,
       signal,
       activeMilestones: milestoneRefs(activeIds),
       hasNoActiveMilestone: !activeIds || activeIds.size === 0,

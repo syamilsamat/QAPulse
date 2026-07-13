@@ -82,6 +82,21 @@ const RESULT_OPTIONS = [
   "",
 ];
 
+// Normalizes any casing/wording drift in a stored result value (e.g. a
+// lowercase "pass" written by a data-fixup script) back to the canonical
+// title-case label — display should never depend on every write path
+// storing the exact same casing.
+function normalizeResultValue(val: string | null | undefined): string {
+  if (!val) return "";
+  const clean = val.toLowerCase().trim();
+  if (clean.includes("pass")) return "Passed";
+  if (clean.includes("fail")) return "Failed";
+  if (clean.includes("block")) return "Blocked";
+  if (clean.includes("prog")) return "In Progress";
+  if (clean.includes("exec") || clean.includes("res") || clean.includes("not")) return "Not Executed";
+  return val.trim();
+}
+
 const RESULT_PILL_ACTIVE: Record<string, string> = {
   Passed: "bg-green-100 text-green-700 border-green-300",
   Failed: "bg-red-100 text-red-700 border-red-300",
@@ -1314,8 +1329,8 @@ const SortableTreeRow = React.memo(
           {row.alertRevised && (
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-label="Requirement revised — needs re-review" />
           )}
-          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-            {row.result || "Not Executed"}
+          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+            {normalizeResultValue(row.result) || "Not Executed"}
           </span>
         </div>
 
@@ -1425,8 +1440,8 @@ const SortableTreeRow = React.memo(
                         ))}
                       </div>
                     ) : (
-                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                        {row.result || "Not Executed"}
+                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                        {normalizeResultValue(row.result) || "Not Executed"}
                       </span>
                     )}
                     {row.alertRevised && (
@@ -2490,21 +2505,6 @@ export default function TestCasesExecutionProgressPage() {
       .trim();
   };
 
-  const normalizeResultValue = (val: string) => {
-    if (!val) return "";
-    const clean = val.toLowerCase().trim();
-    if (clean.includes("pass")) return "Passed";
-    if (clean.includes("fail")) return "Failed";
-    if (clean.includes("block")) return "Blocked";
-    if (clean.includes("prog")) return "In Progress";
-    if (
-      clean.includes("exec") ||
-      clean.includes("res") ||
-      clean.includes("not")
-    )
-      return "Not Executed";
-    return val.trim();
-  };
 
   // --- NEW: Robust Case-Insensitive QA Matching ---
   const normalizeQAValue = (val: string) => {
@@ -3789,8 +3789,8 @@ export default function TestCasesExecutionProgressPage() {
                               ))}
                             </div>
                           ) : (
-                            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                              {row.result || "Not Executed"}
+                            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                              {normalizeResultValue(row.result) || "Not Executed"}
                             </span>
                           )}
                         </div>
@@ -3914,8 +3914,8 @@ export default function TestCasesExecutionProgressPage() {
                                 <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
                                 <span className="text-sm truncate">{row.caseName || "Untitled"}</span>
                               </div>
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                {row.result || "Not Executed"}
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                {normalizeResultValue(row.result) || "Not Executed"}
                               </span>
                             </div>
 
@@ -3974,8 +3974,8 @@ export default function TestCasesExecutionProgressPage() {
                                             ))}
                                           </div>
                                         ) : (
-                                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[row.result || ""] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                            {row.result || "Not Executed"}
+                                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                            {normalizeResultValue(row.result) || "Not Executed"}
                                           </span>
                                         )}
                                       </div>
