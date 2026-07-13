@@ -89,15 +89,42 @@ export interface DemoMilestone {
   type: "sprint" | "phase" | "release" | "cr";
   status: "completed" | "active" | "planned" | "cancelled";
   targetDate: string;
+  reqTargetDate?: string;  // when all requirements should be approved
+  devTargetDate?: string;  // when dev handover to QA should happen
+  qaTargetDate?: string;   // when QA sign-off is expected
 }
 
 export const MILESTONES: DemoMilestone[] = [
-  { key: "sprint12", projectKey: "portal", name: "Sprint 12", type: "sprint", status: "completed", targetDate: "2026-06-20" },
-  { key: "sprint13", projectKey: "portal", name: "Sprint 13", type: "sprint", status: "active", targetDate: "2026-07-02" }, // overdue
-  { key: "sprint14", projectKey: "portal", name: "Sprint 14", type: "sprint", status: "planned", targetDate: "2026-07-22" },
-  { key: "uat1", projectKey: "banking", name: "UAT Phase 1", type: "phase", status: "completed", targetDate: "2026-06-15" },
-  { key: "release20", projectKey: "banking", name: "Release 2.0", type: "release", status: "active", targetDate: "2026-07-09" }, // at risk
-  { key: "release21", projectKey: "banking", name: "Release 2.1", type: "release", status: "planned", targetDate: "2026-08-15" },
+  // Completed — all phase targets met, pills show grey (done)
+  {
+    key: "sprint12", projectKey: "portal", name: "Sprint 12", type: "sprint", status: "completed", targetDate: "2026-06-20",
+    reqTargetDate: "2026-05-28", devTargetDate: "2026-06-10", qaTargetDate: "2026-06-19",
+  },
+  // Overdue — ALL three phase targets missed, pills show red · Late
+  {
+    key: "sprint13", projectKey: "portal", name: "Sprint 13", type: "sprint", status: "active", targetDate: "2026-07-02",
+    reqTargetDate: "2026-06-18", devTargetDate: "2026-06-26", qaTargetDate: "2026-07-01",
+  },
+  // Planned — future dates, all grey (not late yet)
+  {
+    key: "sprint14", projectKey: "portal", name: "Sprint 14", type: "sprint", status: "planned", targetDate: "2026-07-22",
+    reqTargetDate: "2026-07-14", devTargetDate: "2026-07-19", qaTargetDate: "2026-07-22",
+  },
+  // Completed — phase targets all met
+  {
+    key: "uat1", projectKey: "banking", name: "UAT Phase 1", type: "phase", status: "completed", targetDate: "2026-06-15",
+    reqTargetDate: "2026-05-20", devTargetDate: "2026-05-30", qaTargetDate: "2026-06-14",
+  },
+  // At risk — requirements done on time (grey), dev target missed (red), QA target upcoming (grey)
+  {
+    key: "release20", projectKey: "banking", name: "Release 2.0", type: "release", status: "active", targetDate: "2026-07-09",
+    reqTargetDate: "2026-06-20", devTargetDate: "2026-07-01", qaTargetDate: "2026-07-08",
+  },
+  // Planned — all future
+  {
+    key: "release21", projectKey: "banking", name: "Release 2.1", type: "release", status: "planned", targetDate: "2026-08-15",
+    reqTargetDate: "2026-08-01", devTargetDate: "2026-08-08", qaTargetDate: "2026-08-14",
+  },
 ];
 
 export const MODULES = [

@@ -23,6 +23,7 @@ import { Pool } from "pg";
 import { eq, inArray, and, isNull, isNotNull } from "drizzle-orm";
 import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { loadManifest } from "./seed-client.js";
+import { MILESTONES } from "./demo-data.js";
 
 // ── Minimal table shapes ──────────────────────────────────────────────────
 
@@ -47,6 +48,9 @@ const requirementsTable = pgTable("requirements", {
 const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  reqTargetDate: timestamp("req_target_date", { withTimezone: true }),
+  devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
+  qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
 });
 
 const executionFilesTable = pgTable("execution_files", {
@@ -110,6 +114,22 @@ async function main() {
   const db = drizzle(pool);
 
   try {
+    // ── Step 0: patch phase target dates onto existing seeded milestones ──
+    // Handles the case where milestones were seeded before this feature shipped.
+    console.log("Setting phase target dates on demo milestones...");
+    const milestoneManifest = manifest.filter((e) => e.type === "milestone");
+    for (const entry of milestoneManifest) {
+      const demoM = MILESTONES.find((m) => (entry.label as string).startsWith(m.name));
+      if (!demoM || (!demoM.reqTargetDate && !demoM.devTargetDate && !demoM.qaTargetDate)) continue;
+      await db.update(milestonesTable).set({
+        reqTargetDate: demoM.reqTargetDate ? new Date(demoM.reqTargetDate) : null,
+        devTargetDate: demoM.devTargetDate ? new Date(demoM.devTargetDate) : null,
+        qaTargetDate: demoM.qaTargetDate ? new Date(demoM.qaTargetDate) : null,
+      }).where(eq(milestonesTable.id, entry.id as number));
+      console.log(`  [${demoM.name}] req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate}`);
+    }
+    console.log("");
+
     const reqs = await db
       .select({ id: requirementsTable.id, title: requirementsTable.title, milestoneId: requirementsTable.milestoneId })
       .from(requirementsTable)

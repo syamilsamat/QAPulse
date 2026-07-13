@@ -116,6 +116,9 @@ async function main() {
       body: {
         projectId: projectIdByKey.get(m.projectKey), name: m.name, type: m.type,
         status: m.status, targetDate: m.targetDate,
+        reqTargetDate: m.reqTargetDate ?? null,
+        devTargetDate: m.devTargetDate ?? null,
+        qaTargetDate: m.qaTargetDate ?? null,
       },
     });
     milestoneIdByKey.set(m.key, milestone.id);
