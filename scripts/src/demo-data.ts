@@ -30,6 +30,10 @@ export const USERS: DemoUser[] = [
   { key: "weiling", name: "Wei Ling Tan", email: "wei.ling@demo.qapulse.local", role: "qa_member" },
   { key: "siti", name: "Siti Hassan", email: "siti.hassan@demo.qapulse.local", role: "fa_lead" },
   { key: "devan", name: "Devan Kumar", email: "devan.kumar@demo.qapulse.local", role: "dev_lead" },
+  // Individual-contributor developer under Devan (dev_lead) — on both
+  // projects so the PM Dashboard's per-project Capacity table shows the
+  // same person with a different workload depending on the project.
+  { key: "hafiz", name: "Hafiz Rosli", email: "hafiz.rosli@demo.qapulse.local", role: "dev_member" },
 ];
 
 export interface DemoTeam {
@@ -71,14 +75,14 @@ export const PROJECTS: DemoProject[] = [
     name: "Customer Portal Revamp — DEMO",
     description: "Modernization of the customer-facing web portal: auth, search, checkout, cart, and wishlist.",
     teamKey: "portal-squad",
-    directMemberKeys: ["amir", "siti", "devan"],
+    directMemberKeys: ["amir", "siti", "devan", "hafiz"],
   },
   {
     key: "banking",
     name: "Mobile Banking App — DEMO",
     description: "Mobile banking app covering fund transfers, bill payment, biometric login, and rewards.",
     teamKey: "banking-squad",
-    directMemberKeys: ["amir", "siti", "devan"],
+    directMemberKeys: ["amir", "siti", "devan", "hafiz"],
   },
 ];
 
@@ -641,6 +645,15 @@ export const TASKS: DemoTask[] = [
 
   // New scenario: dev mid-development when requirement gets edited back to in_review
   { key: "t-billpay-dispute-dev", projectKey: "banking", milestoneKey: "release20", requirementKey: "r-billpay-dispute", name: "Develop bill payment dispute flow (on hold — req back in review)", priority: "High", status: "blocked", assigneeKeys: ["devan"], module: "Bill Payment", startDate: "2026-07-01", dueDate: "2026-07-07", estimatedHours: 12, actualHours: 5, completionPercentage: 40 },
+
+  // Hafiz Rosli (dev_member, under Devan) — heavier dev load on Portal
+  // (where Devan has no tasks at all), lighter load on Banking, so the PM
+  // Dashboard capacity table shows the same person's workload differing by
+  // project.
+  { key: "t-cart-merge-dev", projectKey: "portal", milestoneKey: "sprint13", requirementKey: "r-cart-merge", name: "Implement cart-merge quantity rule", priority: "Medium", status: "in_progress", assigneeKeys: ["hafiz"], module: "Cart", startDate: "2026-06-27", dueDate: "2026-07-04", actualStartDate: "2026-06-27", estimatedHours: 10, actualHours: 6, completionPercentage: 55 },
+  { key: "t-sso-backend-dev", projectKey: "portal", milestoneKey: "sprint13", requirementKey: "r-sso-google", name: "Build Google OAuth backend integration", priority: "High", status: "blocked", assigneeKeys: ["hafiz"], module: "Authentication", startDate: "2026-06-29", dueDate: "2026-07-06", estimatedHours: 14, actualHours: 3, completionPercentage: 20 },
+  { key: "t-lockout-dev-fix", projectKey: "portal", milestoneKey: "sprint12", requirementKey: "r-login-lockout", name: "Fix account lockout logic after 5 failed attempts", priority: "High", status: "released_to_production", assigneeKeys: ["hafiz"], module: "Authentication", startDate: "2026-06-16", dueDate: "2026-06-19", actualStartDate: "2026-06-16", actualEndDate: "2026-06-18", estimatedHours: 6, actualHours: 7, completionPercentage: 100 },
+  { key: "t-rewards-dev-scoping", projectKey: "banking", milestoneKey: "release21", requirementKey: "r-rewards-redeem", name: "Scope rewards redemption backend design", priority: "Low", status: "new", assigneeKeys: ["hafiz"], module: "Rewards", startDate: "2026-07-10", dueDate: "2026-07-16", estimatedHours: 4, completionPercentage: 0 },
 ];
 
 // ── CR033p2: Risk Register ────────────────────────────────────────────────
