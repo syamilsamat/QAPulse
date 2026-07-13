@@ -50,7 +50,8 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // 1. Replaced MessageSquare with Bot
-import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon } from "lucide-react";
+import { useTheme } from "next-themes";
 
 const API_BASE = () => getApiUrl();
 async function callAiEndpoint(
@@ -472,6 +473,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, token, logout: localLogout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const logoutMutation = useLogout();
   const qc = useQueryClient();
@@ -658,9 +660,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* Collapse / expand toggle — hidden in mobile sheet */}
+        {/* Theme toggle + collapse/expand — hidden in mobile sheet */}
         {!forMobile && (
-          <div className={`px-3 py-2 flex ${show ? "justify-center" : "justify-end"}`}>
+          <div className={`px-3 py-2 flex items-center gap-1 ${show ? "flex-col justify-center" : "justify-between"}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
             <Button
               variant="ghost"
               size="icon"
