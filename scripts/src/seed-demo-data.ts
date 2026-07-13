@@ -44,9 +44,11 @@ async function main() {
   console.log("\nEnsuring execution modules exist...");
   const existingModules = await api<{ id: number; name: string }[]>("/modules", adminToken);
   const existingModuleNames = new Set(existingModules.map((m) => m.name));
+  const moduleIdByName = new Map<string, number>(existingModules.map((m) => [m.name, m.id]));
   for (const name of MODULES) {
     if (existingModuleNames.has(name)) continue;
-    await api("/modules", adminToken, { method: "POST", body: { name } });
+    const created = await api<{ id: number; name: string }>("/modules", adminToken, { method: "POST", body: { name } });
+    moduleIdByName.set(name, created.id);
     console.log(`  + module: ${name}`);
   }
 
@@ -99,12 +101,50 @@ async function main() {
     const teamId = teamIdByKey.get(p.teamKey)!;
     await api(`/projects/${project.id}/teams`, adminToken, { method: "POST", body: { teamId } });
 
+    // CR035 — project_teams no longer grants access on its own (it's kept
+    // above purely for the Teams page's organizational display). Real
+    // access comes from project_members, so every team member needs an
+    // explicit grant here too, same as the cross-functional directMemberKeys
+    // below — otherwise a fresh reseed leaves the QA team locked out of
+    // their own demo projects until someone manually runs the migration
+    // script afterward.
+    const team = TEAMS.find((t) => t.key === p.teamKey)!;
+    for (const member of team.members) {
+      await api(`/projects/${project.id}/members`, adminToken, {
+        method: "POST", body: { userId: userIdByKey.get(member.userKey) },
+      });
+    }
+
     for (const memberKey of p.directMemberKeys) {
       await api(`/projects/${project.id}/members`, adminToken, {
         method: "POST", body: { userId: userIdByKey.get(memberKey) },
       });
     }
+
+    // CR035 — associate this project's modules so the Project Access panel's
+    // module picker (and the module-scoped assignment below) has real
+    // options instead of an empty state.
+    for (const moduleName of p.moduleNames) {
+      const moduleId = moduleIdByName.get(moduleName);
+      if (!moduleId) continue;
+      await api(`/projects/${project.id}/modules`, adminToken, { method: "POST", body: { moduleId } });
+    }
     console.log(`  + ${p.name}`);
+  }
+
+  // CR035 — Aisyah is module-scoped to Portal's "Authentication" module
+  // only, demonstrating the "project + module" grant on the Project Access
+  // panel (as opposed to everyone else above, who all got whole-project
+  // access). She's not on portal-squad and not in directMemberKeys, so this
+  // is her only access to the project.
+  console.log("\nGranting module-scoped project access...");
+  const authModuleId = moduleIdByName.get("Authentication");
+  const portalId = projectIdByKey.get("portal");
+  if (authModuleId && portalId) {
+    await api(`/projects/${portalId}/members`, adminToken, {
+      method: "POST", body: { userId: userIdByKey.get("aisyah"), moduleId: authModuleId },
+    });
+    console.log("  + Aisyah Rahim — Customer Portal Revamp — DEMO (Authentication only)");
   }
 
   // ── 5. Milestones ─────────────────────────────────────────────────────────

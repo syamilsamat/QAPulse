@@ -34,6 +34,11 @@ export const USERS: DemoUser[] = [
   // projects so the PM Dashboard's per-project Capacity table shows the
   // same person with a different workload depending on the project.
   { key: "hafiz", name: "Hafiz Rosli", email: "hafiz.rosli@demo.qapulse.local", role: "dev_member" },
+  // CR035 — not on portal-squad and not in any directMemberKeys, so her
+  // only project access is the module-scoped grant seeded below. Exists
+  // purely to demonstrate the "project + module" scope on the new Project
+  // Access panel — not used anywhere else in the seed flow.
+  { key: "aisyah", name: "Aisyah Rahim", email: "aisyah.rahim@demo.qapulse.local", role: "qa_member" },
 ];
 
 export interface DemoTeam {
@@ -67,6 +72,10 @@ export interface DemoProject {
   description: string;
   teamKey: string;
   directMemberKeys: string[]; // cross-cutting roles added via project_members
+  // CR035 — which of the global MODULES catalog apply to this project
+  // (project_modules). "Authentication" deliberately appears on both demo
+  // projects, to show a module can belong to more than one project.
+  moduleNames: string[];
 }
 
 export const PROJECTS: DemoProject[] = [
@@ -76,6 +85,7 @@ export const PROJECTS: DemoProject[] = [
     description: "Modernization of the customer-facing web portal: auth, search, checkout, cart, and wishlist.",
     teamKey: "portal-squad",
     directMemberKeys: ["amir", "siti", "devan", "hafiz"],
+    moduleNames: ["Authentication", "Search", "Checkout", "Cart", "Wishlist"],
   },
   {
     key: "banking",
@@ -83,6 +93,7 @@ export const PROJECTS: DemoProject[] = [
     description: "Mobile banking app covering fund transfers, bill payment, biometric login, and rewards.",
     teamKey: "banking-squad",
     directMemberKeys: ["amir", "siti", "devan", "hafiz"],
+    moduleNames: ["Authentication", "Fund Transfer", "Statements", "Bill Payment", "Biometrics", "Rewards"],
   },
 ];
 
