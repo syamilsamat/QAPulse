@@ -449,7 +449,7 @@ function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEn
   const keys: PhaseKey[] = ["requirements", "gap", "develop", "qa", "uat"];
   return keys
     .map((key) => ({ key, label: PHASE_LABELS[key], avgDays: avg(perReqTotals.map((t) => t[key])), ongoing: false as const }))
-    .filter((entry) => entry.avgDays !== null);
+    .filter((entry) => entry.avgDays !== null && entry.avgDays > 0);
 }
 
 router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<void> => {

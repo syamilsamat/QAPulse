@@ -70,16 +70,16 @@ const ANCHORS: Record<string, {
   created: number;
   submit: number;
   approve: number;
-  devAssign: number;
+  devAssign: number;  // same as approve → 0d gap → gap bar hidden
   readyForQA: number;
   qaExec: number;    // when first QA execution result was recorded
 }> = {
-  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 51, readyForQA: 37, qaExec: 34 },
-  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 22, readyForQA: 14, qaExec: 11 },
-  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 6,  readyForQA: 2,  qaExec: 1  },
-  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 39, readyForQA: 21, qaExec: 18 },
-  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 8,  readyForQA: 4,  qaExec: 2  },
-  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 69, readyForQA: 49, qaExec: 45 },
+  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 54, readyForQA: 37, qaExec: 34 },
+  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 24, readyForQA: 14, qaExec: 11 },
+  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 8,  readyForQA: 2,  qaExec: 1  },
+  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 42, readyForQA: 21, qaExec: 18 },
+  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 10, readyForQA: 4,  qaExec: 2  },
+  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 73, readyForQA: 49, qaExec: 45 },
 };
 
 function daysAgo(n: number): Date {
