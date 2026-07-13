@@ -35,7 +35,6 @@ const requirementsTable = pgTable("requirements", {
 const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  endDate: text("end_date"),
 });
 
 // ── Milestone-based backdate config ───────────────────────────────────────
