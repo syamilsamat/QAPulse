@@ -54,7 +54,7 @@ export async function login(email: string, password: string): Promise<string> {
 
 export async function loginAdmin(): Promise<string> {
   const email = process.env.SEED_ADMIN_EMAIL || "admin@qapulse.com";
-  const password = process.env.SEED_ADMIN_PASSWORD || "admin123";
+  const password = process.env.SEED_ADMIN_PASSWORD || "password123";
   return login(email, password);
 }
 

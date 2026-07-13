@@ -183,6 +183,38 @@ async function main() {
       await api(`/requirements/${created.id}/review`, reviewerToken, {
         method: "PATCH", body: { action: "approve" },
       });
+    } else if (r.reviewFlow === "reject-stay") {
+      // Submitted → rejected by reviewer → author has NOT revised.
+      // Represents a requirement blocked on a compliance/design question.
+      const reviewerToken = tokenByKey.get(r.reviewerKey!)!;
+      await api(`/requirements/${created.id}/review`, reviewerToken, {
+        method: "PATCH", body: { action: "reject", comment: r.rejectComment },
+      });
+      // Intentionally stop here — requirement stays in "rejected" state.
+    } else if (r.reviewFlow === "approve-then-edit") {
+      // Submitted → approved → FA edits description/AC mid-development
+      // → requirement goes back to in_review while dev task is still in progress.
+      const reviewerToken = tokenByKey.get(r.reviewerKey!)!;
+      await api(`/requirements/${created.id}/review`, reviewerToken, {
+        method: "PATCH", body: { action: "approve" },
+      });
+      // Author (FA) discovers the scope needs to change after dev has started —
+      // edits their own requirement. Only the author can edit a non-Redmine requirement.
+      const rAny = r as any;
+      await api(`/requirements/${created.id}`, authorToken, {
+        method: "PATCH",
+        body: {
+          description: rAny.editedDescription ?? `${r.description} [Revised post-approval]`,
+          acceptanceCriteria: rAny.editedAcceptanceCriteria
+            ? JSON.stringify(rAny.editedAcceptanceCriteria)
+            : undefined,
+        },
+      });
+      // Re-submit to review — now back in_review while dev task is blocked.
+      await api(`/requirements/${created.id}/review`, authorToken, {
+        method: "PATCH", body: { action: "submit" },
+      });
+      // Intentionally stop here — stays in_review, dev task remains blocked.
     }
     // reviewFlow "none" with shouldSubmit true → stays in_review, unresolved
     // on purpose (feeds the "why this milestone is at risk" story).

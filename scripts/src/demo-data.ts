@@ -105,7 +105,12 @@ export const MODULES = [
   "Fund Transfer", "Statements", "Bill Payment", "Biometrics", "Rewards",
 ];
 
-export type ReviewFlow = "none" | "approve" | "reject-then-approve";
+export type ReviewFlow =
+  | "none"                // never submitted — stays as draft
+  | "approve"             // submitted → approved
+  | "reject-then-approve" // submitted → rejected → revised → re-submitted → approved
+  | "reject-stay"         // submitted → rejected → author has NOT revised (blocked)
+  | "approve-then-edit";  // submitted → approved → edited by FA → back in_review (dev still in progress)
 
 export interface DemoRequirement {
   key: string;
@@ -207,6 +212,31 @@ export const REQUIREMENTS: DemoRequirement[] = [
     authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
   },
 
+  // ── Sprint 13 — extra scenarios ────────────────────────────────────────
+  {
+    key: "r-guest-address", projectKey: "portal", milestoneKey: "sprint13",
+    title: "Save guest shipping address for express checkout", module: "Checkout", priority: "normal",
+    description: "Guests who complete checkout are offered the option to save their shipping address locally in the browser for faster re-entry on their next visit.",
+    acceptanceCriteria: [
+      "Address is saved only with explicit opt-in, never silently",
+    ],
+    authorKey: "siti",
+    reviewFlow: "reject-stay", reviewerKey: "nadia",
+    rejectComment: "This conflicts with PDPA — storing PII locally in the browser without server-side consent logging is not acceptable. Please consult with the compliance team and revise the AC before resubmitting.",
+  },
+  {
+    // Late addition: sprint13 execution is already underway when this requirement arrives
+    key: "r-sso-google", projectKey: "portal", milestoneKey: "sprint13",
+    title: "Sign in with Google (SSO)", module: "Authentication", priority: "high",
+    description: "Customers can log in or register using their existing Google account via OAuth 2.0, removing the need to create a separate portal password.",
+    acceptanceCriteria: [
+      "Clicking 'Continue with Google' redirects to Google's OAuth consent screen",
+      "On successful OAuth grant, the customer is logged in and their profile is auto-populated from Google",
+      "If the Google email is already registered as a password account, the two are linked automatically",
+    ],
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+
   // ── Sprint 14 (Customer Portal, planned — nothing submitted yet) ────────
   {
     key: "r-wishlist-save", projectKey: "portal", milestoneKey: "sprint14",
@@ -290,6 +320,28 @@ export const REQUIREMENTS: DemoRequirement[] = [
     ],
     authorKey: "siti", reviewFlow: "none", // still in_review — the other big reason this milestone is at risk
   },
+
+  // ── Release 2.0 — extra scenario: approved then edited mid-development ──
+  {
+    key: "r-billpay-dispute", projectKey: "banking", milestoneKey: "release20",
+    title: "Dispute a bill payment within 48 hours", module: "Bill Payment", priority: "high",
+    description: "Customers can raise a dispute for any bill payment within 48 hours of the transaction. The dispute is routed to the biller and a reference number is issued.",
+    acceptanceCriteria: [
+      "Dispute option is visible on every completed bill payment for 48 hours",
+      "Submitting a dispute freezes the payment record and generates a reference number",
+      "Customer receives an email confirmation with the dispute reference",
+    ],
+    authorKey: "siti",
+    reviewFlow: "approve-then-edit", reviewerKey: "nadia",
+    // editedDescription and editedAC are picked up by seed-demo-data.ts
+    editedDescription: "Customers can raise a dispute for any bill payment within 24 hours (revised down from 48 — compliance team confirmed 24 h aligns with the payment network SLA). The dispute is routed to the biller and a reference number is issued.",
+    editedAcceptanceCriteria: [
+      "Dispute option is visible on every completed bill payment for 24 hours (changed from 48)",
+      "Submitting a dispute freezes the payment record and generates a reference number",
+      "Customer receives an email confirmation with the dispute reference",
+      "Dispute window countdown is shown in the payment detail screen",
+    ],
+  } as any,
 
   // ── Release 2.1 (Mobile Banking, planned) ───────────────────────────────
   {
@@ -545,4 +597,10 @@ export const TASKS: DemoTask[] = [
   { key: "t-rewards-scoping", projectKey: "banking", milestoneKey: "release21", requirementKey: "r-rewards-redeem", name: "Scope test approach for rewards redemption", priority: "Low", status: "new", assigneeKeys: ["weiling"], module: "Rewards", startDate: "2026-07-10", dueDate: "2026-07-15", estimatedHours: 3, completionPercentage: 0 },
 
   { key: "t-prod-doubletransfer-rca", projectKey: "banking", name: "Root-cause the double-transfer production incident", priority: "Critical", status: "done", assigneeKeys: ["devan", "amir"], module: "Fund Transfer", startDate: "2026-06-25", dueDate: "2026-06-27", actualStartDate: "2026-06-25", actualEndDate: "2026-06-28", estimatedHours: 8, actualHours: 11, completionPercentage: 100 },
+
+  // New scenario: late SSO requirement — QA spinning up test approach while sprint13 already running
+  { key: "t-sso-prep", projectKey: "portal", milestoneKey: "sprint13", requirementKey: "r-sso-google", name: "Prepare test cases and environment for Google SSO", priority: "High", status: "new", assigneeKeys: ["nadia"], module: "Authentication", startDate: "2026-07-05", dueDate: "2026-07-08", estimatedHours: 5, completionPercentage: 0 },
+
+  // New scenario: dev mid-development when requirement gets edited back to in_review
+  { key: "t-billpay-dispute-dev", projectKey: "banking", milestoneKey: "release20", requirementKey: "r-billpay-dispute", name: "Develop bill payment dispute flow (on hold — req back in review)", priority: "High", status: "blocked", assigneeKeys: ["devan"], module: "Bill Payment", startDate: "2026-07-01", dueDate: "2026-07-07", estimatedHours: 12, actualHours: 5, completionPercentage: 40 },
 ];
