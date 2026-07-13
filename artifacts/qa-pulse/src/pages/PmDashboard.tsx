@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Building2, Users } from "lucide-react";
+import { Loader2, Building2, Users, AlertTriangle, Clock } from "lucide-react";
 import { format } from "date-fns";
 
 interface MilestoneSummary {
@@ -54,10 +54,6 @@ interface PmSummary {
   projects: ProjectSummary[];
 }
 
-// CR032 — a requirement's lifecycle as a repeating Requirements -> Gap ->
-// [Develop] -> QA/UAT sequence, one entry per cycle it actually went through
-// (cycle > 1 means it looped back through Requirements again — a CR023
-// reject/revise or a CR031 requirement defect raised after approval).
 interface PhaseSegment {
   key: string;
   cycle: number;
@@ -68,9 +64,6 @@ interface PhaseSegment {
   ongoing: boolean;
 }
 
-// The milestone-level rollup: a requirement's own per-cycle days for a given
-// phase key are summed first, then averaged across requirements — so this is
-// not a literal timeline (no start/end), just a proportional stat per key.
 interface PhaseSummaryEntry {
   key: string;
   label: string;
@@ -78,8 +71,6 @@ interface PhaseSummaryEntry {
   ongoing: false;
 }
 
-// What PhaseTimelineBar actually needs to render a bar — both PhaseSegment
-// and a mapped PhaseSummaryEntry satisfy this.
 interface TimelineBarSegment {
   key: string;
   label: string;
@@ -95,6 +86,8 @@ interface PhaseTrendEntry {
   developDays: number | null;
   qaDays: number | null;
   uatDays: number | null;
+  firstPassPct: number | null;
+  stabilityPct: number | null;
 }
 
 interface RequirementPhaseEntry {
@@ -104,9 +97,35 @@ interface RequirementPhaseEntry {
   timeline: PhaseSegment[];
 }
 
+interface TopBlocker {
+  id: number;
+  title: string;
+  reviewStatus: "in_review" | "rejected";
+  module: string | null;
+  stuckDays: number;
+}
+
 interface PhaseReport {
-  milestone: { id: number; name: string; status: string; targetDate?: string | null; reqTargetDate?: string | null; devTargetDate?: string | null; qaTargetDate?: string | null };
+  milestone: {
+    id: number;
+    name: string;
+    status: string;
+    targetDate?: string | null;
+    createdAt?: string;
+    reqTargetDate?: string | null;
+    devTargetDate?: string | null;
+    qaTargetDate?: string | null;
+  };
   phaseSummary: PhaseSummaryEntry[] | null;
+  plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null } | null;
+  kpis: {
+    timeElapsedPct: number | null;
+    workCompletedPct: number;
+    spi: number | null;
+    firstPassPct: number | null;
+    stabilityPct: number | null;
+  } | null;
+  topBlockers: TopBlocker[];
   trend: {
     count: number;
     avgRequirementsDays: number | null;
@@ -225,11 +244,6 @@ function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
   );
 }
 
-// Requirements = purple, gap = amber ("nobody owns this time, someone should
-// look into it"), Develop is its own lane now that CR030's handoff events are
-// read, QA and UAT are separate testing lanes with separate owners so they
-// get distinct (not alarming) colors — QA's bar being short is the point,
-// not something to visually flag as bad.
 const PHASE_COLOR: Record<string, string> = {
   requirements: "bg-purple-500",
   gap: "bg-amber-400",
@@ -245,58 +259,305 @@ const PHASE_TEXT_COLOR: Record<string, string> = {
   uat: "text-blue-700 dark:text-blue-400",
 };
 
-// segments already comes pre-shaped from the caller — either a requirement's
-// real per-cycle PhaseSegment[] timeline, or a milestone-level PhaseSummaryEntry[]
-// mapped down to this same minimal shape (see call sites below).
-function PhaseTimelineBar({ segments, compact = false, onClick }: { segments: TimelineBarSegment[]; compact?: boolean; onClick?: () => void }) {
-  if (segments.length === 0) {
+// ── Plan vs Actual Timeline Bar ───────────────────────────────────────────────
+// Shows a faded "Plan" row above the colored "Actual" row, with variance chips.
+function PlanActualTimelineBar({
+  actualSegments,
+  plannedPhaseDays,
+  onClick,
+}: {
+  actualSegments: TimelineBarSegment[];
+  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null } | null;
+  onClick?: () => void;
+}) {
+  if (actualSegments.length === 0) {
     return <p className="text-sm text-muted-foreground">Not enough data yet — no requirements linked.</p>;
   }
-  const total = segments.reduce((sum, s) => sum + s.days, 0) || 1;
+
+  const planSegments: TimelineBarSegment[] = plannedPhaseDays
+    ? ([
+        plannedPhaseDays.requirements !== null && { key: "requirements", label: "Requirements", days: plannedPhaseDays.requirements, ongoing: false },
+        plannedPhaseDays.develop !== null && { key: "develop", label: "Develop", days: plannedPhaseDays.develop, ongoing: false },
+        plannedPhaseDays.qa !== null && { key: "qa", label: "QA", days: plannedPhaseDays.qa, ongoing: false },
+      ].filter((s): s is TimelineBarSegment => Boolean(s)))
+    : [];
+
+  const hasPlan = planSegments.length > 0;
+  const actualTotal = actualSegments.reduce((s, seg) => s + seg.days, 0) || 1;
+  const planTotal = hasPlan ? planSegments.reduce((s, seg) => s + seg.days, 0) : 0;
+  const totalDays = Math.max(actualTotal, planTotal) || 1;
 
   return (
-    <div>
-      <div
-        onClick={onClick}
-        className={`flex ${compact ? "h-5" : "h-7"} rounded-md overflow-hidden ${compact ? "mb-0" : "mb-2"} ${onClick ? "cursor-pointer" : ""}`}
-      >
-        {segments.map((s, i) => (
-          <div
-            key={i}
-            className={`${PHASE_COLOR[s.key]} flex items-center justify-center ${s.ongoing ? "opacity-70" : ""}`}
-            style={{ width: `${(s.days / total) * 100}%` }}
-            title={`${s.label}: ${s.days}d${s.ongoing ? " (ongoing)" : ""}`}
-          >
-            {(s.days / total) > 0.08 && <span className={`${compact ? "text-[10px]" : "text-[11px]"} text-white font-medium`}>{s.days}d</span>}
+    <div className="space-y-2">
+      {hasPlan && (
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-10 text-right shrink-0">Plan</span>
+          <div className="flex h-5 rounded-md overflow-hidden flex-1 bg-muted/30">
+            {planSegments.map((s, i) => (
+              <div
+                key={i}
+                className={`${PHASE_COLOR[s.key]} flex items-center justify-center opacity-40`}
+                style={{ width: `${(s.days / totalDays) * 100}%` }}
+                title={`${s.label}: ${s.days}d planned`}
+              >
+                {(s.days / totalDays) > 0.1 && <span className="text-[10px] text-white font-medium">{s.days}d</span>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      {!compact && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {segments.map((s, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[s.key]}`} />
-              {s.label} &middot; {s.days}d{s.ongoing ? " (ongoing)" : ""}
+          <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{planTotal}d planned</span>
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        {hasPlan && <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-10 text-right shrink-0">Actual</span>}
+        <div
+          onClick={onClick}
+          className={`flex h-7 rounded-md overflow-hidden ${hasPlan ? "flex-1" : "w-full"} ${onClick ? "cursor-pointer" : ""}`}
+        >
+          {actualSegments.map((s, i) => (
+            <div
+              key={i}
+              className={`${PHASE_COLOR[s.key]} flex items-center justify-center ${s.ongoing ? "opacity-70" : ""}`}
+              style={{ width: `${(s.days / totalDays) * 100}%` }}
+              title={`${s.label}: ${s.days}d${s.ongoing ? " (ongoing)" : ""}`}
+            >
+              {(s.days / totalDays) > 0.08 && <span className="text-[11px] text-white font-medium">{s.days}d</span>}
             </div>
           ))}
         </div>
+        {hasPlan && <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{actualTotal}d actual</span>}
+      </div>
+
+      {hasPlan && (
+        <div className="flex flex-wrap gap-1.5 pl-[52px]">
+          {planSegments.map(p => {
+            const a = actualSegments.find(s => s.key === p.key);
+            if (!a) return null;
+            const diff = a.days - p.days;
+            if (Math.abs(diff) < 1) return null;
+            return (
+              <span key={p.key} className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${diff > 0 ? "text-red-600 bg-red-50 dark:bg-red-950/60 dark:text-red-400" : "text-green-600 bg-green-50 dark:bg-green-950/60 dark:text-green-400"}`}>
+                {p.label} {diff > 0 ? `+${diff}d` : `${diff}d`}
+              </span>
+            );
+          })}
+          {actualSegments.filter(a => !planSegments.find(p => p.key === a.key)).map(s => (
+            <span key={s.key} className="text-[11px] font-medium px-1.5 py-0.5 rounded text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400">
+              {s.label} · unplanned
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className={`flex flex-wrap gap-x-4 gap-y-1 ${hasPlan ? "pl-[52px]" : ""}`}>
+        {actualSegments.map((s, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[s.key]}`} />
+            {s.label} &middot; {s.days}d{s.ongoing ? " (ongoing)" : ""}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── KPI Cards ─────────────────────────────────────────────────────────────────
+function DualBar({ labelA, pctA, colorA, labelB, pctB, colorB }: {
+  labelA: string; pctA: number; colorA: string;
+  labelB: string; pctB: number; colorB: string;
+}) {
+  return (
+    <div className="space-y-2 mt-2">
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">{labelA}</span>
+          <span className={`font-semibold tabular-nums ${colorA}`}>{pctA}%</span>
+        </div>
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${colorA.replace("text-", "bg-")}`} style={{ width: `${Math.min(pctA, 100)}%` }} />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">{labelB}</span>
+          <span className={`font-semibold tabular-nums ${colorB}`}>{pctB}%</span>
+        </div>
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${colorB.replace("text-", "bg-")}`} style={{ width: `${Math.min(pctB, 100)}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KpiCards({ kpis, trend }: { kpis: NonNullable<PhaseReport["kpis"]>; trend: PhaseReport["trend"] }) {
+  const spiColor = kpis.spi === null ? "text-muted-foreground" : kpis.spi >= 1 ? "text-green-600 dark:text-green-400" : kpis.spi >= 0.8 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+  const spiLabel = kpis.spi === null ? "No target date set" : kpis.spi >= 1 ? "On or ahead of schedule" : kpis.spi >= 0.8 ? "Slightly behind — monitor closely" : "Critical — corrective action needed";
+
+  const fpColor = kpis.firstPassPct === null ? "text-muted-foreground" : kpis.firstPassPct >= 80 ? "text-green-600 dark:text-green-400" : kpis.firstPassPct >= 60 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+
+  const stabColor = kpis.stabilityPct === null ? "text-muted-foreground" : kpis.stabilityPct <= 10 ? "text-green-600 dark:text-green-400" : kpis.stabilityPct <= 20 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+  const stabLabel = kpis.stabilityPct === null ? "—" : kpis.stabilityPct <= 10 ? "Stable" : kpis.stabilityPct <= 20 ? "At risk — scope creep" : "High churn — FA sign-off gate recommended";
+
+  const trendAvgFP = trend && trend.milestones.length > 0
+    ? (() => { const vals = trend.milestones.map(m => m.firstPassPct).filter((v): v is number => v !== null); return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null; })()
+    : null;
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Burn Rate */}
+      {kpis.timeElapsedPct !== null && (
+        <Card>
+          <CardContent className="p-4 space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Burn Rate</p>
+              {(() => {
+                const gap = kpis.timeElapsedPct! - kpis.workCompletedPct;
+                const cls = gap > 20 ? "bg-red-100 text-red-600 border-red-200 dark:bg-red-950/60 dark:text-red-400 dark:border-red-900" : gap > 0 ? "bg-amber-100 text-amber-600 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-900" : "bg-green-100 text-green-600 border-green-200 dark:bg-green-950/60 dark:text-green-400 dark:border-green-900";
+                return <Badge variant="outline" className={`text-[10px] font-semibold ${cls}`}>{gap > 0 ? `${gap}% gap` : "On track"}</Badge>;
+              })()}
+            </div>
+            <DualBar
+              labelA="Time elapsed" pctA={kpis.timeElapsedPct!}
+              colorA={kpis.timeElapsedPct! > kpis.workCompletedPct + 15 ? "text-red-500" : "text-amber-500"}
+              labelB="Work completed" pctB={kpis.workCompletedPct}
+              colorB="text-indigo-500"
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* SPI */}
+      {kpis.spi !== null && (
+        <Card>
+          <CardContent className="p-4 space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">SPI</p>
+              <span className={`text-xs font-medium ${spiColor}`}>{kpis.spi >= 1 ? "On track" : kpis.spi >= 0.8 ? "At risk" : "Critical"}</span>
+            </div>
+            <DualBar
+              labelA="Planned (by today)" pctA={kpis.timeElapsedPct ?? 0}
+              colorA="text-muted-foreground"
+              labelB="Actual (completed)" pctB={kpis.workCompletedPct}
+              colorB={kpis.spi >= 0.8 ? "text-green-500" : kpis.spi >= 0.6 ? "text-amber-500" : "text-red-500"}
+            />
+            <p className="text-xs tabular-nums pt-1">
+              SPI = {kpis.workCompletedPct} ÷ {kpis.timeElapsedPct} = <span className={`font-semibold ${spiColor}`}>{kpis.spi}</span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">{spiLabel}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* First-Pass Rate */}
+      {kpis.firstPassPct !== null && (
+        <Card>
+          <CardContent className="p-4 space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">First-Pass Rate</p>
+            <p className={`text-3xl font-bold tabular-nums ${fpColor}`}>{kpis.firstPassPct}%</p>
+            <p className="text-[11px] text-muted-foreground">Approved without rejection</p>
+            {trendAvgFP !== null && (
+              <div className="pt-1 space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">This milestone</span>
+                  <span className={`font-semibold tabular-nums ${fpColor}`}>{kpis.firstPassPct}%</span>
+                </div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${fpColor.replace("text-", "bg-")}`} style={{ width: `${kpis.firstPassPct}%` }} />
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Historical avg</span>
+                  <span className="font-semibold tabular-nums text-muted-foreground">{trendAvgFP}%</span>
+                </div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-muted-foreground/40" style={{ width: `${trendAvgFP}%` }} />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stability */}
+      {kpis.stabilityPct !== null && (
+        <Card>
+          <CardContent className="p-4 space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Req Stability</p>
+            <p className={`text-3xl font-bold tabular-nums ${stabColor}`}>{kpis.stabilityPct}%</p>
+            <p className="text-[11px] text-muted-foreground">Revised after approval</p>
+            <div className="pt-1 space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">This milestone</span>
+                <span className={`font-semibold tabular-nums ${stabColor}`}>{kpis.stabilityPct}%</span>
+              </div>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${stabColor.replace("text-", "bg-")}`} style={{ width: `${kpis.stabilityPct}%` }} />
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Threshold</span>
+                <span className="font-semibold tabular-nums text-muted-foreground">10%</span>
+              </div>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden relative">
+                <div className="absolute top-0 bottom-0 w-0.5 bg-muted-foreground/50" style={{ left: "10%" }} />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground pt-1">{stabLabel}</p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
 }
 
-function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }) {
+// ── Top Blockers ──────────────────────────────────────────────────────────────
+function TopBlockersCard({ blockers }: { blockers: TopBlocker[] }) {
+  if (blockers.length === 0) return null;
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+            <p className="text-sm font-medium">Top Blockers</p>
+          </div>
+          <Badge variant="outline" className="text-[10px] text-red-600 bg-red-50 border-red-200 dark:bg-red-950/60 dark:border-red-900">{blockers.length} item{blockers.length !== 1 ? "s" : ""}</Badge>
+        </div>
+        <div className="space-y-2">
+          {blockers.map(b => (
+            <div key={b.id} className="flex items-start gap-2 text-sm py-1.5 border-t first:border-t-0">
+              <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${b.reviewStatus === "rejected" ? "bg-red-500" : "bg-amber-500"}`} />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{b.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  {b.reviewStatus === "rejected" ? "Rejected" : "In review"}
+                  {b.module && ` · ${b.module}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Clock className="w-3 h-3 text-muted-foreground" />
+                <span className={`text-xs font-semibold tabular-nums ${b.stuckDays > 7 ? "text-red-600 dark:text-red-400" : b.stuckDays > 3 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>{b.stuckDays}d</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Cross-Milestone Benchmark ─────────────────────────────────────────────────
+function BenchmarkTable({ trend }: { trend: NonNullable<PhaseReport["trend"]> }) {
   if (trend.count === 0) {
-    return <p className="text-xs text-muted-foreground">No completed milestones yet for this project — trend needs at least one.</p>;
+    return <p className="text-xs text-muted-foreground">No completed milestones to benchmark against yet.</p>;
   }
   const maxTotal = Math.max(
-    ...trend.milestones.map((m) => (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.developDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0)),
+    ...trend.milestones.map(m => (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.developDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0)),
     1,
   );
 
   return (
-    <div>
-      <div className="flex items-end gap-3 h-24 mb-2 px-1">
+    <div className="space-y-4">
+      {/* Phase composition bar chart */}
+      <div className="flex items-end gap-3 h-20 mb-2 px-1">
         {trend.milestones.map((m) => {
           const total = (m.requirementsDays ?? 0) + (m.gapDays ?? 0) + (m.developDays ?? 0) + (m.qaDays ?? 0) + (m.uatDays ?? 0);
           const barHeight = Math.max((total / maxTotal) * 100, 4);
@@ -314,33 +575,52 @@ function PhaseTrendStrip({ trend }: { trend: NonNullable<PhaseReport["trend"]> }
           );
         })}
       </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 border-t pt-2">
-        <div>
-          <p className="text-[11px] text-muted-foreground">Requirements avg</p>
-          <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.requirements}`}>{trend.avgRequirementsDays ?? "—"}d</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-muted-foreground">Gap avg</p>
-          <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.gap}`}>{trend.avgGapDays ?? "—"}d</p>
-        </div>
-        {trend.avgDevelopDays !== null && (
-          <div>
-            <p className="text-[11px] text-muted-foreground">Develop avg</p>
-            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.develop}`}>{trend.avgDevelopDays}d</p>
-          </div>
-        )}
-        <div>
-          <p className="text-[11px] text-muted-foreground">QA avg</p>
-          <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.qa}`}>{trend.avgQaDays ?? "—"}d</p>
-        </div>
-        {trend.avgUatDays !== null && (
-          <div>
-            <p className="text-[11px] text-muted-foreground">UAT avg</p>
-            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR.uat}`}>{trend.avgUatDays}d</p>
-          </div>
-        )}
+
+      {/* Tabular view with KPI columns */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="border-b text-muted-foreground">
+              <th className="text-left font-medium pb-2 pr-3">Milestone</th>
+              <th className="text-right font-medium pb-2 px-2">Req</th>
+              <th className="text-right font-medium pb-2 px-2">Dev</th>
+              <th className="text-right font-medium pb-2 px-2">QA</th>
+              <th className="text-right font-medium pb-2 px-2">1st-Pass</th>
+              <th className="text-right font-medium pb-2 pl-2">Stability</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trend.milestones.map(m => {
+              const fpColor = m.firstPassPct === null ? "" : m.firstPassPct >= 80 ? "text-green-600 dark:text-green-400" : m.firstPassPct >= 60 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+              const stabColor = m.stabilityPct === null ? "" : m.stabilityPct <= 10 ? "text-green-600 dark:text-green-400" : m.stabilityPct <= 20 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+              return (
+                <tr key={m.id} className="border-b last:border-0">
+                  <td className="py-2 pr-3 font-medium max-w-[100px] truncate">{m.name}</td>
+                  <td className="py-2 text-right px-2 tabular-nums">{m.requirementsDays !== null ? `${m.requirementsDays}d` : "—"}</td>
+                  <td className="py-2 text-right px-2 tabular-nums">{m.developDays !== null ? `${m.developDays}d` : "—"}</td>
+                  <td className="py-2 text-right px-2 tabular-nums">{m.qaDays !== null ? `${m.qaDays}d` : "—"}</td>
+                  <td className={`py-2 text-right px-2 tabular-nums font-semibold ${fpColor}`}>{m.firstPassPct !== null ? `${m.firstPassPct}%` : "—"}</td>
+                  <td className={`py-2 text-right pl-2 tabular-nums font-semibold ${stabColor}`}>{m.stabilityPct !== null ? `${m.stabilityPct}%` : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-      <p className="text-[11px] text-muted-foreground mt-2">Based on the last {trend.count} completed milestone{trend.count !== 1 ? "s" : ""} in this project.</p>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 border-t pt-2">
+        {[
+          { key: "requirements", label: "Req avg", val: trend.avgRequirementsDays },
+          { key: "develop", label: "Dev avg", val: trend.avgDevelopDays },
+          { key: "qa", label: "QA avg", val: trend.avgQaDays },
+          { key: "uat", label: "UAT avg", val: trend.avgUatDays },
+        ].filter(x => x.val !== null).map(x => (
+          <div key={x.key}>
+            <p className="text-[11px] text-muted-foreground">{x.label}</p>
+            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR[x.key]}`}>{x.val}d</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground">Based on the last {trend.count} completed milestone{trend.count !== 1 ? "s" : ""} in this project.</p>
     </div>
   );
 }
@@ -381,7 +661,9 @@ function RequirementTimelineList({ requirements }: { requirements: RequirementPh
       {requirements.map((r) => (
         <div key={r.id}>
           <p className="text-xs font-medium mb-1">{r.title}</p>
-          {r.timeline.length > 0 ? <PhaseTimelineBar segments={r.timeline} compact /> : <p className="text-xs text-muted-foreground">No data yet.</p>}
+          {r.timeline.length > 0
+            ? <PlanActualTimelineBar actualSegments={r.timeline} />
+            : <p className="text-xs text-muted-foreground">No data yet.</p>}
         </div>
       ))}
     </div>
@@ -440,6 +722,10 @@ export default function PmDashboard() {
     );
   }
 
+  const actualSegments: TimelineBarSegment[] = phaseReport?.phaseSummary
+    ? phaseReport.phaseSummary.map(s => ({ key: s.key, label: s.label, days: s.avgDays ?? 0, ongoing: false }))
+    : [];
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -474,77 +760,93 @@ export default function PmDashboard() {
       </div>
 
       {filterMilestone !== "all" && (
-        <Card>
-          <CardContent className="p-4 sm:p-5 space-y-5">
-            <div>
-              <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
-              <p className="text-xs text-muted-foreground">Requirements review, an unattributed gap before testing, QA, and UAT — each measured from real activity, not guessed.</p>
-            </div>
-            {phaseLoading ? (
-              <div className="h-16 flex items-center justify-center">
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : phaseReport?.phaseSummary ? (
-              <>
-                <PhaseTimelineBar
-                  segments={phaseReport.phaseSummary.map((s) => ({ key: s.key, label: s.label, days: s.avgDays ?? 0, ongoing: false }))}
-                  onClick={() => setShowTimelines((v) => !v)}
-                />
-                {(phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate) && (() => {
+        <>
+          {/* ── Phase Timeline ─────────────────────────────────────────────── */}
+          <Card>
+            <CardContent className="p-4 sm:p-5 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
+                  <p className="text-xs text-muted-foreground">Plan vs actual phase durations, averaged across requirements.</p>
+                </div>
+                {phaseReport && (phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate) && (() => {
                   const today = new Date();
-                  const phases = [
-                    { key: "requirements", label: "Requirements by", target: phaseReport.milestone.reqTargetDate },
-                    { key: "develop", label: "Dev done by", target: phaseReport.milestone.devTargetDate },
-                    { key: "qa", label: "QA done by", target: phaseReport.milestone.qaTargetDate },
-                  ].filter(p => p.target);
                   const activeKeys = new Set(phaseReport.phaseSummary?.map(s => s.key) ?? []);
                   return (
-                    <div className="flex flex-wrap gap-2 mt-2 mb-1">
-                      {phases.map(p => {
-                        const targetDt = new Date(p.target!);
-                        const isPast = today > targetDt;
-                        const isDone =
-                          p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat") :
-                          p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat") :
-                          p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed" : false;
-                        const late = isPast && !isDone;
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
+                        { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
+                        { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
+                      ].filter(p => p.target).map(p => {
+                        const dt = new Date(p.target!);
+                        const past = today > dt;
+                        const done = p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
+                          : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
+                          : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed" : false;
+                        const late = past && !done;
                         return (
-                          <span key={p.key} className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border ${late ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>
+                          <span key={p.key} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${late ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>
                             {late && <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />}
-                            {p.label} {format(targetDt, "d MMM")}
-                            {late && <span className="font-medium"> · Late</span>}
+                            {p.label} {format(dt, "d MMM")}{late && <span className="font-medium"> · Late</span>}
                           </span>
                         );
                       })}
                     </div>
                   );
                 })()}
-                {phaseReport.requirements.length > 0 && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setShowTimelines((v) => !v)}
-                      className="text-xs text-primary hover:underline mb-2"
-                    >
-                      {showTimelines ? "← Back to status list" : `${phaseReport.requirements.length} requirements — click bar for per-requirement timeline →`}
-                    </button>
-                    {showTimelines
-                      ? <RequirementTimelineList requirements={phaseReport.requirements} />
-                      : <RequirementStatusTable requirements={phaseReport.requirements} />}
-                  </div>
-                )}
-                {phaseReport.trend && (
-                  <div className="border-t pt-4">
-                    <p className="text-sm font-medium mb-2">Is this a pattern?</p>
-                    <PhaseTrendStrip trend={phaseReport.trend} />
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Not enough data yet — this milestone has no requirements linked.</p>
-            )}
-          </CardContent>
-        </Card>
+              </div>
+
+              {phaseLoading ? (
+                <div className="h-16 flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : phaseReport?.phaseSummary ? (
+                <>
+                  <PlanActualTimelineBar
+                    actualSegments={actualSegments}
+                    plannedPhaseDays={phaseReport.plannedPhaseDays}
+                    onClick={() => setShowTimelines(v => !v)}
+                  />
+                  {phaseReport.requirements.length > 0 && (
+                    <div>
+                      <button type="button" onClick={() => setShowTimelines(v => !v)} className="text-xs text-primary hover:underline mb-2">
+                        {showTimelines ? "← Back to status list" : `${phaseReport.requirements.length} requirements — click bar for per-requirement timelines →`}
+                      </button>
+                      {showTimelines
+                        ? <RequirementTimelineList requirements={phaseReport.requirements} />
+                        : <RequirementStatusTable requirements={phaseReport.requirements} />}
+                    </div>
+                  )}
+                </>
+              ) : phaseReport ? (
+                <p className="text-sm text-muted-foreground">Not enough data yet — this milestone has no requirements linked.</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {/* ── KPI Row ────────────────────────────────────────────────────── */}
+          {phaseReport?.kpis && (
+            <KpiCards kpis={phaseReport.kpis} trend={phaseReport.trend} />
+          )}
+
+          {/* ── Benchmark + Blockers ──────────────────────────────────────── */}
+          {phaseReport && (phaseReport.trend || phaseReport.topBlockers.length > 0) && (
+            <div className={`grid gap-4 ${phaseReport.topBlockers.length > 0 ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1"}`}>
+              {phaseReport.trend && phaseReport.trend.count > 0 && (
+                <Card className={phaseReport.topBlockers.length > 0 ? "lg:col-span-2" : ""}>
+                  <CardContent className="p-4 sm:p-5">
+                    <p className="text-sm font-medium mb-4">Is this a pattern?</p>
+                    <BenchmarkTable trend={phaseReport.trend} />
+                  </CardContent>
+                </Card>
+              )}
+              {phaseReport.topBlockers.length > 0 && (
+                <TopBlockersCard blockers={phaseReport.topBlockers} />
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {data && (
@@ -570,7 +872,6 @@ export default function PmDashboard() {
                 <Building2 className="w-4 h-4 text-muted-foreground" />
                 <span className="font-medium">{project.projectName}</span>
               </div>
-
               {project.milestones.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No milestones yet for this project.</p>
               ) : (
@@ -580,7 +881,6 @@ export default function PmDashboard() {
                   ))}
                 </div>
               )}
-
               <div className="border-t pt-3">
                 <div className="flex items-center gap-2 mb-2">
                   <Users className="w-3.5 h-3.5 text-muted-foreground" />

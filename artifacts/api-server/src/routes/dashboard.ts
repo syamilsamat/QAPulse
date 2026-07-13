@@ -452,6 +452,34 @@ function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEn
     .filter((entry) => entry.avgDays !== null && entry.avgDays > 0);
 }
 
+// Compute first-pass rate and stability index from activity events for a set of req IDs.
+// firstPassPct = % of reqs never rejected. stabilityPct = % of reqs revised after approval.
+function computeKpiMetrics(reqIds: number[], events: { entityId: number | null; type: string; createdAt: Date }[]) {
+  const rejectedIds = new Set(
+    events.filter(e => e.type === "requirement_reject" && e.entityId != null).map(e => e.entityId as number),
+  );
+  const firstPassPct = reqIds.length > 0
+    ? Math.round((reqIds.filter(id => !rejectedIds.has(id)).length / reqIds.length) * 100)
+    : null;
+
+  const firstApproveByReq = new Map<number, Date>();
+  const revisedAfterApproval = new Set<number>();
+  for (const ev of events) {
+    if (ev.entityId == null) continue;
+    if (ev.type === "requirement_approve" && !firstApproveByReq.has(ev.entityId)) {
+      firstApproveByReq.set(ev.entityId, ev.createdAt);
+    } else if (ev.type === "requirement_submit") {
+      const firstApprove = firstApproveByReq.get(ev.entityId);
+      if (firstApprove && ev.createdAt > firstApprove) revisedAfterApproval.add(ev.entityId);
+    }
+  }
+  const stabilityPct = reqIds.length > 0
+    ? Math.round((revisedAfterApproval.size / reqIds.length) * 100)
+    : null;
+
+  return { firstPassPct, stabilityPct };
+}
+
 router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -466,32 +494,141 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     res.status(403).json({ error: "Access denied to this project" }); return;
   }
 
+  const milestoneShape = {
+    id: milestone.id,
+    name: milestone.name,
+    status: milestone.status,
+    targetDate: milestone.targetDate?.toISOString() ?? null,
+    createdAt: milestone.createdAt.toISOString(),
+    reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null,
+    devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null,
+    qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
+  };
+
   const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
   if (requirementTimelines.length === 0) {
-    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status, reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null, devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null, qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null }, phaseSummary: null, trend: null, requirements: [] });
+    res.json({ milestone: milestoneShape, phaseSummary: null, plannedPhaseDays: null, kpis: null, topBlockers: [], trend: null, requirements: [] });
     return;
   }
 
   const phaseSummary = summarizeTimelines(requirementTimelines);
+  const allReqIds = requirementTimelines.map(r => r.id);
 
-  // Trend: last 5 completed milestones in the same project (this one included,
-  // if it's itself completed), each given the same phase computation.
+  // ── KPI activity events (one batch query for all KPI metrics) ─────────────
+  const kpiActivityRows = await db
+    .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+    .from(activityTable)
+    .where(and(
+      eq(activityTable.entityType, "requirement"),
+      inArray(activityTable.entityId, allReqIds),
+      inArray(activityTable.type, ["requirement_reject", "requirement_submit", "requirement_approve"]),
+    ))
+    .orderBy(activityTable.createdAt);
+
+  const { firstPassPct, stabilityPct } = computeKpiMetrics(allReqIds, kpiActivityRows);
+
+  // ── Burn rate & SPI ───────────────────────────────────────────────────────
+  const approvedCount = requirementTimelines.filter(r => r.status.startsWith("Approved")).length;
+  const qaRollupData = (await rollupExecutionByMilestone([milestone.id], "qa")).get(milestone.id);
+  const workCompletedPct = (qaRollupData?.tcCount ?? 0) > 0
+    ? qaRollupData!.passPct
+    : Math.round((approvedCount / allReqIds.length) * 100);
+
+  let timeElapsedPct: number | null = null;
+  if (milestone.targetDate && milestone.status !== "completed" && milestone.status !== "cancelled") {
+    const totalMs = milestone.targetDate.getTime() - milestone.createdAt.getTime();
+    if (totalMs > 0) {
+      const elapsedMs = Date.now() - milestone.createdAt.getTime();
+      timeElapsedPct = Math.min(Math.round((elapsedMs / totalMs) * 100), 120);
+    }
+  }
+  const spi = (timeElapsedPct !== null && timeElapsedPct > 0)
+    ? Math.round((workCompletedPct / timeElapsedPct) * 100) / 100
+    : null;
+
+  const kpis = { timeElapsedPct, workCompletedPct, spi, firstPassPct, stabilityPct };
+
+  // ── Planned phase durations from milestone target dates ───────────────────
+  const reqTargetDate = (milestone as any).reqTargetDate as Date | null;
+  const devTargetDate = (milestone as any).devTargetDate as Date | null;
+  const qaTargetDate = (milestone as any).qaTargetDate as Date | null;
+  const plannedPhaseDays = (reqTargetDate || devTargetDate || qaTargetDate) ? {
+    requirements: reqTargetDate ? Math.max(0, Math.round((reqTargetDate.getTime() - milestone.createdAt.getTime()) / 86_400_000)) : null,
+    develop: (devTargetDate && reqTargetDate) ? Math.max(0, Math.round((devTargetDate.getTime() - reqTargetDate.getTime()) / 86_400_000)) : null,
+    qa: (qaTargetDate && devTargetDate) ? Math.max(0, Math.round((qaTargetDate.getTime() - devTargetDate.getTime()) / 86_400_000)) : null,
+  } : null;
+
+  // ── Top blockers: requirements stuck in review or rejected ────────────────
+  const blockerEntries = requirementTimelines.filter(r =>
+    r.status === "In review" || r.status === "Rejected — awaiting revision",
+  );
+  const blockerIds = new Set(blockerEntries.map(r => r.id));
+  const lastBlockerEventByReq = new Map<number, Date>();
+  for (const ev of kpiActivityRows) {
+    if (ev.entityId == null || !blockerIds.has(ev.entityId)) continue;
+    if (ev.type === "requirement_submit" || ev.type === "requirement_reject") {
+      const existing = lastBlockerEventByReq.get(ev.entityId);
+      if (!existing || ev.createdAt > existing) lastBlockerEventByReq.set(ev.entityId, ev.createdAt);
+    }
+  }
+  // Fetch module for blockers (one extra query, only if there are blockers)
+  const blockerModuleById = new Map<number, string | null>();
+  if (blockerEntries.length > 0) {
+    const blockerReqRows = await db
+      .select({ id: requirementsTable.id, module: requirementsTable.module })
+      .from(requirementsTable)
+      .where(inArray(requirementsTable.id, [...blockerIds]));
+    for (const r of blockerReqRows) blockerModuleById.set(r.id, r.module);
+  }
+  const now = new Date();
+  const topBlockers = blockerEntries.map(r => {
+    const last = lastBlockerEventByReq.get(r.id);
+    return {
+      id: r.id,
+      title: r.title,
+      reviewStatus: r.status === "In review" ? "in_review" : "rejected",
+      module: blockerModuleById.get(r.id) ?? null,
+      stuckDays: last ? Math.round((now.getTime() - last.getTime()) / 86_400_000) : 0,
+    };
+  }).sort((a, b) => b.stuckDays - a.stuckDays).slice(0, 5);
+
+  // ── Trend: last 5 completed milestones in this project ───────────────────
   const completedMilestones = await db
     .select().from(milestonesTable)
     .where(and(eq(milestonesTable.projectId, milestone.projectId), eq(milestonesTable.status, "completed")))
     .orderBy(desc(milestonesTable.targetDate))
     .limit(5);
 
-  const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; developDays: number | null; qaDays: number | null; uatDays: number | null }[] = [];
+  const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; developDays: number | null; qaDays: number | null; uatDays: number | null; firstPassPct: number | null; stabilityPct: number | null }[] = [];
   for (const m of completedMilestones) {
     const entries = await computeRequirementTimelines(m.id, m.completedAt);
     if (entries.length === 0) continue;
     const summary = summarizeTimelines(entries);
     const byKey = Object.fromEntries(summary.map((s) => [s.key, s.avgDays])) as Partial<Record<PhaseKey, number | null>>;
+
+    const mReqIds = entries.map(e => e.id);
+    let mFirstPassPct: number | null = null;
+    let mStabilityPct: number | null = null;
+    if (mReqIds.length > 0) {
+      const mEvents = await db
+        .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+        .from(activityTable)
+        .where(and(
+          eq(activityTable.entityType, "requirement"),
+          inArray(activityTable.entityId, mReqIds),
+          inArray(activityTable.type, ["requirement_reject", "requirement_submit", "requirement_approve"]),
+        ))
+        .orderBy(activityTable.createdAt);
+      const metrics = computeKpiMetrics(mReqIds, mEvents);
+      mFirstPassPct = metrics.firstPassPct;
+      mStabilityPct = metrics.stabilityPct;
+    }
+
     trendEntries.push({
       id: m.id, name: m.name,
       requirementsDays: byKey.requirements ?? null, gapDays: byKey.gap ?? null,
       developDays: byKey.develop ?? null, qaDays: byKey.qa ?? null, uatDays: byKey.uat ?? null,
+      firstPassPct: mFirstPassPct, stabilityPct: mStabilityPct,
     });
   }
 
@@ -501,16 +638,11 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   };
 
   res.json({
-    milestone: {
-      id: milestone.id,
-      name: milestone.name,
-      status: milestone.status,
-      targetDate: milestone.targetDate?.toISOString() ?? null,
-      reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null,
-      devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null,
-      qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
-    },
+    milestone: milestoneShape,
     phaseSummary,
+    plannedPhaseDays,
+    kpis,
+    topBlockers,
     trend: {
       count: trendEntries.length,
       avgRequirementsDays: avg(trendEntries.map((e) => e.requirementsDays)),
