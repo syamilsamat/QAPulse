@@ -142,65 +142,94 @@ const QMPulseLanding: React.FC = () => {
       const isMobile = window.matchMedia("(max-width: 767px)").matches;
       const driftX = isMobile ? 28 : 70;
 
-      // Hero entrance
+      // Hero entrance — fromTo with an explicit visible end state so a
+      // double-invoked timeline (React StrictMode) can never leave an
+      // element stuck at opacity 0.
       gsap
         .timeline()
-        .from(".hero-pill", { y: 24, opacity: 0, duration: 0.8, ease: "power3.out", delay: 0.15 })
-        .from(
+        .fromTo(
+          ".hero-pill",
+          { y: 24, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.8, ease: "power3.out", delay: 0.15 },
+        )
+        .fromTo(
           ".hero-line",
-          { y: 70, opacity: 0, duration: 1.1, stagger: 0.14, ease: "power4.out" },
+          { y: 70, opacity: 0 },
+          { y: 0, opacity: 1, duration: 1.1, stagger: 0.14, ease: "power4.out" },
           "-=0.5",
         )
-        .from(".hero-desc", { y: 24, opacity: 0, duration: 0.8, ease: "power3.out" }, "-=0.7")
-        .from(
+        .fromTo(
+          ".hero-desc",
+          { y: 24, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.8, ease: "power3.out" },
+          "-=0.7",
+        )
+        .fromTo(
           ".hero-cta",
-          { y: 16, opacity: 0, duration: 0.6, stagger: 0.1, ease: "power3.out" },
+          { y: 16, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.6, stagger: 0.1, ease: "power3.out" },
           "-=0.5",
         )
-        .from(".hero-scroll-hint", { opacity: 0, duration: 1 }, "-=0.2");
+        .fromTo(".hero-scroll-hint", { opacity: 0 }, { opacity: 1, duration: 1 }, "-=0.2");
 
       // Generic reveals
       gsap.utils.toArray<HTMLElement>(".reveal").forEach((el) => {
-        gsap.from(el, {
-          y: 60,
-          opacity: 0,
-          duration: 1,
-          ease: "power3.out",
-          scrollTrigger: { trigger: el, start: "top 85%" },
-        });
+        gsap.fromTo(
+          el,
+          { y: 60, opacity: 0 },
+          {
+            y: 0,
+            opacity: 1,
+            duration: 1,
+            ease: "power3.out",
+            scrollTrigger: { trigger: el, start: "top 85%" },
+          },
+        );
       });
 
       // Feature cards stagger in as a group
-      gsap.from(".feature-card", {
-        y: 80,
-        opacity: 0,
-        duration: 0.9,
-        stagger: 0.08,
-        ease: "power3.out",
-        scrollTrigger: { trigger: ".feature-grid", start: "top 80%" },
-      });
+      gsap.fromTo(
+        ".feature-card",
+        { y: 80, opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          duration: 0.9,
+          stagger: 0.08,
+          ease: "power3.out",
+          scrollTrigger: { trigger: ".feature-grid", start: "top 80%" },
+        },
+      );
 
       // Workflow spine draws itself while the section scrolls
-      gsap.from(".workflow-spine", {
-        scaleY: 0,
-        transformOrigin: "top center",
-        ease: "none",
-        scrollTrigger: {
-          trigger: ".workflow-list",
-          start: "top 70%",
-          end: "bottom 60%",
-          scrub: 0.6,
+      gsap.fromTo(
+        ".workflow-spine",
+        { scaleY: 0 },
+        {
+          scaleY: 1,
+          transformOrigin: "top center",
+          ease: "none",
+          scrollTrigger: {
+            trigger: ".workflow-list",
+            start: "top 70%",
+            end: "bottom 60%",
+            scrub: 0.6,
+          },
         },
-      });
+      );
 
       gsap.utils.toArray<HTMLElement>(".workflow-item").forEach((el, i) => {
-        gsap.from(el, {
-          x: i % 2 === 0 ? -driftX : driftX,
-          opacity: 0,
-          duration: 0.9,
-          ease: "power3.out",
-          scrollTrigger: { trigger: el, start: "top 82%" },
-        });
+        gsap.fromTo(
+          el,
+          { x: i % 2 === 0 ? -driftX : driftX, opacity: 0 },
+          {
+            x: 0,
+            opacity: 1,
+            duration: 0.9,
+            ease: "power3.out",
+            scrollTrigger: { trigger: el, start: "top 82%" },
+          },
+        );
       });
 
       // Animated counters
@@ -219,14 +248,18 @@ const QMPulseLanding: React.FC = () => {
       });
 
       // Big CTA drifts up over the scene
-      gsap.from(".cta-block", {
-        y: 90,
-        opacity: 0,
-        scale: 0.96,
-        duration: 1.1,
-        ease: "power3.out",
-        scrollTrigger: { trigger: ".cta-section", start: "top 75%" },
-      });
+      gsap.fromTo(
+        ".cta-block",
+        { y: 90, opacity: 0, scale: 0.96 },
+        {
+          y: 0,
+          opacity: 1,
+          scale: 1,
+          duration: 1.1,
+          ease: "power3.out",
+          scrollTrigger: { trigger: ".cta-section", start: "top 75%" },
+        },
+      );
     },
     { scope: containerRef },
   );

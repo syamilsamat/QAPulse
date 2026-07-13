@@ -42,7 +42,7 @@ function buildEcgCurve(): THREE.CatmullRomCurve3 {
     const t = i / N;
     const z = CORRIDOR_START - (CORRIDOR_START - CORRIDOR_END) * t;
     const u = (t * BEATS) % 1;
-    const y = ecgY(u) * 1.6 - 0.4;
+    const y = ecgY(u) * 1.25 - 1.1;
     const x = Math.sin(t * Math.PI * 3) * 0.9;
     pts.push(new THREE.Vector3(x, y, z));
   }
@@ -57,8 +57,8 @@ function HeartbeatLine({ segments }: { segments: number }) {
   const { core, glow } = useMemo(() => {
     const curve = buildEcgCurve();
     return {
-      core: new THREE.TubeGeometry(curve, segments, 0.03, 8, false),
-      glow: new THREE.TubeGeometry(curve, segments, 0.11, 8, false),
+      core: new THREE.TubeGeometry(curve, segments, 0.022, 8, false),
+      glow: new THREE.TubeGeometry(curve, segments, 0.08, 8, false),
     };
   }, [segments]);
 
@@ -71,7 +71,7 @@ function HeartbeatLine({ segments }: { segments: number }) {
         <meshBasicMaterial
           color="#14b8a6"
           transparent
-          opacity={0.18}
+          opacity={0.12}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
@@ -186,7 +186,7 @@ function Panel({
         <meshStandardMaterial
           color="#0a1526"
           transparent
-          opacity={0.6}
+          opacity={0.42}
           metalness={0.35}
           roughness={0.35}
         />
@@ -203,8 +203,7 @@ function Panel({
           <meshBasicMaterial
             color={i % 2 === 0 ? "#2dd4bf" : "#38bdf8"}
             transparent
-            opacity={0.85}
-            toneMapped={false}
+            opacity={0.6}
           />
         </mesh>
       ))}
@@ -219,13 +218,13 @@ function Panel({
 
 function Panels() {
   const panels: { position: [number, number, number]; tilt: number }[] = [
-    { position: [-4.4, 0.7, 1], tilt: 0.5 },
-    { position: [4.6, -0.4, -5], tilt: -0.55 },
-    { position: [-4.8, -0.8, -13], tilt: 0.45 },
-    { position: [4.4, 1.0, -21], tilt: -0.5 },
-    { position: [-4.5, 0.4, -30], tilt: 0.55 },
-    { position: [4.8, -0.6, -39], tilt: -0.45 },
-    { position: [-4.2, 1.1, -47], tilt: 0.5 },
+    { position: [-6.2, -0.3, 1], tilt: 0.5 },
+    { position: [6.4, -0.6, -5], tilt: -0.55 },
+    { position: [-6.0, -0.9, -13], tilt: 0.45 },
+    { position: [5.6, 0.8, -21], tilt: -0.5 },
+    { position: [-5.7, 0.3, -30], tilt: 0.55 },
+    { position: [6.0, -0.6, -39], tilt: -0.45 },
+    { position: [-5.4, 1.1, -47], tilt: 0.5 },
   ];
   return (
     <group>
@@ -244,7 +243,7 @@ function Rig() {
 
   useFrame((_, dt) => {
     const p = scrollState.progress;
-    const z = CORRIDOR_START + 4 - p * (CORRIDOR_START + 4 - (CORRIDOR_END + 10));
+    const z = CORRIDOR_START + 8 - p * (CORRIDOR_START + 8 - (CORRIDOR_END + 12));
     const x = Math.sin(p * Math.PI * 2) * 1.4 + scrollState.mouseX * 0.7;
     const y = 0.9 + Math.sin(p * Math.PI) * 0.8 + scrollState.mouseY * 0.45;
     target.set(x, y, z);
