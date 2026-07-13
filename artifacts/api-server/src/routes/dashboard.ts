@@ -321,11 +321,25 @@ function computeTimelineFromEvents(
       }
     } else if (state === "develop") {
       const readyEv = nextEventOfType(["requirement_dev_ready_for_qa"], phaseStart);
-      if (!readyEv) { segments.push(makeSegment("develop", cycle, phaseStart, milestoneCompletedAt, now)); break; }
-      segments.push(makeSegment("develop", cycle, phaseStart, readyEv.createdAt, now));
-      phaseStart = readyEv.createdAt;
-      testingWindowStart = readyEv.createdAt;
-      state = "testing";
+      const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      // FA edits the requirement mid-development and re-submits for review —
+      // if that re-submit arrives before ready_for_qa, end this develop cycle
+      // and start a new Requirements cycle (dev is now blocked).
+      const resubmitBreaks = submitEv && (!readyEv || submitEv.createdAt < readyEv.createdAt);
+      if (resubmitBreaks) {
+        segments.push(makeSegment("develop", cycle, phaseStart, submitEv!.createdAt, now));
+        cycle += 1;
+        phaseStart = submitEv!.createdAt;
+        state = "requirements";
+      } else if (!readyEv) {
+        segments.push(makeSegment("develop", cycle, phaseStart, milestoneCompletedAt, now));
+        break;
+      } else {
+        segments.push(makeSegment("develop", cycle, phaseStart, readyEv.createdAt, now));
+        phaseStart = readyEv.createdAt;
+        testingWindowStart = readyEv.createdAt;
+        state = "testing";
+      }
     } else {
       const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
       const windowEnd = submitEv ? submitEv.createdAt : milestoneCompletedAt;

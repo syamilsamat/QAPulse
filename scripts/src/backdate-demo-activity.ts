@@ -176,14 +176,24 @@ async function main() {
       reqsUpdated++;
 
       // 2. Backdate existing activity events
-      const reqEvents = events.filter((e) => e.entityId === req.id);
+      const reqEvents = events.filter((e) => e.entityId === req.id).sort((a, b) => a.id - b.id);
+      // For requirements with multiple submit events (e.g. approve-then-edit:
+      // first submit before approve, second submit after dev-assign), assign
+      // timestamps in order so the sequence remains valid.
+      const submitEvents = reqEvents.filter((e) => e.type === "requirement_submit");
+      // resubmit mid-dev lands halfway between devAssign and readyForQA
+      const resubmitAgo = Math.round((devAssignAgo + readyForQaAgo) / 2);
+      let submitIdx = 0;
       for (const ev of reqEvents) {
         let target: Date | null = null;
-        if (ev.type === "requirement_submit")               target = daysAgo(submitAgo);
-        else if (ev.type === "requirement_approve")         target = daysAgo(approveAgo);
-        else if (ev.type === "requirement_reject")          target = daysAgo(submitAgo - 1);
-        else if (ev.type === "requirement_dev_assign")      target = daysAgo(devAssignAgo);
-        else if (ev.type === "requirement_dev_ready_for_qa") target = daysAgo(readyForQaAgo);
+        if (ev.type === "requirement_submit") {
+          // First submit = before approve; any further submit = re-submit mid-dev
+          target = submitIdx === 0 ? daysAgo(submitAgo) : daysAgo(resubmitAgo);
+          submitIdx++;
+        } else if (ev.type === "requirement_approve")           target = daysAgo(approveAgo);
+        else if (ev.type === "requirement_reject")              target = daysAgo(submitAgo - 1);
+        else if (ev.type === "requirement_dev_assign")          target = daysAgo(devAssignAgo);
+        else if (ev.type === "requirement_dev_ready_for_qa")    target = daysAgo(readyForQaAgo);
         else if (ev.type === "requirement_updated" || ev.type === "requirement_revised") {
           target = daysAgo(approveAgo + 1);
         }
@@ -206,9 +216,12 @@ async function main() {
         eventsInserted++;
       }
 
-      // 4. Insert dev_ready_for_qa event if none exists
+      // 4. Insert dev_ready_for_qa event if none exists.
+      //    Skip for requirements that have a re-submit after dev-assign
+      //    (approve-then-edit flow) — dev was blocked, never reached QA.
+      const hasResubmitAfterDev = submitEvents.length > 1;
       const hasReadyForQa = reqEvents.some((e) => e.type === "requirement_dev_ready_for_qa");
-      if (!hasReadyForQa) {
+      if (!hasReadyForQa && !hasResubmitAfterDev) {
         await db.insert(activityTable).values({
           type: "requirement_dev_ready_for_qa",
           description: `Requirement "${req.title}" marked ready for QA`,
