@@ -15,7 +15,10 @@ function requireAuth(req: any, res: any): { userId: number; role: string } | nul
 }
 
 function canWrite(role: string) {
-  return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"].includes(role);
+  // pm_lead/pmo were missing here even though dashboard.ts's PM_ROLES
+  // already treats them as legitimate PM roles for reading milestone data —
+  // without them a PM couldn't create, edit, or close their own milestones.
+  return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(role);
 }
 
 function fmt(m: typeof milestonesTable.$inferSelect) {
