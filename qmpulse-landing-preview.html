@@ -1,0 +1,693 @@
+<title>QMPulse — The pulse of your product quality</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #04070f;
+    --ink: #e6edf7;
+    --ink-dim: #9fb0c7;
+    --ink-faint: #5c6b82;
+    --pulse: #3af5c8;
+    --sky: #38bdf8;
+    --line: rgba(255, 255, 255, 0.08);
+    --card: rgba(255, 255, 255, 0.04);
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    overflow-x: clip;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(58, 245, 200, 0.3); }
+
+  /* ---------- backdrop ---------- */
+  #scene { position: fixed; inset: 0; z-index: 0; display: block; }
+  .vignette {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 42%, rgba(4, 7, 15, 0.8) 100%);
+  }
+
+  /* ---------- nav ---------- */
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  }
+  .nav {
+    max-width: 72rem; margin: 0 auto; padding: 1rem 1.5rem;
+    display: flex; align-items: center; justify-content: space-between;
+    backdrop-filter: blur(12px); background: rgba(4, 7, 15, 0.55);
+    border-bottom: 1px solid var(--line);
+    border-radius: 0 0 1rem 1rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.65rem; font-weight: 650; font-size: 1.1rem; letter-spacing: -0.01em; }
+  .brand em { color: var(--pulse); font-style: normal; }
+  .brand-mark {
+    width: 2.2rem; height: 2.2rem; border-radius: 0.7rem; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--pulse), var(--sky));
+    box-shadow: 0 8px 24px rgba(58, 245, 200, 0.28);
+  }
+  .brand-mark svg { width: 1.25rem; height: 1.25rem; stroke: var(--bg); stroke-width: 2.5; fill: none; }
+  .nav nav { display: flex; gap: 2rem; font-size: 0.875rem; color: var(--ink-dim); }
+  .nav nav a { color: inherit; text-decoration: none; transition: color 0.2s; }
+  .nav nav a:hover, .nav nav a:focus-visible { color: var(--pulse); }
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08); color: var(--ink);
+    padding: 0.5rem 1.25rem; font-size: 0.875rem; font-weight: 500;
+    cursor: pointer; text-decoration: none; transition: background 0.2s;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+  @media (max-width: 720px) { .nav nav { display: none; } }
+
+  /* ---------- shared ---------- */
+  main { position: relative; z-index: 10; }
+  section { padding: 8rem 1.5rem; }
+  .wrap { max-width: 72rem; margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--pulse);
+  }
+  h1, h2 { letter-spacing: -0.025em; text-wrap: balance; }
+  .grad-text {
+    background: linear-gradient(90deg, #5eead4, #67e8f9, var(--sky));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    border: none; border-radius: 999px; cursor: pointer; text-decoration: none;
+    background: linear-gradient(90deg, var(--pulse), var(--sky));
+    color: var(--bg); font-weight: 650; font-size: 1rem;
+    padding: 0.9rem 2rem;
+    box-shadow: 0 16px 40px rgba(58, 245, 200, 0.22);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn-primary:hover { transform: scale(1.03); box-shadow: 0 18px 48px rgba(58, 245, 200, 0.36); }
+  .btn-primary svg, .btn-ghost svg { width: 1.1em; height: 1.1em; stroke: currentColor; stroke-width: 2.2; fill: none; }
+
+  /* reveals */
+  .reveal { opacity: 0; transform: translateY(46px); transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1), transform 0.9s cubic-bezier(0.22, 1, 0.36, 1); }
+  .reveal.in { opacity: 1; transform: none; }
+  .from-left { transform: translateX(-60px); }
+  .from-right { transform: translateX(60px); }
+  .reveal.from-left.in, .reveal.from-right.in { transform: none; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding-top: 6rem; position: relative;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    border: 1px solid rgba(58, 245, 200, 0.3); border-radius: 999px;
+    background: rgba(58, 245, 200, 0.09); padding: 0.42rem 1.1rem;
+  }
+  .pill .dot { position: relative; width: 8px; height: 8px; }
+  .pill .dot::before, .pill .dot::after {
+    content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--pulse);
+  }
+  .pill .dot::before { animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+  @keyframes ping { 75%, 100% { transform: scale(2.4); opacity: 0; } }
+  .hero h1 { font-size: clamp(2.8rem, 7.5vw, 4.9rem); font-weight: 750; line-height: 1.05; margin-top: 2rem; }
+  .hero p {
+    margin-top: 1.75rem; max-width: 40rem; font-size: clamp(1.05rem, 2vw, 1.25rem);
+    line-height: 1.65; color: var(--ink-dim);
+  }
+  .hero-ctas { margin-top: 2.5rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
+  .scroll-hint {
+    position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.25em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .scroll-hint svg { width: 1.2rem; height: 1.2rem; stroke: currentColor; stroke-width: 2; fill: none; animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+  /* staged hero entrance */
+  .stage { opacity: 0; transform: translateY(28px); animation: rise 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+  .stage:nth-child(1) { animation-delay: 0.1s; }
+  .stage:nth-child(2) { animation-delay: 0.25s; }
+  .stage:nth-child(3) { animation-delay: 0.45s; }
+  .stage:nth-child(4) { animation-delay: 0.6s; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* ---------- sections heading ---------- */
+  .sec-head h2 { font-size: clamp(2rem, 4.5vw, 3rem); font-weight: 720; margin-top: 0.8rem; }
+  .sec-head p { margin-top: 1rem; font-size: 1.1rem; color: var(--ink-dim); max-width: 38rem; }
+
+  /* ---------- features ---------- */
+  .grid {
+    margin-top: 3.5rem; display: grid; gap: 1.25rem;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  }
+  .card {
+    border: 1px solid var(--line); border-radius: 1.1rem;
+    background: var(--card); backdrop-filter: blur(6px);
+    padding: 1.75rem;
+    transition: transform 0.3s, border-color 0.3s, background 0.3s;
+  }
+  .card:hover { transform: translateY(-6px); border-color: rgba(58, 245, 200, 0.4); background: rgba(255, 255, 255, 0.07); }
+  .card .icon {
+    width: 3rem; height: 3rem; border-radius: 0.8rem; display: grid; place-items: center;
+    background: linear-gradient(135deg, rgba(58, 245, 200, 0.16), rgba(56, 189, 248, 0.16));
+    border: 1px solid rgba(58, 245, 200, 0.22);
+  }
+  .card .icon svg { width: 1.4rem; height: 1.4rem; stroke: var(--pulse); stroke-width: 1.9; fill: none; }
+  .card h3 { margin-top: 1.2rem; font-size: 1.2rem; font-weight: 650; }
+  .card p { margin-top: 0.6rem; font-size: 0.94rem; line-height: 1.6; color: var(--ink-dim); }
+
+  /* ---------- workflow ---------- */
+  .flow { max-width: 56rem; margin: 0 auto; }
+  .flow-list { position: relative; margin-top: 5rem; display: flex; flex-direction: column; gap: 4.5rem; }
+  .spine {
+    position: absolute; left: 50%; top: 0; bottom: 0; width: 1px;
+    transform: translateX(-50%);
+    background: linear-gradient(to bottom, var(--pulse), rgba(103, 232, 249, 0.5), transparent);
+    transform-origin: top center;
+  }
+  .step { position: relative; display: flex; align-items: center; gap: 2rem; }
+  .step:nth-child(even) { flex-direction: row-reverse; }
+  .step .half { flex: 1; }
+  .step .box {
+    border: 1px solid var(--line); border-radius: 1.1rem; background: var(--card);
+    backdrop-filter: blur(6px); padding: 1.6rem 1.75rem;
+  }
+  .step .box header2, .step .box .box-head { display: flex; align-items: center; gap: 0.7rem; }
+  .step .box .box-head svg { width: 1.35rem; height: 1.35rem; stroke: var(--pulse); stroke-width: 1.9; fill: none; }
+  .step .box h3 { font-size: 1.4rem; font-weight: 650; }
+  .step .box p { margin-top: 0.7rem; font-size: 0.94rem; line-height: 1.6; color: var(--ink-dim); }
+  .node {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 3rem; height: 3rem; border-radius: 50%;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: var(--pulse);
+    background: var(--bg); border: 1px solid rgba(58, 245, 200, 0.4);
+    box-shadow: 0 8px 24px rgba(58, 245, 200, 0.18);
+  }
+  @media (max-width: 720px) {
+    .spine, .node { left: 1.4rem; }
+    .step, .step:nth-child(even) { flex-direction: column; align-items: stretch; padding-left: 3.6rem; }
+    .step .half:last-child { display: none; }
+  }
+
+  /* ---------- numbers ---------- */
+  .band {
+    border: 1px solid var(--line); border-radius: 1.5rem;
+    background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px);
+    padding: clamp(2rem, 5vw, 3.5rem);
+  }
+  .band-head { display: flex; align-items: center; gap: 0.8rem; }
+  .band-head svg { width: 1.5rem; height: 1.5rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+  .band-head h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 700; }
+  .stats { margin-top: 2.5rem; display: grid; gap: 2.5rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .stat-num {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: clamp(2.4rem, 5vw, 3.2rem); font-weight: 700;
+    background: linear-gradient(90deg, #5eead4, var(--sky));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .stat-label { margin-top: 0.4rem; font-size: 0.85rem; line-height: 1.5; color: var(--ink-dim); }
+  .chips {
+    margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: 0.75rem 2rem;
+    font-size: 0.85rem; color: var(--ink-faint);
+  }
+  .chips span { display: inline-flex; align-items: center; gap: 0.5rem; }
+  .chips svg { width: 1rem; height: 1rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+
+  /* ---------- CTA ---------- */
+  .cta { text-align: center; padding: 10rem 1.5rem; }
+  .cta .heart { width: 3rem; height: 3rem; margin: 0 auto; }
+  .cta .heart svg { width: 100%; height: 100%; stroke: var(--pulse); stroke-width: 2.4; fill: none; }
+  .cta h2 { font-size: clamp(2.6rem, 6vw, 3.8rem); font-weight: 750; margin-top: 1.4rem; }
+  .cta p { margin-top: 1.2rem; font-size: 1.1rem; color: var(--ink-dim); max-width: 36rem; margin-inline: auto; line-height: 1.65; }
+  .cta .btn-primary { margin-top: 2.4rem; font-size: 1.1rem; padding: 1rem 2.5rem; }
+
+  /* ---------- footer ---------- */
+  footer {
+    position: relative; z-index: 10;
+    border-top: 1px solid var(--line); padding: 2rem 1.5rem;
+    font-size: 0.85rem; color: var(--ink-faint);
+  }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; justify-content: space-between; }
+  footer .sig { display: inline-flex; align-items: center; gap: 0.5rem; }
+  footer svg { width: 1rem; height: 1rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stage, .scroll-hint svg, .pill .dot::before { animation: none; }
+    .stage { opacity: 1; transform: none; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<header>
+  <div class="nav">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24"><polyline points="2 12 6 12 9 4 14 20 17 12 22 12"/></svg>
+      </span>
+      QM<em>Pulse</em>
+    </div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#numbers">Why QMPulse</a>
+    </nav>
+    <a class="btn-ghost" href="#cta">Sign in
+      <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
+  </div>
+</header>
+
+<main>
+  <!-- hero -->
+  <section class="hero">
+    <div class="pill stage">
+      <span class="dot"></span>
+      <span class="eyebrow">Quality Management Pulse</span>
+    </div>
+    <h1 class="stage">The pulse of your<br /><span class="grad-text">product quality.</span></h1>
+    <p class="stage">
+      QMPulse unifies test cases, execution runs, defects and PMO reporting into one live
+      heartbeat — so your team always knows exactly how healthy the release is.
+    </p>
+    <div class="hero-ctas stage">
+      <a class="btn-primary" href="#cta">Get started
+        <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+      <a class="btn-ghost" href="#features" style="padding:0.9rem 2rem;font-size:1rem;">Explore the platform</a>
+    </div>
+    <div class="scroll-hint">
+      Scroll to follow the pulse
+      <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+  </section>
+
+  <!-- features -->
+  <section id="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow">The platform</div>
+        <h2>Everything your QA team runs on</h2>
+        <p>Six systems your team juggles today, beating as one.</p>
+      </div>
+      <div class="grid">
+        <div class="card reveal">
+          <span class="icon"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span>
+          <h3>Test Case Library</h3>
+          <p>Author, organise and version every test case — steps, expected results and modules in one searchable library.</p>
+        </div>
+        <div class="card reveal">
+          <span class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg></span>
+          <h3>Execution Tracking</h3>
+          <p>Live pass / fail / blocked counts per run, per module, per ticket. Watch a release's heartbeat in real time.</p>
+        </div>
+        <div class="card reveal">
+          <span class="icon"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="12" rx="4"/><path d="M12 7V4M7 11H4M20 11h-3M7 15H4M20 15h-3M9 4l1.5 2M15 4l-1.5 2"/></svg></span>
+          <h3>Defect Management</h3>
+          <p>Raise defects straight from a failing step, then drive CAPA and Pareto analysis from the full status history.</p>
+        </div>
+        <div class="card reveal">
+          <span class="icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.2 7l7.4 3.7M8.2 17l7.4-3.7"/></svg></span>
+          <h3>Deep Redmine Sync</h3>
+          <p>Tickets, projects and custom fields flow both ways. Your tracker and your QA workspace never drift apart.</p>
+        </div>
+        <div class="card reveal">
+          <span class="icon"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/><path d="M12 8V4M8 4h8"/></svg></span>
+          <h3>AI-Assisted Authoring</h3>
+          <p>Draft test cases from requirements in seconds, with AI-assisted flags so reviewers always know the origin.</p>
+        </div>
+        <div class="card reveal">
+          <span class="icon"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></span>
+          <h3>PMO Report Portal</h3>
+          <p>Module-level summaries, verdict emails and styled Excel exports — reporting that builds itself.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- workflow -->
+  <section id="workflow">
+    <div class="flow">
+      <div class="sec-head reveal" style="text-align:center;">
+        <div class="eyebrow">Workflow</div>
+        <h2>From plan to verdict</h2>
+      </div>
+      <div class="flow-list">
+        <div class="spine" id="spine"></div>
+        <div class="step reveal from-left">
+          <div class="half">
+            <div class="box">
+              <div class="box-head">
+                <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/></svg>
+                <h3>Plan</h3>
+              </div>
+              <p>Pull requirements and Redmine tickets into scoped projects with milestones and assigned resources.</p>
+            </div>
+          </div>
+          <span class="node">01</span>
+          <div class="half"></div>
+        </div>
+        <div class="step reveal from-right">
+          <div class="half">
+            <div class="box">
+              <div class="box-head">
+                <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+                <h3>Author</h3>
+              </div>
+              <p>Build the test case library — by hand or with AI assistance — mapped to modules and requirements.</p>
+            </div>
+          </div>
+          <span class="node">02</span>
+          <div class="half"></div>
+        </div>
+        <div class="step reveal from-left">
+          <div class="half">
+            <div class="box">
+              <div class="box-head">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg>
+                <h3>Execute</h3>
+              </div>
+              <p>Run execution files per ticket. Every status change is audited for traceability and CAPA.</p>
+            </div>
+          </div>
+          <span class="node">03</span>
+          <div class="half"></div>
+        </div>
+        <div class="step reveal from-right">
+          <div class="half">
+            <div class="box">
+              <div class="box-head">
+                <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13h2v4H9zM13 11h2v6h-2z"/></svg>
+                <h3>Report</h3>
+              </div>
+              <p>One click to verdict emails, PMO dashboards and review-logged Excel deliverables.</p>
+            </div>
+          </div>
+          <span class="node">04</span>
+          <div class="half"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- numbers -->
+  <section id="numbers">
+    <div class="wrap">
+      <div class="band reveal">
+        <div class="band-head">
+          <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+          <h2>Why teams switch to QMPulse</h2>
+        </div>
+        <div class="stats">
+          <div><div class="stat-num"><span class="count" data-value="100">0</span>%</div>
+            <div class="stat-label">traceability, from requirement to verdict</div></div>
+          <div><div class="stat-num"><span class="count" data-value="6">0</span></div>
+            <div class="stat-label">role-based portals in a single platform</div></div>
+          <div><div class="stat-num"><span class="count" data-value="40">0</span>%</div>
+            <div class="stat-label">less time spent assembling reports</div></div>
+          <div><div class="stat-num"><span class="count" data-value="1">0</span></div>
+            <div class="stat-label">source of truth for your whole QA operation</div></div>
+        </div>
+        <div class="chips">
+          <span><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.2 7l7.4 3.7M8.2 17l7.4-3.7"/></svg> Redmine-native integration</span>
+          <span><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/><path d="M12 8V4M8 4h8"/></svg> AI-assisted test authoring</span>
+          <span><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg> Audit-ready Excel exports</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta" id="cta">
+    <div class="reveal">
+      <div class="heart">
+        <svg viewBox="0 0 24 24"><polyline points="2 12 6 12 9 4 14 20 17 12 22 12"/></svg>
+      </div>
+      <h2>Feel the pulse.</h2>
+      <p>
+        Sign in and see the live heartbeat of your product quality — test cases,
+        executions, defects and reports, beating in one place.
+      </p>
+      <a class="btn-primary" href="#top">Sign in to QMPulse
+        <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="sig">
+      <svg viewBox="0 0 24 24"><polyline points="2 12 6 12 9 4 14 20 17 12 22 12"/></svg>
+      QMPulse — Quality Management Pulse
+    </span>
+    <span>© 2026 QMPulse. The pulse of your product quality.</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ------------------------------------------------ scroll reveals */
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll(".reveal").forEach(function (el, i) {
+    el.style.transitionDelay = (i % 6) * 0.06 + "s";
+    io.observe(el);
+  });
+
+  /* ------------------------------------------------ counters */
+  var cio = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      cio.unobserve(e.target);
+      var el = e.target, end = +el.dataset.value, t0 = performance.now();
+      if (reduced) { el.textContent = end; return; }
+      (function tick(now) {
+        var p = Math.min((now - t0) / 1400, 1);
+        el.textContent = Math.round(end * (1 - Math.pow(1 - p, 3)));
+        if (p < 1) requestAnimationFrame(tick);
+      })(t0);
+    });
+  }, { threshold: 0.6 });
+  document.querySelectorAll(".count").forEach(function (el) { cio.observe(el); });
+
+  /* ------------------------------------------------ workflow spine draw */
+  var spine = document.getElementById("spine");
+  function updateSpine() {
+    var list = spine.parentElement.getBoundingClientRect();
+    var vh = innerHeight;
+    var p = Math.min(Math.max((vh * 0.75 - list.top) / list.height, 0), 1);
+    spine.style.transform = "translateX(-50%) scaleY(" + p + ")";
+  }
+
+  /* ------------------------------------------------ 3D corridor backdrop
+     Hand-rolled perspective projection on a 2D canvas: an ECG line running
+     into the depth, floating dashboard panels, particles and a grid floor.
+     Scroll flies the camera down the corridor; the pointer adds parallax. */
+  var cv = document.getElementById("scene"), cx = cv.getContext("2d");
+  var W = 0, H = 0, DPR = Math.min(devicePixelRatio || 1, 1.5);
+  function resize() {
+    W = innerWidth; H = innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  resize();
+  addEventListener("resize", resize);
+
+  var Z0 = 10, Z1 = -52, BEATS = 8;
+  function bump(u, c, w, a) { return a * Math.exp(-((u - c) * (u - c)) / (2 * w * w)); }
+  function ecgY(u) {
+    return bump(u, 0.18, 0.028, 0.22) + bump(u, 0.36, 0.009, -0.32) +
+           bump(u, 0.40, 0.011, 1.55) + bump(u, 0.44, 0.010, -0.42) +
+           bump(u, 0.62, 0.045, 0.36);
+  }
+  var ecg = [];
+  (function () {
+    var N = 420;
+    for (var i = 0; i <= N; i++) {
+      var t = i / N;
+      ecg.push({
+        x: Math.sin(t * Math.PI * 3) * 0.9,
+        y: ecgY((t * BEATS) % 1) * 1.6 - 0.4,
+        z: Z0 - (Z0 - Z1) * t
+      });
+    }
+  })();
+
+  var parts = [];
+  for (var i = 0; i < 240; i++) {
+    parts.push({ x: (Math.random() - 0.5) * 44, y: (Math.random() - 0.5) * 24,
+                 z: Z1 - 6 + Math.random() * (Z0 - Z1 + 16) });
+  }
+
+  var panels = [
+    { x: -4.4, y:  0.7, z:   1, tilt:  0.5 },
+    { x:  4.6, y: -0.4, z:  -5, tilt: -0.55 },
+    { x: -4.8, y: -0.8, z: -13, tilt:  0.45 },
+    { x:  4.4, y:  1.0, z: -21, tilt: -0.5 },
+    { x: -4.5, y:  0.4, z: -30, tilt:  0.55 },
+    { x:  4.8, y: -0.6, z: -39, tilt: -0.45 },
+    { x: -4.2, y:  1.1, z: -47, tilt:  0.5 }
+  ];
+  var BARS = [0.5, 0.9, 0.65, 1.1, 0.8];
+
+  var progress = 0, mx = 0, my = 0;
+  addEventListener("scroll", function () {
+    var max = document.documentElement.scrollHeight - innerHeight;
+    progress = max > 0 ? scrollY / max : 0;
+    updateSpine();
+  }, { passive: true });
+  addEventListener("mousemove", function (e) {
+    mx = (e.clientX / W) * 2 - 1; my = -((e.clientY / H) * 2 - 1);
+  }, { passive: true });
+
+  var cam = { x: 0, y: 0.9, z: 14 };
+  function project(p, out) {
+    var dz = cam.z - p.z;
+    if (dz < 0.25) return false;
+    var f = Math.min(W, H) * 0.92 / dz;
+    out.x = W / 2 + (p.x - cam.x) * f;
+    out.y = H / 2 - (p.y - cam.y) * f;
+    out.s = f;
+    return true;
+  }
+  var pr = { x: 0, y: 0, s: 0 };
+
+  function drawEcg(width, style, alphaBoost) {
+    cx.lineWidth = width;
+    cx.strokeStyle = style;
+    cx.beginPath();
+    var pen = false;
+    for (var i = 0; i < ecg.length; i++) {
+      if (project(ecg[i], pr)) {
+        if (pen) cx.lineTo(pr.x, pr.y); else { cx.moveTo(pr.x, pr.y); pen = true; }
+      } else pen = false;
+    }
+    cx.globalAlpha = alphaBoost;
+    cx.stroke();
+    cx.globalAlpha = 1;
+  }
+
+  function frame(now) {
+    var t = now / 1000;
+    // camera follows scroll down the corridor + pointer parallax
+    var tz = 14 - progress * (14 - (Z1 + 10));
+    var txx = Math.sin(progress * Math.PI * 2) * 1.4 + mx * 0.7;
+    var ty = 0.9 + Math.sin(progress * Math.PI) * 0.8 + my * 0.45;
+    cam.x += (txx - cam.x) * 0.06; cam.y += (ty - cam.y) * 0.06; cam.z += (tz - cam.z) * 0.06;
+
+    cx.fillStyle = "#04070f";
+    cx.fillRect(0, 0, W, H);
+
+    // grid floor
+    cx.strokeStyle = "rgba(20,120,110,0.16)";
+    cx.lineWidth = 1;
+    var zStart = Math.floor(cam.z) - 1;
+    for (var g = 0; g < 20; g++) {
+      var gz = zStart - g * 2;
+      var a = project({ x: -26, y: -3.4, z: gz }, pr); var ax = pr.x, ay = pr.y;
+      var b = project({ x: 26, y: -3.4, z: gz }, pr);
+      if (a && b) {
+        cx.globalAlpha = Math.max(0, 1 - g / 18) * 0.7;
+        cx.beginPath(); cx.moveTo(ax, ay); cx.lineTo(pr.x, pr.y); cx.stroke();
+      }
+    }
+    cx.globalAlpha = 1;
+
+    // particles
+    cx.fillStyle = "#67e8f9";
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      var zz = p.z;
+      // wrap so particles always surround the camera
+      while (cam.z - zz > 66) zz += 72;
+      while (cam.z - zz < -6) zz -= 72;
+      if (!project({ x: p.x + mx * 0.6, y: p.y + my * 0.35, z: zz }, pr)) continue;
+      var r = Math.min(pr.s * 0.045, 2.4);
+      cx.globalAlpha = Math.min(0.5, pr.s / 400);
+      cx.beginPath(); cx.arc(pr.x, pr.y, r, 0, 6.2832); cx.fill();
+    }
+    cx.globalAlpha = 1;
+
+    // panels — projected glass quads with mini bar charts
+    for (var k = 0; k < panels.length; k++) {
+      var pl = panels[k];
+      var fy = pl.y + Math.sin(t * 0.6 + k * 2.1) * 0.25;
+      var ct = Math.cos(pl.tilt), st = Math.sin(pl.tilt);
+      var corners = [[-1.5, 0.95], [1.5, 0.95], [1.5, -0.95], [-1.5, -0.95]];
+      var proj = [], ok = true;
+      for (var c = 0; c < 4; c++) {
+        var lx = corners[c][0], ly = corners[c][1];
+        if (!project({ x: pl.x + lx * ct, y: fy + ly, z: pl.z - lx * st }, pr)) { ok = false; break; }
+        proj.push({ x: pr.x, y: pr.y });
+      }
+      if (!ok) continue;
+      var depth = cam.z - pl.z;
+      var fade = Math.max(0, Math.min(1, (44 - depth) / 20)) * Math.max(0, Math.min(1, depth / 3));
+      if (fade <= 0.01) continue;
+      cx.globalAlpha = 0.55 * fade;
+      cx.fillStyle = "rgba(10,21,38,0.85)";
+      cx.beginPath();
+      cx.moveTo(proj[0].x, proj[0].y);
+      for (c = 1; c < 4; c++) cx.lineTo(proj[c].x, proj[c].y);
+      cx.closePath(); cx.fill();
+      cx.globalAlpha = 0.7 * fade;
+      cx.strokeStyle = "#2dd4bf"; cx.lineWidth = 1;
+      cx.stroke();
+      // bars
+      for (var bIdx = 0; bIdx < BARS.length; bIdx++) {
+        var h = BARS[bIdx] * (0.7 + (((k + 1) * 7 + bIdx * 3) % 5) * 0.1);
+        var bx = -1 + bIdx * 0.5;
+        var okA = project({ x: pl.x + bx * ct, y: fy - 0.7, z: pl.z - bx * st }, pr);
+        var bax = pr.x, bay = pr.y;
+        var okB = project({ x: pl.x + bx * ct, y: fy - 0.7 + h, z: pl.z - bx * st }, pr);
+        if (!okA || !okB) continue;
+        cx.globalAlpha = 0.85 * fade;
+        cx.strokeStyle = bIdx % 2 === 0 ? "#2dd4bf" : "#38bdf8";
+        cx.lineWidth = Math.max(1.5, pr.s * 0.07);
+        cx.beginPath(); cx.moveTo(bax, bay); cx.lineTo(pr.x, pr.y); cx.stroke();
+      }
+      cx.globalAlpha = 1;
+    }
+
+    // ECG line — wide glow pass + bright core (additive)
+    cx.globalCompositeOperation = "lighter";
+    cx.lineJoin = "round";
+    drawEcg(7, "rgba(20,184,166,0.16)", 1);
+    drawEcg(1.8, "#3af5c8", 0.95);
+
+    // pulse runner racing along the line
+    var rp = ecg[Math.floor(((t * 0.045) % 1) * (ecg.length - 1))];
+    if (project(rp, pr)) {
+      var rad = Math.min(pr.s * 0.12, 26);
+      var grad = cx.createRadialGradient(pr.x, pr.y, 0, pr.x, pr.y, rad);
+      grad.addColorStop(0, "rgba(234,255,247,0.95)");
+      grad.addColorStop(0.3, "rgba(45,212,191,0.5)");
+      grad.addColorStop(1, "rgba(45,212,191,0)");
+      cx.fillStyle = grad;
+      cx.beginPath(); cx.arc(pr.x, pr.y, rad, 0, 6.2832); cx.fill();
+    }
+    cx.globalCompositeOperation = "source-over";
+
+    if (!reduced) requestAnimationFrame(frame);
+  }
+  updateSpine();
+  requestAnimationFrame(frame);
+})();
+</script>

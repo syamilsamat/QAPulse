@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "qa-pulse-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=18440&& set BASE_PATH=/&& corepack pnpm --filter @workspace/qa-pulse run dev"
+      ],
+      "port": 18440
+    }
+  ]
+}

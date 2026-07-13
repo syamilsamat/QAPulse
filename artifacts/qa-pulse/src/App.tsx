@@ -7,7 +7,7 @@ import { Layout } from "@/components/Layout";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
-import Main2 from "@/pages/Main2";
+import QMPulseLanding from "@/pages/QMPulseLanding";
 import Dashboard from "@/pages/Dashboard";
 import Requirements from "@/pages/Requirements";
 import TestCases from "@/pages/TestCases";
@@ -97,8 +97,8 @@ function Router() {
 
   return (
     <Switch>
-      {/* NEW LANDING PAGE ROUTE 
-        If logged in, go to the app. If logged out, show Main2 landing page!
+      {/* QMPulse 3D landing page (previous landing: @/pages/Main2)
+        If logged in, go to the app. If logged out, show the landing page.
       */}
       <Route path="/">
         {user ? (
@@ -108,7 +108,7 @@ function Router() {
             <Redirect to="/dashboard" />
           )
         ) : (
-          <Main2 />
+          <QMPulseLanding />
         )}
       </Route>
 
