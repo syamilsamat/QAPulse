@@ -507,8 +507,8 @@ function ResultPills({ value, onChange, disabled }: { value: string; onChange: (
           onClick={() => !disabled && onChange(p.value)}
           style={{
             background: value === p.value ? p.bg : "transparent",
-            border: `1.5px solid ${value === p.value ? p.border : "var(--border)"}`,
-            color: value === p.value ? p.color : "var(--muted-foreground)",
+            border: `1.5px solid ${value === p.value ? p.border : "hsl(var(--border))"}`,
+            color: value === p.value ? p.color : "hsl(var(--muted-foreground))",
             borderRadius: 20, padding: "2px 10px",
             fontSize: 11, fontWeight: value === p.value ? 500 : 400,
             cursor: disabled ? "default" : "pointer",

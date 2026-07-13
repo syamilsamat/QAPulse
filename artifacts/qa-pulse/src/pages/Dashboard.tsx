@@ -888,7 +888,7 @@ export default function Dashboard() {
                     margin={{ top: 10, right: 10, bottom: 20, left: 0 }} 
                   >
                     {/* 2. Changed vertical={false} to vertical={true} for a full grid */}
-                    <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="var(--border)" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="hsl(var(--border))" />
 
                     <XAxis
                       dataKey="week"
@@ -898,32 +898,34 @@ export default function Dashboard() {
                           return isNaN(d.getTime()) ? v : format(d, "MMM d");
                         } catch { return v; }
                       }}
-                      stroke="var(--muted-foreground)"
+                      stroke="hsl(var(--muted-foreground))"
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
                       fontSize={12}
                       tickMargin={10}
                       // 3. Added label for the X-axis
-                      label={{ 
-                        value: "Weeks", 
-                        position: "insideBottom", 
-                        offset: -15, 
-                        fill: "var(--muted-foreground)", 
+                      label={{
+                        value: "Weeks",
+                        position: "insideBottom",
+                        offset: -15,
+                        fill: "hsl(var(--muted-foreground))",
                         fontSize: 12,
                         fontWeight: 500
                       }}
                     />
 
-                    <YAxis 
-                      stroke="var(--muted-foreground)" 
-                      fontSize={12} 
-                      allowDecimals={false} 
-                      tickFormatter={(val) => (val === 0 ? "" : val)} 
+                    <YAxis
+                      stroke="hsl(var(--muted-foreground))"
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      fontSize={12}
+                      allowDecimals={false}
+                      tickFormatter={(val) => (val === 0 ? "" : val)}
                       // 4. Added label for the Y-axis (rotated)
-                      label={{ 
-                        value: "Number of Tasks", 
-                        angle: -90, 
-                        position: "insideLeft", 
-                        offset: 15, 
-                        fill: "var(--muted-foreground)", 
+                      label={{
+                        value: "Number of Tasks",
+                        angle: -90,
+                        position: "insideLeft",
+                        offset: 15,
+                        fill: "hsl(var(--muted-foreground))",
                         fontSize: 12,
                         fontWeight: 500,
                         style: { textAnchor: 'middle' }

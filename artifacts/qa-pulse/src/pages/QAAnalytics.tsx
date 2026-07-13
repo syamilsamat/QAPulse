@@ -276,9 +276,9 @@ export default function QAAnalytics() {
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={data.executionTrend} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="week" tickFormatter={shortWeek} tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="week" tickFormatter={shortWeek} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <Tooltip formatter={(v, n) => [v, String(n).charAt(0).toUpperCase() + String(n).slice(1)]} labelFormatter={shortWeek} />
                   <Legend />
                   <Line type="monotone" dataKey="passed" stroke="#22c55e" strokeWidth={2} dot={false} />
@@ -297,9 +297,9 @@ export default function QAAnalytics() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={data.velocity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="week" tickFormatter={shortWeek} tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="week" tickFormatter={shortWeek} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <Tooltip labelFormatter={shortWeek} />
                   <Bar dataKey="executed" fill="#6366f1" radius={[3, 3, 0, 0]} />
                 </BarChart>
@@ -314,9 +314,9 @@ export default function QAAnalytics() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={data.passByMilestone} layout="horizontal" margin={{ top: 8, right: 16, bottom: 0, left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="milestoneName" tick={{ fontSize: 10 }} width={80} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis type="category" dataKey="milestoneName" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} width={80} />
                   <Tooltip formatter={(v) => [`${v}%`, "Pass rate"]} />
                   <Bar dataKey="pct" fill="#22c55e" radius={[0, 3, 3, 0]}
                     label={{ position: "right", formatter: (v: number) => v > 0 ? `${v}%` : "", fontSize: 11, fill: "#6b7280" }}
@@ -333,9 +333,9 @@ export default function QAAnalytics() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={data.defectByModule} margin={{ top: 8, right: 8, bottom: 40, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="module" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="module" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} angle={-35} textAnchor="end" interval={0} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="critical" stackId="a" fill="#ef4444" />
@@ -354,9 +354,9 @@ export default function QAAnalytics() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={data.defectTrend} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="week" tickFormatter={shortWeek} tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="week" tickFormatter={shortWeek} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <Tooltip labelFormatter={shortWeek} />
                   <Legend />
                   <Line type="monotone" dataKey="opened" stroke="#ef4444" strokeWidth={2} dot={false} />
@@ -373,9 +373,9 @@ export default function QAAnalytics() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={data.escapeFunnel} margin={{ top: 8, right: 8, bottom: 40, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="milestoneName" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="milestoneName" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} angle={-35} textAnchor="end" interval={0} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="sit" stackId="a" fill="#6366f1" name="SIT" />
