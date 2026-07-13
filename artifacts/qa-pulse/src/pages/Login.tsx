@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,15 +16,14 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 
-// 1. Import your downloaded animated icons from itshover.com here
-import {
-  AnimatedQALogo,
-} from "@/components/icons/animated";
+import PulseScene from "@/components/landing/PulseScene";
+import { scrollState } from "@/components/landing/scrollState";
+import { PulseLogo } from "@/components/PulseLogo";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Lock, ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -44,9 +43,48 @@ const pwSchema = z
 type LoginFormValues = z.infer<typeof loginSchema>;
 type PwFormValues = z.infer<typeof pwSchema>;
 
+// Shared field styling so inputs read correctly on the dark glass card.
+const darkInput =
+  "h-11 bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-teal-400/50 focus-visible:border-teal-400/40";
+const eyeToggle =
+  "absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-100 transition-colors";
+const primaryBtn =
+  "w-full h-11 rounded-full bg-gradient-to-r from-teal-400 to-sky-500 text-[#04070f] font-semibold border-0 shadow-lg shadow-teal-500/25 hover:shadow-teal-400/40 hover:scale-[1.02] transition-all";
+
+// Shared shell: the QMPulse dark backdrop + 3D pulse scene + vignette.
+// Defined at module scope so it keeps a stable identity across renders
+// (a shell defined inside Login would remount the form on every keystroke).
+function Shell({
+  onBack,
+  children,
+}: {
+  onBack: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative min-h-[100svh] flex items-center justify-center overflow-hidden bg-[#04070f] text-slate-100 antialiased p-4 selection:bg-teal-400/30">
+      {/* WebGL backdrop shared with the landing page */}
+      <PulseScene />
+      {/* soft vignette so the form stays readable over the scene */}
+      <div className="pointer-events-none fixed inset-0 z-[1] bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(4,7,15,0.88)_100%)]" />
+
+      <Button
+        variant="ghost"
+        className="absolute top-4 left-4 sm:top-8 sm:left-8 z-20 text-slate-400 hover:text-teal-300 hover:bg-white/5"
+        onClick={onBack}
+      >
+        <ArrowLeft className="w-4 h-4 mr-2" />
+        Back to Home
+      </Button>
+
+      <div className="w-full max-w-md space-y-8 relative z-10">{children}</div>
+    </div>
+  );
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { login, token } = useAuth();
+  const { login } = useAuth();
   const { toast } = useToast();
   const loginMutation = useLogin();
   const changePasswordMutation = useChangePassword();
@@ -61,6 +99,16 @@ export default function Login() {
     id: number;
     name: string;
   } | null>(null);
+
+  // Pointer parallax for the shared 3D backdrop (matches the landing page).
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      scrollState.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+      scrollState.mouseY = -((e.clientY / window.innerHeight) * 2 - 1);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -126,210 +174,193 @@ export default function Login() {
   // ── Force password change overlay ──────────────────────────────────────────
   if (pendingUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative overflow-hidden">
-        {/* Soft background glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] md:w-[800px] md:h-[800px] bg-blue-400/10 rounded-full blur-[80px] md:blur-[100px] pointer-events-none" />
-
-        <Button
-          variant="ghost"
-          className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground z-10"
-          onClick={() => {
-            setPendingUser(null);
-            setLocation("/");
-          }}
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Home
-        </Button>
-
-        <div className="w-full max-w-md space-y-6 relative z-10">
-          <div className="flex flex-col items-center text-center space-y-2">
-            <div className="p-3 bg-primary/10 rounded-full">
-              <ShieldCheck className="w-8 h-8 text-primary" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Set a new password
-            </h1>
-            <p className="text-muted-foreground text-sm max-w-xs">
-              Hi {pendingUser.name}! Your account requires a password change
-              before you can continue.
-            </p>
-          </div>
-
-          <div className="bg-card border rounded-lg shadow-sm p-6">
-            <form
-              onSubmit={pwForm.handleSubmit(onChangePassword)}
-              className="space-y-5"
-            >
-              <div className="space-y-1.5">
-                <Label htmlFor="newPassword">New password</Label>
-                <div className="relative">
-                  <Input
-                    id="newPassword"
-                    type={showNewPw ? "text" : "password"}
-                    placeholder="At least 6 characters"
-                    {...pwForm.register("newPassword")}
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowNewPw((v) => !v)}
-                    tabIndex={-1}
-                  >
-                    {showNewPw ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                {pwForm.formState.errors.newPassword && (
-                  <p className="text-xs text-destructive">
-                    {pwForm.formState.errors.newPassword.message}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="confirmPassword">Confirm password</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmPassword"
-                    type={showConfirmPw ? "text" : "password"}
-                    placeholder="Repeat your new password"
-                    {...pwForm.register("confirmPassword")}
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowConfirmPw((v) => !v)}
-                    tabIndex={-1}
-                  >
-                    {showConfirmPw ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                {pwForm.formState.errors.confirmPassword && (
-                  <p className="text-xs text-destructive">
-                    {pwForm.formState.errors.confirmPassword.message}
-                  </p>
-                )}
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={changePasswordMutation.isPending}
-              >
-                {changePasswordMutation.isPending
-                  ? "Saving..."
-                  : "Set password & continue"}
-              </Button>
-            </form>
-          </div>
+      <Shell
+        onBack={() => {
+          setPendingUser(null);
+          setLocation("/");
+        }}
+      >
+        <div className="flex flex-col items-center text-center gap-3">
+          <span className="grid place-items-center w-14 h-14 rounded-full border border-teal-400/30 bg-teal-400/10">
+            <ShieldCheck className="w-7 h-7 text-teal-300" />
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight">Set a new password</h1>
+          <p className="text-slate-400 text-sm max-w-xs">
+            Hi {pendingUser.name}! Your account requires a password change before
+            you can continue.
+          </p>
         </div>
-      </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-2xl shadow-black/40 p-6 sm:p-8">
+          <form onSubmit={pwForm.handleSubmit(onChangePassword)} className="space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="newPassword" className="text-slate-300">
+                New password
+              </Label>
+              <div className="relative">
+                <Input
+                  id="newPassword"
+                  type={showNewPw ? "text" : "password"}
+                  placeholder="At least 6 characters"
+                  className={darkInput}
+                  {...pwForm.register("newPassword")}
+                />
+                <button
+                  type="button"
+                  className={eyeToggle}
+                  onClick={() => setShowNewPw((v) => !v)}
+                  tabIndex={-1}
+                >
+                  {showNewPw ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              {pwForm.formState.errors.newPassword && (
+                <p className="text-xs text-red-400">
+                  {pwForm.formState.errors.newPassword.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPassword" className="text-slate-300">
+                Confirm password
+              </Label>
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPw ? "text" : "password"}
+                  placeholder="Repeat your new password"
+                  className={darkInput}
+                  {...pwForm.register("confirmPassword")}
+                />
+                <button
+                  type="button"
+                  className={eyeToggle}
+                  onClick={() => setShowConfirmPw((v) => !v)}
+                  tabIndex={-1}
+                >
+                  {showConfirmPw ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              {pwForm.formState.errors.confirmPassword && (
+                <p className="text-xs text-red-400">
+                  {pwForm.formState.errors.confirmPassword.message}
+                </p>
+              )}
+            </div>
+            <Button
+              type="submit"
+              className={primaryBtn}
+              disabled={changePasswordMutation.isPending}
+            >
+              {changePasswordMutation.isPending
+                ? "Saving..."
+                : "Set password & continue"}
+            </Button>
+          </form>
+        </div>
+      </Shell>
     );
   }
 
   // ── Normal login form ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4 relative overflow-hidden">
-      {/* Soft background glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] md:w-[800px] md:h-[800px] bg-blue-400/10 rounded-full blur-[80px] md:blur-[100px] pointer-events-none" />
-
-      <Button
-        variant="ghost"
-        className="absolute top-4 left-4 sm:top-8 sm:left-8 text-muted-foreground hover:text-foreground z-10"
-        onClick={() => setLocation("/")}
-      >
-        <ArrowLeft className="w-4 h-4 mr-2" />
-        Back to Home
-      </Button>
-
-      <div className="w-full max-w-md space-y-8 relative z-10">
-        <div className="flex flex-col items-center justify-center text-center">
-          <div>
-            <AnimatedQALogo className="w-17 h-17"/>
-          </div>
-          <span className="text-xl font-bold text-slate-900 tracking-tight">
-            <br />
-            Welcome To QA Pulse
-          </span>
-          <p className="text-muted-foreground text-sm">
-            Sign in to QA Pulse to manage your workflows
+    <Shell onBack={() => setLocation("/")}>
+      <div className="flex flex-col items-center justify-center text-center gap-4">
+        <PulseLogo size="lg" showWord={false} />
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight">
+            Welcome to QM<span className="text-teal-300">Pulse</span>
+          </h1>
+          <p className="text-slate-400 text-sm">
+            Sign in to manage your quality workflows
           </p>
         </div>
-
-        <div className="bg-card border rounded-lg shadow-sm p-6 sm:p-8">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input placeholder="qa@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="••••••••"
-                          {...field}
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          onClick={() => setShowPassword((v) => !v)}
-                          tabIndex={-1}
-                        >
-                          {showPassword ? (
-                            <EyeOff className="w-4 h-4" />
-                          ) : (
-                            <Eye className="w-4 h-4" />
-                          )}
-                        </button>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="rememberMe"
-                  checked={rememberMe}
-                  onCheckedChange={(v) => setRememberMe(Boolean(v))}
-                />
-                <Label htmlFor="rememberMe" className="text-sm font-normal cursor-pointer">
-                  Remember me
-                </Label>
-              </div>
-              <Button
-                type="submit"
-                className="w-full rounded-full bg-gradient-to-r from-black via-slate-900 to-blue-600 text-white border-0 shadow-md transition-all duration-300 hover:animate-pulse hover:shadow-[0_0_15px_rgba(37,99,235,0.4)] hover:scale-[1.02]"
-                disabled={loginMutation.isPending}
-              >
-                {loginMutation.isPending ? "Signing in..." : "Sign in"}
-              </Button>
-            </form>
-          </Form>
-        </div>
       </div>
-    </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-2xl shadow-black/40 p-6 sm:p-8">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-300">Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="qa@example.com"
+                      className={darkInput}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="text-red-400" />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-300">Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        className={darkInput}
+                        {...field}
+                      />
+                      <button
+                        type="button"
+                        className={eyeToggle}
+                        onClick={() => setShowPassword((v) => !v)}
+                        tabIndex={-1}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </FormControl>
+                  <FormMessage className="text-red-400" />
+                </FormItem>
+              )}
+            />
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="rememberMe"
+                checked={rememberMe}
+                onCheckedChange={(v) => setRememberMe(Boolean(v))}
+                className="border-white/25 data-[state=checked]:bg-teal-400 data-[state=checked]:border-teal-400 data-[state=checked]:text-[#04070f]"
+              />
+              <Label
+                htmlFor="rememberMe"
+                className="text-sm font-normal cursor-pointer text-slate-300"
+              >
+                Remember me
+              </Label>
+            </div>
+            <Button
+              type="submit"
+              className={primaryBtn}
+              disabled={loginMutation.isPending}
+            >
+              {loginMutation.isPending ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+        </Form>
+      </div>
+    </Shell>
   );
 }

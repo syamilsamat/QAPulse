@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import PulseScene from "@/components/landing/PulseScene";
 import { scrollState } from "@/components/landing/scrollState";
+import { PulseLogo } from "@/components/PulseLogo";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -279,14 +280,7 @@ const QMPulseLanding: React.FC = () => {
         {/* ------------------------------------------------ nav */}
         <header className="fixed top-0 inset-x-0 z-50">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between rounded-b-2xl backdrop-blur-md bg-[#04070f]/50 border-b border-white/5">
-            <div className="flex items-center gap-2.5">
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-sky-500 shadow-lg shadow-teal-500/25">
-                <Activity className="w-5 h-5 text-[#04070f]" strokeWidth={2.5} />
-              </span>
-              <span className="text-lg font-semibold tracking-tight">
-                QM<span className="text-teal-300">Pulse</span>
-              </span>
-            </div>
+            <PulseLogo size="md" />
             <nav className="hidden md:flex items-center gap-8 text-sm text-slate-300">
               <a href="#features" className="hover:text-teal-300 transition-colors">
                 Features
