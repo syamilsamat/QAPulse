@@ -468,7 +468,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 
   const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
   if (requirementTimelines.length === 0) {
-    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status }, phaseSummary: null, trend: null, requirements: [] });
+    res.json({ milestone: { id: milestone.id, name: milestone.name, status: milestone.status, reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null, devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null, qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null }, phaseSummary: null, trend: null, requirements: [] });
     return;
   }
 
@@ -501,7 +501,15 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   };
 
   res.json({
-    milestone: { id: milestone.id, name: milestone.name, status: milestone.status, targetDate: milestone.targetDate?.toISOString() ?? null },
+    milestone: {
+      id: milestone.id,
+      name: milestone.name,
+      status: milestone.status,
+      targetDate: milestone.targetDate?.toISOString() ?? null,
+      reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null,
+      devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null,
+      qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
+    },
     phaseSummary,
     trend: {
       count: trendEntries.length,

@@ -26,6 +26,9 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     type: m.type,
     status: m.status,
     targetDate: m.targetDate?.toISOString() ?? null,
+    reqTargetDate: m.reqTargetDate?.toISOString() ?? null,
+    devTargetDate: m.devTargetDate?.toISOString() ?? null,
+    qaTargetDate: m.qaTargetDate?.toISOString() ?? null,
     createdBy: m.createdBy ?? null,
     completedAt: m.completedAt?.toISOString() ?? null,
     createdAt: m.createdAt.toISOString(),
@@ -77,7 +80,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", targetDate } = req.body;
+  const { projectId, name, type = "cr", status = "planned", targetDate, reqTargetDate, devTargetDate, qaTargetDate } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
 
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
@@ -89,6 +92,9 @@ router.post("/milestones", async (req, res): Promise<void> => {
     type,
     status,
     targetDate: targetDate ? new Date(targetDate) : null,
+    reqTargetDate: reqTargetDate ? new Date(reqTargetDate) : null,
+    devTargetDate: devTargetDate ? new Date(devTargetDate) : null,
+    qaTargetDate: qaTargetDate ? new Date(qaTargetDate) : null,
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
@@ -139,6 +145,9 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.name !== undefined) update.name = req.body.name.trim();
   if (req.body.type !== undefined) update.type = req.body.type;
   if (req.body.targetDate !== undefined) update.targetDate = req.body.targetDate ? new Date(req.body.targetDate) : null;
+  if (req.body.reqTargetDate !== undefined) update.reqTargetDate = req.body.reqTargetDate ? new Date(req.body.reqTargetDate) : null;
+  if (req.body.devTargetDate !== undefined) update.devTargetDate = req.body.devTargetDate ? new Date(req.body.devTargetDate) : null;
+  if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
   if (req.body.status !== undefined) {
     update.status = req.body.status;
     // Auto-stamp the authoritative end-of-QA-phase boundary (PM Dashboard

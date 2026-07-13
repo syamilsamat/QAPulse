@@ -43,6 +43,9 @@ interface Milestone {
   type: string;
   status: string;
   targetDate: string | null;
+  reqTargetDate: string | null;
+  devTargetDate: string | null;
+  qaTargetDate: string | null;
   createdAt: string;
   updatedAt: string;
   requirementCount?: number;
@@ -97,7 +100,7 @@ export default function Milestones() {
   const [filterProject, setFilterProject] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -123,7 +126,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", targetDate: "" });
+    setForm({ name: "", type: "cr", status: "planned", targetDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "" });
     setDialogOpen(true);
   };
 
@@ -134,6 +137,9 @@ export default function Milestones() {
       type: m.type,
       status: m.status,
       targetDate: m.targetDate ? m.targetDate.slice(0, 10) : "",
+      reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
+      devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
+      qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
     });
     setDialogOpen(true);
   };
@@ -149,6 +155,9 @@ export default function Milestones() {
         type: form.type,
         status: form.status,
         targetDate: form.targetDate || null,
+        reqTargetDate: form.reqTargetDate || null,
+        devTargetDate: form.devTargetDate || null,
+        qaTargetDate: form.qaTargetDate || null,
       };
       const res = editing
         ? await api(`/milestones/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })
@@ -317,6 +326,23 @@ export default function Milestones() {
                 value={form.targetDate}
                 onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Requirements by</Label>
+                  <Input type="date" value={form.reqTargetDate} onChange={(e) => setForm({ ...form, reqTargetDate: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Dev done by</Label>
+                  <Input type="date" value={form.devTargetDate} onChange={(e) => setForm({ ...form, devTargetDate: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">QA done by</Label>
+                  <Input type="date" value={form.qaTargetDate} onChange={(e) => setForm({ ...form, qaTargetDate: e.target.value })} />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter className="gap-2">

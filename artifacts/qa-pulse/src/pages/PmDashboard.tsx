@@ -105,7 +105,7 @@ interface RequirementPhaseEntry {
 }
 
 interface PhaseReport {
-  milestone: { id: number; name: string; status: string; targetDate?: string | null };
+  milestone: { id: number; name: string; status: string; targetDate?: string | null; reqTargetDate?: string | null; devTargetDate?: string | null; qaTargetDate?: string | null };
   phaseSummary: PhaseSummaryEntry[] | null;
   trend: {
     count: number;
@@ -490,6 +490,35 @@ export default function PmDashboard() {
                   segments={phaseReport.phaseSummary.map((s) => ({ key: s.key, label: s.label, days: s.avgDays ?? 0, ongoing: false }))}
                   onClick={() => setShowTimelines((v) => !v)}
                 />
+                {(phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate) && (() => {
+                  const today = new Date();
+                  const phases = [
+                    { key: "requirements", label: "Requirements by", target: phaseReport.milestone.reqTargetDate },
+                    { key: "develop", label: "Dev done by", target: phaseReport.milestone.devTargetDate },
+                    { key: "qa", label: "QA done by", target: phaseReport.milestone.qaTargetDate },
+                  ].filter(p => p.target);
+                  const activeKeys = new Set(phaseReport.phaseSummary?.map(s => s.key) ?? []);
+                  return (
+                    <div className="flex flex-wrap gap-2 mt-2 mb-1">
+                      {phases.map(p => {
+                        const targetDt = new Date(p.target!);
+                        const isPast = today > targetDt;
+                        const isDone =
+                          p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat") :
+                          p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat") :
+                          p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed" : false;
+                        const late = isPast && !isDone;
+                        return (
+                          <span key={p.key} className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border ${late ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>
+                            {late && <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />}
+                            {p.label} {format(targetDt, "d MMM")}
+                            {late && <span className="font-medium"> · Late</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
                 {phaseReport.requirements.length > 0 && (
                   <div>
                     <button
