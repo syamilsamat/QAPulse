@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, GitMerge, ScrollText, Bug, LayoutDashboard } from 'lucide-react';
+import { Columns3Cog, Shield, GitMerge, ScrollText, Bug, LayoutDashboard, Users2 } from 'lucide-react';
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 
 import {
@@ -437,6 +437,14 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-blue-600",
     roles: ["hod_pm", "pm_lead", "admin", "cto"],
     permKey: "nav:pm-dashboard",
+  },
+  {
+    href: "/resources",
+    label: "Resources",
+    icon: Users2,
+    activeColor: "text-teal-500",
+    roles: ["qa_lead", "qa_manager", "hod_qa", "fa_lead", "hod_fa", "dev_lead", "hod_dev", "pm_lead", "hod_pm", "admin", "cto"],
+    permKey: "nav:resources",
   },
   {
     href: "/configurations",

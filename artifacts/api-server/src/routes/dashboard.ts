@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable } from "@workspace/db";
+import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, projectMembersTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
@@ -698,6 +698,179 @@ router.get("/dashboard/closed-milestones", async (req, res): Promise<void> => {
       phaseSummary,
     });
   }
+
+  res.json(result);
+});
+
+// ── CR034: Resource Management — active focus / no active milestone / closed history ──
+// A per-department, not-`tasksTable`-for-everyone view of who's actually
+// engaged on an active milestone right now. QA's system of record is the
+// execution file (qaPic); FA's is the requirement they authored; Dev/PM's is
+// tasksTable — FA never appears as a task assignee in practice, so a single
+// tasksTable-based rule would silently show every FA lead as always idle.
+type ResourceScope = { departments: string[] | null; projectIds: number[] | null } | null;
+
+async function resolveResourceViewScope(ctx: { userId: number; role: string }): Promise<ResourceScope> {
+  if (ctx.role === "admin" || ctx.role === "cto") return { departments: null, projectIds: null };
+
+  const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, ctx.role));
+  const department = roleRow?.department ?? null;
+  const tierRank = roleRow?.tierRank ?? 1;
+  if (!department || tierRank < 2) return null; // tier 1 (member/pmo) — no access to this view
+
+  if (department === "pm" && tierRank >= 4) {
+    return { departments: null, projectIds: null }; // hod_pm — every department, every project
+  }
+  if (department === "pm") {
+    // pm_lead — cross-cutting (every department), scoped to their own projects
+    const projectIds = await scopeToUserProjects(ctx.userId, ctx.role);
+    return { departments: null, projectIds: projectIds ?? [] };
+  }
+  if (tierRank >= 3) {
+    // qa_manager/hod_qa/hod_fa/hod_dev — own department, every project that
+    // has a member in that department. Deliberately not team-based (unlike
+    // scopeToUserProjects' HOD branch) — dev/fa/pm people are attached to
+    // projects via project_members directly, not via a department team, so
+    // a team-department join would silently return zero projects for them.
+    const rows = await db.select({ projectId: projectMembersTable.projectId })
+      .from(projectMembersTable)
+      .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
+      .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role))
+      .where(eq(rolesTable.department, department));
+    return { departments: [department], projectIds: [...new Set(rows.map(r => r.projectId))] };
+  }
+  // lead (tier 2) — own department, scoped to their own projects
+  const projectIds = await scopeToUserProjects(ctx.userId, ctx.role);
+  return { departments: [department], projectIds: projectIds ?? [] };
+}
+
+router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const scope = await resolveResourceViewScope(ctx);
+  if (!scope) { res.status(403).json({ error: "Lead role or above required" }); return; }
+
+  const requestedProjectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (requestedProjectId && scope.projectIds !== null && !scope.projectIds.includes(requestedProjectId)) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+  const effectiveProjectIds = requestedProjectId ? [requestedProjectId] : scope.projectIds;
+
+  const requestedDept = typeof req.query.department === "string" ? req.query.department : null;
+  const effectiveDepartments = scope.departments
+    ? scope.departments
+    : (requestedDept ? [requestedDept] : null); // null = viewer can see every department
+
+  // ── Roster: every project member whose role's department is in scope ──────
+  let roster = await db
+    .select({
+      userId: usersTable.id, name: usersTable.name, role: usersTable.role,
+      department: rolesTable.department, projectId: projectMembersTable.projectId,
+    })
+    .from(projectMembersTable)
+    .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
+    .leftJoin(rolesTable, eq(rolesTable.name, usersTable.role));
+
+  if (effectiveProjectIds !== null) roster = roster.filter(r => effectiveProjectIds!.includes(r.projectId)) as typeof roster;
+  if (effectiveDepartments !== null) roster = roster.filter(r => r.department && effectiveDepartments!.includes(r.department)) as typeof roster;
+  if (roster.length === 0) { res.json([]); return; }
+
+  const rosterProjectIds = [...new Set(roster.map(r => r.projectId))];
+  const projects = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, rosterProjectIds));
+  const projectNameById = new Map(projects.map(p => [p.id, p.name]));
+
+  const milestones = await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, rosterProjectIds));
+  const activeMilestoneIds = new Set(milestones.filter(m => m.status === "active").map(m => m.id));
+  const closedMilestoneIds = new Set(milestones.filter(m => m.status === "completed").map(m => m.id));
+  const milestoneById = new Map(milestones.map(m => [m.id, m]));
+  const allTrackedMilestoneIds = milestones.map(m => m.id);
+
+  // ── QA signal: execution-file PIC (name match) ─────────────────────────────
+  const execRows = allTrackedMilestoneIds.length
+    ? await db.select({ qaPic: executionFilesTable.qaPic, milestoneId: executionFilesTable.milestoneId })
+        .from(executionFilesTable).where(inArray(executionFilesTable.milestoneId, allTrackedMilestoneIds))
+    : [];
+  const qaActiveByName = new Map<string, Set<number>>();
+  const qaClosedByName = new Map<string, Set<number>>();
+  for (const row of execRows) {
+    if (!row.qaPic || row.milestoneId == null) continue;
+    if (activeMilestoneIds.has(row.milestoneId)) {
+      if (!qaActiveByName.has(row.qaPic)) qaActiveByName.set(row.qaPic, new Set());
+      qaActiveByName.get(row.qaPic)!.add(row.milestoneId);
+    } else if (closedMilestoneIds.has(row.milestoneId)) {
+      if (!qaClosedByName.has(row.qaPic)) qaClosedByName.set(row.qaPic, new Set());
+      qaClosedByName.get(row.qaPic)!.add(row.milestoneId);
+    }
+  }
+
+  // ── FA signal: authored requirement, active = not yet approved ─────────────
+  const reqRows = allTrackedMilestoneIds.length
+    ? await db.select({ createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus })
+        .from(requirementsTable).where(inArray(requirementsTable.milestoneId, allTrackedMilestoneIds))
+    : [];
+  const faActiveByUser = new Map<number, Set<number>>();
+  const faClosedByUser = new Map<number, Set<number>>();
+  for (const row of reqRows) {
+    if (row.createdBy == null || row.milestoneId == null) continue;
+    if (activeMilestoneIds.has(row.milestoneId) && row.reviewStatus !== "approved") {
+      if (!faActiveByUser.has(row.createdBy)) faActiveByUser.set(row.createdBy, new Set());
+      faActiveByUser.get(row.createdBy)!.add(row.milestoneId);
+    } else if (closedMilestoneIds.has(row.milestoneId)) {
+      if (!faClosedByUser.has(row.createdBy)) faClosedByUser.set(row.createdBy, new Set());
+      faClosedByUser.get(row.createdBy)!.add(row.milestoneId);
+    }
+  }
+
+  // ── Dev/PM signal: open (non-done) task assignment ─────────────────────────
+  const taskRows = allTrackedMilestoneIds.length
+    ? await db.select({ assigneeIds: tasksTable.assigneeIds, milestoneId: tasksTable.milestoneId, status: tasksTable.status })
+        .from(tasksTable).where(inArray(tasksTable.milestoneId, allTrackedMilestoneIds))
+    : [];
+  const taskActiveByUser = new Map<number, Set<number>>();
+  const taskClosedByUser = new Map<number, Set<number>>();
+  for (const row of taskRows) {
+    if (row.milestoneId == null) continue;
+    for (const uid of row.assigneeIds ?? []) {
+      if (activeMilestoneIds.has(row.milestoneId) && row.status !== "done") {
+        if (!taskActiveByUser.has(uid)) taskActiveByUser.set(uid, new Set());
+        taskActiveByUser.get(uid)!.add(row.milestoneId);
+      } else if (closedMilestoneIds.has(row.milestoneId)) {
+        if (!taskClosedByUser.has(uid)) taskClosedByUser.set(uid, new Set());
+        taskClosedByUser.get(uid)!.add(row.milestoneId);
+      }
+    }
+  }
+
+  const milestoneRefs = (ids: Set<number> | undefined) =>
+    ids ? [...ids].map(id => ({ id, name: milestoneById.get(id)?.name ?? `Milestone #${id}` })) : [];
+
+  const result = roster.map(r => {
+    let activeIds: Set<number> | undefined;
+    let closedIds: Set<number> | undefined;
+    let signal: "execution_pic" | "requirement_author" | "task" | null = null;
+
+    if (r.department === "qa") {
+      activeIds = qaActiveByName.get(r.name); closedIds = qaClosedByName.get(r.name); signal = "execution_pic";
+    } else if (r.department === "fa") {
+      activeIds = faActiveByUser.get(r.userId); closedIds = faClosedByUser.get(r.userId); signal = "requirement_author";
+    } else if (r.department === "dev" || r.department === "pm") {
+      activeIds = taskActiveByUser.get(r.userId); closedIds = taskClosedByUser.get(r.userId); signal = "task";
+    }
+
+    return {
+      userId: r.userId,
+      name: r.name,
+      role: r.role,
+      department: r.department,
+      projectId: r.projectId,
+      projectName: projectNameById.get(r.projectId) ?? `Project #${r.projectId}`,
+      signal,
+      activeMilestones: milestoneRefs(activeIds),
+      hasNoActiveMilestone: !activeIds || activeIds.size === 0,
+      closedMilestones: milestoneRefs(closedIds),
+    };
+  });
 
   res.json(result);
 });

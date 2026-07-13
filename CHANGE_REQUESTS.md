@@ -41,6 +41,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR031](#cr031--requirement-defect-workflow) | Requirement Defect Workflow | ✅ Deployed | 2026-07-10 |
 | [CR032](#cr032--pm-dashboard-multi-cycle-phase-timeline) | PM Dashboard: Multi-Cycle Phase Timeline | ✅ Deployed | 2026-07-10 |
 | [CR033](#cr033--pm-dashboard-ipecc-coverage-milestone-closing--risk-register) | PM Dashboard: IPECC Coverage (Milestone Closing + Risk Register) | ✅ Deployed | 2026-07-13 |
+| [CR034](#cr034--resource-management-project-scoped-capacity--milestone-focus) | Resource Management: Project-Scoped Capacity & Milestone Focus | ✅ Deployed | 2026-07-13 |
 
 ---
 
@@ -963,3 +964,51 @@ Risk score is derived at read time from a 3×3 probability×impact matrix (low/m
 - **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QAPulse tracks cost at all.
 
 **Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).
+
+---
+
+### CR034 — Resource Management: Project-Scoped Capacity & Milestone Focus
+**Status:** ✅ Deployed (2026-07-13)
+
+**Problem.** The PM Dashboard's existing Capacity table (CR014 Part 3) shows raw open-task counts per person, per project — but only to PM-tier roles (`PM_ROLES` in `dashboard.ts`), and with no sense of whether someone is actually *engaged on an active milestone right now* versus just carrying stray open tasks. QA/FA/Dev leads have no equivalent view at all today — none of `qa_lead`/`fa_lead`/`dev_lead` have access to any dashboard page (no `nav:pm-dashboard`, no `nav:qa-analytics`). Both gaps come from the same underlying question a resourcing conversation actually needs answered: **is this person currently focused on a milestone, sitting idle, or only has closed-milestone history?** — and it needs answering for all four departments (qa, fa, dev, pm), not just QA and PM.
+
+**Access model — department-generic, using the existing role-tier system (`getRoleTierRank`), with one deliberate asymmetry for PM:**
+
+QA / FA / Dev are functionally siloed — a lead only needs to see their own department's people:
+- Tier 2 (`qa_lead`, `fa_lead`, `dev_lead`) — sees **their own department's** resources, scoped to projects they're a member of (same team/`project_members` scoping `scopeToUserProjects` already does for tier < 4).
+- Tier ≥ 3 (`qa_manager`, `hod_qa`, `hod_fa`, `hod_dev`) — sees their own department's resources across **all** projects (mirrors the existing HOD branch in `scopeToUserProjects`, except that helper only unlocks "all projects" at tier ≥ 4 — this view intentionally lowers that to tier ≥ 3 so `qa_manager` gets it too, matching the explicit ask; QA is the only department with a tier-3 role today, so this is a no-op for fa/dev).
+
+PM is cross-cutting by design — a PM's job is overseeing everyone on their project, not just other PMs:
+- `pm_lead` (tier 2) — sees **all departments'** resources (QA + FA + Dev + PM), scoped to projects they're a member of.
+- `hod_pm` (tier 4) — sees **all departments' resources across all projects** — the same reach as admin/cto, for this view specifically.
+
+Tier 1 (`qa_member`, `fa_member`, `dev_member`, `pmo`) gets no access to this view in any department — team resourcing is a lead-and-above concern. `admin`/`cto` always see everything, every department, every project.
+
+**"Active focus" signal — per department's real system of record, not `tasksTable` for everyone.** Dropped the task-based signal for QA entirely — QA work is already tracked at the execution-file level. Checked the other three departments against actual usage rather than assuming `tasksTable` fits all of them: `tasksTable.assigneeIds` is confirmed Dev/PM territory (both appear as task assignees throughout the demo data — `assigneeIds` is literally commented "Multi-select QA PICs" in the schema, a naming relic, but Dev/PM tasks do exist in practice), but **FA never appears as a task assignee anywhere** — an FA's actual unit of work is the requirement they authored, not a task row. So:
+1. **QA** — QA PIC (`executionFilesTable.qaPic`) on a QA/UAT execution file tied to *M*. For QA, task = milestone, no separate signal needed.
+2. **FA** — they authored (`requirementsTable.createdBy`) a requirement with `milestoneId = M` whose `reviewStatus` isn't yet `approved` (draft/in_review/rejected all still need FA attention — same "not yet closed out" shape as Dev/PM's non-`done` task check, just using the requirement lifecycle instead of the task lifecycle).
+3. **Dev / PM** — open (non-`done`) task in `tasksTable` with `milestoneId = M`.
+
+No one is double-counted; a person can be "focused" on more than one active milestone simultaneously (shown as a list, not a single value) — e.g. two open tasks for a Dev, two authored requirements still in review for an FA, or PIC on two execution files for a QA.
+
+Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field (`text`, not a `usersTable.id` foreign key — see `lib/db/src/schema/execution.ts`), matched here against `usersTable.name`. A typo'd or since-renamed `qaPic` value won't resolve to a real user and that execution file's signal is silently dropped for that person. Migrating `qaPic` to a proper FK is a separate, larger CR (touches every execution-file write path) and explicitly out of scope here.
+
+**Three-state result per person:**
+- **Active** — has ≥1 active-milestone focus signal; shows which milestone(s).
+- **No active milestone** — project member with zero active-milestone signal right now (the "idle/available" case the resourcing conversation cares about).
+- **Closed history** — completed milestones where the same two signals (execution PIC or task assignment) existed at some point; shown as a collapsed list/count per person regardless of their current active/idle state, since someone can be idle now but still have a closed-milestone track record worth seeing.
+
+**Backend:**
+- New `GET /dashboard/resource-view?projectId=` (optional — omitted means "all accessible projects," subject to the scoping rules above) `&department=` (optional filter; ignored/forced server-side for siloed viewers, meaningful for PM/admin/cto viewers who can see multiple departments).
+- Viewer's effective scope (department(s) + project list) computed server-side from their own role/tier per the access model above — never trust a client-supplied department/project outside what that role is actually allowed to see, same discipline as every other endpoint in this file.
+- Returns one row per resource: `{ userId, name, role, department, projectId, projectName, activeMilestones: [{id, name, signal}], hasNoActiveMilestone, closedMilestones: [{id, name}] }`.
+
+**Frontend:**
+- New page `Resources.tsx` + new nav key `nav:resources`, added to `DEFAULT_PERMISSIONS` for `qa_lead`, `qa_manager`, `hod_qa`, `fa_lead`, `hod_fa`, `dev_lead`, `hod_dev`, `pm_lead`, `hod_pm`, `admin`, `cto` (`roles.ts`) — needed because `fa_lead`/`hod_fa`/`dev_lead`/`hod_dev` have no dashboard access of any kind today, so this can't be bolted onto `PmDashboard.tsx` or `QAAnalytics.tsx` without leaving those two departments out.
+- Project filter (only shown/enabled if the viewer's scope includes more than one project); department filter only shown for viewers who can see more than one department (`pm_lead`, `hod_pm`, `admin`, `cto`).
+- Three sections: Active (grouped by milestone, each person shown with a milestone chip), No Active Milestone, Closed History (collapsed by default) — same visual language as the Closed Milestones/Risk Register cards from CR033 for consistency.
+- The existing `PmDashboard.tsx` `CapacityTable` stays as-is for now — this is a new, separate page rather than a replacement, so PM-tier users get both the existing burn-rate-oriented Capacity table *and* this new resourcing view; collapsing them into one is a possible follow-up once the new page proves out, not part of this CR.
+
+**Non-goals:** no new "assignment" table — this stays purely a read/derived view over existing task and execution-file data, same as the PM Dashboard's other panels. No historical trend of resource utilization over time (that's a QA Analytics-style panel, not this CR). No capacity *planning* (future allocation, what-if scenarios) — this is a current-state snapshot only.
+
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (new `nav:resources` key + permission grants), `artifacts/api-server/src/routes/dashboard.ts` (new `resource-view` endpoint), `artifacts/qa-pulse/src/pages/Resources.tsx` (new page), `artifacts/qa-pulse/src/App.tsx`/`Layout.tsx` (new route + nav entry, gated on `nav:resources`). No schema changes, no DB migration.

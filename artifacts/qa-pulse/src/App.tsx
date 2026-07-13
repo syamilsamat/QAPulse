@@ -34,6 +34,7 @@ import Teams from "@/pages/Teams";
 import RequirementDetail from "@/pages/RequirementDetail";
 import Milestones from "@/pages/Milestones";
 import PmDashboard from "@/pages/PmDashboard";
+import Resources from "@/pages/Resources";
 import QAAnalytics from "@/pages/QAAnalytics";
 
 const queryClient = new QueryClient({
@@ -155,6 +156,13 @@ function Router() {
         <ProtectedRoute
           component={PmDashboard}
           roles={["hod_pm", "pm_lead", "admin", "cto", "pmo"]}
+        />
+      </Route>
+
+      <Route path="/resources">
+        <ProtectedRoute
+          component={Resources}
+          roles={["qa_lead", "qa_manager", "hod_qa", "fa_lead", "hod_fa", "dev_lead", "hod_dev", "pm_lead", "hod_pm", "admin", "cto"]}
         />
       </Route>
 
