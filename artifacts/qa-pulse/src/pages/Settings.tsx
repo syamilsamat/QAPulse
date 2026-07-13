@@ -485,7 +485,7 @@ export default function Settings() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Shield className="w-4 h-4" /> Role & Permissions
           </CardTitle>
-          <CardDescription>Your current access level in QA Pulse</CardDescription>
+          <CardDescription>Your current access level in QMPulse</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -590,7 +590,7 @@ export default function Settings() {
           <CardTitle className="flex items-center gap-2 text-base">
             <LayoutList className="w-4 h-4" /> Preferences
           </CardTitle>
-          <CardDescription>Personalise how QA Pulse looks for you</CardDescription>
+          <CardDescription>Personalise how QMPulse looks for you</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -627,12 +627,12 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Bell className="w-4 h-4" /> About QA Pulse
+            <Bell className="w-4 h-4" /> About QMPulse
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm text-muted-foreground">
-            <p>QA Pulse is an internal QA management and analytics platform designed to streamline your testing workflows.</p>
+            <p>QMPulse is an internal QA management and analytics platform designed to streamline your testing workflows.</p>
             <p className="text-xs mt-3">Version 1.0.0</p>
           </div>
         </CardContent>

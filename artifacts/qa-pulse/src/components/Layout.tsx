@@ -28,8 +28,8 @@ import {
   HoverList,
   HoverPlay,
   HoverHistory,
-  AnimatedQALogo,
 } from "@/components/icons/animated";
+import { PulseLogo } from "@/components/PulseLogo";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -569,11 +569,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Logo */}
         <div className={show ? "py-5 flex justify-center" : "px-6 py-6 pb-4"}>
           {show ? (
-            <AnimatedQALogo className="w-7 h-7" />
+            <PulseLogo size="sm" showWord={false} />
           ) : (
             <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
-              <AnimatedQALogo className="w-6 h-6" />
-              QA Pulse
+              <PulseLogo size="sm" showWord={false} />
+              QMPulse
             </h1>
           )}
         </div>
@@ -802,7 +802,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <HoverMenu className="w-5 h-5 transition-transform group-hover:scale-110" />
                 </Button>
               </SheetTrigger>
-              <h1 className="ml-4 text-lg font-bold">QA Pulse</h1>
+              <h1 className="ml-4 text-lg font-bold flex items-center gap-2">
+                <PulseLogo size="sm" showWord={false} />
+                QMPulse
+              </h1>
               {unreadCount > 0 && (
                 <Link href="/inbox" className="ml-auto">
                   <Badge variant="destructive" className="cursor-pointer">
@@ -829,7 +832,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Sign out of QA Pulse?</AlertDialogTitle>
+            <AlertDialogTitle>Sign out of QMPulse?</AlertDialogTitle>
             <AlertDialogDescription>
               You'll be redirected to the login page. Any unsaved changes will
               be lost.

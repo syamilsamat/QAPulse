@@ -122,7 +122,7 @@ export default function ReportDashboard() {
         <div ref={reportRef} className="print-page space-y-6">
           {hasData && (
             <div className="hidden print:block text-center mb-6">
-              <h1 className="text-2xl font-bold">QA Pulse — Report Dashboard</h1>
+              <h1 className="text-2xl font-bold">QMPulse — Report Dashboard</h1>
               <p className="text-sm text-muted-foreground">
                 Generated: {generatedAt ? format(generatedAt, "dd/MM/yyyy HH:mm") : ""}
               </p>

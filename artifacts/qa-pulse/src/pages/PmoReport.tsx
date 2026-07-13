@@ -290,7 +290,7 @@ function Sidebar({
 
             <div>
               <p className="font-bold text-sidebar-foreground text-sm leading-tight">
-                QA Pulse
+                QMPulse
               </p>
               <p className="text-xs text-sidebar-foreground/50 leading-tight">
                 PMO Portal
@@ -459,7 +459,7 @@ function RedmineSection({
                   10.10.4.130:3306
                 </code>{" "}
                 is only accessible from within your internal network. This
-                feature works when QA Pulse is deployed on-premises.
+                feature works when QMPulse is deployed on-premises.
               </p>
             </div>
           )}
@@ -1116,7 +1116,7 @@ export default function PmoReport() {
                   <Menu className="w-5 h-5" />
                 </Button>
                 <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
-                  QA Pulse PMO
+                  QMPulse PMO
                 </span>
               </div>
               <Badge variant="secondary" className="text-[10px]">
@@ -1243,7 +1243,7 @@ export default function PmoReport() {
               >
                 <div className="text-center mb-6">
                   <h1 className="text-2xl font-bold">
-                    QA Pulse — Report Dashboard
+                    QMPulse — Report Dashboard
                   </h1>
                   <p className="text-sm text-muted-foreground">
                     Generated:{" "}

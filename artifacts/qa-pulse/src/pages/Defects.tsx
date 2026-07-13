@@ -323,7 +323,7 @@ export default function Defects() {
         data.requirements ? `${data.requirements} requirement(s)` : null,
       ].filter(Boolean);
       toast({
-        title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QAPulse (ignored)`,
+        title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QMPulse (ignored)`,
         description: destParts.length ? destParts.join(" · ") : undefined,
       });
       invalidate();
@@ -621,8 +621,8 @@ export default function Defects() {
                         RM #{d.redmineId} <ExternalLink className="w-2.5 h-2.5" />
                       </a>
                     ) : d.source === "requirement" ? (
-                      <Badge variant="outline" className="text-[10px]" title="Requirement defects are QAPulse-native — no Redmine tracker equivalent">
-                        QAPulse-native
+                      <Badge variant="outline" className="text-[10px]" title="Requirement defects are QMPulse-native — no Redmine tracker equivalent">
+                        QMPulse-native
                       </Badge>
                     ) : (
                       <Badge
@@ -657,7 +657,7 @@ export default function Defects() {
                 </div>
                 <SeverityBadge severity={d.severity} />
                 <StatusBadge status={d.status} />
-                <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QAPulse" : d.assigneeName ? "Redmine-only (unassigned in QAPulse)" : undefined}>
+                <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QMPulse" : d.assigneeName ? "Redmine-only (unassigned in QMPulse)" : undefined}>
                   {d.assigneeName ?? "Unassigned"}
                 </span>
               </div>
@@ -904,7 +904,7 @@ function SyncRedmineDialog({
         data.qaDefects ? `${data.qaDefects} QA defect(s)` : null,
         data.prodDefects ? `${data.prodDefects} prod defect(s)` : null,
         data.others ? `${data.others} other(s)` : null,
-        data.ignored ? `${data.ignored} already in QAPulse (ignored)` : null,
+        data.ignored ? `${data.ignored} already in QMPulse (ignored)` : null,
         data.skipped ? `${data.skipped} skipped by tracker filter` : null,
       ].filter(Boolean);
       toast({
@@ -1013,7 +1013,7 @@ function NewDefectDialog({
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // QAPulse fields
+  // QMPulse fields
   const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
 
   // Redmine fields
@@ -1196,9 +1196,9 @@ function NewDefectDialog({
 
           <Separator />
 
-          {/* QAPulse section */}
+          {/* QMPulse section */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QAPulse</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QMPulse</p>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
@@ -1224,7 +1224,7 @@ function NewDefectDialog({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>QAPulse Project</Label>
+              <Label>QMPulse Project</Label>
               <Select
                 value={form.projectId ? String(form.projectId) : ""}
                 onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, requirementId: undefined, milestoneId: undefined })}

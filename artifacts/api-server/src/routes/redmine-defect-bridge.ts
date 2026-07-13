@@ -118,7 +118,7 @@ export async function pushDefectToRedmine(
     defect.stepsToReproduce ? `*Steps to reproduce:*\n${defect.stepsToReproduce}` : null,
     defect.expectedResult ? `*Expected:*\n${defect.expectedResult}` : null,
     defect.actualResult ? `*Actual:*\n${defect.actualResult}` : null,
-    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${defect.defectCode ?? `QAPulse defect #${defect.id}`} (created via QAPulse)_`,
+    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${defect.defectCode ?? `QMPulse defect #${defect.id}`} (created via QMPulse)_`,
   ].filter(Boolean);
 
   try {

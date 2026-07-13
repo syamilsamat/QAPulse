@@ -954,7 +954,7 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
     }
     await logActivity({
       type: "defects_pulled",
-      description: `Pulled Redmine tracker "${trackerName}": ${result.imported} new (${result.qaDefects} QA, ${result.prodDefects} prod, ${result.others} others, ${result.requirements} requirements), ${result.ignored} already in QAPulse (ignored)`,
+      description: `Pulled Redmine tracker "${trackerName}": ${result.imported} new (${result.qaDefects} QA, ${result.prodDefects} prod, ${result.others} others, ${result.requirements} requirements), ${result.ignored} already in QMPulse (ignored)`,
       userId: actorFromReq(req),
       entityType: "defect",
       newValue: { trackerName, ...result },
@@ -1129,7 +1129,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
 
     await logActivity({
       type: "defects_synced",
-      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QAPulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects, ${counts.others} others${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
+      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QMPulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects, ${counts.others} others${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
       userId: actorId,
       entityId: requirement.id,
       entityType: "defect",

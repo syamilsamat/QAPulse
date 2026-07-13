@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "QA Pulse"
+title = "QMPulse"
 version = "1.0.0"
 id = "artifacts/qa-pulse"
 router = "path"

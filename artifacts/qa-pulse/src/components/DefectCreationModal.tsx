@@ -92,7 +92,7 @@ export default function DefectCreationModal({
   const [targetedStartDate, setTargetedStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [targetedCompletionDate, setTargetedCompletionDate] = useState("");
 
-  // QAPulse fields
+  // QMPulse fields
   const [severity, setSeverity] = useState("medium");
   const [foundIn, setFoundIn] = useState("SIT");
   const [defectModule, setDefectModule] = useState("");
@@ -410,9 +410,9 @@ export default function DefectCreationModal({
 
           <Separator />
 
-          {/* QAPulse Fields */}
+          {/* QMPulse Fields */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QAPulse</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QMPulse</p>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
@@ -442,7 +442,7 @@ export default function DefectCreationModal({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>QAPulse Project</Label>
+              <Label>QMPulse Project</Label>
               <SearchableSelect
                 value={qapulseProjectId?.toString() ?? ""}
                 onValueChange={(v) => setQapulseProjectId(v ? Number(v) : null)}

@@ -709,7 +709,7 @@ export default function Team() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deletingUser?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove <strong>{deletingUser?.name}</strong> from QA Pulse. This action cannot be undone.
+              This will permanently remove <strong>{deletingUser?.name}</strong> from QMPulse. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
