@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import express from "express";
 import { desc, eq, inArray, sql } from "drizzle-orm";
-import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
@@ -335,6 +335,17 @@ router.get("/test-cases", async (req, res): Promise<void> => {
   } else if (accessible !== null) {
     tcs = tcs.filter((t) => t.projectId !== null && accessible.includes(t.projectId));
   }
+
+  // CR035 — module-scope: a project-level grant with no module restriction
+  // is untouched (checked once per distinct project, not per row).
+  const tcProjectIds = [...new Set(tcs.map((t) => t.projectId).filter((id): id is number => id != null))];
+  const moduleScopes = new Map(await Promise.all(tcProjectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const)));
+  tcs = tcs.filter((t) => {
+    const scope = t.projectId != null ? moduleScopes.get(t.projectId) : undefined;
+    if (!scope || !scope.restricted) return true;
+    return t.module === scope.moduleName;
+  });
+
   const formatted = await Promise.all(tcs.map(formatTestCase));
 
   const tcIds = tcs.map((t) => t.id);

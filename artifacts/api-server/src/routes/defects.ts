@@ -13,7 +13,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getModuleScope } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 import { resolveApiKeyFromToken } from "./requirements";
@@ -164,6 +164,15 @@ router.get("/defects", async (req, res): Promise<void> => {
     if (severity) defects = defects.filter((d: any) => d.severity === severity);
     if (projectId) defects = defects.filter((d: any) => d.projectId === Number(projectId));
     if (escapeStatus) defects = defects.filter((d: any) => d.escapeStatus === escapeStatus);
+
+    // CR035 — module-scope, checked once per distinct project rather than per row.
+    const defectProjectIds = [...new Set(defects.map((d: any) => d.projectId).filter((id: any): id is number => id != null))];
+    const defectModuleScopes = new Map(await Promise.all(defectProjectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const)));
+    defects = defects.filter((d: any) => {
+      const scope = d.projectId != null ? defectModuleScopes.get(d.projectId) : undefined;
+      if (!scope || !scope.restricted) return true;
+      return d.module === scope.moduleName;
+    });
     if (search?.trim()) {
       const q = search.trim().toLowerCase();
       defects = defects.filter(

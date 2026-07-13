@@ -17,7 +17,7 @@ import {
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreateUser, getListUsersQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,6 +76,7 @@ import {
   Mail,
   BookOpen,
   Pencil,
+  KeyRound,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -642,6 +643,9 @@ export default function ModuleAndProject() {
               <Users className="w-4 h-4" /> Teams
             </TabsTrigger>
           )}
+          <TabsTrigger value="project-access" className="gap-2">
+            <KeyRound className="w-4 h-4" /> Project Access
+          </TabsTrigger>
           <TabsTrigger value="doc-register" className="gap-2">
             <BookOpen className="w-4 h-4" /> Document Register
           </TabsTrigger>
@@ -1355,6 +1359,10 @@ export default function ModuleAndProject() {
           </TabsContent>
         )}
 
+        <TabsContent value="project-access">
+          <ProjectAccessPanel projects={projects} allModules={modules} />
+        </TabsContent>
+
       </Tabs>
 
       {/* === CONTACT ADD/EDIT DIALOG === */}
@@ -1542,6 +1550,269 @@ export default function ModuleAndProject() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── CR035: Project Access ────────────────────────────────────────────────────
+// Direct project (+ optional module) assignment, replacing team-based
+// project access. Self-contained (own hooks/queries) rather than folded
+// into the giant parent component above, since it's a fully independent
+// feature slotted into one tab.
+
+interface RoleRow {
+  id: number;
+  name: string;
+  description: string | null;
+  department: string | null;
+  tierRank: number | null;
+}
+
+interface UserRow {
+  id: number;
+  name: string;
+  role: string;
+}
+
+interface ProjectMemberRow {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  moduleId: number | null;
+  moduleName: string | null;
+  assignedBy: number | null;
+  assignedByName: string | null;
+  assignedAt: string | null;
+}
+
+function paApi(path: string, token: string | null) {
+  return fetch(`${getApiUrl()}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+function paApiWrite(path: string, token: string | null, opts: RequestInit) {
+  return fetch(`${getApiUrl()}${path}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProject[]; allModules: ExecutionModule[] }) {
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+
+  useEffect(() => {
+    if (!selectedProjectId && projects.length > 0) setSelectedProjectId(String(projects[0].id));
+  }, [projects, selectedProjectId]);
+
+  const { data: roles = [] } = useQuery<RoleRow[]>({
+    queryKey: ["roles"],
+    queryFn: async () => {
+      const res = await paApi("/roles", token);
+      return res.ok ? res.json() : [];
+    },
+  });
+  const { data: users = [] } = useQuery<UserRow[]>({
+    queryKey: ["users"],
+    queryFn: async () => {
+      const res = await paApi("/users", token);
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const myRoleRow = roles.find(r => r.name === user?.role);
+  const myTier = myRoleRow?.tierRank ?? 1;
+  const myDept = myRoleRow?.department ?? null;
+  const isAdmin = user?.role === "admin" || user?.role === "cto";
+  const canManageAccess = isAdmin || (myDept && myTier >= 3);
+
+  const projectId = selectedProjectId ? Number(selectedProjectId) : null;
+
+  const { data: projectModules = [] } = useQuery<ExecutionModule[]>({
+    queryKey: ["project-modules", projectId],
+    queryFn: async () => {
+      const res = await paApi(`/projects/${projectId}/modules`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!projectId,
+  });
+  const { data: members = [], isLoading: membersLoading } = useQuery<ProjectMemberRow[]>({
+    queryKey: ["project-members", projectId],
+    queryFn: async () => {
+      const res = await paApi(`/projects/${projectId}/members`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!projectId,
+  });
+
+  const assignableUsers = users.filter(u => {
+    if (isAdmin) return true;
+    const r = roles.find(rr => rr.name === u.role);
+    return r?.department === myDept && (r?.tierRank ?? 1) <= myTier;
+  });
+
+  const [assignUserId, setAssignUserId] = useState("");
+  const [assignModuleId, setAssignModuleId] = useState("whole");
+
+  const refreshProject = () => {
+    queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["project-modules", projectId] });
+  };
+
+  const toggleModule = async (moduleId: number, on: boolean) => {
+    if (!projectId) return;
+    const res = on
+      ? await paApiWrite(`/projects/${projectId}/modules`, token, { method: "POST", body: JSON.stringify({ moduleId }) })
+      : await paApiWrite(`/projects/${projectId}/modules/${moduleId}`, token, { method: "DELETE" });
+    if (!res.ok) { toast({ variant: "destructive", title: "Failed to update module association" }); return; }
+    refreshProject();
+  };
+
+  const handleAssign = async () => {
+    if (!projectId || !assignUserId) { toast({ variant: "destructive", title: "Select someone to assign" }); return; }
+    const body = { userId: Number(assignUserId), moduleId: assignModuleId === "whole" ? null : Number(assignModuleId) };
+    const res = await paApiWrite(`/projects/${projectId}/members`, token, { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); toast({ variant: "destructive", title: d.error ?? "Failed to assign" }); return; }
+    toast({ title: "Access granted" });
+    setAssignUserId(""); setAssignModuleId("whole");
+    refreshProject();
+  };
+
+  const handleRemove = async (userId: number) => {
+    if (!projectId) return;
+    const res = await paApiWrite(`/projects/${projectId}/members/${userId}`, token, { method: "DELETE" });
+    if (!res.ok) { toast({ variant: "destructive", title: "Failed to remove access" }); return; }
+    refreshProject();
+  };
+
+  if (!canManageAccess) {
+    return (
+      <Card className="shadow-none border-border/60">
+        <CardContent className="py-12 text-center text-muted-foreground text-sm">
+          <KeyRound className="w-8 h-8 mx-auto mb-3 opacity-30" />
+          Manager tier or above is required to manage project access.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const associatedIds = new Set(projectModules.map(m => m.id));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <SearchableSelect
+          value={selectedProjectId}
+          onValueChange={setSelectedProjectId}
+          options={projects.map(p => ({ value: String(p.id), label: p.name }))}
+          placeholder="Select a project"
+          searchPlaceholder="Search projects…"
+          className="w-72"
+        />
+      </div>
+
+      {projectId && (
+        <>
+          <Card className="shadow-none border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Modules on this project</CardTitle>
+              <CardDescription>Toggle which of the global module catalog apply here — a module can be on more than one project.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              {allModules.length === 0 && <p className="text-xs text-muted-foreground">No modules in the catalog yet — add some in the Projects &amp; Modules tab first.</p>}
+              {allModules.map(m => {
+                const on = associatedIds.has(m.id);
+                return (
+                  <Badge
+                    key={m.id}
+                    variant={on ? "default" : "outline"}
+                    className="cursor-pointer select-none"
+                    onClick={() => toggleModule(m.id, !on)}
+                  >
+                    {m.name}
+                  </Badge>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Assigned people</CardTitle>
+              <CardDescription>{members.length} assigned</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {membersLoading ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : members.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nobody assigned to this project yet.</p>
+              ) : (
+                <div className="space-y-0">
+                  {members.map(m => (
+                    <div key={m.id} className="flex items-center gap-3 py-2.5 border-t first:border-t-0">
+                      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground shrink-0">
+                        {m.name.split(" ").map(w => w[0]).join("").slice(0, 2)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium">{m.name}</span>
+                          <span className="text-xs text-muted-foreground">{m.role}</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {m.assignedByName ? `assigned by ${m.assignedByName}` : "assigned"}
+                          {m.assignedAt ? ` · ${new Date(m.assignedAt).toLocaleDateString()}` : ""}
+                        </p>
+                      </div>
+                      <Badge variant={m.moduleName ? "outline" : "secondary"} className="text-[11px]">
+                        {m.moduleName ?? "Whole project"}
+                      </Badge>
+                      <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => handleRemove(m.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Assign someone</CardTitle>
+              <CardDescription>
+                {isAdmin ? "As admin you can assign anyone." : `You can assign people in your own department at your tier or below.`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-2 flex-wrap">
+              <SearchableSelect
+                value={assignUserId}
+                onValueChange={setAssignUserId}
+                options={assignableUsers.map(u => ({ value: String(u.id), label: `${u.name} — ${u.role}` }))}
+                placeholder="Select a person"
+                searchPlaceholder="Search people…"
+                className="w-64"
+              />
+              <SearchableSelect
+                value={assignModuleId}
+                onValueChange={setAssignModuleId}
+                options={[{ value: "whole", label: "Whole project" }, ...projectModules.map(m => ({ value: String(m.id), label: m.name }))]}
+                placeholder="Scope"
+                searchPlaceholder="Search modules…"
+                className="w-52"
+              />
+              <Button onClick={handleAssign} className="gap-2">
+                <UserPlus className="w-4 h-4" /> Assign
+              </Button>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

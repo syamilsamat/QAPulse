@@ -3,7 +3,7 @@ import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getModuleScope } from "../middleware/access";
 import {
   db,
   requirementsTable,
@@ -119,6 +119,15 @@ router.get("/requirements", async (req, res): Promise<void> => {
   } else if (accessible !== null) {
     reqs = reqs.filter(r => r.projectId !== null && accessible.includes(r.projectId));
   }
+
+  // CR035 — module-scope, checked once per distinct project rather than per row.
+  const reqProjectIds = [...new Set(reqs.map(r => r.projectId).filter((id): id is number => id != null))];
+  const moduleScopes = new Map(await Promise.all(reqProjectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const)));
+  reqs = reqs.filter(r => {
+    const scope = r.projectId != null ? moduleScopes.get(r.projectId) : undefined;
+    if (!scope || !scope.restricted) return true;
+    return r.module === scope.moduleName;
+  });
 
   const formatted = await Promise.all(reqs.map(formatRequirement));
 

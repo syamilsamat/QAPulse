@@ -129,13 +129,11 @@ export async function bootstrap() {
     )
   `);
 
-  // Backfill: grandfather all existing users into all existing projects so
-  // current behaviour (see-everything) is preserved until teams are configured.
-  await pool.query(`
-    INSERT INTO project_members (project_id, user_id)
-    SELECT p.id, u.id FROM projects p CROSS JOIN users u
-    ON CONFLICT DO NOTHING
-  `);
+  // CR035 — the old cross-join backfill that grandfathered every user into
+  // every project on every server restart was removed. project_members now
+  // only ever gets rows from real, explicit assignment (see teams.ts —
+  // POST /projects/:id/members) — access should be intentional, not an
+  // accident of when the server last restarted.
 
   // CR014 Part 2 — milestones
   await pool.query(`

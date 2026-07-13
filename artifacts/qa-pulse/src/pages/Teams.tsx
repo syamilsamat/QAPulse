@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, Pencil, Trash2, UserPlus, UserMinus, Link2, Unlink, ChevronsUpDown, Check, X } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, UserMinus, ChevronsUpDown, Check, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -78,11 +78,6 @@ interface User {
   role: string;
 }
 
-interface Project {
-  id: number;
-  name: string;
-}
-
 const DEPARTMENTS = [
   { value: "qa", label: "QA" },
   { value: "pm", label: "PM" },
@@ -113,12 +108,9 @@ export default function Teams() {
   const [detailTeam, setDetailTeam] = useState<TeamDetail | null>(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
-  const [assignProjectOpen, setAssignProjectOpen] = useState(false);
-  const [assignProjectPickerOpen, setAssignProjectPickerOpen] = useState(false);
 
   const [form, setForm] = useState({ name: "", department: "" });
   const [memberForm, setMemberForm] = useState({ userIds: [] as number[], role: "member" });
-  const [assignProjectIds, setAssignProjectIds] = useState<number[]>([]);
 
   const { data: teams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["teams"],
@@ -134,15 +126,6 @@ export default function Teams() {
     queryFn: async () => {
       const r = await fetch(api("/users"), { headers: authHeaders(token) });
       if (!r.ok) throw new Error("Failed to load users");
-      return r.json();
-    },
-  });
-
-  const { data: allProjects = [] } = useQuery<Project[]>({
-    queryKey: ["projects"],
-    queryFn: async () => {
-      const r = await fetch(api("/projects"), { headers: authHeaders(token) });
-      if (!r.ok) throw new Error("Failed to load projects");
       return r.json();
     },
   });
@@ -240,49 +223,9 @@ export default function Teams() {
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
 
-  const assignProjectMutation = useMutation({
-    mutationFn: async (data: { projectIds: number[]; teamId: number }) => {
-      await Promise.all(data.projectIds.map(async (projectId) => {
-        const r = await fetch(api(`/projects/${projectId}/teams`), {
-          method: "POST",
-          headers: authHeaders(token),
-          body: JSON.stringify({ teamId: data.teamId }),
-        });
-        if (!r.ok) throw new Error((await r.json()).error ?? "Failed to assign project");
-      }));
-    },
-    onSuccess: async () => {
-      setAssignProjectOpen(false);
-      setAssignProjectPickerOpen(false);
-      const count = assignProjectIds.length;
-      setAssignProjectIds([]);
-      if (detailTeam) await loadTeamDetail(detailTeam);
-      toast({ title: count === 1 ? "Project assigned" : `${count} projects assigned` });
-    },
-    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
-  });
-
-  const unassignProjectMutation = useMutation({
-    mutationFn: async (data: { projectId: number; teamId: number }) => {
-      const r = await fetch(api(`/projects/${data.projectId}/teams/${data.teamId}`), {
-        method: "DELETE",
-        headers: authHeaders(token),
-      });
-      if (!r.ok) throw new Error("Failed to unassign project");
-    },
-    onSuccess: async () => {
-      if (detailTeam) await loadTeamDetail(detailTeam);
-      toast({ title: "Project unassigned" });
-    },
-    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
-  });
-
   const availableUsers = allUsers.filter(
     (u) => !detailTeam?.members.find((m) => m.id === u.id)
   );
-
-  const assignedProjectIds = new Set(detailTeam?.projectIds ?? []);
-  const availableProjects = allProjects.filter((p) => !assignedProjectIds.has(p.id));
 
   return (
     <div className="space-y-6">
@@ -449,37 +392,6 @@ export default function Teams() {
               )}
             </div>
 
-            {/* Projects */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium">Assigned Projects ({detailTeam?.projectIds.length ?? 0})</h3>
-                <Button size="sm" variant="outline" onClick={() => setAssignProjectOpen(true)} disabled={availableProjects.length === 0}>
-                  <Link2 className="h-4 w-4 mr-1" /> Assign
-                </Button>
-              </div>
-              {(detailTeam?.projectIds.length ?? 0) === 0 ? (
-                <p className="text-sm text-muted-foreground">Not assigned to any projects.</p>
-              ) : (
-                <div className="space-y-2">
-                  {detailTeam?.projectIds.map((pid) => {
-                    const project = allProjects.find((p) => p.id === pid);
-                    return (
-                      <div key={pid} className="flex items-center justify-between rounded-md border px-3 py-2">
-                        <span className="text-sm">{project?.name ?? `Project #${pid}`}</span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => unassignProjectMutation.mutate({ projectId: pid, teamId: detailTeam!.id })}
-                        >
-                          <Unlink className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -584,94 +496,6 @@ export default function Teams() {
               })}
             >
               Add {memberForm.userIds.length > 0 ? `(${memberForm.userIds.length})` : ""}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Assign Project Dialog ─────────────────────────────────────────────── */}
-      <Dialog open={assignProjectOpen} onOpenChange={(o) => { if (!o) { setAssignProjectOpen(false); setAssignProjectPickerOpen(false); setAssignProjectIds([]); } }}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Assign Projects</DialogTitle></DialogHeader>
-          <div>
-            <Label>Projects</Label>
-            <Popover open={assignProjectPickerOpen} onOpenChange={setAssignProjectPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  className="w-full justify-between min-h-10 h-auto"
-                >
-                  <span className="flex flex-wrap gap-1 py-0.5">
-                    {assignProjectIds.length === 0 ? (
-                      <span className="text-muted-foreground font-normal">Search and select projects…</span>
-                    ) : (
-                      assignProjectIds.map((pid) => {
-                        const p = availableProjects.find((x) => x.id === pid);
-                        return (
-                          <span
-                            key={pid}
-                            className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
-                          >
-                            {p?.name ?? pid}
-                            <span
-                              role="button"
-                              aria-label="Remove"
-                              className="hover:text-destructive cursor-pointer"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAssignProjectIds((ids) => ids.filter((id) => id !== pid));
-                              }}
-                            >
-                              <X className="h-3 w-3" />
-                            </span>
-                          </span>
-                        );
-                      })
-                    )}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search project…" />
-                  <CommandList>
-                    <CommandEmpty>No projects found.</CommandEmpty>
-                    <CommandGroup>
-                      {availableProjects.map((p) => {
-                        const selected = assignProjectIds.includes(p.id);
-                        return (
-                          <CommandItem
-                            key={p.id}
-                            value={p.name}
-                            onSelect={() => {
-                              setAssignProjectIds((ids) =>
-                                selected ? ids.filter((id) => id !== p.id) : [...ids, p.id]
-                              );
-                            }}
-                          >
-                            <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
-                            {p.name}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setAssignProjectOpen(false); setAssignProjectIds([]); }}>Cancel</Button>
-            <Button
-              disabled={assignProjectIds.length === 0 || assignProjectMutation.isPending}
-              onClick={() => assignProjectMutation.mutate({
-                projectIds: assignProjectIds,
-                teamId: detailTeam!.id,
-              })}
-            >
-              Assign {assignProjectIds.length > 0 ? `(${assignProjectIds.length})` : ""}
             </Button>
           </DialogFooter>
         </DialogContent>

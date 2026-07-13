@@ -1,11 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   db,
   rolesTable,
-  userTeamsTable,
-  projectTeamsTable,
+  usersTable,
   projectMembersTable,
-  teamsTable,
+  executionModulesTable,
 } from "@workspace/db";
 import { verifyToken } from "../routes/auth";
 import type { Request } from "express";
@@ -31,6 +30,13 @@ export function getAuthContext(req: Request): AuthContext | null {
  * unrestricted (admin / cto). Falls back to null if the membership tables
  * haven't been created yet (bootstrap hasn't run), preserving pre-CR014
  * behaviour until the schema is ready.
+ *
+ * CR035 — team-based project access (project_teams) is no longer consulted
+ * here at all; project_members is the sole source of truth, and (since the
+ * old cross-join backfill was removed) it now only ever holds real, explicit
+ * assignments. HOD tier still gets department-wide reach, computed from
+ * whoever in their department has a real direct assignment — safe to do now
+ * that the table isn't universally noisy anymore.
  */
 export async function scopeToUserProjects(userId: number, role: string): Promise<number[] | null> {
   if (role === "admin") return null;
@@ -43,50 +49,24 @@ export async function scopeToUserProjects(userId: number, role: string): Promise
     // CTO tier — sees everything
     if (tierRank >= 5) return null;
 
-    const ids = new Set<number>();
-
     if (tierRank >= 4 && department) {
-      // HOD — all projects whose teams belong to their department
+      // HOD — every project with at least one direct assignment for
+      // someone in their department (not "their own" assignments only).
       const rows = await db
-        .select({ projectId: projectTeamsTable.projectId })
-        .from(projectTeamsTable)
-        .innerJoin(teamsTable, eq(teamsTable.id, projectTeamsTable.teamId))
-        .where(eq(teamsTable.department, department));
-      for (const r of rows) ids.add(r.projectId);
-    } else {
-      // Lead / Member — check whether they belong to any team first
-      const teamMemberships = await db
-        .select({ teamId: userTeamsTable.teamId })
-        .from(userTeamsTable)
-        .where(eq(userTeamsTable.userId, userId));
-
-      if (teamMemberships.length > 0) {
-        // User is in teams → team-scoped access + any explicit individual overrides
-        const teamRows = await db
-          .select({ projectId: projectTeamsTable.projectId })
-          .from(projectTeamsTable)
-          .innerJoin(userTeamsTable, eq(userTeamsTable.teamId, projectTeamsTable.teamId))
-          .where(eq(userTeamsTable.userId, userId));
-        for (const r of teamRows) ids.add(r.projectId);
-
-        // Explicit individual project_members (intentional overrides, not backfill)
-        const direct = await db
-          .select({ projectId: projectMembersTable.projectId })
-          .from(projectMembersTable)
-          .where(eq(projectMembersTable.userId, userId));
-        for (const r of direct) ids.add(r.projectId);
-      } else {
-        // No team assignments yet — fall back to project_members (bootstrap backfill
-        // gives everyone access to all projects until teams are configured).
-        const direct = await db
-          .select({ projectId: projectMembersTable.projectId })
-          .from(projectMembersTable)
-          .where(eq(projectMembersTable.userId, userId));
-        for (const r of direct) ids.add(r.projectId);
-      }
+        .select({ projectId: projectMembersTable.projectId })
+        .from(projectMembersTable)
+        .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
+        .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role))
+        .where(eq(rolesTable.department, department));
+      return [...new Set(rows.map(r => r.projectId))];
     }
 
-    return Array.from(ids);
+    // Member / Lead / Manager — only their own direct assignments.
+    const direct = await db
+      .select({ projectId: projectMembersTable.projectId })
+      .from(projectMembersTable)
+      .where(eq(projectMembersTable.userId, userId));
+    return [...new Set(direct.map(r => r.projectId))];
   } catch {
     // Tables not yet created (bootstrap pending) — fall back to unrestricted
     return null;
@@ -97,6 +77,45 @@ export async function canAccessProject(userId: number, role: string, projectId: 
   const accessible = await scopeToUserProjects(userId, role);
   if (accessible === null) return true;
   return accessible.includes(projectId);
+}
+
+export interface ModuleScope {
+  restricted: boolean;
+  moduleName: string | null;
+}
+
+/**
+ * CR035 — resolves a user's module scope for a project in one lookup, for
+ * endpoints that need to filter a whole list of records in memory (the
+ * common case — module-scope filtering happens after the project-level
+ * fetch, same pattern as every other batch-then-filter endpoint in this
+ * codebase). restricted: false means "no module filter" — either the user
+ * has whole-project access, or their tier is high enough to bypass module
+ * scoping entirely (HOD+/admin/cto).
+ */
+export async function getModuleScope(userId: number, role: string, projectId: number): Promise<ModuleScope> {
+  if (role === "admin") return { restricted: false, moduleName: null };
+
+  const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+  const tierRank = roleRow?.tierRank ?? 1;
+  if (tierRank >= 4) return { restricted: false, moduleName: null };
+
+  const [assignment] = await db
+    .select({ moduleId: projectMembersTable.moduleId })
+    .from(projectMembersTable)
+    .where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.userId, userId)));
+  if (!assignment || assignment.moduleId == null) return { restricted: false, moduleName: null };
+
+  const [mod] = await db.select({ name: executionModulesTable.name }).from(executionModulesTable).where(eq(executionModulesTable.id, assignment.moduleId));
+  return { restricted: true, moduleName: mod?.name ?? null };
+}
+
+/** Single-record convenience wrapper over getModuleScope — prefer
+ *  getModuleScope directly when filtering a list (one lookup, not N). */
+export async function canAccessModule(userId: number, role: string, projectId: number, recordModule: string | null): Promise<boolean> {
+  const scope = await getModuleScope(userId, role, projectId);
+  if (!scope.restricted) return true;
+  return recordModule === scope.moduleName;
 }
 
 /**

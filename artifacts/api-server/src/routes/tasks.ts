@@ -3,7 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable, milestonesTable } from "@workspace/db";
 import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
@@ -114,7 +114,19 @@ router.get("/tasks", async (req, res): Promise<void> => {
     tasks = tasks.filter(t => t.projectId !== null && accessible.includes(t.projectId));
   }
 
-  const formatted = await Promise.all(tasks.map(formatTask));
+  let formatted = await Promise.all(tasks.map(formatTask));
+
+  // CR035 — module-scope. tasksTable.moduleId is an FK, not a text name, so
+  // this filters on the already-resolved moduleNames[] from formatTask
+  // rather than doing a second id lookup.
+  const taskProjectIds = [...new Set(formatted.map((t) => t.projectId).filter((id): id is number => id != null))];
+  const taskModuleScopes = new Map(await Promise.all(taskProjectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const)));
+  formatted = formatted.filter((t) => {
+    const scope = t.projectId != null ? taskModuleScopes.get(t.projectId) : undefined;
+    if (!scope || !scope.restricted) return true;
+    return t.moduleNames.includes(scope.moduleName ?? "");
+  });
+
   res.json(formatted);
 });
 

@@ -16,7 +16,7 @@ import {
   notificationsTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
@@ -730,10 +730,18 @@ router.get(
         return;
       }
 
-      const testCases = await db
+      let testCases = await db
         .select()
         .from(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
+
+      // CR035 — module-scope. A single file belongs to one project, so one lookup suffices.
+      if (file.projectId != null) {
+        const moduleScope = await getModuleScope(ctx.userId, ctx.role, file.projectId);
+        if (moduleScope.restricted) {
+          testCases = testCases.filter((t) => t.moduleName === moduleScope.moduleName);
+        }
+      }
 
       // CR023p4 — flag rows whose library test case's linked requirement was
       // revised since this execution instance last acknowledged a revision

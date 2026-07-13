@@ -18,6 +18,7 @@ export * from "./teams";
 export * from "./user-teams";
 export * from "./project-teams";
 export * from "./project-members";
+export * from "./project-modules";
 export * from "./milestones";
 export * from "./requirement-comments";
 export * from "./requirement-attachments";

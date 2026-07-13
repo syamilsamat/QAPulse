@@ -1,15 +1,20 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   db,
   teamsTable,
   userTeamsTable,
   projectTeamsTable,
   projectMembersTable,
+  projectModulesTable,
+  executionModulesTable,
   usersTable,
   projectsTable,
+  rolesTable,
 } from "@workspace/db";
 import { verifyToken } from "./auth";
+import { getAuthContext, getRoleTierRank } from "../middleware/access";
+import { logActivity } from "./_audit";
 
 const router: IRouter = Router();
 
@@ -30,6 +35,42 @@ function requireAdmin(req: any, res: any): boolean {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
+}
+
+// CR035 — tier >= 3 (manager/HOD) or admin/cto. Used for both project-module
+// association (any manager+ can decide a module applies to a project) and,
+// with the extra target-tier check below, for assigning people.
+async function requireManagerTier(req: any, res: any): Promise<{ userId: number; role: string } | null> {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  const tier = await getRoleTierRank(ctx.role);
+  if (tier < 3) { res.status(403).json({ error: "Manager role or above required" }); return null; }
+  return ctx;
+}
+
+// Assigning (or revoking) a specific person's project access needs the
+// extra same-department + tier >= target's tier check on top of
+// requireManagerTier — a qa_manager can assign a qa_lead, but not a
+// dev_lead (different department) or an hod_qa (higher tier).
+async function requireAssignerRights(req: any, res: any, targetUserId: number): Promise<{ userId: number; role: string } | null> {
+  const ctx = await requireManagerTier(req, res);
+  if (!ctx) return null;
+  if (ctx.role === "admin" || ctx.role === "cto") return ctx;
+
+  const [assignerRole, targetUser] = await Promise.all([
+    db.select().from(rolesTable).where(eq(rolesTable.name, ctx.role)).then(r => r[0]),
+    db.select().from(usersTable).where(eq(usersTable.id, targetUserId)).then(r => r[0]),
+  ]);
+  if (!targetUser) { res.status(404).json({ error: "Target user not found" }); return null; }
+  const [targetRole] = await db.select().from(rolesTable).where(eq(rolesTable.name, targetUser.role));
+
+  const sameDept = assignerRole?.department && assignerRole.department === targetRole?.department;
+  const tierOk = (assignerRole?.tierRank ?? 1) >= (targetRole?.tierRank ?? 1);
+  if (!sameDept || !tierOk) {
+    res.status(403).json({ error: "Can only assign people in your own department at or below your tier" });
+    return null;
+  }
+  return ctx;
 }
 
 // ─── Teams CRUD ───────────────────────────────────────────────────────────────
@@ -284,28 +325,44 @@ router.delete("/projects/:id/teams/:teamId", async (req, res): Promise<void> => 
   }
 });
 
-// ─── Direct Project Members (escape hatch) ────────────────────────────────────
+// ─── Direct Project Members (CR035 — the real assignment mechanism) ──────────
 
 router.get("/projects/:id/members", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  const ctx = await requireManagerTier(req, res);
+  if (!ctx) return;
   try {
     const projectId = parseInt(req.params.id);
     if (isNaN(projectId)) { res.status(400).json({ error: "Invalid project ID" }); return; }
 
     const rows = await db
-      .select({ userId: projectMembersTable.userId })
+      .select()
       .from(projectMembersTable)
       .where(eq(projectMembersTable.projectId, projectId));
 
-    const members = await Promise.all(
-      rows.map(async (r) => {
-        const [user] = await db
-          .select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, role: usersTable.role })
-          .from(usersTable)
-          .where(eq(usersTable.id, r.userId));
-        return user ?? null;
-      })
-    );
+    const userIds = [...new Set(rows.map(r => r.userId))];
+    const moduleIds = [...new Set(rows.map(r => r.moduleId).filter((id): id is number => id != null))];
+    const assignedByIds = [...new Set(rows.map(r => r.assignedBy).filter((id): id is number => id != null))];
+    const [users, modules, assigners] = await Promise.all([
+      userIds.length ? db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, role: usersTable.role }).from(usersTable).where(inArray(usersTable.id, userIds)) : [],
+      moduleIds.length ? db.select().from(executionModulesTable).where(inArray(executionModulesTable.id, moduleIds)) : [],
+      assignedByIds.length ? db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, assignedByIds)) : [],
+    ]);
+    const userById = new Map(users.map(u => [u.id, u]));
+    const moduleById = new Map(modules.map(m => [m.id, m]));
+    const assignerById = new Map(assigners.map(u => [u.id, u.name]));
+
+    const members = rows.map(r => {
+      const user = userById.get(r.userId);
+      if (!user) return null;
+      return {
+        ...user,
+        moduleId: r.moduleId,
+        moduleName: r.moduleId != null ? (moduleById.get(r.moduleId)?.name ?? null) : null,
+        assignedBy: r.assignedBy,
+        assignedByName: r.assignedBy != null ? (assignerById.get(r.assignedBy) ?? null) : null,
+        assignedAt: r.assignedAt,
+      };
+    });
     res.json(members.filter(Boolean));
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Failed to load project members" });
@@ -313,35 +370,145 @@ router.get("/projects/:id/members", async (req, res): Promise<void> => {
 });
 
 router.post("/projects/:id/members", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
   try {
     const projectId = parseInt(req.params.id);
     if (isNaN(projectId)) { res.status(400).json({ error: "Invalid project ID" }); return; }
     const userId = Number(req.body.userId);
     if (!userId) { res.status(400).json({ error: "userId is required" }); return; }
+    const moduleId = req.body.moduleId != null ? Number(req.body.moduleId) : null;
+
+    const ctx = await requireAssignerRights(req, res, userId);
+    if (!ctx) return;
 
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
     if (!project) { res.status(404).json({ error: "Project not found" }); return; }
 
-    await db.insert(projectMembersTable).values({ projectId, userId }).onConflictDoNothing();
+    if (moduleId != null) {
+      const [assoc] = await db.select().from(projectModulesTable).where(and(eq(projectModulesTable.projectId, projectId), eq(projectModulesTable.moduleId, moduleId)));
+      if (!assoc) { res.status(400).json({ error: "That module isn't associated with this project yet" }); return; }
+    }
+
+    await db.insert(projectMembersTable)
+      .values({ projectId, userId, moduleId, assignedBy: ctx.userId, assignedAt: new Date() })
+      .onConflictDoUpdate({ target: [projectMembersTable.projectId, projectMembersTable.userId], set: { moduleId, assignedBy: ctx.userId, assignedAt: new Date() } });
+
+    await logActivity({
+      type: "project_member_assigned",
+      description: `Assigned to project #${projectId}${moduleId != null ? ` (module-scoped)` : " (whole project)"}`,
+      userId: ctx.userId, entityId: userId, entityType: "project_member",
+    });
     res.sendStatus(201);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Failed to add project member" });
   }
 });
 
-router.delete("/projects/:id/members/:userId", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+router.patch("/projects/:id/members/:userId", async (req, res): Promise<void> => {
   try {
     const projectId = parseInt(req.params.id);
     const userId = parseInt(req.params.userId);
     if (isNaN(projectId) || isNaN(userId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+    const moduleId = req.body.moduleId != null ? Number(req.body.moduleId) : null;
+
+    const ctx = await requireAssignerRights(req, res, userId);
+    if (!ctx) return;
+
+    if (moduleId != null) {
+      const [assoc] = await db.select().from(projectModulesTable).where(and(eq(projectModulesTable.projectId, projectId), eq(projectModulesTable.moduleId, moduleId)));
+      if (!assoc) { res.status(400).json({ error: "That module isn't associated with this project yet" }); return; }
+    }
+
+    await db.update(projectMembersTable)
+      .set({ moduleId, assignedBy: ctx.userId, assignedAt: new Date() })
+      .where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.userId, userId)));
+
+    await logActivity({
+      type: "project_member_updated",
+      description: `Project #${projectId} assignment updated${moduleId != null ? " (module-scoped)" : " (whole project)"}`,
+      userId: ctx.userId, entityId: userId, entityType: "project_member",
+    });
+    res.sendStatus(200);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to update project member" });
+  }
+});
+
+router.delete("/projects/:id/members/:userId", async (req, res): Promise<void> => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const userId = parseInt(req.params.userId);
+    if (isNaN(projectId) || isNaN(userId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+    const ctx = await requireAssignerRights(req, res, userId);
+    if (!ctx) return;
+
     await db
       .delete(projectMembersTable)
       .where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.userId, userId)));
+
+    await logActivity({
+      type: "project_member_removed",
+      description: `Removed from project #${projectId}`,
+      userId: ctx.userId, entityId: userId, entityType: "project_member",
+    });
     res.sendStatus(204);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Failed to remove project member" });
+  }
+});
+
+// ─── Project Modules (CR035 — which global modules apply to this project) ────
+
+router.get("/projects/:id/modules", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    const projectId = parseInt(req.params.id);
+    if (isNaN(projectId)) { res.status(400).json({ error: "Invalid project ID" }); return; }
+
+    const rows = await db.select({ moduleId: projectModulesTable.moduleId }).from(projectModulesTable).where(eq(projectModulesTable.projectId, projectId));
+    const moduleIds = rows.map(r => r.moduleId);
+    const modules = moduleIds.length ? await db.select().from(executionModulesTable) : [];
+    res.json(modules.filter(m => moduleIds.includes(m.id)));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to load project modules" });
+  }
+});
+
+router.post("/projects/:id/modules", async (req, res): Promise<void> => {
+  const ctx = await requireManagerTier(req, res);
+  if (!ctx) return;
+  try {
+    const projectId = parseInt(req.params.id);
+    if (isNaN(projectId)) { res.status(400).json({ error: "Invalid project ID" }); return; }
+    const moduleId = Number(req.body.moduleId);
+    if (!moduleId) { res.status(400).json({ error: "moduleId is required" }); return; }
+
+    const [mod] = await db.select().from(executionModulesTable).where(eq(executionModulesTable.id, moduleId));
+    if (!mod) { res.status(404).json({ error: "Module not found" }); return; }
+
+    await db.insert(projectModulesTable).values({ projectId, moduleId }).onConflictDoNothing();
+    res.sendStatus(201);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to associate module with project" });
+  }
+});
+
+router.delete("/projects/:id/modules/:moduleId", async (req, res): Promise<void> => {
+  const ctx = await requireManagerTier(req, res);
+  if (!ctx) return;
+  try {
+    const projectId = parseInt(req.params.id);
+    const moduleId = parseInt(req.params.moduleId);
+    if (isNaN(projectId) || isNaN(moduleId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+    await db.delete(projectModulesTable).where(and(eq(projectModulesTable.projectId, projectId), eq(projectModulesTable.moduleId, moduleId)));
+    // Any existing assignments scoped to this module on this project fall back to whole-project
+    // rather than being silently orphaned/invalid.
+    await db.update(projectMembersTable).set({ moduleId: null }).where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.moduleId, moduleId)));
+    res.sendStatus(204);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to remove module from project" });
   }
 });
 
