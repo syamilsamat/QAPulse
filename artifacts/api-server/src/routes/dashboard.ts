@@ -656,6 +656,52 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   });
 });
 
+// ── CR033p1: Closed Milestones (PMBOK Closing) ───────────────────────────────
+// Retrospective list — reuses the CR032 timeline machinery so each closed
+// milestone's phase summary is consistent with what the phase-breakdown
+// panel would have shown right before it closed.
+router.get("/dashboard/closed-milestones", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const closed = await db.select().from(milestonesTable)
+    .where(and(eq(milestonesTable.projectId, projectId), eq(milestonesTable.status, "completed")))
+    .orderBy(desc(milestonesTable.completedAt));
+
+  const closedByIds = closed.map(m => m.closedBy).filter((id): id is number => id != null);
+  const closedByUsers = closedByIds.length
+    ? await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, closedByIds))
+    : [];
+  const closedByName = new Map(closedByUsers.map(u => [u.id, u.name]));
+
+  const result = [];
+  for (const m of closed) {
+    const entries = await computeRequirementTimelines(m.id, m.completedAt);
+    const phaseSummary = entries.length > 0 ? summarizeTimelines(entries) : [];
+    result.push({
+      id: m.id,
+      name: m.name,
+      type: m.type,
+      targetDate: m.targetDate?.toISOString() ?? null,
+      completedAt: m.completedAt?.toISOString() ?? null,
+      closedBy: m.closedBy ?? null,
+      closedByName: m.closedBy ? (closedByName.get(m.closedBy) ?? null) : null,
+      lessonsLearned: m.lessonsLearned ?? null,
+      requirementCount: entries.length,
+      phaseSummary,
+    });
+  }
+
+  res.json(result);
+});
+
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const now = new Date();
 

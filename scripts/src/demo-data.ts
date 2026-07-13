@@ -92,13 +92,22 @@ export interface DemoMilestone {
   reqTargetDate?: string;  // when all requirements should be approved
   devTargetDate?: string;  // when dev handover to QA should happen
   qaTargetDate?: string;   // when QA sign-off is expected
+  // CR033p1 — retrospective, only meaningful for status:"completed". When
+  // set, seed-demo-data.ts creates the milestone active-then-transitions it
+  // to completed via PATCH (as closedByKey) so closedBy/completedAt are
+  // stamped through the real flow instead of being backfilled at creation.
+  lessonsLearned?: string;
+  closedByKey?: string;
 }
 
 export const MILESTONES: DemoMilestone[] = [
-  // Completed — all phase targets met, pills show grey (done)
+  // Completed — all phase targets met, pills show grey (done). Carries
+  // lessons learned, to show the "captured" state on the PM Dashboard.
   {
     key: "sprint12", projectKey: "portal", name: "Sprint 12", type: "sprint", status: "completed", targetDate: "2026-06-20",
     reqTargetDate: "2026-05-28", devTargetDate: "2026-06-10", qaTargetDate: "2026-06-19",
+    lessonsLearned: "Login lockout defect (DEF from Sprint 12) slipped through because the regression suite only covered the happy path for auth. Added a dedicated negative-path checklist for Sprint 13 onward. Search relevance tuning went smoothly — the early FA/QA pairing session on acceptance criteria paid off and should become standard practice.",
+    closedByKey: "amir",
   },
   // Overdue — ALL three phase targets missed, pills show red · Late
   {
@@ -110,10 +119,12 @@ export const MILESTONES: DemoMilestone[] = [
     key: "sprint14", projectKey: "portal", name: "Sprint 14", type: "sprint", status: "planned", targetDate: "2026-07-22",
     reqTargetDate: "2026-07-14", devTargetDate: "2026-07-19", qaTargetDate: "2026-07-22",
   },
-  // Completed — phase targets all met
+  // Completed — phase targets all met. Closed but no lessons learned
+  // captured yet, to show that state on the PM Dashboard too.
   {
     key: "uat1", projectKey: "banking", name: "UAT Phase 1", type: "phase", status: "completed", targetDate: "2026-06-15",
     reqTargetDate: "2026-05-20", devTargetDate: "2026-05-30", qaTargetDate: "2026-06-14",
+    closedByKey: "amir",
   },
   // At risk — requirements done on time (grey), dev target missed (red), QA target upcoming (grey)
   {
@@ -630,4 +641,84 @@ export const TASKS: DemoTask[] = [
 
   // New scenario: dev mid-development when requirement gets edited back to in_review
   { key: "t-billpay-dispute-dev", projectKey: "banking", milestoneKey: "release20", requirementKey: "r-billpay-dispute", name: "Develop bill payment dispute flow (on hold — req back in review)", priority: "High", status: "blocked", assigneeKeys: ["devan"], module: "Bill Payment", startDate: "2026-07-01", dueDate: "2026-07-07", estimatedHours: 12, actualHours: 5, completionPercentage: 40 },
+];
+
+// ── CR033p2: Risk Register ────────────────────────────────────────────────
+// Covers every cell of the 3x3 probability x impact heat map (low/medium/
+// high score bands plus the high-high critical cell), every category, every
+// status, and a mix of milestone-tagged vs general (project-wide) risks —
+// so the PM Dashboard's Risk Register card has a full scenario count to show.
+// raisedByKey must be a Lead-tier+ user (POST /risks is gated) — amir
+// (pm_lead), nadia (qa_lead), siti (fa_lead), devan (dev_lead) all qualify.
+export interface DemoRisk {
+  key: string;
+  projectKey: string;
+  milestoneKey?: string; // omitted = general / project-wide
+  title: string;
+  description?: string;
+  category: "schedule" | "scope" | "resource" | "technical" | "external" | "other";
+  probability: "low" | "medium" | "high";
+  impact: "low" | "medium" | "high";
+  status: "open" | "mitigating" | "closed" | "realized";
+  mitigationPlan?: string;
+  ownerKey?: string;
+  raisedByKey: string;
+}
+
+export const RISKS: DemoRisk[] = [
+  // low x low = Low
+  {
+    key: "risk-holiday-freeze", projectKey: "banking", category: "schedule", probability: "low", impact: "low", status: "open",
+    raisedByKey: "amir", title: "Year-end change freeze could delay final QA sign-off",
+    description: "Bank's IT ops enforces a Dec 15–Jan 2 change freeze; if Release 2.1 slips past early December, sign-off has to wait until January.",
+  },
+  // low x medium = Low
+  {
+    key: "risk-scope-rewards-tiers", projectKey: "banking", milestoneKey: "release20", category: "scope", probability: "low", impact: "medium", status: "mitigating",
+    raisedByKey: "siti", ownerKey: "siti", title: "Rewards team may add tiered redemption mid-release",
+    mitigationPlan: "FA lead confirmed scope is locked for 2.0; tiered redemption deferred to the 2.1 backlog.",
+  },
+  // low x high = Medium
+  {
+    key: "risk-portal-search-spof", projectKey: "portal", category: "resource", probability: "low", impact: "high", status: "open",
+    raisedByKey: "nadia", title: "Only one QA engineer covers Search — single point of failure for regression coverage",
+    description: "Farid is the only tester who owns the search relevance suite; any absence blocks Sprint 13/14 regression.",
+  },
+  // medium x low = Low
+  {
+    key: "risk-cart-merge-ambiguity", projectKey: "portal", milestoneKey: "sprint13", category: "technical", probability: "medium", impact: "low", status: "mitigating",
+    raisedByKey: "devan", ownerKey: "devan", title: "Cart-merge quantity rule still ambiguous for edge cases (out-of-stock mid-merge)",
+    mitigationPlan: "Dev lead scheduled a clarification session with FA this week; interim rule (cap at stock) already implemented as a placeholder.",
+  },
+  // medium x medium = Medium
+  {
+    key: "risk-kyc-vendor-sla", projectKey: "banking", category: "external", probability: "medium", impact: "medium", status: "open",
+    raisedByKey: "amir", title: "Third-party KYC vendor API has no committed SLA for sandbox uptime",
+    description: "Sandbox has had two unannounced outages in the last month; no formal SLA exists in the vendor contract.",
+  },
+  // medium x high = High
+  {
+    key: "risk-biometric-license", projectKey: "banking", milestoneKey: "release20", category: "other", probability: "medium", impact: "high", status: "mitigating",
+    raisedByKey: "devan", ownerKey: "devan", title: "Biometric SDK license renewal falls mid-release",
+    mitigationPlan: "Procurement notified six weeks ahead; renewal PO raised and being tracked with the vendor account manager.",
+  },
+  // high x low = Medium
+  {
+    key: "risk-legacy-payment-sunset", projectKey: "portal", category: "schedule", probability: "high", impact: "low", status: "closed",
+    raisedByKey: "amir", ownerKey: "amir", title: "Legacy payment gateway sunset date could force emergency rework",
+    mitigationPlan: "Vendor confirmed the sunset date was pushed to Q1 2027 — no longer a near-term risk for Sprint 12/13.",
+  },
+  // high x medium = High
+  {
+    key: "risk-sso-security-review", projectKey: "portal", milestoneKey: "sprint13", category: "technical", probability: "high", impact: "medium", status: "open",
+    raisedByKey: "nadia", title: "Google SSO integration has not yet passed a formal security review",
+    description: "OAuth scopes and token storage haven't been reviewed by InfoSec; the Sprint 13 target date assumes no review is required.",
+  },
+  // high x high = Critical
+  {
+    key: "risk-regulatory-approval", projectKey: "banking", category: "external", probability: "high", impact: "high", status: "realized",
+    raisedByKey: "amir", ownerKey: "amir", title: "Regulatory approval for new fund-transfer limits delayed by central bank",
+    description: "Central bank review queue backed up; this risk has materialized and is now the root cause behind Release 2.0's schedule risk.",
+    mitigationPlan: "Escalated to the compliance team; approval is now expected to slip Release 2.0 by roughly three weeks.",
+  },
 ];

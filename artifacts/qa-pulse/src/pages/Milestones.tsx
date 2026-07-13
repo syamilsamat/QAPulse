@@ -26,6 +26,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -46,6 +47,8 @@ interface Milestone {
   reqTargetDate: string | null;
   devTargetDate: string | null;
   qaTargetDate: string | null;
+  lessonsLearned: string | null;
+  closedBy: number | null;
   createdAt: string;
   updatedAt: string;
   requirementCount?: number;
@@ -100,7 +103,7 @@ export default function Milestones() {
   const [filterProject, setFilterProject] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", lessonsLearned: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -126,7 +129,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", targetDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "" });
+    setForm({ name: "", type: "cr", status: "planned", targetDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", lessonsLearned: "" });
     setDialogOpen(true);
   };
 
@@ -140,6 +143,7 @@ export default function Milestones() {
       reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
       devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
+      lessonsLearned: m.lessonsLearned ?? "",
     });
     setDialogOpen(true);
   };
@@ -158,6 +162,7 @@ export default function Milestones() {
         reqTargetDate: form.reqTargetDate || null,
         devTargetDate: form.devTargetDate || null,
         qaTargetDate: form.qaTargetDate || null,
+        lessonsLearned: form.lessonsLearned.trim() || null,
       };
       const res = editing
         ? await api(`/milestones/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })
@@ -344,6 +349,17 @@ export default function Milestones() {
                 </div>
               </div>
             </div>
+            {form.status === "completed" && (
+              <div className="space-y-1.5">
+                <Label>Lessons Learned</Label>
+                <Textarea
+                  placeholder="What went well, what to improve next time…"
+                  value={form.lessonsLearned}
+                  onChange={(e) => setForm({ ...form, lessonsLearned: e.target.value })}
+                  rows={4}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>

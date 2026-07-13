@@ -23,6 +23,7 @@ import defectsRouter from "./defects";
 import teamsRouter from "./teams";
 import milestonesRouter from "./milestones";
 import requirementCommentsRouter from "./requirement-comments";
+import risksRouter from "./risks";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(defectsRouter);
 router.use(teamsRouter);
 router.use(milestonesRouter);
 router.use(requirementCommentsRouter);
+router.use(risksRouter);
 
 export default router;

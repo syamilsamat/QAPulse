@@ -93,7 +93,7 @@ export async function api<T = any>(path: string, token: string, opts: ApiCallOpt
 export type ManifestEntityType =
   | "task" | "defect" | "executionFile" | "testCase" | "requirement"
   | "milestone" | "projectMember" | "projectTeam" | "teamMember" | "team"
-  | "project" | "user";
+  | "project" | "user" | "risk";
 
 export interface ManifestEntry {
   type: ManifestEntityType;

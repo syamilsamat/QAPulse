@@ -40,6 +40,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR030](#cr030--developer-workflow-requirement-handoff--defect-assignment) | Developer Workflow: Requirement Handoff & Defect Assignment | ✅ Deployed | 2026-07-05 |
 | [CR031](#cr031--requirement-defect-workflow) | Requirement Defect Workflow | ✅ Deployed | 2026-07-10 |
 | [CR032](#cr032--pm-dashboard-multi-cycle-phase-timeline) | PM Dashboard: Multi-Cycle Phase Timeline | ✅ Deployed | 2026-07-10 |
+| [CR033](#cr033--pm-dashboard-ipecc-coverage-milestone-closing--risk-register) | PM Dashboard: IPECC Coverage (Milestone Closing + Risk Register) | ✅ Deployed | 2026-07-13 |
 
 ---
 
@@ -877,3 +878,88 @@ Replace the fixed-named-phase model (`buildPhaseBreakdown`, `computeMilestonePha
 **Stretch, not core scope:** labeling a Requirements-phase restart with *why* it reopened (CR031 requirement defect vs. a plain CR023 reject) by cross-referencing `defectLinksTable` for a `linkType: "requirement"` row created around that `requirement_submit` timestamp. Deferred — the phase timeline is useful without it, and the linkage is a nice-to-have, not required to fix the core distortion.
 
 **Scope:** `artifacts/api-server/src/routes/dashboard.ts` (phase reconstruction rewrite), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (segment shape + Develop color). No schema files, no migration.
+
+---
+
+### CR033 — PM Dashboard: IPECC Coverage (Milestone Closing + Risk Register)
+**Status:** ✅ Deployed (2026-07-13)
+
+**Origin:** stakeholder review feedback that the PM Dashboard needs to "follow IPECC" — the five PMBOK process groups (Initiating, Planning, Executing, Controlling, Closing). An audit of the current dashboard against all five groups:
+
+| IPECC phase | Current coverage |
+|---|---|
+| Initiating | Milestones/projects get created with no charter, stakeholder register, or kickoff record |
+| Planning | Target dates per phase (Req/Dev/QA-by), Plan bar in the phase timeline, a capacity snapshot — but no risk register, no scope-baseline tracking |
+| Executing | Dev handoff status and task board exist elsewhere in the app; the dashboard itself shows execution *results*, not live work-in-progress |
+| **Controlling** | **Comprehensive** — Burn Rate, SPI, First-Pass Rate, Req Stability, Top Blockers, the multi-cycle phase timeline (CR032), and the cross-milestone benchmark trend all live here |
+| Closing | `milestones.completedAt` is auto-stamped (CR032 dependency), but there's no closure UI at all — no sign-off, no lessons-learned capture, no retrospective view |
+
+The dashboard is, honestly, a strong **Controlling** dashboard mislabeled as a general PM dashboard. This CR closes the two highest-value gaps — **Closing** (cheapest: the data trigger already exists) and **Planning/Risk** (the gap most likely meant by "IPECC" specifically, since a risk register is the canonical PMP artifact this dashboard is missing). Initiating (charter/stakeholder register) and a live Executing/WIP board are explicitly deferred — see Non-Goals.
+
+---
+
+**Part 1 — Milestone Closing**
+
+Today marking a milestone `completed` (`Milestones.tsx`'s edit dialog, `status` select) just stamps `completedAt` and stops — no retrospective, no formal record of what was learned or who signed off.
+
+**Data model** — two new nullable columns on `milestonesTable`, no new table:
+```ts
+lessonsLearned: text("lessons_learned"),
+closedBy: integer("closed_by"), // usersTable.id — who actually closed it, may differ from createdBy
+```
+
+**Backend:**
+- `PATCH /milestones/:id` — accept `lessonsLearned` in the body (already a generic partial-update endpoint per the existing pattern in `milestones.ts`). When `status` transitions to `completed` and `closedBy` isn't already set, set it to the acting user's id (mirrors `assigneeAssignedAt`-style auto-stamping already used elsewhere, e.g. CR030's `devAssignedAt`).
+- New `GET /dashboard/closed-milestones?projectId=` — returns completed milestones for the project with their final `phaseSummary` (reuse `computeRequirementTimelines`/`summarizeTimelines` from CR032, just scoped to `status: 'completed'` milestones) plus `lessonsLearned`/`closedBy` — a closure record, not a live view.
+
+**Frontend:**
+- `Milestones.tsx` — add a "Lessons Learned" textarea to the edit dialog (shown once `status === 'completed'`, matching how the Development card only shows post-approval elsewhere in the app), and surface existing lessons text on the milestone card/detail view.
+- `PmDashboard.tsx` — new "Closed Milestones" section (collapsible, below the existing benchmark table): one row per completed milestone showing its final Burn Rate/First-Pass/Stability snapshot + lessons-learned excerpt. This is explicitly a *retrospective* view, distinct from the live Controlling metrics above it.
+
+---
+
+**Part 2 — Risk Register**
+
+Note the existing "Top Blockers" card is an **Issue Log** (already-happened problems: rejected/stuck-in-review requirements) — a different, equally valid PMBOK artifact from a **Risk Register** (not-yet-happened potential problems). Adding risk doesn't duplicate Top Blockers; it fills a gap next to it.
+
+**Scoped to project, not milestone.** A risk like "payment gateway sandbox unstable" or "vendor API deprecation" isn't really a single-sprint problem — it outlives whichever milestone happens to be active when it's raised. `milestoneId` is an optional tag (a risk *can* be pinned to the milestone it was raised against, for context — or left general), but the register itself lives at the project level, visible regardless of which milestone is currently selected in the dashboard's filter.
+
+**Data model** — new table:
+```ts
+export const risksTable = pgTable("risks", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  milestoneId: integer("milestone_id"), // optional — the milestone it was raised against, if any
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("other"), // schedule | scope | resource | technical | external | other
+  probability: text("probability").notNull().default("medium"), // low | medium | high
+  impact: text("impact").notNull().default("medium"), // low | medium | high
+  status: text("status").notNull().default("open"), // open | mitigating | closed | realized
+  mitigationPlan: text("mitigation_plan"),
+  ownerId: integer("owner_id"), // usersTable.id — who's accountable for watching/mitigating it
+  raisedBy: integer("raised_by"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+```
+Risk score is derived at read time from a 3×3 probability×impact matrix (low/medium/high/critical), not stored — keeps `mitigationPlan` edits from silently going stale against a cached score.
+
+**Backend** — new `artifacts/api-server/src/routes/risks.ts`:
+- `GET /risks?projectId=` (required) `&milestoneId=` (optional filter) — list, scoped via `canAccessProject` same as every other project-scoped list endpoint
+- `POST /risks`, `PATCH /risks/:id`, `DELETE /risks/:id` — Lead-tier+ gated (`getRoleTierRank >= 2`), matching the convention used for defect category and dev assignment elsewhere
+- `logActivity` on create/status-change, consistent with every other entity in the app
+
+**Frontend:**
+- `PmDashboard.tsx` — new "Risks" card at the **project** level (sits alongside the portfolio/benchmark-trend sections, not nested inside the per-milestone "Where did the time go" block) — visible once a project is picked, independent of milestone selection. Open risks sorted by derived score (critical → low), each row shows its tagged milestone if any ("Sprint 13") or "General" if project-wide. Quick-add form (title, category, probability, impact, optional milestone tag — description/mitigation/owner editable after creation to keep the quick-add fast).
+- No standalone `/risks` page in v1 — a dedicated page (mirroring `Defects.tsx`) is a natural CR034 if risk volume grows past what a dashboard card comfortably shows.
+
+---
+
+**Non-goals for this CR:**
+- **Initiating** (project charter, stakeholder register) — a genuinely new concept with no existing data to build on, unlike Closing/Risk which extend structures already in place. Worth its own CR if the org wants formal charter sign-off tracked in-app rather than in a separate doc.
+- **Executing** as a live work-in-progress board — the task board and dev-handoff status already exist elsewhere in the app (`Tasks.tsx`, the Development card); duplicating a live WIP view into the PM Dashboard is a bigger, separate design question (what's the delta over just linking to those existing pages?) rather than a natural extension of what's here.
+- **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QAPulse tracks cost at all.
+
+**Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).

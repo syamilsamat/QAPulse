@@ -31,6 +31,8 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     qaTargetDate: m.qaTargetDate?.toISOString() ?? null,
     createdBy: m.createdBy ?? null,
     completedAt: m.completedAt?.toISOString() ?? null,
+    lessonsLearned: m.lessonsLearned ?? null,
+    closedBy: m.closedBy ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
   };
@@ -148,6 +150,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.reqTargetDate !== undefined) update.reqTargetDate = req.body.reqTargetDate ? new Date(req.body.reqTargetDate) : null;
   if (req.body.devTargetDate !== undefined) update.devTargetDate = req.body.devTargetDate ? new Date(req.body.devTargetDate) : null;
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
+  if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.status !== undefined) {
     update.status = req.body.status;
     // Auto-stamp the authoritative end-of-QA-phase boundary (PM Dashboard
@@ -155,6 +158,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     // it moves away again, same pattern as requirements' approvedAt/rejectedAt.
     if (req.body.status === "completed" && m.status !== "completed") {
       update.completedAt = new Date();
+      if (!m.closedBy) update.closedBy = ctx.id ?? ctx.userId;
     } else if (req.body.status !== "completed" && m.status === "completed") {
       update.completedAt = null;
     }

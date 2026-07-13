@@ -18,12 +18,13 @@ import pg from "pg";
 import { loginAdmin, api, loadManifest, deleteManifest, type ManifestEntry, type ManifestEntityType } from "./seed-client";
 
 const DELETE_ORDER: ManifestEntityType[] = [
-  "task", "defect", "executionFile", "testCase", "requirement",
+  "task", "risk", "defect", "executionFile", "testCase", "requirement",
   "milestone", "team", "project", "user",
 ];
 
 const DELETE_PATH: Partial<Record<ManifestEntityType, (id: number | string) => string>> = {
   task: (id) => `/tasks/${id}`,
+  risk: (id) => `/risks/${id}`,
   executionFile: (id) => `/execution-files/${id}`,
   testCase: (id) => `/test-cases/${id}`,
   requirement: (id) => `/requirements/${id}`,

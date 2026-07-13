@@ -18,7 +18,7 @@ import {
 } from "./seed-client";
 import {
   DEMO_PASSWORD, USERS, TEAMS, PROJECTS, MILESTONES, MODULES,
-  REQUIREMENTS, TEST_CASES, EXECUTION_FILES, DEFECTS, TASKS,
+  REQUIREMENTS, TEST_CASES, EXECUTION_FILES, DEFECTS, TASKS, RISKS,
   type DemoRequirement,
 } from "./demo-data";
 
@@ -111,11 +111,17 @@ async function main() {
   console.log("\nCreating milestones...");
   const milestoneIdByKey = new Map<string, number>();
   for (const m of MILESTONES) {
+    // Completed milestones carrying a closedByKey are created as "active"
+    // first, then PATCHed to "completed" by that user — so completedAt and
+    // closedBy get stamped through the real transition logic (CR033p1)
+    // instead of being backfilled at creation.
+    const createAsCompleted = m.status === "completed" && !m.closedByKey;
     const milestone = await api<{ id: number }>("/milestones", adminToken, {
       method: "POST",
       body: {
         projectId: projectIdByKey.get(m.projectKey), name: m.name, type: m.type,
-        status: m.status, targetDate: m.targetDate,
+        status: createAsCompleted ? "completed" : (m.status === "completed" ? "active" : m.status),
+        targetDate: m.targetDate,
         reqTargetDate: m.reqTargetDate ?? null,
         devTargetDate: m.devTargetDate ?? null,
         qaTargetDate: m.qaTargetDate ?? null,
@@ -123,6 +129,14 @@ async function main() {
     });
     milestoneIdByKey.set(m.key, milestone.id);
     track("milestone", milestone.id, `${m.name} (${m.projectKey})`);
+
+    if (m.status === "completed" && m.closedByKey) {
+      const closerToken = tokenByKey.get(m.closedByKey)!;
+      await api(`/milestones/${milestone.id}`, closerToken, {
+        method: "PATCH",
+        body: { status: "completed", lessonsLearned: m.lessonsLearned ?? null },
+      });
+    }
     console.log(`  + ${m.name} — ${m.status}, due ${m.targetDate}`);
   }
 
@@ -367,7 +381,31 @@ async function main() {
   }
   console.log(`  + ${TASKS.length} tasks created`);
 
+  // ── 11. Risks (CR033p2) ───────────────────────────────────────────────────
+  console.log("\nCreating risks...");
+  for (const r of RISKS) {
+    const raiserToken = tokenByKey.get(r.raisedByKey)!;
+    const created = await api<{ id: number }>("/risks", raiserToken, {
+      method: "POST",
+      body: {
+        projectId: projectIdByKey.get(r.projectKey),
+        milestoneId: r.milestoneKey ? milestoneIdByKey.get(r.milestoneKey) : null,
+        title: r.title,
+        description: r.description ?? null,
+        category: r.category,
+        probability: r.probability,
+        impact: r.impact,
+        status: r.status,
+        mitigationPlan: r.mitigationPlan ?? null,
+        ownerId: r.ownerKey ? userIdByKey.get(r.ownerKey) : null,
+      },
+    });
+    track("risk", created.id, r.title);
+  }
+  console.log(`  + ${RISKS.length} risks created`);
+
   console.log(`\nDone. ${manifest.length} entities created — see scripts/demo-seed-manifest.json`);
+  console.log(`Run "npx tsx src/backdate-demo-activity.ts" next to backdate requirement/activity timestamps — otherwise the PM Dashboard's phase-timeline panel will show "Not enough data yet" (everything above was created via real-time API calls, so every event lands within seconds of "now").`);
   console.log(`Demo login password for all seeded users: ${DEMO_PASSWORD}`);
 }
 

@@ -17,6 +17,9 @@ export const milestonesTable = pgTable("milestones", {
   // Dashboard's phase-breakdown report, instead of approximating from the
   // last execution result timestamp.
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  // CR033 — retrospective fields, filled in on/after the 'completed' transition
+  lessonsLearned: text("lessons_learned"),
+  closedBy: integer("closed_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
