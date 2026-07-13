@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, projectMembersTable } from "@workspace/db";
+import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
@@ -727,17 +727,15 @@ async function resolveResourceViewScope(ctx: { userId: number; role: string }): 
     return { departments: null, projectIds: projectIds ?? [] };
   }
   if (tierRank >= 3) {
-    // qa_manager/hod_qa/hod_fa/hod_dev — own department, every project that
-    // has a member in that department. Deliberately not team-based (unlike
-    // scopeToUserProjects' HOD branch) — dev/fa/pm people are attached to
-    // projects via project_members directly, not via a department team, so
-    // a team-department join would silently return zero projects for them.
-    const rows = await db.select({ projectId: projectMembersTable.projectId })
-      .from(projectMembersTable)
-      .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
-      .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role))
-      .where(eq(rolesTable.department, department));
-    return { departments: [department], projectIds: [...new Set(rows.map(r => r.projectId))] };
+    // qa_manager/hod_qa/hod_fa/hod_dev — own department, every project.
+    // Not scoped via project_members: roles.ts' bootstrap() cross-joins
+    // every user x every project into that table on every server start
+    // (a permissive access-control default, not real assignment), so a
+    // project_members-based "which projects has this department" query
+    // would always resolve to literally every project anyway. Being
+    // explicitly unrestricted here is more honest than pretending to
+    // filter with data that can't actually filter anything.
+    return { departments: [department], projectIds: null };
   }
   // lead (tier 2) — own department, scoped to their own projects
   const projectIds = await scopeToUserProjects(ctx.userId, ctx.role);
@@ -762,25 +760,29 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
     ? scope.departments
     : (requestedDept ? [requestedDept] : null); // null = viewer can see every department
 
-  // ── Roster: every project member whose role's department is in scope ──────
-  let roster = await db
-    .select({
-      userId: usersTable.id, name: usersTable.name, role: usersTable.role,
-      department: rolesTable.department, projectId: projectMembersTable.projectId,
-    })
-    .from(projectMembersTable)
-    .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
+  // ── Candidate users: department-scoped, NOT sourced from project_members ──
+  // roles.ts' bootstrap() cross-joins every user x every project into
+  // project_members on every server start, so that table can't distinguish
+  // "actually on this project" from "exists in the system" — using it here
+  // showed every QA member as belonging to all 8+ projects in the DB. A
+  // person's real project involvement is derived below from their own
+  // activity (execution PIC / authored requirement / assigned task) instead.
+  let candidates = await db
+    .select({ userId: usersTable.id, name: usersTable.name, role: usersTable.role, department: rolesTable.department })
+    .from(usersTable)
     .leftJoin(rolesTable, eq(rolesTable.name, usersTable.role));
+  if (effectiveDepartments !== null) candidates = candidates.filter(u => u.department && effectiveDepartments!.includes(u.department)) as typeof candidates;
+  if (candidates.length === 0) { res.json([]); return; }
 
-  if (effectiveProjectIds !== null) roster = roster.filter(r => effectiveProjectIds!.includes(r.projectId)) as typeof roster;
-  if (effectiveDepartments !== null) roster = roster.filter(r => r.department && effectiveDepartments!.includes(r.department)) as typeof roster;
-  if (roster.length === 0) { res.json([]); return; }
-
-  const rosterProjectIds = [...new Set(roster.map(r => r.projectId))];
-  const projects = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, rosterProjectIds));
+  const searchProjectIds = effectiveProjectIds !== null
+    ? effectiveProjectIds
+    : (await db.select({ id: projectsTable.id }).from(projectsTable)).map(p => p.id);
+  const projects = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, searchProjectIds));
   const projectNameById = new Map(projects.map(p => [p.id, p.name]));
 
-  const milestones = await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, rosterProjectIds));
+  const milestones = searchProjectIds.length
+    ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, searchProjectIds))
+    : [];
   const activeMilestoneIds = new Set(milestones.filter(m => m.status === "active").map(m => m.id));
   const closedMilestoneIds = new Set(milestones.filter(m => m.status === "completed").map(m => m.id));
   const milestoneById = new Map(milestones.map(m => [m.id, m]));
@@ -854,42 +856,44 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
       return { id, name: m?.name ?? `Milestone #${id}`, projectId: m?.projectId ?? null, projectName: m ? (projectNameById.get(m.projectId) ?? `Project #${m.projectId}`) : null };
     }) : [];
 
-  // One row per person (deduped) — a project-membership row only
-  // contributes that project to the person's project list, never a
-  // duplicate row of the same person.
-  const byUser = new Map<number, { userId: number; name: string; role: string; department: string | null; projects: { id: number; name: string }[] }>();
-  for (const r of roster) {
-    if (!byUser.has(r.userId)) byUser.set(r.userId, { userId: r.userId, name: r.name, role: r.role, department: r.department, projects: [] });
-    const entry = byUser.get(r.userId)!;
-    if (!entry.projects.some(p => p.id === r.projectId)) {
-      entry.projects.push({ id: r.projectId, name: projectNameById.get(r.projectId) ?? `Project #${r.projectId}` });
-    }
-  }
-
-  const result = Array.from(byUser.values()).map(r => {
+  // One row per person, only for people with at least one real activity
+  // signal (active or closed) — someone with genuinely zero exec/requirement/
+  // task history in these projects has nothing trustworthy to show them
+  // against (see the project_members caveat above), so they're left out
+  // rather than shown with a fabricated "N projects" count.
+  const result = candidates.flatMap(u => {
     let activeIds: Set<number> | undefined;
     let closedIds: Set<number> | undefined;
     let signal: "execution_pic" | "requirement_author" | "task" | null = null;
 
-    if (r.department === "qa") {
-      activeIds = qaActiveByName.get(r.name); closedIds = qaClosedByName.get(r.name); signal = "execution_pic";
-    } else if (r.department === "fa") {
-      activeIds = faActiveByUser.get(r.userId); closedIds = faClosedByUser.get(r.userId); signal = "requirement_author";
-    } else if (r.department === "dev" || r.department === "pm") {
-      activeIds = taskActiveByUser.get(r.userId); closedIds = taskClosedByUser.get(r.userId); signal = "task";
+    if (u.department === "qa") {
+      activeIds = qaActiveByName.get(u.name); closedIds = qaClosedByName.get(u.name); signal = "execution_pic";
+    } else if (u.department === "fa") {
+      activeIds = faActiveByUser.get(u.userId); closedIds = faClosedByUser.get(u.userId); signal = "requirement_author";
+    } else if (u.department === "dev" || u.department === "pm") {
+      activeIds = taskActiveByUser.get(u.userId); closedIds = taskClosedByUser.get(u.userId); signal = "task";
     }
 
-    return {
-      userId: r.userId,
-      name: r.name,
-      role: r.role,
-      department: r.department,
-      projects: r.projects,
+    if ((!activeIds || activeIds.size === 0) && (!closedIds || closedIds.size === 0)) return [];
+
+    const activeMilestones = milestoneRefs(activeIds);
+    const closedMilestones = milestoneRefs(closedIds);
+    const projects = new Map<number, { id: number; name: string }>();
+    for (const m of [...activeMilestones, ...closedMilestones]) {
+      if (m.projectId != null) projects.set(m.projectId, { id: m.projectId, name: m.projectName ?? `Project #${m.projectId}` });
+    }
+
+    return [{
+      userId: u.userId,
+      name: u.name,
+      role: u.role,
+      department: u.department,
+      projects: Array.from(projects.values()),
       signal,
-      activeMilestones: milestoneRefs(activeIds),
+      activeMilestones,
       hasNoActiveMilestone: !activeIds || activeIds.size === 0,
-      closedMilestones: milestoneRefs(closedIds),
-    };
+      closedMilestones,
+    }];
   });
 
   res.json(result);
