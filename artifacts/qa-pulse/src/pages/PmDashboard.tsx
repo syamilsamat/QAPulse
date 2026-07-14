@@ -1262,33 +1262,51 @@ export default function PmDashboard() {
                   <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
                   <p className="text-xs text-muted-foreground">Plan vs actual phase durations, averaged across requirements.</p>
                 </div>
-                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate || phaseReport.milestone.uatTargetDate) && (() => {
+                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate || phaseReport.milestone.uatTargetDate || phaseReport.milestone.targetDate) && (() => {
                   const today = new Date();
                   const activeKeys = new Set(phaseReport.phaseSummary?.map(s => s.key) ?? []);
+                  const pills = [
+                    { key: "start", label: "Start", target: phaseReport.milestone.startDate },
+                    { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
+                    { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
+                    { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
+                    { key: "uat", label: "UAT by", target: phaseReport.milestone.uatTargetDate },
+                    { key: "end", label: "End", target: phaseReport.milestone.targetDate },
+                  ]
+                    .filter(p => p.target)
+                    .map(p => {
+                      const dt = new Date(p.target!);
+                      const past = today > dt;
+                      const done = p.key === "start" ? true
+                        : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
+                        : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
+                        : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed"
+                        : (p.key === "uat" || p.key === "end") ? phaseReport.milestone.status === "completed" : false;
+                      return { ...p, dt, late: past && !done };
+                    });
+
+                  const overallStatus: "completed" | "overdue" | "on_track" =
+                    phaseReport.milestone.status === "completed" ? "completed"
+                    : pills.some(p => p.late) ? "overdue" : "on_track";
+                  const statusStyle = {
+                    completed: "border-border bg-muted text-muted-foreground",
+                    overdue: "border-destructive/40 bg-destructive/10 text-destructive",
+                    on_track: "border-green-600/30 bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-400",
+                  }[overallStatus];
+                  const statusLabel = { completed: "Completed", overdue: "Overdue", on_track: "On track" }[overallStatus];
+
                   return (
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { key: "start", label: "Start", target: phaseReport.milestone.startDate },
-                        { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
-                        { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
-                        { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
-                        { key: "uat", label: "UAT by", target: phaseReport.milestone.uatTargetDate },
-                      ].filter(p => p.target).map(p => {
-                        const dt = new Date(p.target!);
-                        const past = today > dt;
-                        const done = p.key === "start" ? true
-                          : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
-                          : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
-                          : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed"
-                          : p.key === "uat" ? phaseReport.milestone.status === "completed" : false;
-                        const late = past && !done;
-                        return (
-                          <span key={p.key} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${late ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>
-                            {late && <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />}
-                            {p.label} {format(dt, "d MMM")}{late && <span className="font-medium"> · Late</span>}
-                          </span>
-                        );
-                      })}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${statusStyle}`}>
+                        {overallStatus === "overdue" && <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />}
+                        {statusLabel}
+                      </span>
+                      {pills.map(p => (
+                        <span key={p.key} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${p.late ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>
+                          {p.late && <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />}
+                          {p.label} {format(p.dt, "d MMM")}{p.late && <span className="font-medium"> · Late</span>}
+                        </span>
+                      ))}
                     </div>
                   );
                 })()}
