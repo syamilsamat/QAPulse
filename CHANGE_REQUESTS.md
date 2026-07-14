@@ -44,6 +44,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR034](#cr034--resource-management-project-scoped-capacity--milestone-focus) | Resource Management: Project-Scoped Capacity & Milestone Focus | ✅ Deployed | 2026-07-13 |
 | [CR035](#cr035--direct-project--module-access-assignment-replaces-team-based-project-access) | Direct Project & Module Access Assignment (replaces team-based project access) | ✅ Deployed | 2026-07-13 |
 | [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 🟡 Implemented, deploy pending | 2026-07-14 |
+| [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 📋 Planned | 2026-07-14 |
 
 ---
 
@@ -1093,3 +1094,36 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 - No many-to-many dependency table, no Gantt/critical-path anything — `blockedByTaskId` is a field, not a scheduling engine.
 
 **Scope:** `lib/db/src/schema/tasks.ts` (+ bootstrap SQL) — one new column; `artifacts/api-server/src/routes/tasks.ts` (validation + cycle guard); `artifacts/qa-pulse/src/pages/Tasks.tsx` (picker + badge); `artifacts/qa-pulse/src/pages/PmoReport.tsx` + `artifacts/qa-pulse/src/components/Layout.tsx` (rename); `artifacts/qa-pulse/src/pages/Resources.tsx` (chip + filter). One `db push` for the tasks column; everything else additive.
+
+---
+
+### CR037 — AI Risk Predictor (Milestone-Level)
+**Status:** 📋 Planned (2026-07-14)
+**Depends on:** CR033 (risk register — the data model this was explicitly deferred for in `docs/pmo-pain-points-review.md`), CR032 (multi-cycle phase timeline — the rework-churn signal), CR020 (escape history), CR026 (defect trend queries to reuse).
+**Origin:** third feature of the Bestinet AI-pitch trio (TC Generator → CR015 ✅, Verdict Writer → verdict email flow ✅, Risk Predictor → this). Kept out of CR036 deliberately — external AI dependency and prompt-quality iteration deserve their own rollback unit.
+
+**What it is:** a per-milestone AI risk assessment — predicted risk level + top contributing factors + suggested mitigation — synthesized from data QMPulse already collects. **Not** the existing `POST /ai/risk-score` (that's per-ticket/module execution scoring feeding the Verdict Report); this is its milestone-level sibling on the PM Dashboard.
+
+**Inputs (all existing, no new tracking):**
+1. CR033 risk register — open/mitigating risk rows for the milestone (probability × impact).
+2. CR032 phase timeline — cycle counts per requirement; a 3rd Requirements round is a rework-churn red flag the aggregate bar already knows about.
+3. Defects — density per module, open-vs-closed trend, CR020 escape history, CR029 category mix.
+4. Coverage — requirements with no TCs / failing latest results from the traceability rollup.
+5. Schedule — plan-vs-actual drift against the milestone's target/UAT dates (same numbers the plan-boundary markers render).
+
+**Output shape:** `{ riskLevel: "low"|"medium"|"high"|"critical", factors: [{ signal, detail, weight }] (top 3), mitigation: string, dataSnapshot: {...} }` — the prompt gets pre-aggregated numbers, never raw rows; the AI's job is synthesis and articulation, not arithmetic (same discipline as `/ai/release-readiness`).
+
+**Decisions (made at planning, 2026-07-14):**
+- **On-demand with stored history, not compute-on-page-load.** New `milestone_risk_assessments` table (id, milestoneId, riskLevel, factors TEXT/JSON, mitigation, model, createdBy, createdAt). "Assess now" button triggers a fresh run; the card renders the latest stored row with a "last assessed N days ago" stamp. History is free (append-only) and is the demo artifact: "flagged High two weeks before the slip."
+- **Surfaces as a card in the PM Dashboard milestone drill-down, next to the Risk Register panel** — not a new page, not a new nav key.
+- **AI provider:** `executeAiTask` in `ai.ts` as-is (Gemini 2.5 Flash primary, `runOpenRouterCascade` fallback, JSON response mode, `safeParseJSON` with a conservative fallback object — on total AI failure the card says "assessment unavailable," never a fabricated risk level).
+
+**Backend:** new `POST /ai/milestone-risk` in `artifacts/api-server/src/routes/ai.ts` — gathers the five input aggregates (reusing the dashboard/traceability query shapes, batched, no N+1), builds the prompt, stores + returns the assessment. `GET /milestones/:id/risk-assessments` for history. PM-tier + admin/cto gated, same `PM_ROLES` discipline as `dashboard.ts`.
+
+**Frontend:** `artifacts/qa-pulse/src/pages/PmDashboard.tsx` — Risk Assessment card (level badge reusing existing severity colors, top-3 factor list, mitigation line, Assess now button, last-assessed stamp, small history sparkline/list of prior levels).
+
+**Stretch, not v1:** AI-suggested new risk-register entries (write-path complexity — v2); utilization % rides along **only if** the capacity-model decision (per-user available hours vs. flat assumption) has been made by build time, else it stays parked.
+
+**Non-goals:** no automatic/scheduled assessment runs (a stale-data assessment silently going out to stakeholders is worse than an explicit button); no cross-milestone portfolio prediction (needs assessment history to exist first); no cost/CPI signals (no cost data — see CR033 non-goals).
+
+**Scope:** `lib/db/src/schema/` (new `milestone_risk_assessments` table + bootstrap `CREATE TABLE IF NOT EXISTS` in `roles.ts`, moved together per CR036 discipline), `artifacts/api-server/src/routes/ai.ts` (new endpoint), `artifacts/api-server/src/routes/milestones.ts` (history GET), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (card). One DB migration.
