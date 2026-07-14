@@ -12,6 +12,11 @@
  *     "testing"
  *  3. execution_test_cases.executedAt was null — even when the machine reaches
  *     "testing", emitTesting() returns nothing if there are no exec timestamps
+ *  4. QA-type and UAT-type execution_test_cases were both backdated to the
+ *     exact same qaExecAgo timestamp — collapsing the QA segment to 0 days
+ *     (qaEnd = uatTimes[0] in emitTesting) and making it look like UAT
+ *     happened straight after development with no testing in between. Now
+ *     backdated separately (uatExecAgo, strictly after qaExecAgo finishes).
  *
  * Run AFTER seed-demo-data.ts:
  *   cd /home/runner/workspace/scripts
@@ -79,13 +84,15 @@ const ANCHORS: Record<string, {
   devAssign: number;  // same as approve → 0d gap → gap bar hidden
   readyForQA: number;
   qaExec: number;    // when first QA execution result was recorded
+  uatExec: number;   // when first UAT execution result was recorded — must
+                      // stay well below qaExec so QA visibly finishes first
 }> = {
-  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 54, readyForQA: 37, qaExec: 34 },
-  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 24, readyForQA: 14, qaExec: 11 },
-  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 8,  readyForQA: 2,  qaExec: 1  },
-  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 42, readyForQA: 21, qaExec: 18 },
-  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 10, readyForQA: 4,  qaExec: 2  },
-  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 73, readyForQA: 49, qaExec: 45 },
+  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 54, readyForQA: 37, qaExec: 34, uatExec: 29 },
+  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 24, readyForQA: 14, qaExec: 11, uatExec: 6  },
+  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 8,  readyForQA: 2,  qaExec: 1,  uatExec: 0  },
+  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 42, readyForQA: 21, qaExec: 18, uatExec: 12 },
+  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 10, readyForQA: 4,  qaExec: 2,  uatExec: 0  },
+  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 73, readyForQA: 49, qaExec: 45, uatExec: 39 },
 };
 
 function daysAgo(n: number): Date {
@@ -154,14 +161,18 @@ async function main() {
         inArray(activityTable.entityId, reqIds),
       ));
 
-    // Execution test cases linked to these requirements (for executedAt)
+    // Execution test cases linked to these requirements (for executedAt).
+    // Joined to executionFilesTable so QA-type and UAT-type cases can be
+    // backdated to different anchors below (see "What was missing" #4).
     const execCases = await db
       .select({
         id: executionTestCasesTable.id,
         requirementId: executionTestCasesTable.requirementId,
         executionFileId: executionTestCasesTable.executionFileId,
+        fileType: executionFilesTable.fileType,
       })
       .from(executionTestCasesTable)
+      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
       .where(inArray(executionTestCasesTable.requirementId, reqIds));
 
     console.log(`Found ${events.length} activity events, ${execCases.length} linked execution test cases.\n`);
@@ -191,6 +202,7 @@ async function main() {
       const devAssignAgo  = jitter(a.devAssign);
       const readyForQaAgo = jitter(a.readyForQA);
       const qaExecAgo     = jitter(a.qaExec);
+      const uatExecAgo    = jitter(a.uatExec);
 
       // 1. Backdate the requirement row
       await db
@@ -263,18 +275,22 @@ async function main() {
       //    of this script blanket-set result: "pass" on every row here,
       //    which silently erased every seeded defect scenario and also
       //    rendered as a lowercase "pass" pill instead of "Passed").
+      //    QA-type and UAT-type cases get different anchors (see "What was
+      //    missing" #4) — QA must visibly finish before UAT begins, matching
+      //    a real QA process where nothing reaches UAT without passing QA.
       const linkedCases = execCases.filter((tc) => tc.requirementId === req.id);
       for (const tc of linkedCases) {
+        const executedAt = tc.fileType === "uat" ? daysAgo(uatExecAgo) : daysAgo(qaExecAgo);
         await db
           .update(executionTestCasesTable)
-          .set({ executedAt: daysAgo(qaExecAgo) })
+          .set({ executedAt })
           .where(eq(executionTestCasesTable.id, tc.id));
         execUpdated++;
       }
 
       console.log(
         `  [${milestone.name}] req ${req.id} "${req.title.slice(0, 35)}" ` +
-        `created=${createdAgo}d approve=${approveAgo}d devAssign=${devAssignAgo}d readyForQA=${readyForQaAgo}d qaExec=${qaExecAgo}d` +
+        `created=${createdAgo}d approve=${approveAgo}d devAssign=${devAssignAgo}d readyForQA=${readyForQaAgo}d qaExec=${qaExecAgo}d uatExec=${uatExecAgo}d` +
         (linkedCases.length > 0 ? ` (${linkedCases.length} exec TCs)` : ""),
       );
     }
