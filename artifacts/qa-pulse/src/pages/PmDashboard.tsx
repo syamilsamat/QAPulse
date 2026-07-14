@@ -557,7 +557,7 @@ function ClosedMilestonesCard({ projectId, token }: { projectId: number; token: 
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
                     {m.phaseSummary.map((s) => (
                       <span key={s.key} className={`text-[11px] font-medium ${PHASE_TEXT_COLOR[s.key] ?? "text-muted-foreground"}`}>
-                        {s.label}: {s.avgDays}d
+                        {s.label}: {fmtDays(s.avgDays ?? 0)}d
                       </span>
                     ))}
                   </div>
@@ -694,6 +694,12 @@ const PHASE_TEXT_COLOR: Record<string, string> = {
   uat: "text-blue-700 dark:text-blue-400",
 };
 
+/**
+ * Format a day count for display: at most one decimal place, and without
+ * floating-point noise (e.g. 1.8000000000000007 → "1.8", 8 → "8").
+ */
+const fmtDays = (n: number) => (Math.round(n * 10) / 10).toString();
+
 // ── Plan vs Actual Timeline Bar ───────────────────────────────────────────────
 // Shows a faded "Plan" row above the colored "Actual" row, with variance chips.
 function PlanActualTimelineBar({
@@ -733,13 +739,13 @@ function PlanActualTimelineBar({
                 key={i}
                 className={`${PHASE_COLOR[s.key]} flex items-center justify-center opacity-40`}
                 style={{ width: `${(s.days / totalDays) * 100}%` }}
-                title={`${s.label}: ${s.days}d planned`}
+                title={`${s.label}: ${fmtDays(s.days)}d planned`}
               >
-                {(s.days / totalDays) > 0.1 && <span className="text-[10px] text-white font-medium">{s.days}d</span>}
+                {(s.days / totalDays) > 0.1 && <span className="text-[10px] text-white font-medium">{fmtDays(s.days)}d</span>}
               </div>
             ))}
           </div>
-          <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{planTotal}d planned</span>
+          <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{fmtDays(planTotal)}d planned</span>
         </div>
       )}
       <div className="flex items-center gap-3">
@@ -753,13 +759,13 @@ function PlanActualTimelineBar({
               key={i}
               className={`${PHASE_COLOR[s.key]} flex items-center justify-center ${s.ongoing ? "opacity-70" : ""}`}
               style={{ width: `${(s.days / totalDays) * 100}%` }}
-              title={`${s.label}: ${s.days}d${s.ongoing ? " (ongoing)" : ""}`}
+              title={`${s.label}: ${fmtDays(s.days)}d${s.ongoing ? " (ongoing)" : ""}`}
             >
-              {(s.days / totalDays) > 0.08 && <span className="text-[11px] text-white font-medium">{s.days}d</span>}
+              {(s.days / totalDays) > 0.08 && <span className="text-[11px] text-white font-medium">{fmtDays(s.days)}d</span>}
             </div>
           ))}
         </div>
-        {hasPlan && <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{actualTotal}d actual</span>}
+        {hasPlan && <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{fmtDays(actualTotal)}d actual</span>}
       </div>
 
       {hasPlan && (
@@ -771,7 +777,7 @@ function PlanActualTimelineBar({
             if (Math.abs(diff) < 1) return null;
             return (
               <span key={p.key} className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${diff > 0 ? "text-red-600 bg-red-50 dark:bg-red-950/60 dark:text-red-400" : "text-green-600 bg-green-50 dark:bg-green-950/60 dark:text-green-400"}`}>
-                {p.label} {diff > 0 ? `+${diff}d` : `${diff}d`}
+                {p.label} {diff > 0 ? `+${fmtDays(diff)}d` : `${fmtDays(diff)}d`}
               </span>
             );
           })}
@@ -787,7 +793,7 @@ function PlanActualTimelineBar({
         {actualSegments.map((s, i) => (
           <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[s.key]}`} />
-            {s.label} &middot; {s.days}d{s.ongoing ? " (ongoing)" : ""}
+            {s.label} &middot; {fmtDays(s.days)}d{s.ongoing ? " (ongoing)" : ""}
           </div>
         ))}
       </div>
@@ -1031,9 +1037,9 @@ function BenchmarkTable({ trend }: { trend: NonNullable<PhaseReport["trend"]> })
               return (
                 <tr key={m.id} className="border-b last:border-0">
                   <td className="py-2 pr-3 font-medium max-w-[100px] truncate">{m.name}</td>
-                  <td className="py-2 text-right px-2 tabular-nums">{m.requirementsDays !== null ? `${m.requirementsDays}d` : "—"}</td>
-                  <td className="py-2 text-right px-2 tabular-nums">{m.developDays !== null ? `${m.developDays}d` : "—"}</td>
-                  <td className="py-2 text-right px-2 tabular-nums">{m.qaDays !== null ? `${m.qaDays}d` : "—"}</td>
+                  <td className="py-2 text-right px-2 tabular-nums">{m.requirementsDays !== null ? `${fmtDays(m.requirementsDays)}d` : "—"}</td>
+                  <td className="py-2 text-right px-2 tabular-nums">{m.developDays !== null ? `${fmtDays(m.developDays)}d` : "—"}</td>
+                  <td className="py-2 text-right px-2 tabular-nums">{m.qaDays !== null ? `${fmtDays(m.qaDays)}d` : "—"}</td>
                   <td className={`py-2 text-right px-2 tabular-nums font-semibold ${fpColor}`}>{m.firstPassPct !== null ? `${m.firstPassPct}%` : "—"}</td>
                   <td className={`py-2 text-right pl-2 tabular-nums font-semibold ${stabColor}`}>{m.stabilityPct !== null ? `${m.stabilityPct}%` : "—"}</td>
                 </tr>
@@ -1051,7 +1057,7 @@ function BenchmarkTable({ trend }: { trend: NonNullable<PhaseReport["trend"]> })
         ].filter(x => x.val !== null).map(x => (
           <div key={x.key}>
             <p className="text-[11px] text-muted-foreground">{x.label}</p>
-            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR[x.key]}`}>{x.val}d</p>
+            <p className={`text-sm font-medium ${PHASE_TEXT_COLOR[x.key]}`}>{fmtDays(x.val!)}d</p>
           </div>
         ))}
       </div>
