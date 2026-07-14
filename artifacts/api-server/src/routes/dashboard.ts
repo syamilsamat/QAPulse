@@ -500,6 +500,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     status: milestone.status,
     targetDate: milestone.targetDate?.toISOString() ?? null,
     createdAt: milestone.createdAt.toISOString(),
+    startDate: (milestone as any).startDate?.toISOString() ?? null,
     reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null,
     devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null,
     qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
@@ -549,11 +550,12 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   const kpis = { timeElapsedPct, workCompletedPct, spi, firstPassPct, stabilityPct };
 
   // ── Planned phase durations from milestone target dates ───────────────────
+  const startDate = (milestone as any).startDate as Date | null;
   const reqTargetDate = (milestone as any).reqTargetDate as Date | null;
   const devTargetDate = (milestone as any).devTargetDate as Date | null;
   const qaTargetDate = (milestone as any).qaTargetDate as Date | null;
-  const plannedPhaseDays = (reqTargetDate || devTargetDate || qaTargetDate) ? {
-    requirements: reqTargetDate ? Math.max(0, Math.round((reqTargetDate.getTime() - milestone.createdAt.getTime()) / 86_400_000)) : null,
+  const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate) ? {
+    requirements: (reqTargetDate && startDate) ? Math.max(0, Math.round((reqTargetDate.getTime() - startDate.getTime()) / 86_400_000)) : null,
     develop: (devTargetDate && reqTargetDate) ? Math.max(0, Math.round((devTargetDate.getTime() - reqTargetDate.getTime()) / 86_400_000)) : null,
     qa: (qaTargetDate && devTargetDate) ? Math.max(0, Math.round((qaTargetDate.getTime() - devTargetDate.getTime()) / 86_400_000)) : null,
   } : null;

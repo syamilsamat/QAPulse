@@ -124,6 +124,7 @@ interface PhaseReport {
     status: string;
     targetDate?: string | null;
     createdAt?: string;
+    startDate?: string | null;
     reqTargetDate?: string | null;
     devTargetDate?: string | null;
     qaTargetDate?: string | null;
@@ -1218,19 +1219,21 @@ export default function PmDashboard() {
                   <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
                   <p className="text-xs text-muted-foreground">Plan vs actual phase durations, averaged across requirements.</p>
                 </div>
-                {phaseReport && (phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate) && (() => {
+                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate) && (() => {
                   const today = new Date();
                   const activeKeys = new Set(phaseReport.phaseSummary?.map(s => s.key) ?? []);
                   return (
                     <div className="flex flex-wrap gap-1.5">
                       {[
+                        { key: "start", label: "Start", target: phaseReport.milestone.startDate },
                         { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
                         { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
                         { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
                       ].filter(p => p.target).map(p => {
                         const dt = new Date(p.target!);
                         const past = today > dt;
-                        const done = p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
+                        const done = p.key === "start" ? true
+                          : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
                           : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
                           : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed" : false;
                         const late = past && !done;

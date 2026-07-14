@@ -162,6 +162,7 @@ async function main() {
         projectId: projectIdByKey.get(m.projectKey), name: m.name, type: m.type,
         status: createAsCompleted ? "completed" : (m.status === "completed" ? "active" : m.status),
         targetDate: m.targetDate,
+        startDate: m.startDate ?? null,
         reqTargetDate: m.reqTargetDate ?? null,
         devTargetDate: m.devTargetDate ?? null,
         qaTargetDate: m.qaTargetDate ?? null,
