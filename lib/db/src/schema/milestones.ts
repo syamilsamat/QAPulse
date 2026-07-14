@@ -11,6 +11,7 @@ export const milestonesTable = pgTable("milestones", {
   reqTargetDate: timestamp("req_target_date", { withTimezone: true }),
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
+  uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
   // CR023p1.2 — needed to notify the milestone's PM on a linked requirement's rejection
   createdBy: integer("created_by"),
   // Auto-stamped when status transitions to 'completed' (and cleared if it

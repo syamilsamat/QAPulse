@@ -108,6 +108,7 @@ export interface DemoMilestone {
   reqTargetDate?: string;  // when all requirements should be approved
   devTargetDate?: string;  // when dev handover to QA should happen
   qaTargetDate?: string;   // when QA sign-off is expected
+  uatTargetDate?: string;  // when UAT sign-off is expected
   // CR033p1 — retrospective, only meaningful for status:"completed". When
   // set, seed-demo-data.ts creates the milestone active-then-transitions it
   // to completed via PATCH (as closedByKey) so closedBy/completedAt are
@@ -120,37 +121,37 @@ export const MILESTONES: DemoMilestone[] = [
   // Completed — all phase targets met, pills show grey (done). Carries
   // lessons learned, to show the "captured" state on the PM Dashboard.
   {
-    key: "sprint12", projectKey: "portal", name: "Sprint 12", type: "sprint", status: "completed", targetDate: "2026-06-20",
-    startDate: "2026-05-18", reqTargetDate: "2026-05-28", devTargetDate: "2026-06-10", qaTargetDate: "2026-06-19",
+    key: "sprint12", projectKey: "portal", name: "Sprint 12", type: "sprint", status: "completed", targetDate: "2026-06-24",
+    startDate: "2026-05-18", reqTargetDate: "2026-05-28", devTargetDate: "2026-06-10", qaTargetDate: "2026-06-19", uatTargetDate: "2026-06-24",
     lessonsLearned: "Login lockout defect (DEF from Sprint 12) slipped through because the regression suite only covered the happy path for auth. Added a dedicated negative-path checklist for Sprint 13 onward. Search relevance tuning went smoothly — the early FA/QA pairing session on acceptance criteria paid off and should become standard practice.",
     closedByKey: "amir",
   },
-  // Overdue — ALL three phase targets missed, pills show red · Late
+  // Overdue — ALL four phase targets missed, pills show red · Late
   {
-    key: "sprint13", projectKey: "portal", name: "Sprint 13", type: "sprint", status: "active", targetDate: "2026-07-02",
-    startDate: "2026-06-08", reqTargetDate: "2026-06-18", devTargetDate: "2026-06-26", qaTargetDate: "2026-07-01",
+    key: "sprint13", projectKey: "portal", name: "Sprint 13", type: "sprint", status: "active", targetDate: "2026-07-08",
+    startDate: "2026-06-08", reqTargetDate: "2026-06-18", devTargetDate: "2026-06-26", qaTargetDate: "2026-07-01", uatTargetDate: "2026-07-08",
   },
   // Planned — future dates, all grey (not late yet)
   {
-    key: "sprint14", projectKey: "portal", name: "Sprint 14", type: "sprint", status: "planned", targetDate: "2026-07-22",
-    startDate: "2026-07-04", reqTargetDate: "2026-07-14", devTargetDate: "2026-07-19", qaTargetDate: "2026-07-22",
+    key: "sprint14", projectKey: "portal", name: "Sprint 14", type: "sprint", status: "planned", targetDate: "2026-07-29",
+    startDate: "2026-07-04", reqTargetDate: "2026-07-14", devTargetDate: "2026-07-19", qaTargetDate: "2026-07-22", uatTargetDate: "2026-07-29",
   },
   // Completed — phase targets all met. Closed but no lessons learned
   // captured yet, to show that state on the PM Dashboard too.
   {
     key: "uat1", projectKey: "banking", name: "UAT Phase 1", type: "phase", status: "completed", targetDate: "2026-06-15",
-    startDate: "2026-05-10", reqTargetDate: "2026-05-20", devTargetDate: "2026-05-30", qaTargetDate: "2026-06-14",
+    startDate: "2026-05-10", reqTargetDate: "2026-05-20", devTargetDate: "2026-05-30", qaTargetDate: "2026-06-14", uatTargetDate: "2026-06-15",
     closedByKey: "amir",
   },
   // At risk — requirements done on time (grey), dev target missed (red), QA target upcoming (grey)
   {
-    key: "release20", projectKey: "banking", name: "Release 2.0", type: "release", status: "active", targetDate: "2026-07-09",
-    startDate: "2026-06-10", reqTargetDate: "2026-06-20", devTargetDate: "2026-07-01", qaTargetDate: "2026-07-08",
+    key: "release20", projectKey: "banking", name: "Release 2.0", type: "release", status: "active", targetDate: "2026-07-15",
+    startDate: "2026-06-10", reqTargetDate: "2026-06-20", devTargetDate: "2026-07-01", qaTargetDate: "2026-07-08", uatTargetDate: "2026-07-15",
   },
   // Planned — all future
   {
-    key: "release21", projectKey: "banking", name: "Release 2.1", type: "release", status: "planned", targetDate: "2026-08-15",
-    startDate: "2026-07-22", reqTargetDate: "2026-08-01", devTargetDate: "2026-08-08", qaTargetDate: "2026-08-14",
+    key: "release21", projectKey: "banking", name: "Release 2.1", type: "release", status: "planned", targetDate: "2026-08-21",
+    startDate: "2026-07-22", reqTargetDate: "2026-08-01", devTargetDate: "2026-08-08", qaTargetDate: "2026-08-14", uatTargetDate: "2026-08-21",
   },
 ];
 

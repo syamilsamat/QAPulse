@@ -128,9 +128,10 @@ interface PhaseReport {
     reqTargetDate?: string | null;
     devTargetDate?: string | null;
     qaTargetDate?: string | null;
+    uatTargetDate?: string | null;
   };
   phaseSummary: PhaseSummaryEntry[] | null;
-  plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null } | null;
+  plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
   kpis: {
     timeElapsedPct: number | null;
     workCompletedPct: number;
@@ -709,7 +710,7 @@ function PlanActualTimelineBar({
   onClick,
 }: {
   actualSegments: TimelineBarSegment[];
-  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null } | null;
+  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
   onClick?: () => void;
 }) {
   if (actualSegments.length === 0) {
@@ -721,6 +722,7 @@ function PlanActualTimelineBar({
         plannedPhaseDays.requirements !== null && { key: "requirements", label: "Requirements", days: plannedPhaseDays.requirements, ongoing: false },
         plannedPhaseDays.develop !== null && { key: "develop", label: "Develop", days: plannedPhaseDays.develop, ongoing: false },
         plannedPhaseDays.qa !== null && { key: "qa", label: "QA", days: plannedPhaseDays.qa, ongoing: false },
+        plannedPhaseDays.uat !== null && { key: "uat", label: "UAT", days: plannedPhaseDays.uat, ongoing: false },
       ].filter((s): s is TimelineBarSegment => Boolean(s)))
     : [];
 
@@ -1219,7 +1221,7 @@ export default function PmDashboard() {
                   <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
                   <p className="text-xs text-muted-foreground">Plan vs actual phase durations, averaged across requirements.</p>
                 </div>
-                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate) && (() => {
+                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate || phaseReport.milestone.uatTargetDate) && (() => {
                   const today = new Date();
                   const activeKeys = new Set(phaseReport.phaseSummary?.map(s => s.key) ?? []);
                   return (
@@ -1229,13 +1231,15 @@ export default function PmDashboard() {
                         { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
                         { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
                         { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
+                        { key: "uat", label: "UAT by", target: phaseReport.milestone.uatTargetDate },
                       ].filter(p => p.target).map(p => {
                         const dt = new Date(p.target!);
                         const past = today > dt;
                         const done = p.key === "start" ? true
                           : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
                           : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
-                          : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed" : false;
+                          : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed"
+                          : p.key === "uat" ? phaseReport.milestone.status === "completed" : false;
                         const late = past && !done;
                         return (
                           <span key={p.key} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${late ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>

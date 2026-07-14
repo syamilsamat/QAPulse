@@ -33,6 +33,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     reqTargetDate: m.reqTargetDate?.toISOString() ?? null,
     devTargetDate: m.devTargetDate?.toISOString() ?? null,
     qaTargetDate: m.qaTargetDate?.toISOString() ?? null,
+    uatTargetDate: m.uatTargetDate?.toISOString() ?? null,
     createdBy: m.createdBy ?? null,
     completedAt: m.completedAt?.toISOString() ?? null,
     lessonsLearned: m.lessonsLearned ?? null,
@@ -86,7 +87,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate } = req.body;
+  const { projectId, name, type = "cr", status = "planned", targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
 
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
@@ -102,6 +103,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     reqTargetDate: reqTargetDate ? new Date(reqTargetDate) : null,
     devTargetDate: devTargetDate ? new Date(devTargetDate) : null,
     qaTargetDate: qaTargetDate ? new Date(qaTargetDate) : null,
+    uatTargetDate: uatTargetDate ? new Date(uatTargetDate) : null,
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
@@ -156,6 +158,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.reqTargetDate !== undefined) update.reqTargetDate = req.body.reqTargetDate ? new Date(req.body.reqTargetDate) : null;
   if (req.body.devTargetDate !== undefined) update.devTargetDate = req.body.devTargetDate ? new Date(req.body.devTargetDate) : null;
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
+  if (req.body.uatTargetDate !== undefined) update.uatTargetDate = req.body.uatTargetDate ? new Date(req.body.uatTargetDate) : null;
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.status !== undefined) {
     update.status = req.body.status;

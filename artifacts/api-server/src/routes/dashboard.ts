@@ -504,6 +504,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null,
     devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null,
     qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
+    uatTargetDate: (milestone as any).uatTargetDate?.toISOString() ?? null,
   };
 
   const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
@@ -554,10 +555,12 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   const reqTargetDate = (milestone as any).reqTargetDate as Date | null;
   const devTargetDate = (milestone as any).devTargetDate as Date | null;
   const qaTargetDate = (milestone as any).qaTargetDate as Date | null;
-  const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate) ? {
+  const uatTargetDate = (milestone as any).uatTargetDate as Date | null;
+  const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate || uatTargetDate) ? {
     requirements: (reqTargetDate && startDate) ? Math.max(0, Math.round((reqTargetDate.getTime() - startDate.getTime()) / 86_400_000)) : null,
     develop: (devTargetDate && reqTargetDate) ? Math.max(0, Math.round((devTargetDate.getTime() - reqTargetDate.getTime()) / 86_400_000)) : null,
     qa: (qaTargetDate && devTargetDate) ? Math.max(0, Math.round((qaTargetDate.getTime() - devTargetDate.getTime()) / 86_400_000)) : null,
+    uat: (uatTargetDate && qaTargetDate) ? Math.max(0, Math.round((uatTargetDate.getTime() - qaTargetDate.getTime()) / 86_400_000)) : null,
   } : null;
 
   // ── Top blockers: requirements stuck in review or rejected ────────────────

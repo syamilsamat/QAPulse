@@ -48,6 +48,7 @@ interface Milestone {
   reqTargetDate: string | null;
   devTargetDate: string | null;
   qaTargetDate: string | null;
+  uatTargetDate: string | null;
   lessonsLearned: string | null;
   closedBy: number | null;
   createdAt: string;
@@ -104,7 +105,7 @@ export default function Milestones() {
   const [filterProject, setFilterProject] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", lessonsLearned: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", lessonsLearned: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -126,11 +127,11 @@ export default function Milestones() {
     enabled: filterProject !== "all",
   });
 
-  const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"].includes(user?.role ?? "");
+  const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(user?.role ?? "");
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", lessonsLearned: "" });
+    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", lessonsLearned: "" });
     setDialogOpen(true);
   };
 
@@ -145,6 +146,7 @@ export default function Milestones() {
       reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
       devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
+      uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
       lessonsLearned: m.lessonsLearned ?? "",
     });
     setDialogOpen(true);
@@ -165,6 +167,7 @@ export default function Milestones() {
         reqTargetDate: form.reqTargetDate || null,
         devTargetDate: form.devTargetDate || null,
         qaTargetDate: form.qaTargetDate || null,
+        uatTargetDate: form.uatTargetDate || null,
         lessonsLearned: form.lessonsLearned.trim() || null,
       };
       const res = editing
@@ -353,6 +356,10 @@ export default function Milestones() {
                 <div className="space-y-1">
                   <Label className="text-xs">QA done by</Label>
                   <Input type="date" value={form.qaTargetDate} onChange={(e) => setForm({ ...form, qaTargetDate: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">UAT done by</Label>
+                  <Input type="date" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
                 </div>
               </div>
             </div>
