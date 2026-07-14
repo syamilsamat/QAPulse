@@ -63,16 +63,29 @@ export interface ApiCallOptions {
   body?: unknown;
 }
 
-/** Authenticated JSON fetch. Throws with the response body on non-2xx. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Authenticated JSON fetch. Throws with the response body on non-2xx.
+ *  The API's apiLimiter (300 req/min per IP, artifacts/api-server/src/app.ts)
+ *  is easily tripped by this script's several-hundred-call seed run — retry
+ *  429s with exponential backoff instead of aborting the whole run. */
 export async function api<T = any>(path: string, token: string, opts: ApiCallOptions = {}): Promise<T> {
-  const res = await fetch(`${getBaseUrl()}${path}`, {
-    method: opts.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  const maxRetries = 5;
+  let res!: Response;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    res = await fetch(`${getBaseUrl()}${path}`, {
+      method: opts.method ?? "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    if (res.status !== 429 || attempt === maxRetries) break;
+    const waitMs = Math.min(2000 * 2 ** attempt, 15_000);
+    console.log(`  ...rate limited on ${opts.method ?? "GET"} ${path}, waiting ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+    await sleep(waitMs);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`${opts.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
