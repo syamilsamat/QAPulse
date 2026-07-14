@@ -182,7 +182,7 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
 
 // ─── Milestone phase breakdown (CR032 — multi-cycle) ─────────────────────────
 // "Where did the time go" report. Each requirement's lifecycle is
-// reconstructed as a repeating Requirements -> Gap -> [Develop] -> QA/UAT
+// reconstructed as a repeating Requirements -> Gap -> Develop -> QA/UAT
 // sequence from its ordered activity-log events plus execution timestamps —
 // not a single min/max window per fixed phase. Two problems that fixed-window
 // model had: (1) Develop was never represented even though CR030's dev-handoff
@@ -256,10 +256,6 @@ function computeTimelineFromEvents(
 
   const nextEventOfType = (types: string[], after: Date) =>
     events.find((e) => types.includes(e.type) && e.createdAt > after) ?? null;
-  const nextExecAfter = (after: Date): Date | null => {
-    const all = [...qaExecTimes, ...uatExecTimes].filter((d) => d > after).sort((a, b) => a.getTime() - b.getTime());
-    return all[0] ?? null;
-  };
   // Bounded by [windowStart, windowEnd) — emits a qa segment, then a uat
   // segment, back to back, using whichever execution timestamps actually
   // fall in this cycle's testing window.
@@ -291,17 +287,14 @@ function computeTimelineFromEvents(
       phaseStart = approveEv.createdAt;
       state = "gap";
     } else if (state === "gap") {
-      // Whichever comes first — a dev handoff (CR030), the first execution
-      // recorded (projects that skip dev handoff go straight from approval
-      // to QA, same as the old model's gapBeforeQa->qa boundary), or a
-      // resubmit before either of those ever happened — decides how the
-      // gap closes.
+      // Every requirement passes through Develop before Testing — no
+      // shortcut from approval straight to QA. Whichever comes first, a
+      // dev handoff or a resubmit before one ever happened, decides how
+      // the gap closes.
       const devAssignEv = nextEventOfType(["requirement_dev_assign"], phaseStart);
       const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
-      const execTime = nextExecAfter(phaseStart);
-      const candidates: { at: Date; kind: "dev" | "exec" | "submit" }[] = [];
+      const candidates: { at: Date; kind: "dev" | "submit" }[] = [];
       if (devAssignEv) candidates.push({ at: devAssignEv.createdAt, kind: "dev" });
-      if (execTime) candidates.push({ at: execTime, kind: "exec" });
       if (submitEv) candidates.push({ at: submitEv.createdAt, kind: "submit" });
       if (candidates.length === 0) { segments.push(makeSegment("gap", cycle, phaseStart, milestoneCompletedAt, now)); break; }
       candidates.sort((a, b) => a.at.getTime() - b.at.getTime());
@@ -311,13 +304,9 @@ function computeTimelineFromEvents(
         cycle += 1;
         phaseStart = winner.at;
         state = "requirements";
-      } else if (winner.kind === "dev") {
-        phaseStart = winner.at;
-        state = "develop";
       } else {
         phaseStart = winner.at;
-        testingWindowStart = winner.at;
-        state = "testing";
+        state = "develop";
       }
     } else if (state === "develop") {
       const readyEv = nextEventOfType(["requirement_dev_ready_for_qa"], phaseStart);
