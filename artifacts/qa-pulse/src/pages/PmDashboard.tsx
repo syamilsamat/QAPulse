@@ -707,10 +707,16 @@ const fmtDays = (n: number) => (Math.round(n * 10) / 10).toString();
 function PlanActualTimelineBar({
   actualSegments,
   plannedPhaseDays,
+  scaleDays,
+  planMarkerDays,
   onClick,
 }: {
   actualSegments: TimelineBarSegment[];
   plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+  // Shared day-to-width scale across a list of bars, so a planMarkerDays line
+  // lands at the same x on every row instead of each bar self-normalizing.
+  scaleDays?: number;
+  planMarkerDays?: number;
   onClick?: () => void;
 }) {
   if (actualSegments.length === 0) {
@@ -729,7 +735,7 @@ function PlanActualTimelineBar({
   const hasPlan = planSegments.length > 0;
   const actualTotal = actualSegments.reduce((s, seg) => s + seg.days, 0) || 1;
   const planTotal = hasPlan ? planSegments.reduce((s, seg) => s + seg.days, 0) : 0;
-  const totalDays = Math.max(actualTotal, planTotal) || 1;
+  const totalDays = scaleDays ?? (Math.max(actualTotal, planTotal) || 1);
 
   return (
     <div className="space-y-2">
@@ -753,23 +759,35 @@ function PlanActualTimelineBar({
       )}
       <div className="flex items-center gap-3">
         {hasPlan && <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-10 text-right shrink-0">Actual</span>}
-        <div
-          onClick={onClick}
-          className={`flex h-7 rounded-md overflow-hidden ${hasPlan ? "flex-1" : "w-full"} ${onClick ? "cursor-pointer" : ""}`}
-        >
-          {actualSegments.map((s, i) => (
+        <div className={`relative ${hasPlan ? "flex-1" : "w-full"}`}>
+          <div
+            onClick={onClick}
+            className={`flex h-7 rounded-md overflow-hidden ${onClick ? "cursor-pointer" : ""}`}
+          >
+            {actualSegments.map((s, i) => (
+              <div
+                key={i}
+                className={`${PHASE_COLOR[s.key]} flex items-center justify-center ${s.ongoing ? "opacity-70" : ""}`}
+                style={{ width: `${(s.days / totalDays) * 100}%` }}
+                title={`${s.label}: ${fmtDays(s.days)}d${s.ongoing ? " (ongoing)" : ""}`}
+              >
+                {(s.days / totalDays) > 0.08 && <span className="text-[11px] text-white font-medium">{fmtDays(s.days)}d</span>}
+              </div>
+            ))}
+          </div>
+          {planMarkerDays !== undefined && (
             <div
-              key={i}
-              className={`${PHASE_COLOR[s.key]} flex items-center justify-center ${s.ongoing ? "opacity-70" : ""}`}
-              style={{ width: `${(s.days / totalDays) * 100}%` }}
-              title={`${s.label}: ${fmtDays(s.days)}d${s.ongoing ? " (ongoing)" : ""}`}
-            >
-              {(s.days / totalDays) > 0.08 && <span className="text-[11px] text-white font-medium">{fmtDays(s.days)}d</span>}
-            </div>
-          ))}
+              className="absolute top-0 bottom-0 w-0 border-l-[1.5px] border-dashed border-red-500 dark:border-red-400 pointer-events-none"
+              style={{ left: `${Math.min((planMarkerDays / totalDays) * 100, 100)}%` }}
+              title={`Plan: ${fmtDays(planMarkerDays)}d`}
+            />
+          )}
         </div>
         {hasPlan && <span className="text-[11px] text-muted-foreground w-16 text-right shrink-0 tabular-nums">{fmtDays(actualTotal)}d actual</span>}
       </div>
+      {planMarkerDays !== undefined && actualTotal > planMarkerDays && (
+        <p className="text-[11px] text-red-600 dark:text-red-400">{fmtDays(actualTotal - planMarkerDays)}d past plan</p>
+      )}
 
       {hasPlan && (
         <div className="flex flex-wrap gap-1.5 pl-[52px]">
@@ -1099,14 +1117,37 @@ function RequirementStatusTable({ requirements }: { requirements: RequirementPha
   );
 }
 
-function RequirementTimelineList({ requirements }: { requirements: RequirementPhaseEntry[] }) {
+function RequirementTimelineList({
+  requirements,
+  plannedPhaseDays,
+}: {
+  requirements: RequirementPhaseEntry[];
+  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+}) {
+  const planTotalDays = plannedPhaseDays
+    ? [plannedPhaseDays.requirements, plannedPhaseDays.develop, plannedPhaseDays.qa, plannedPhaseDays.uat]
+        .filter((d): d is number => d !== null)
+        .reduce((a, b) => a + b, 0)
+    : null;
+  const hasPlanTotal = planTotalDays !== null && planTotalDays > 0;
+  const scaleDays = Math.max(
+    hasPlanTotal ? planTotalDays! : 0,
+    ...requirements.map((r) => r.timeline.reduce((s, seg) => s + seg.days, 0)),
+  ) || 1;
+
   return (
     <div className="space-y-3">
+      {hasPlanTotal && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="inline-block w-0 h-3.5 border-l-[1.5px] border-dashed border-red-500 dark:border-red-400" />
+          Plan &middot; {fmtDays(planTotalDays!)}d milestone total — same marker position on every row
+        </div>
+      )}
       {requirements.map((r) => (
         <div key={r.id}>
           <p className="text-xs font-medium mb-1">{r.title}</p>
           {r.timeline.length > 0
-            ? <PlanActualTimelineBar actualSegments={r.timeline} />
+            ? <PlanActualTimelineBar actualSegments={r.timeline} scaleDays={scaleDays} planMarkerDays={hasPlanTotal ? planTotalDays! : undefined} />
             : <p className="text-xs text-muted-foreground">No data yet.</p>}
         </div>
       ))}
@@ -1270,7 +1311,7 @@ export default function PmDashboard() {
                         {showTimelines ? "← Back to status list" : `${phaseReport.requirements.length} requirements — click bar for per-requirement timelines →`}
                       </button>
                       {showTimelines
-                        ? <RequirementTimelineList requirements={phaseReport.requirements} />
+                        ? <RequirementTimelineList requirements={phaseReport.requirements} plannedPhaseDays={phaseReport.plannedPhaseDays} />
                         : <RequirementStatusTable requirements={phaseReport.requirements} />}
                     </div>
                   )}
