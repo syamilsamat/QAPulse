@@ -1117,6 +1117,111 @@ function RequirementStatusTable({ requirements }: { requirements: RequirementPha
   );
 }
 
+// ── Calendar Gantt ─────────────────────────────────────────────────────────
+// Reads the real start/end ISO timestamps already on each PhaseSegment
+// (computed server-side from the activity log — see dashboard.ts's
+// makeSegment) instead of the day-count TimelineBarSegment shape the
+// duration bars use, so requirements are positioned on a real date axis.
+const GANTT_PX_PER_DAY = 26;
+const GANTT_LABEL_WIDTH = 200;
+
+function diffDays(a: Date, b: Date): number {
+  return (b.getTime() - a.getTime()) / 86_400_000;
+}
+
+function RequirementGanttChart({
+  requirements,
+  milestone,
+}: {
+  requirements: RequirementPhaseEntry[];
+  milestone: PhaseReport["milestone"];
+}) {
+  const withData = requirements.filter((r) => r.timeline.length > 0);
+  if (withData.length === 0) {
+    return <p className="text-sm text-muted-foreground">Not enough data yet — no requirements linked.</p>;
+  }
+
+  const now = new Date();
+  const allDates: Date[] = [now];
+  if (milestone.startDate) allDates.push(new Date(milestone.startDate));
+  if (milestone.targetDate) allDates.push(new Date(milestone.targetDate));
+  for (const r of withData) {
+    for (const s of r.timeline) {
+      allDates.push(new Date(s.start));
+      allDates.push(s.end ? new Date(s.end) : now);
+    }
+  }
+  const axisStart = new Date(Math.min(...allDates.map((d) => d.getTime())));
+  const axisEnd = new Date(Math.max(...allDates.map((d) => d.getTime())));
+  const totalDays = Math.max(diffDays(axisStart, axisEnd), 7);
+  const trackWidth = Math.round(totalDays * GANTT_PX_PER_DAY);
+
+  const ticks: { x: number; label: string }[] = [];
+  for (let d = 0; d <= totalDays; d += 7) {
+    const tickDate = new Date(axisStart.getTime() + d * 86_400_000);
+    ticks.push({ x: d * GANTT_PX_PER_DAY, label: format(tickDate, "d MMM") });
+  }
+
+  const todayX = Math.min(Math.max(diffDays(axisStart, now) * GANTT_PX_PER_DAY, 0), trackWidth);
+  const planEndX = milestone.targetDate
+    ? Math.min(Math.max(diffDays(axisStart, new Date(milestone.targetDate)) * GANTT_PX_PER_DAY, 0), trackWidth)
+    : null;
+
+  return (
+    <div className="overflow-x-auto border rounded-md">
+      <div className="relative" style={{ width: GANTT_LABEL_WIDTH + trackWidth }}>
+        <div className="flex border-b">
+          <div className="sticky left-0 z-20 bg-card shrink-0" style={{ width: GANTT_LABEL_WIDTH }} />
+          <div className="relative shrink-0" style={{ width: trackWidth, height: 22 }}>
+            {ticks.map((t, i) => (
+              <span key={i} className="absolute top-1 text-[10px] text-muted-foreground" style={{ left: t.x }}>{t.label}</span>
+            ))}
+          </div>
+        </div>
+        {withData.map((r) => (
+          <div key={r.id} className="flex items-center border-b last:border-b-0">
+            <div
+              className="sticky left-0 z-20 bg-card shrink-0 px-2 py-1.5 text-xs font-medium truncate"
+              style={{ width: GANTT_LABEL_WIDTH }}
+              title={r.title}
+            >
+              {r.title}
+            </div>
+            <div className="relative shrink-0" style={{ width: trackWidth, height: 28 }}>
+              {r.timeline.map((s, i) => {
+                const segStart = new Date(s.start);
+                const segEnd = s.end ? new Date(s.end) : now;
+                const left = diffDays(axisStart, segStart) * GANTT_PX_PER_DAY;
+                const width = Math.max(diffDays(segStart, segEnd) * GANTT_PX_PER_DAY, 4);
+                return (
+                  <div
+                    key={i}
+                    className={`absolute top-1 h-5 rounded ${PHASE_COLOR[s.key]} ${s.ongoing ? "opacity-70" : ""}`}
+                    style={{ left, width }}
+                    title={`${s.label}: ${fmtDays(s.days)}d${s.ongoing ? " (ongoing)" : ""}`}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <div
+          className="absolute top-0 bottom-0 border-l border-foreground/40 pointer-events-none"
+          style={{ left: GANTT_LABEL_WIDTH + todayX }}
+          title={`Today: ${format(now, "d MMM")}`}
+        />
+        {planEndX !== null && (
+          <div
+            className="absolute top-0 bottom-0 border-l border-dashed border-destructive/60 pointer-events-none"
+            style={{ left: GANTT_LABEL_WIDTH + planEndX }}
+            title={`Plan end: ${format(new Date(milestone.targetDate!), "d MMM")}`}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RequirementTimelineList({
   requirements,
   plannedPhaseDays,
@@ -1160,7 +1265,7 @@ export default function PmDashboard() {
   const canWriteRisk = CAN_WRITE_ROLES.includes(user?.role ?? "");
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterMilestone, setFilterMilestone] = useState<string>("all");
-  const [showTimelines, setShowTimelines] = useState(false);
+  const [viewMode, setViewMode] = useState<"status" | "timelines" | "gantt">("status");
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -1231,7 +1336,7 @@ export default function PmDashboard() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={filterMilestone} onValueChange={(v) => { setFilterMilestone(v); setShowTimelines(false); }} disabled={filterProject === "all"}>
+          <Select value={filterMilestone} onValueChange={(v) => { setFilterMilestone(v); setViewMode("status"); }} disabled={filterProject === "all"}>
             <SelectTrigger className="w-full sm:w-56">
               <SelectValue placeholder={filterProject === "all" ? "Select a project first" : "Where did the time go?"} />
             </SelectTrigger>
@@ -1321,16 +1426,29 @@ export default function PmDashboard() {
                   <PlanActualTimelineBar
                     actualSegments={actualSegments}
                     plannedPhaseDays={phaseReport.plannedPhaseDays}
-                    onClick={() => setShowTimelines(v => !v)}
+                    onClick={() => setViewMode("timelines")}
                   />
                   {phaseReport.requirements.length > 0 && (
                     <div>
-                      <button type="button" onClick={() => setShowTimelines(v => !v)} className="text-xs text-primary hover:underline mb-2">
-                        {showTimelines ? "← Back to status list" : `${phaseReport.requirements.length} requirements — click bar for per-requirement timelines →`}
-                      </button>
-                      {showTimelines
-                        ? <RequirementTimelineList requirements={phaseReport.requirements} plannedPhaseDays={phaseReport.plannedPhaseDays} />
-                        : <RequirementStatusTable requirements={phaseReport.requirements} />}
+                      <div className="flex items-center gap-1 mb-2">
+                        {([
+                          { key: "status", label: "Status list" },
+                          { key: "timelines", label: "Timelines" },
+                          { key: "gantt", label: "Gantt" },
+                        ] as const).map((v) => (
+                          <button
+                            key={v.key}
+                            type="button"
+                            onClick={() => setViewMode(v.key)}
+                            className={`text-xs px-2 py-1 rounded-md transition-colors ${viewMode === v.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                          >
+                            {v.label}
+                          </button>
+                        ))}
+                      </div>
+                      {viewMode === "timelines" && <RequirementTimelineList requirements={phaseReport.requirements} plannedPhaseDays={phaseReport.plannedPhaseDays} />}
+                      {viewMode === "gantt" && <RequirementGanttChart requirements={phaseReport.requirements} milestone={phaseReport.milestone} />}
+                      {viewMode === "status" && <RequirementStatusTable requirements={phaseReport.requirements} />}
                     </div>
                   )}
                 </>
