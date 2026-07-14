@@ -15,6 +15,7 @@ export const tasksTable = pgTable("tasks", {
   moduleId: integer("module_id"),
   moduleIds: text("module_ids"),                        // Comma-separated module IDs for multi-select
   milestoneId: integer("milestone_id"),                 // Ties a task to a milestone (nullable — ad-hoc tasks stay unassigned)
+  blockedByTaskId: integer("blocked_by_task_id"),       // CR036 — single blocker; must be a same-project task, cycle-checked in routes
   environmentIds: integer("environment_ids").array(), // Multi-select Environments
   assigneeIds: integer("assignee_ids").array(),       // Multi-select QA PICs
   startDate: text("start_date"),                      // Planned Start Date

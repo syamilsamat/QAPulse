@@ -813,6 +813,7 @@ export default function Tasks() {
       requirementId: t.requirementId ?? undefined,
       projectId: t.projectId ?? undefined,
       milestoneId: t.milestoneId ?? null,
+      blockedByTaskId: t.blockedByTaskId ?? null,
       moduleId: t.moduleId ?? undefined,
       assigneeIds: t.assigneeIds ?? [],
       environmentIds: t.environmentIds ?? [],
@@ -914,6 +915,7 @@ export default function Tasks() {
       moduleId: taskFormModules[0],
       moduleIds: taskFormModules.join(","),
       milestoneId: form.milestoneId ?? null,
+      blockedByTaskId: form.blockedByTaskId ?? null,
     };
     if (editingTask) {
       updateMutation.mutate({ id: editingTask.id, data: submitData as any });
@@ -1280,6 +1282,17 @@ export default function Tasks() {
                                   )}
                                 {t.name}
                               </p>
+                              {t.blockedByTaskId && t.blockedByTaskName && (
+                                <span
+                                  className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium mt-0.5 w-fit ${
+                                    t.blockedByTaskStatus === "done" || t.blockedByTaskStatus === "released_to_production"
+                                      ? "text-muted-foreground border-muted line-through"
+                                      : "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-900"
+                                  }`}
+                                >
+                                  Blocked by {t.blockedByTaskName}
+                                </span>
+                              )}
                               {t.projectName && (
                                 <p className="text-xs text-muted-foreground mt-0.5">
                                   {t.projectName}
@@ -1669,6 +1682,22 @@ export default function Tasks() {
                   options={milestonesForProject.map((m) => ({ value: String(m.id), label: m.name }))}
                   placeholder={form.projectId ? "Select milestone (optional)..." : "Select a project first"}
                   searchPlaceholder="Search milestones..."
+                />
+              </div>
+              {/* CR036 — single-blocker dependency, same-project tasks only */}
+              <div className="space-y-1.5">
+                <Label>Blocked by</Label>
+                <SearchableSelect
+                  value={form.blockedByTaskId ? String(form.blockedByTaskId) : ""}
+                  onValueChange={(v) => setForm({ ...form, blockedByTaskId: v ? Number(v) : null })}
+                  options={[
+                    { value: "", label: "None" },
+                    ...(tasks as any[])
+                      .filter((t) => t.projectId === form.projectId && (!editingTask || t.id !== editingTask.id))
+                      .map((t) => ({ value: String(t.id), label: t.name })),
+                  ]}
+                  placeholder={form.projectId ? "Select blocking task (optional)..." : "Select a project first"}
+                  searchPlaceholder="Search tasks..."
                 />
               </div>
               <div className="space-y-1.5">

@@ -304,7 +304,7 @@ function Sidebar({
           <div className="px-3 py-2 rounded-lg bg-primary/10 flex items-center gap-2 group cursor-pointer">
             <HoverChart className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium text-primary">
-              Report Dashboard
+              Verdict Report
             </span>
           </div>
         </nav>
@@ -1135,7 +1135,7 @@ export default function PmoReport() {
               <div className="flex items-center gap-3 group">
                 <HoverChart className="w-7 h-7 text-primary shrink-0 hidden sm:block" />
                 <div>
-                  <h1 className="text-xl font-bold">Report Portal</h1>
+                  <h1 className="text-xl font-bold">Verdict Report Portal</h1>
                   <p className="text-xs text-muted-foreground">
                     Enter a Redmine ticket number to view the QA status report
                   </p>
@@ -1248,7 +1248,7 @@ export default function PmoReport() {
               >
                 <div className="text-center mb-6">
                   <h1 className="text-2xl font-bold">
-                    QMPulse — Report Dashboard
+                    QMPulse — Verdict Report
                   </h1>
                   <p className="text-sm text-muted-foreground">
                     Generated:{" "}

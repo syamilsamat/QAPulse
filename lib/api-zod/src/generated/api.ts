@@ -671,6 +671,7 @@ export const CreateTaskBody = zod.object({
   testCaseId: zod.number().optional(),
   projectId: zod.number().optional(),
   milestoneId: zod.number().nullable().optional(),
+  blockedByTaskId: zod.number().nullable().optional(),
   startDate: zod.string().optional(),
   dueDate: zod.string().optional(),
   status: zod.string().optional(), // Make optional so the DB default works
@@ -822,6 +823,7 @@ export const UpdateTaskBody = zod.object({
   testCaseId: zod.number().optional(),
   projectId: zod.number().optional(),
   milestoneId: zod.number().nullable().optional(),
+  blockedByTaskId: zod.number().nullable().optional(),
   startDate: zod.string().optional(),
   dueDate: zod.string().optional(),
   status: zod.string().optional(),

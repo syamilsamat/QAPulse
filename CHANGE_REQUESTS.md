@@ -43,7 +43,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR033](#cr033--pm-dashboard-ipecc-coverage-milestone-closing--risk-register) | PM Dashboard: IPECC Coverage (Milestone Closing + Risk Register) | ✅ Deployed | 2026-07-13 |
 | [CR034](#cr034--resource-management-project-scoped-capacity--milestone-focus) | Resource Management: Project-Scoped Capacity & Milestone Focus | ✅ Deployed | 2026-07-13 |
 | [CR035](#cr035--direct-project--module-access-assignment-replaces-team-based-project-access) | Direct Project & Module Access Assignment (replaces team-based project access) | ✅ Deployed | 2026-07-13 |
-| [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 📋 Planned | 2026-07-14 |
+| [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 🟡 Implemented, deploy pending | 2026-07-14 |
 
 ---
 
@@ -1056,7 +1056,9 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 ---
 
 ### CR036 — PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag
-**Status:** 📋 Planned (2026-07-14)
+**Status:** 🟡 Implemented (2026-07-14) — awaiting Replit deploy + `db push` for the new `tasks.blocked_by_task_id` column (also covered by a bootstrap `ALTER TABLE` on server start)
+
+**Implementation notes (2026-07-14):** All three parts built as specified below. Blocker resolution added to `formatTask` (`blockedByTaskName`/`blockedByTaskStatus`) so the badge grays out once the blocker is done. `validateBlocker` walks the chain with a visited set (bounded loop, no recursive CTE). On the Resources page the previous subtle green "on N milestones" label became the amber "Overallocated · N milestones" badge + row tint, with an "Overallocated only" checkbox filter. Rename covered the sidebar label, the standalone-PMO sidebar item, "Report Portal", and the "QMPulse — Report Dashboard" header.
 **Origin:** `docs/pmo-pain-points-review.md` — three of the four still-open items from that review, bundled as one low-risk deploy. The fourth (AI Risk Predictor, now unblocked by CR033's risk register) is deliberately **not** in this CR — it has a different risk profile (external AI dependency, prompt-quality iteration) and deserves its own rollback unit; it becomes CR037 when picked up. Utilization % is also excluded (see Non-goals).
 
 Three separable parts, deployable together because their file footprints barely overlap and only Part 2 touches the schema.

@@ -160,6 +160,9 @@ export async function bootstrap() {
   // PM Dashboard prerequisite — ties tasks to a milestone (nullable; ad-hoc tasks stay unassigned)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
 
+  // CR036 — single-blocker task dependency (same-project + cycle guard enforced in tasks.ts)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL`);
+
   // CR022 Part 1 — acceptance criteria (JSON array of strings stored as text)
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT`);
 

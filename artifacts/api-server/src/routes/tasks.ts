@@ -25,6 +25,34 @@ function isOverdue(task: typeof tasksTable.$inferSelect): boolean {
   return new Date(task.dueDate) < new Date();
 }
 
+// CR036 — single-blocker dependency guard. Blocker must exist, share the task's
+// project, not be the task itself, and not close a cycle. taskId is null on
+// create (no id yet, so only existence/project can be violated).
+async function validateBlocker(
+  blockedByTaskId: number,
+  taskId: number | null,
+  projectId: number | null | undefined,
+): Promise<string | null> {
+  if (taskId !== null && blockedByTaskId === taskId) return "A task cannot be blocked by itself";
+
+  const [blocker] = await db.select().from(tasksTable).where(eq(tasksTable.id, blockedByTaskId));
+  if (!blocker) return "Blocking task not found";
+  if (projectId != null && blocker.projectId !== projectId) return "Blocking task must belong to the same project";
+
+  // Chains are short; a bounded walk with a visited set beats a recursive CTE here.
+  if (taskId !== null) {
+    const visited = new Set<number>([taskId]);
+    let current: typeof blocker | undefined = blocker;
+    while (current) {
+      if (visited.has(current.id)) return "This dependency would create a cycle";
+      visited.add(current.id);
+      if (current.blockedByTaskId == null) break;
+      [current] = await db.select().from(tasksTable).where(eq(tasksTable.id, current.blockedByTaskId));
+    }
+  }
+  return null;
+}
+
 
 async function formatTask(task: typeof tasksTable.$inferSelect) {
   let assigneeNames: string[] = [];
@@ -66,8 +94,20 @@ async function formatTask(task: typeof tasksTable.$inferSelect) {
 
   const environmentNames = (task.environmentIds ?? []).map(id => ENV_NAMES[id] ?? `Env ${id}`);
 
+  // CR036 — resolve the blocker's name/status so the UI can render the
+  // "Blocked by" badge (and gray it out once the blocker is done) in one fetch.
+  let blockedByTaskName: string | null = null;
+  let blockedByTaskStatus: string | null = null;
+  if (task.blockedByTaskId) {
+    const [blocker] = await db.select().from(tasksTable).where(eq(tasksTable.id, task.blockedByTaskId));
+    blockedByTaskName = blocker?.name ?? null;
+    blockedByTaskStatus = blocker?.status ?? null;
+  }
+
   return {
     ...task,
+    blockedByTaskName,
+    blockedByTaskStatus,
     assigneeNames,
     projectName,
     requirementTitle,
@@ -145,6 +185,11 @@ router.post("/tasks", async (req, res): Promise<void> => {
     if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
 
+  if (parsed.data.blockedByTaskId != null) {
+    const blockerError = await validateBlocker(parsed.data.blockedByTaskId, null, parsed.data.projectId);
+    if (blockerError) { res.status(400).json({ error: blockerError }); return; }
+  }
+
   const [task] = await db.insert(tasksTable).values(parsed.data).returning();
 
   // CR011: one audit row per event, attributed to the actor (not per assignee)
@@ -195,6 +240,13 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
   }
 
   const [prevTask] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
+
+  if (parsed.data.blockedByTaskId != null) {
+    // Validate against the project the task will have after this update.
+    const effectiveProjectId = parsed.data.projectId ?? prevTask?.projectId;
+    const blockerError = await validateBlocker(parsed.data.blockedByTaskId, params.data.id, effectiveProjectId);
+    if (blockerError) { res.status(400).json({ error: blockerError }); return; }
+  }
 
   const [task] = await db.update(tasksTable).set(parsed.data).where(eq(tasksTable.id, params.data.id)).returning();
   if (!task) {

@@ -76,9 +76,10 @@ function milestoneChipLabel(m: MilestoneRef, projects: ProjectRef[]): string {
 
 function PersonRow({ r }: { r: ResourceRow }) {
   const initials = r.name.split(" ").map(w => w[0]).join("").slice(0, 2);
-  const multi = r.activeMilestones.length > 1;
+  // CR036 — spanning >1 active milestone is the overallocation signal
+  const overallocated = r.activeMilestones.length > 1;
   return (
-    <div className={`py-2.5 border-t first:border-t-0 ${multi ? "bg-green-50/60 dark:bg-green-950/20 rounded-lg px-2 -mx-2" : ""}`}>
+    <div className={`py-2.5 border-t first:border-t-0 ${overallocated ? "bg-amber-50/60 dark:bg-amber-950/20 rounded-lg px-2 -mx-2" : ""}`}>
       <div className="flex items-start gap-3">
         <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground shrink-0 mt-0.5">
           {initials}
@@ -88,7 +89,11 @@ function PersonRow({ r }: { r: ResourceRow }) {
             <span className="text-sm font-medium">{r.name}</span>
             <DeptBadge department={r.department} />
             <span className="text-xs text-muted-foreground">{r.role} &middot; {projectSummary(r.projects)}</span>
-            {multi && <span className="text-xs font-medium text-green-600 dark:text-green-400">on {r.activeMilestones.length} milestones</span>}
+            {overallocated && (
+              <Badge variant="outline" className="text-[10px] font-semibold bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-900">
+                Overallocated &middot; {r.activeMilestones.length} milestones
+              </Badge>
+            )}
           </div>
           {r.signal && <p className="text-[11px] text-muted-foreground mt-0.5">{SIGNAL_LABEL[r.signal]}</p>}
         </div>
@@ -139,6 +144,7 @@ export default function Resources() {
   const { token } = useAuth();
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterDept, setFilterDept] = useState<string>("all");
+  const [overallocatedOnly, setOverallocatedOnly] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery<ResourceRow[]>({
     queryKey: ["resource-view"],
@@ -163,7 +169,8 @@ export default function Resources() {
 
   const filtered = rows.filter(r =>
     (filterProject === "all" || r.projects.some(p => String(p.id) === filterProject)) &&
-    (filterDept === "all" || r.department === filterDept),
+    (filterDept === "all" || r.department === filterDept) &&
+    (!overallocatedOnly || r.activeMilestones.length > 1),
   );
 
   const active = filtered.filter(r => r.activeMilestones.length > 0);
@@ -177,7 +184,16 @@ export default function Resources() {
           <h1 className="text-2xl font-bold tracking-tight">Resources</h1>
           <p className="text-sm text-muted-foreground">Who's focused on what, right now.</p>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex gap-2 w-full sm:w-auto items-center flex-wrap">
+          <label className="flex items-center gap-1.5 text-xs font-medium cursor-pointer select-none whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={overallocatedOnly}
+              onChange={(e) => setOverallocatedOnly(e.target.checked)}
+              className="accent-amber-600 w-3.5 h-3.5"
+            />
+            Overallocated only
+          </label>
           {projectOptions.length > 1 && (
             <Select value={filterProject} onValueChange={setFilterProject}>
               <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All projects" /></SelectTrigger>

@@ -383,7 +383,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/pmo-report",
-    label: "Report",
+    label: "Verdict Report",
     icon: HoverChart,
     activeColor: "text-pink-500",
     roles: ["qa_member", "pmo", "qa_lead", "admin"],
