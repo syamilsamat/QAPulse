@@ -43,6 +43,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR033](#cr033--pm-dashboard-ipecc-coverage-milestone-closing--risk-register) | PM Dashboard: IPECC Coverage (Milestone Closing + Risk Register) | ✅ Deployed | 2026-07-13 |
 | [CR034](#cr034--resource-management-project-scoped-capacity--milestone-focus) | Resource Management: Project-Scoped Capacity & Milestone Focus | ✅ Deployed | 2026-07-13 |
 | [CR035](#cr035--direct-project--module-access-assignment-replaces-team-based-project-access) | Direct Project & Module Access Assignment (replaces team-based project access) | ✅ Deployed | 2026-07-13 |
+| [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 📋 Planned | 2026-07-14 |
 
 ---
 
@@ -1051,3 +1052,42 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 **Non-goals:** not adding project-specific module *names* — `execution_modules` stays one global catalog of module names, `project_modules` only decides which of those names apply to which project(s) (a module can apply to more than one, per user 2026-07-13). Not touching Teams/Team Hangouts as a feature, only its role in project access. Not building module rename/delete tooling beyond the existing `POST /modules`.
 
 **Scope:** `lib/db/src/schema/project-members.ts` (3 new columns: `moduleId`, `assignedBy`, `assignedAt`), `lib/db/src/schema/project-modules.ts` (new junction table), `artifacts/api-server/src/routes/roles.ts` (remove bootstrap cross-join), `artifacts/api-server/src/middleware/access.ts` (rewrite `scopeToUserProjects`, new `canAccessModule`), `artifacts/api-server/src/routes/teams.ts` (extend members endpoints, HOD-tier gate, new project-modules endpoints), `artifacts/api-server/src/routes/{test-cases,requirements,test-execution,traceability,defects,tasks,dashboard}.ts` (module-scope checks), `artifacts/qa-pulse/src/pages/Configuration.tsx` (new Project Access panel + module association UI), `artifacts/qa-pulse/src/pages/Teams.tsx` (remove project-assignment UI), a new one-off migration script under `scripts/`. Requires a DB migration (new `project_modules` table + 3 new `project_members` columns) and a one-time data migration script.
+
+---
+
+### CR036 — PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag
+**Status:** 📋 Planned (2026-07-14)
+**Origin:** `docs/pmo-pain-points-review.md` — three of the four still-open items from that review, bundled as one low-risk deploy. The fourth (AI Risk Predictor, now unblocked by CR033's risk register) is deliberately **not** in this CR — it has a different risk profile (external AI dependency, prompt-quality iteration) and deserves its own rollback unit; it becomes CR037 when picked up. Utilization % is also excluded (see Non-goals).
+
+Three separable parts, deployable together because their file footprints barely overlap and only Part 2 touches the schema.
+
+**Part 1 — Verdict Report rename (XS, frontend-only)**
+
+The page named "PMO" (`PmoReport.tsx`, route `/pmo-report`) is a **single-ticket verdict report** — test execution details, defect status, AI risk/readiness scoring for one Redmine ticket — while the actual portfolio view is the PM Dashboard. The pain-points review flagged this naming overlap as "a real confusion risk" that undercuts any source-of-truth pitch on first click. Current state, verified against code: the sidebar label is already just "Report" (`Layout.tsx:386`, permKey `nav:report`) and the page header reads "Report Dashboard" (`PmoReport.tsx:307`) — so the fix is making the name say what the page *is*, not scrubbing "PMO" from the sidebar.
+
+- Sidebar label "Report" → **"Verdict Report"**; page header "Report Dashboard" → **"Verdict Report"**.
+- Route stays `/pmo-report` — bookmarks, the `pmo`-role redirects in `App.tsx` (lines 72/106/118), and the `PMO_EMAIL_TO` env convention all keep working; a route rename buys nothing user-visible and risks breaking the standalone-`pmo`-role flow shipped in the recent theme/landing work. Component file rename (`PmoReport.tsx` → `VerdictReport.tsx`) is optional code hygiene, not required.
+- The `pmo` *role* keeps its name — it's an org role, not a page.
+
+**Part 2 — Task dependencies (S — the only DB migration in this CR)**
+
+No dependency concept exists anywhere on `tasksTable` (verified: no `blockedBy`/dependency field in `lib/db/src/schema/tasks.ts`). The review scoped this as "cheap, fits the existing Tasks table naturally."
+
+- **Decision: single blocker, not many-to-many** (per discussion 2026-07-14). One nullable `blockedByTaskId integer` column on `tasksTable` covers the dominant "B can't start until A finishes" case; if real usage demands multiple blockers later, a `task_dependencies` join table can supersede the column without losing data (backfill = one insert per non-null column value).
+- Schema: `blockedByTaskId: integer("blocked_by_task_id")` on `tasksTable` + the matching `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_task_id INTEGER` in the bootstrap SQL (lesson from the CR032-era `milestones.created_by` bootstrap gap — schema and bootstrap must move together).
+- API (`tasks.ts` routes): accept `blockedByTaskId` on create/update; validate the referenced task exists and shares the same `projectId`; reject self-reference and cycles (walk the `blockedByTaskId` chain from the proposed blocker — chains are short, a bounded loop is enough, no recursive CTE needed).
+- UI (`Tasks.tsx`): "Blocked by" searchable task picker in the create/edit form (scoped to same-project tasks, excluding self); a "Blocked by TASK-N" badge in the task list when set, struck through/de-emphasized once the blocking task reaches `done`.
+
+**Part 3 — Overallocation flag on Resources (S, frontend-dominant)**
+
+CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a **list** per person — the "someone spans multiple active milestones simultaneously" signal the review asked to flag is already computed, just not called out. Verified: no utilization/overallocation term exists anywhere in `dashboard.ts` or `Resources.tsx` today.
+
+- `Resources.tsx`: amber **"Overallocated"** chip on any person with `activeMilestones.length > 1`, plus a checkbox/toggle filter ("Overallocated only") so a lead can pull up exactly the resourcing-conversation list.
+- No backend change required (the array length is the flag); at most a convenience `overallocated: boolean` on the endpoint response if the frontend derivation feels awkward.
+
+**Non-goals:**
+- **Utilization %** ("estimated hours vs. available capacity") — requires an *available capacity* concept (per-user hours field + admin UI, or a wrong-for-part-timers 40h/week assumption) that doesn't exist in the schema. Parked until there's a decision on whether QMPulse models capacity at all — same open-question family as CR033's cost/budget note. Revisit alongside CR037.
+- **AI Risk Predictor** — CR037, own deploy (see Origin above).
+- No many-to-many dependency table, no Gantt/critical-path anything — `blockedByTaskId` is a field, not a scheduling engine.
+
+**Scope:** `lib/db/src/schema/tasks.ts` (+ bootstrap SQL) — one new column; `artifacts/api-server/src/routes/tasks.ts` (validation + cycle guard); `artifacts/qa-pulse/src/pages/Tasks.tsx` (picker + badge); `artifacts/qa-pulse/src/pages/PmoReport.tsx` + `artifacts/qa-pulse/src/components/Layout.tsx` (rename); `artifacts/qa-pulse/src/pages/Resources.tsx` (chip + filter). One `db push` for the tasks column; everything else additive.
