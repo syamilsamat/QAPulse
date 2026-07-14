@@ -23,3 +23,4 @@ export * from "./milestones";
 export * from "./requirement-comments";
 export * from "./requirement-attachments";
 export * from "./risks";
+export * from "./milestone-risk-assessments";

@@ -22,7 +22,7 @@ function classifyResult(result: string | null): "passed" | "failed" | "blocked" 
 // currently saved on each execution_test_cases row. Good enough for a summary
 // readiness signal; use the traceability matrix's milestone filter for the
 // rigorous per-TC view.
-async function rollupExecutionByMilestone(milestoneIds: number[], fileType: "qa" | "uat") {
+export async function rollupExecutionByMilestone(milestoneIds: number[], fileType: "qa" | "uat") {
   const map = new Map<number, { tcCount: number; passed: number; failed: number; blocked: number; notRun: number; passPct: number }>();
   if (milestoneIds.length === 0) return map;
 
@@ -353,7 +353,7 @@ interface RequirementTimelineEntry {
 // Batches activity-log and execution rows for the whole milestone in two
 // queries (not one per requirement) and partitions them in memory — same
 // no-N+1 discipline as the CR026 analytics endpoint.
-async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
+export async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
   const reqs = await db
     .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, createdAt: requirementsTable.createdAt })
     .from(requirementsTable)
@@ -425,7 +425,7 @@ interface PhaseSummaryEntry {
 // requirement with two Requirements-phase cycles contributes their combined
 // total, not two diluting data points. This is what makes the milestone
 // number answer "how much total time did requirements churn cost."
-function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEntry[] {
+export function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEntry[] {
   const perReqTotals = entries.map((e) => {
     const totals: Partial<Record<PhaseKey, number>> = {};
     for (const seg of e.timeline) totals[seg.key] = (totals[seg.key] ?? 0) + seg.days;
@@ -443,7 +443,7 @@ function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEn
 
 // Compute first-pass rate and stability index from activity events for a set of req IDs.
 // firstPassPct = % of reqs never rejected. stabilityPct = % of reqs revised after approval.
-function computeKpiMetrics(reqIds: number[], events: { entityId: number | null; type: string; createdAt: Date }[]) {
+export function computeKpiMetrics(reqIds: number[], events: { entityId: number | null; type: string; createdAt: Date }[]) {
   const rejectedIds = new Set(
     events.filter(e => e.type === "requirement_reject" && e.entityId != null).map(e => e.entityId as number),
   );

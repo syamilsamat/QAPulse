@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Building2, Users, AlertTriangle, Clock, ShieldAlert, Archive, Plus, Pencil, Trash2, Quote } from "lucide-react";
+import { Loader2, Building2, Users, AlertTriangle, Clock, ShieldAlert, Archive, Plus, Pencil, Trash2, Quote, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 
 interface MilestoneSummary {
@@ -250,6 +250,9 @@ function riskScoreBand(probability: RiskLevel, impact: RiskLevel): ScoreBand {
 }
 
 const CAN_WRITE_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"];
+// CR037 — must mirror MILESTONE_RISK_ROLES on POST /ai/milestone-risk (the
+// PM_ROLES set), which is narrower than the risk-register write list above.
+const CAN_ASSESS_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
 
 const EMPTY_RISK_FORM = {
   title: "", description: "", category: "other", probability: "medium" as RiskLevel,
@@ -514,6 +517,140 @@ function RisksCard({ projectId, token, milestones, canWrite }: {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </Card>
+  );
+}
+
+// ── AI Risk Assessment (CR037) ──────────────────────────────────────────────
+// Milestone-level, on-demand, stored history. Distinct from the Risk Register
+// (human-logged risks) — this synthesizes register + timeline + defect +
+// coverage + schedule signals into one predicted level via the AI pipeline.
+interface RiskAssessment {
+  id: number;
+  milestoneId: number;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  factors: { signal: string; detail: string; weight?: string }[];
+  mitigation: string | null;
+  model: string | null;
+  createdAt: string;
+}
+
+const ASSESSMENT_LEVEL_LABEL: Record<RiskAssessment["riskLevel"], string> = {
+  low: "Low", medium: "Medium", high: "High", critical: "Critical",
+};
+const ASSESSMENT_LEVEL_CLASS: Record<RiskAssessment["riskLevel"], string> = {
+  low: "bg-green-100 text-green-700 border-green-200 dark:bg-green-950/60 dark:text-green-400 dark:border-green-900",
+  medium: "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/60 dark:text-yellow-400 dark:border-yellow-900",
+  high: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/60 dark:text-orange-400 dark:border-orange-900",
+  critical: "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/60 dark:text-red-400 dark:border-red-900",
+};
+
+function MilestoneRiskCard({ milestoneId, token, canAssess }: {
+  milestoneId: number;
+  token: string | null;
+  canAssess: boolean;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [assessing, setAssessing] = useState(false);
+
+  const { data: history = [], isLoading } = useQuery<RiskAssessment[]>({
+    queryKey: ["milestone-risk-assessments", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/milestones/${milestoneId}/risk-assessments`, token);
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const latest = history[0] ?? null;
+
+  const handleAssess = async () => {
+    setAssessing(true);
+    try {
+      const res = await apiWrite("/ai/milestone-risk", token, {
+        method: "POST",
+        body: JSON.stringify({ milestoneId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "AI assessment unavailable — try again shortly");
+      }
+      toast({ title: "Risk assessment complete" });
+      queryClient.invalidateQueries({ queryKey: ["milestone-risk-assessments", milestoneId] });
+    } catch (e) {
+      toast({ variant: "destructive", title: e instanceof Error ? e.message : "AI assessment unavailable — try again shortly" });
+    } finally {
+      setAssessing(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 sm:p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+            <p className="text-sm font-medium">AI Risk Assessment</p>
+            {latest && (
+              <Badge variant="outline" className={`text-[10px] font-semibold ${ASSESSMENT_LEVEL_CLASS[latest.riskLevel]}`}>
+                {ASSESSMENT_LEVEL_LABEL[latest.riskLevel]}
+              </Badge>
+            )}
+          </div>
+          {canAssess && (
+            <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={handleAssess} disabled={assessing}>
+              {assessing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              {assessing ? "Assessing…" : latest ? "Reassess" : "Assess now"}
+            </Button>
+          )}
+        </div>
+
+        {isLoading ? (
+          <div className="h-16 flex items-center justify-center"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+        ) : !latest ? (
+          <p className="text-xs text-muted-foreground py-2">
+            No assessment yet. {canAssess ? "Run one to get an AI read on this milestone's delivery risk." : "A PM can run one from this card."}
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              {latest.factors.map((f, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm py-1.5 border-t first:border-t-0">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 mt-0.5 ${f.weight === "primary" ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"}`}>
+                    {f.weight === "primary" ? "Primary" : "Secondary"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-xs">{f.signal}</p>
+                    <p className="text-xs text-muted-foreground">{f.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {latest.mitigation && (
+              <p className="text-xs text-muted-foreground italic border-t pt-2">Suggested next step: {latest.mitigation}</p>
+            )}
+            <div className="flex items-center justify-between border-t pt-2">
+              <p className="text-[11px] text-muted-foreground">
+                Last assessed {format(new Date(latest.createdAt), "d MMM yyyy, HH:mm")}
+              </p>
+              {history.length > 1 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] text-muted-foreground mr-0.5">History:</span>
+                  {history.slice(0, 6).map((a) => (
+                    <span
+                      key={a.id}
+                      title={`${ASSESSMENT_LEVEL_LABEL[a.riskLevel]} — ${format(new Date(a.createdAt), "d MMM yyyy")}`}
+                      className={`text-[9px] px-1 py-0.5 rounded border font-semibold ${ASSESSMENT_LEVEL_CLASS[a.riskLevel]}`}
+                    >
+                      {ASSESSMENT_LEVEL_LABEL[a.riskLevel][0]}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -1462,6 +1599,9 @@ export default function PmDashboard() {
           {phaseReport?.kpis && (
             <KpiCards kpis={phaseReport.kpis} trend={phaseReport.trend} />
           )}
+
+          {/* ── AI Risk Assessment (CR037) ────────────────────────────────── */}
+          <MilestoneRiskCard milestoneId={Number(filterMilestone)} token={token} canAssess={CAN_ASSESS_ROLES.includes(user?.role ?? "")} />
 
           {/* ── Benchmark + Blockers ──────────────────────────────────────── */}
           {phaseReport && (phaseReport.trend || phaseReport.topBlockers.length > 0) && (

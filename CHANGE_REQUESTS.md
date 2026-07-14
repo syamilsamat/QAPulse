@@ -44,7 +44,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR034](#cr034--resource-management-project-scoped-capacity--milestone-focus) | Resource Management: Project-Scoped Capacity & Milestone Focus | ✅ Deployed | 2026-07-13 |
 | [CR035](#cr035--direct-project--module-access-assignment-replaces-team-based-project-access) | Direct Project & Module Access Assignment (replaces team-based project access) | ✅ Deployed | 2026-07-13 |
 | [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 🟡 Implemented, deploy pending | 2026-07-14 |
-| [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 📋 Planned | 2026-07-14 |
+| [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 🟡 Implemented, deploy pending | 2026-07-15 |
 
 ---
 
@@ -1098,7 +1098,9 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 ---
 
 ### CR037 — AI Risk Predictor (Milestone-Level)
-**Status:** 📋 Planned (2026-07-14)
+**Status:** 🟡 Implemented (2026-07-15) — awaiting Replit deploy + `db push` for the new `milestone_risk_assessments` table (also covered by a bootstrap `CREATE TABLE` on server start)
+
+**Implementation notes (2026-07-15):** Built as planned. `POST /ai/milestone-risk` lives in `ai.ts` and imports the CR032 timeline machinery (`computeRequirementTimelines`/`summarizeTimelines`/`computeKpiMetrics`/`rollupExecutionByMilestone`, now exported from `dashboard.ts`) — the five-signal snapshot is computed server-side and the model only synthesizes. Any parse failure or non-enum risk level returns 502 "AI assessment unavailable," nothing is stored. History via `GET /milestones/:id/risk-assessments` (newest-first, limit 20). Card renders after the KPI row in the milestone drill-down with level badge, top-3 factors (Primary/Secondary weights), mitigation line, last-assessed stamp, and compact history chips. **Found and fixed in passing:** the CR033 `risks` table existed only via drizzle-kit push and was missing from the bootstrap SQL — a brand-new database's Risk Register would have 500'd; added the `CREATE TABLE IF NOT EXISTS risks` block alongside the new assessments table.
 **Depends on:** CR033 (risk register — the data model this was explicitly deferred for in `docs/pmo-pain-points-review.md`), CR032 (multi-cycle phase timeline — the rework-churn signal), CR020 (escape history), CR026 (defect trend queries to reuse).
 **Origin:** third feature of the Bestinet AI-pitch trio (TC Generator → CR015 ✅, Verdict Writer → verdict email flow ✅, Risk Predictor → this). Kept out of CR036 deliberately — external AI dependency and prompt-quality iteration deserve their own rollback unit.
 

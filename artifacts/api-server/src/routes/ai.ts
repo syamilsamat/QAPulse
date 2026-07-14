@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import {
   db,
   requirementsTable,
@@ -7,10 +7,16 @@ import {
   tasksTable,
   usersTable,
   activityTable,
+  milestonesTable,
+  risksTable,
+  defectsTable,
+  milestoneRiskAssessmentsTable,
 } from "@workspace/db";
 import { GoogleGenAI } from "@google/genai";
 import { logActivity } from "./_audit";
 import { actorFromReq } from "./auth";
+import { getAuthContext, canAccessProject } from "../middleware/access";
+import { computeRequirementTimelines, summarizeTimelines, computeKpiMetrics, rollupExecutionByMilestone } from "./dashboard";
 
 const router: IRouter = Router();
 const ai = new GoogleGenAI({});
@@ -1034,6 +1040,194 @@ Rules:
   } catch (error) {
     console.error("NL TC Search Error:", error);
     res.json({ ids: [] });
+  }
+});
+
+// ==========================================
+// CR037 — MILESTONE RISK PREDICTOR
+// ==========================================
+// Milestone-level sibling of /ai/risk-score (which scores one ticket's
+// execution data for the Verdict Report). Pre-aggregates five signal groups
+// server-side and hands the model numbers only — the AI synthesizes and
+// articulates, it never does the arithmetic. On any AI failure the endpoint
+// returns 502 rather than a fabricated risk level.
+
+const MILESTONE_RISK_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
+const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
+const CLOSED_DEFECT_STATUSES = new Set(["closed", "verified", "rejected", "duplicate"]);
+
+function fmtAssessment(a: typeof milestoneRiskAssessmentsTable.$inferSelect) {
+  return {
+    id: a.id,
+    milestoneId: a.milestoneId,
+    riskLevel: a.riskLevel,
+    factors: safeParseJSON(a.factors, []),
+    mitigation: a.mitigation ?? null,
+    model: a.model ?? null,
+    createdBy: a.createdBy ?? null,
+    createdAt: a.createdAt.toISOString(),
+  };
+}
+
+router.post("/ai/milestone-risk", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!MILESTONE_RISK_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const milestoneId = Number(req.body?.milestoneId);
+  if (!milestoneId) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+  const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, milestoneId));
+  if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  try {
+    // ── Signal 1: phase timelines & rework churn (CR032 machinery) ──────────
+    const timelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
+    const reqIds = timelines.map((t) => t.id);
+    const phaseSummary = summarizeTimelines(timelines);
+    const reworkedReqs = timelines.filter((t) => t.timeline.filter((s) => s.key === "requirements").length > 1);
+    const maxRequirementsCycles = timelines.reduce(
+      (max, t) => Math.max(max, t.timeline.filter((s) => s.key === "requirements").length), 0,
+    );
+
+    // ── Signal 2: review KPIs + schedule drift ──────────────────────────────
+    let firstPassPct: number | null = null;
+    let stabilityPct: number | null = null;
+    if (reqIds.length > 0) {
+      const kpiEvents = await db
+        .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+        .from(activityTable)
+        .where(and(
+          eq(activityTable.entityType, "requirement"),
+          inArray(activityTable.entityId, reqIds),
+          inArray(activityTable.type, ["requirement_reject", "requirement_submit", "requirement_approve"]),
+        ))
+        .orderBy(activityTable.createdAt);
+      ({ firstPassPct, stabilityPct } = computeKpiMetrics(reqIds, kpiEvents));
+    }
+
+    const qaRollup = (await rollupExecutionByMilestone([milestoneId], "qa")).get(milestoneId);
+    const uatRollup = (await rollupExecutionByMilestone([milestoneId], "uat")).get(milestoneId);
+    const approvedCount = timelines.filter((t) => t.status.startsWith("Approved")).length;
+    const workCompletedPct = (qaRollup?.tcCount ?? 0) > 0
+      ? qaRollup!.passPct
+      : reqIds.length > 0 ? Math.round((approvedCount / reqIds.length) * 100) : 0;
+
+    let timeElapsedPct: number | null = null;
+    let daysToTarget: number | null = null;
+    if (milestone.targetDate) {
+      daysToTarget = Math.round((milestone.targetDate.getTime() - Date.now()) / 86_400_000);
+      if (milestone.status !== "completed" && milestone.status !== "cancelled") {
+        const totalMs = milestone.targetDate.getTime() - milestone.createdAt.getTime();
+        if (totalMs > 0) {
+          timeElapsedPct = Math.min(Math.round(((Date.now() - milestone.createdAt.getTime()) / totalMs) * 100), 120);
+        }
+      }
+    }
+    const spi = (timeElapsedPct !== null && timeElapsedPct > 0)
+      ? Math.round((workCompletedPct / timeElapsedPct) * 100) / 100
+      : null;
+
+    // ── Signal 3: risk register (CR033) ─────────────────────────────────────
+    const riskRows = await db.select().from(risksTable).where(
+      and(eq(risksTable.projectId, milestone.projectId), inArray(risksTable.status, ["open", "mitigating"])),
+    );
+    const milestoneRisks = riskRows.filter((r) => r.milestoneId === milestoneId || r.milestoneId === null);
+    const highRisks = milestoneRisks.filter((r) => r.probability === "high" && r.impact === "high");
+
+    // ── Signal 4: defects (direct milestoneId link, CR029) ──────────────────
+    const defectRows = await db
+      .select({ status: defectsTable.status, severity: defectsTable.severity, source: defectsTable.source })
+      .from(defectsTable)
+      .where(eq(defectsTable.milestoneId, milestoneId));
+    const openDefects = defectRows.filter((d) => !CLOSED_DEFECT_STATUSES.has((d.status ?? "").toLowerCase()));
+    const criticalOpenDefects = openDefects.filter((d) => /critical|high/i.test(d.severity ?? ""));
+    const productionDefects = defectRows.filter((d) => d.source === "production");
+
+    // ── Signal 5: coverage ───────────────────────────────────────────────────
+    let reqsWithoutTcs = 0;
+    if (reqIds.length > 0) {
+      const tcRows = await db
+        .select({ requirementId: testCasesTable.requirementId })
+        .from(testCasesTable)
+        .where(inArray(testCasesTable.requirementId, reqIds));
+      const covered = new Set(tcRows.map((r) => r.requirementId));
+      reqsWithoutTcs = reqIds.filter((id) => !covered.has(id)).length;
+    }
+
+    const snapshot = {
+      milestone: { name: milestone.name, status: milestone.status, targetDate: milestone.targetDate?.toISOString() ?? null, daysToTarget },
+      requirements: {
+        total: reqIds.length,
+        approved: approvedCount,
+        reworkedCount: reworkedReqs.length,
+        maxRequirementsCycles,
+        firstPassPct,
+        stabilityPct,
+      },
+      phaseAvgDays: Object.fromEntries(phaseSummary.map((s) => [s.key, s.avgDays])),
+      schedule: { timeElapsedPct, workCompletedPct, spi },
+      riskRegister: {
+        openOrMitigating: milestoneRisks.length,
+        highProbabilityHighImpact: highRisks.length,
+        titles: milestoneRisks.slice(0, 10).map((r) => `${r.title} (${r.probability}/${r.impact}, ${r.status})`),
+      },
+      defects: {
+        total: defectRows.length,
+        open: openDefects.length,
+        criticalOrHighOpen: criticalOpenDefects.length,
+        fromProduction: productionDefects.length,
+      },
+      coverage: {
+        qaTcCount: qaRollup?.tcCount ?? 0,
+        qaPassPct: qaRollup?.passPct ?? null,
+        uatTcCount: uatRollup?.tcCount ?? 0,
+        uatPassPct: uatRollup?.passPct ?? null,
+        requirementsWithoutTestCases: reqsWithoutTcs,
+      },
+    };
+
+    const systemPrompt = `You are a senior QA/PM risk analyst assessing a software delivery milestone.
+You are given PRE-AGGREGATED metrics — do not recompute or second-guess the numbers, synthesize them.
+Weigh: schedule pressure (SPI < 0.8 or timeElapsed far ahead of workCompleted is serious), requirements rework churn (repeat cycles are a leading indicator), open high-probability/high-impact register risks, open critical defects, and untested requirements.
+Return exactly this JSON structure, nothing else:
+{ "riskLevel": "low"|"medium"|"high"|"critical", "factors": [{ "signal": "string (short name)", "detail": "string (one sentence, cite the specific numbers)", "weight": "primary"|"secondary" }], "mitigation": "string (one or two concrete next actions for the PM)" }
+Give at most 3 factors, most important first. Be direct and specific — no hedging boilerplate.`;
+
+    const raw = await executeAiTask(systemPrompt, JSON.stringify(snapshot), 2048);
+    const parsed = safeParseJSON(raw, null);
+    if (!parsed || !RISK_LEVELS.includes(parsed.riskLevel) || !Array.isArray(parsed.factors)) {
+      res.status(502).json({ error: "AI assessment unavailable — try again shortly" });
+      return;
+    }
+
+    const [row] = await db.insert(milestoneRiskAssessmentsTable).values({
+      milestoneId,
+      projectId: milestone.projectId,
+      riskLevel: parsed.riskLevel,
+      factors: JSON.stringify(parsed.factors.slice(0, 3)),
+      mitigation: typeof parsed.mitigation === "string" ? parsed.mitigation : null,
+      dataSnapshot: JSON.stringify(snapshot),
+      model: "gemini-2.5-flash+openrouter-cascade",
+      createdBy: ctx.userId,
+    }).returning();
+
+    await logActivity({
+      type: "milestone_risk_assessed",
+      description: `Milestone "${milestone.name}" AI risk assessment: ${parsed.riskLevel}`,
+      userId: ctx.userId,
+      entityId: milestoneId,
+      entityType: "milestone",
+      newValue: { riskLevel: parsed.riskLevel },
+    });
+
+    res.status(201).json(fmtAssessment(row));
+  } catch (error) {
+    console.error("Milestone risk assessment failed:", error);
+    res.status(502).json({ error: "AI assessment unavailable — try again shortly" });
   }
 });
 

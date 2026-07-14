@@ -231,4 +231,45 @@ router.patch("/milestones/:id/review", async (req, res): Promise<void> => {
   res.json({ ...fmt(updated), warning: outstandingFailures > 0 ? `${outstandingFailures} UAT test case(s) still failing` : null });
 });
 
+// GET /milestones/:id/risk-assessments — CR037 assessment history (newest first).
+// Same PM-tier gate as the dashboard endpoints that render alongside it.
+router.get("/milestones/:id/risk-assessments", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const PM_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
+  if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const id = parseInt(req.params.id);
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject((ctx as any).id ?? ctx.userId, ctx.role, m.projectId))) {
+    res.status(403).json({ error: "Access denied" }); return;
+  }
+
+  const { milestoneRiskAssessmentsTable } = await import("@workspace/db");
+  const { desc } = await import("drizzle-orm");
+  const rows = await db
+    .select()
+    .from(milestoneRiskAssessmentsTable)
+    .where(eq(milestoneRiskAssessmentsTable.milestoneId, id))
+    .orderBy(desc(milestoneRiskAssessmentsTable.createdAt))
+    .limit(20);
+
+  res.json(rows.map((a) => {
+    let factors: unknown = [];
+    try { factors = JSON.parse(a.factors); } catch { /* keep [] */ }
+    return {
+      id: a.id,
+      milestoneId: a.milestoneId,
+      riskLevel: a.riskLevel,
+      factors,
+      mitigation: a.mitigation ?? null,
+      model: a.model ?? null,
+      createdBy: a.createdBy ?? null,
+      createdAt: a.createdAt.toISOString(),
+    };
+  }));
+});
+
 export default router;

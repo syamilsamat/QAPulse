@@ -198,6 +198,48 @@ export async function bootstrap() {
     )
   `);
 
+  // CR033p2 — Risk Register. Found-and-fixed during CR037 (2026-07-15): this
+  // table existed only via drizzle-kit push, so a brand-new database's
+  // bootstrap never created it and the PM Dashboard Risk Register would 500.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS risks (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL,
+      milestone_id INTEGER,
+      title TEXT NOT NULL,
+      description TEXT,
+      category TEXT NOT NULL DEFAULT 'other',
+      probability TEXT NOT NULL DEFAULT 'medium',
+      impact TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'open',
+      mitigation_plan TEXT,
+      owner_id INTEGER,
+      raised_by INTEGER,
+      closed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS risks_project_idx ON risks (project_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS risks_milestone_idx ON risks (milestone_id)`);
+
+  // CR037 — stored AI milestone risk assessments (append-only history)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS milestone_risk_assessments (
+      id SERIAL PRIMARY KEY,
+      milestone_id INTEGER NOT NULL,
+      project_id INTEGER NOT NULL,
+      risk_level TEXT NOT NULL,
+      factors TEXT NOT NULL,
+      mitigation TEXT,
+      data_snapshot TEXT,
+      model TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`);
+
   for (const role of DEFAULT_ROLES) {
     await pool.query(
       `INSERT INTO roles (name, description, is_system, department, tier_rank) VALUES ($1, $2, $3, $4, $5)
