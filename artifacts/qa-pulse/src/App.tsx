@@ -302,6 +302,11 @@ function Router() {
       <Route path="/pmo-report">
         {!user ? (
           <Redirect to="/login" />
+        ) : user.role === "pmo" ? (
+          // Standalone PMO users get the self-contained PMO portal shell
+          // (its own sidebar + header). Wrapping it in Layout would nest two
+          // shells and show two burger menus on mobile.
+          <PmoReport />
         ) : (
           <Layout>
             <PmoReport />

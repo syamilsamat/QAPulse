@@ -25,7 +25,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getApiUrl } from "@/lib/api";
-import { HoverChart, AnimatedQALogo } from "@/components/icons/animated";
+import { HoverChart } from "@/components/icons/animated";
+import { PulseLogo } from "@/components/PulseLogo";
 import {
   Search,
   CheckCircle2,
@@ -63,6 +64,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // --- API Helpers ---
 async function callAi(token: string | null, endpoint: string, body: object) {
@@ -285,8 +287,7 @@ function Sidebar({
 
         <div className="p-5 border-b border-sidebar-border">
           <div className="flex items-center gap-3 group cursor-default">
-            {/* Replaced the blue square with AnimatedQALogo */}
-            <AnimatedQALogo className="w-5 h-5" />
+            <PulseLogo size="sm" showWord={false} />
 
             <div>
               <p className="font-bold text-sidebar-foreground text-sm leading-tight">
@@ -313,7 +314,7 @@ function Sidebar({
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-primary">{initials}</span>
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-sidebar-foreground truncate">
                 {user?.name ?? "PMO Manager"}
               </p>
@@ -321,6 +322,7 @@ function Sidebar({
                 {user?.email ?? ""}
               </p>
             </div>
+            <ThemeToggle className="shrink-0" />
           </div>
           <Button
             variant="ghost"
@@ -1119,9 +1121,12 @@ export default function PmoReport() {
                   QMPulse PMO
                 </span>
               </div>
-              <Badge variant="secondary" className="text-[10px]">
-                Portal
-              </Badge>
+              <div className="flex items-center gap-1">
+                <ThemeToggle />
+                <Badge variant="secondary" className="text-[10px]">
+                  Portal
+                </Badge>
+              </div>
             </div>
           )}
 

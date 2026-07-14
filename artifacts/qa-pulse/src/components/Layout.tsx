@@ -30,6 +30,7 @@ import {
   HoverHistory,
 } from "@/components/icons/animated";
 import { PulseLogo } from "@/components/PulseLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -806,13 +807,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <PulseLogo size="sm" showWord={false} />
                 QMPulse
               </h1>
-              {unreadCount > 0 && (
-                <Link href="/inbox" className="ml-auto">
-                  <Badge variant="destructive" className="cursor-pointer">
-                    {unreadCount}
-                  </Badge>
-                </Link>
-              )}
+              <div className="ml-auto flex items-center gap-1">
+                {unreadCount > 0 && (
+                  <Link href="/inbox">
+                    <Badge variant="destructive" className="cursor-pointer">
+                      {unreadCount}
+                    </Badge>
+                  </Link>
+                )}
+                <ThemeToggle />
+              </div>
             </header>
 
             <main className="flex-1 overflow-auto p-4 md:p-8">
