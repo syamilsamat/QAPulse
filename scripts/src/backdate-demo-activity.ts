@@ -48,9 +48,11 @@ const requirementsTable = pgTable("requirements", {
 const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  startDate: timestamp("start_date", { withTimezone: true }),
   reqTargetDate: timestamp("req_target_date", { withTimezone: true }),
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
+  uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
 });
 
 const executionFilesTable = pgTable("execution_files", {
@@ -120,13 +122,15 @@ async function main() {
     const milestoneManifest = manifest.filter((e) => e.type === "milestone");
     for (const entry of milestoneManifest) {
       const demoM = MILESTONES.find((m) => (entry.label as string).startsWith(m.name));
-      if (!demoM || (!demoM.reqTargetDate && !demoM.devTargetDate && !demoM.qaTargetDate)) continue;
+      if (!demoM || (!demoM.startDate && !demoM.reqTargetDate && !demoM.devTargetDate && !demoM.qaTargetDate && !demoM.uatTargetDate)) continue;
       await db.update(milestonesTable).set({
+        startDate: demoM.startDate ? new Date(demoM.startDate) : null,
         reqTargetDate: demoM.reqTargetDate ? new Date(demoM.reqTargetDate) : null,
         devTargetDate: demoM.devTargetDate ? new Date(demoM.devTargetDate) : null,
         qaTargetDate: demoM.qaTargetDate ? new Date(demoM.qaTargetDate) : null,
+        uatTargetDate: demoM.uatTargetDate ? new Date(demoM.uatTargetDate) : null,
       }).where(eq(milestonesTable.id, entry.id as number));
-      console.log(`  [${demoM.name}] req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate}`);
+      console.log(`  [${demoM.name}] start=${demoM.startDate} req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate} uat=${demoM.uatTargetDate}`);
     }
     console.log("");
 
