@@ -57,8 +57,8 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources"],
   qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register"],
   qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
-  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register"],
-  fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
+  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register", "nav:defects"],
+  fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts", "nav:defects"],
   pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register"],
@@ -380,6 +380,20 @@ export async function bootstrap() {
     if (!rows[0]) continue;
     await pool.query(
       `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:risk-register') ON CONFLICT DO NOTHING`,
+      [rows[0].id]
+    );
+  }
+
+  // nav:defects for fa_lead/fa_member (CR042 — requirement defects route to
+  // FA authors since CR031, but the FA department couldn't open the Defects
+  // page at all) — narrow single-key backfill, same pattern as above.
+  for (const roleName of ["fa_lead", "fa_member"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
+    await pool.query(
+      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:defects') ON CONFLICT DO NOTHING`,
       [rows[0].id]
     );
   }

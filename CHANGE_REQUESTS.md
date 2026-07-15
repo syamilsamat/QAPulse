@@ -49,6 +49,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR039](#cr039--requirement-qa-chat) | Requirement Q&A Chat | ✅ Deployed | 2026-07-15 |
 | [CR040](#cr040--standalone-risk-register-page) | Standalone Risk Register Page | ✅ Deployed | 2026-07-15 |
 | [CR041](#cr041--access-matrix-view--role-permission-endpoint-lockdown) | Access Matrix View + Role-Permission Endpoint Lockdown | ✅ Deployed | 2026-07-15 |
+| [CR042](#cr042--fa-department-access-to-defects) | FA Department Access to Defects | ✅ Deployed | 2026-07-15 |
 
 ---
 
@@ -1260,3 +1261,18 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Non-goals:** no bulk/matrix-level editing (toggle cells directly in the grid) — that's meaningfully more UI/state complexity for a feature whose actual ask was "view," not "edit differently"; the existing per-role dialog remains the only way to change anything. No change to who can *view* `/roles` itself (still admin-only via the existing route gate) — this CR doesn't widen or narrow that.
 
 **Scope:** `artifacts/api-server/src/routes/roles.ts` (`requireAdmin` helper + 4 gate call-sites + new matrix endpoint), `artifacts/qa-pulse/src/pages/Roles.tsx` (matrix dialog, fixed permission-key label map). No schema changes, no migration.
+
+---
+
+### CR042 — FA Department Access to Defects
+**Status:** ✅ Deployed (2026-07-15)
+
+**Origin:** re-plotting the live access matrix through the RACI lens (post-CR040/041) surfaced one remaining Consulted-without-access gap: since CR031, requirement defects auto-route to the FA requirement author, and the Defects page has a dedicated "Requirement" tab — yet `fa_lead`/`fa_member` couldn't open the page at all. FA authors could only see their own defects through the RequirementDetail card, with no department-wide view of the tab built partly for their workflow.
+
+**Change:** pure permission grant — `nav:defects` added to `fa_lead`/`fa_member` in `DEFAULT_PERMISSIONS`, narrow single-key backfill block for existing DBs (same pattern as CR040's), `Layout.tsx` Defects nav roles, and the `App.tsx` `/defects` `ProtectedRoute` roles array.
+
+**Also fixed while syncing:** the `App.tsx` `/defects` route gate had never been updated since CR030 — it still allowed only `qa_member`/`qa_lead`/`admin`, while `Layout.tsx` showed the nav link to `qa_manager`/`hod_qa`/`dev_member`/`dev_lead`/`hod_dev`/`cto` too. Those roles saw the sidebar link but were redirected to `/dashboard` the moment they clicked it. The route array is now synced with the nav roles list (all of the above plus the new FA grants).
+
+**Deliberately unchanged:** raising requirement defects stays gated to `REQUIREMENT_DEFECT_ROLES` (dev/QA) — FA's RACI role is Consulted/receiver (they get assigned, fix, and resubmit via RequirementDetail), not raiser. Backend `GET /defects` needed no change (project-scoped, not department-gated).
+
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (2 grants + backfill block), `artifacts/qa-pulse/src/components/Layout.tsx` (nav roles), `artifacts/qa-pulse/src/App.tsx` (route roles sync). No schema changes, no migration.

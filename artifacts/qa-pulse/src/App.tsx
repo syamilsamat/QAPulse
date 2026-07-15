@@ -209,9 +209,12 @@ function Router() {
       </Route>
 
       <Route path="/defects">
+        {/* CR042 — synced with Layout.tsx's nav roles: this list had never been
+          updated since CR030 opened Defects to dev/qa_manager/hod_qa/cto, so
+          those roles saw the sidebar link but got redirected on click. */}
         <ProtectedRoute
           component={Defects}
-          roles={["qa_member", "qa_lead", "admin"]}
+          roles={["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"]}
         />
       </Route>
 

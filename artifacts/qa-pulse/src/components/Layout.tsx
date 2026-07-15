@@ -520,7 +520,8 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-red-500",
     // CR030 — permKey added so the dev department (assignees on native defect
     // assignment) can see it too; static roles kept as the pre-permKey fallback.
-    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "admin", "cto"],
+    // CR042 — FA added: requirement defects (CR031) route to FA authors.
+    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"],
     permKey: "nav:defects",
   },
   {
