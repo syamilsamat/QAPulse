@@ -43,6 +43,7 @@ export const ALL_NAV_KEYS = [
   "nav:qa-analytics", // CR026 — QA lead+ analytics dashboard
   "nav:defects", // CR030 — was role-gated only; now also opens Defects to the dev department
   "nav:resources", // CR034 — lead+ resourcing view (active/idle/closed-history milestone focus)
+  "nav:risk-register", // CR040 — standalone Risk Register page, split out of nav:pm-dashboard
 ];
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)
@@ -50,17 +51,17 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin:      ALL_NAV_KEYS,
   cto:        ALL_NAV_KEYS,
   hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources"],
-  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources"],
+  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:resources"],
   hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
   qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources"],
-  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources"],
+  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register"],
   qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
-  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources"],
+  fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts", "nav:defects"],
-  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources"],
+  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register"],
   pmo:        [],
 };
 
@@ -368,6 +369,21 @@ export async function bootstrap() {
     );
   }
 
+  // nav:risk-register for hod_pm/pm_lead (preserves existing PM
+  // Dashboard-side access to the Risk Register, now that it's split out)
+  // plus qa_lead/fa_lead (CR040 — the new grant this CR exists for) — narrow
+  // single-key backfill so no role's other customizations get reapplied.
+  for (const roleName of ["hod_pm", "pm_lead", "qa_lead", "fa_lead"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
+    await pool.query(
+      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:risk-register') ON CONFLICT DO NOTHING`,
+      [rows[0].id]
+    );
+  }
+
   bootstrapped = true;
 }
 
@@ -400,6 +416,19 @@ function jsonError(res: import("express").Response, status: number, message: str
   res.status(status).json({ error: message });
 }
 
+// CR041 — found in passing: every mutating endpoint in this file had no
+// backend auth gate at all, protection was purely the client-side
+// ProtectedRoute on /roles. Every other admin-only route in the codebase
+// (teams.ts, audit-log.ts) already has this exact helper; this file never
+// got it. Reuses getRoleFromToken (above) rather than re-deriving the role
+// from the auth header a second time.
+function requireAdmin(req: import("express").Request, res: import("express").Response): boolean {
+  const role = getRoleFromToken(req);
+  if (!role) { res.status(401).json({ error: "Unauthorized" }); return false; }
+  if (role !== "admin") { res.status(403).json({ error: "Admin access required" }); return false; }
+  return true;
+}
+
 // ─── Role CRUD ───────────────────────────────────────────────────────────────
 
 router.get("/roles", async (req, res): Promise<void> => {
@@ -421,6 +450,7 @@ router.get("/roles", async (req, res): Promise<void> => {
 
 router.post("/roles", async (req, res): Promise<void> => {
   try {
+    if (!requireAdmin(req, res)) return;
     await bootstrap();
     const name = req.body.name?.trim();
     const description = req.body.description?.trim() || null;
@@ -447,6 +477,7 @@ router.post("/roles", async (req, res): Promise<void> => {
 
 router.patch("/roles/:id", async (req, res): Promise<void> => {
   try {
+    if (!requireAdmin(req, res)) return;
     await bootstrap();
     const id = parseInt(req.params.id);
     if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }
@@ -483,6 +514,7 @@ router.patch("/roles/:id", async (req, res): Promise<void> => {
 
 router.delete("/roles/:id", async (req, res): Promise<void> => {
   try {
+    if (!requireAdmin(req, res)) return;
     await bootstrap();
     const id = parseInt(req.params.id);
     if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }
@@ -515,6 +547,44 @@ router.delete("/roles/:id", async (req, res): Promise<void> => {
 
 // ─── Nav Permissions ─────────────────────────────────────────────────────────
 
+// CR041 — bulk read for the Roles page's access-matrix view. One query
+// instead of the N+1 a naive matrix would otherwise need (one GET
+// .../permissions per role). admin-gated, same as the page it serves.
+router.get("/roles/permissions-matrix", async (req, res): Promise<void> => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    await bootstrap();
+
+    const roles = await db.select().from(rolesTable).orderBy(rolesTable.createdAt);
+    const { rows } = await pool.query<{ role_id: number; permission_key: string }>(
+      `SELECT role_id, permission_key FROM role_nav_permissions`
+    );
+    const permsByRole = new Map<number, string[]>();
+    for (const row of rows) {
+      const list = permsByRole.get(row.role_id) ?? [];
+      list.push(row.permission_key);
+      permsByRole.set(row.role_id, list);
+    }
+
+    res.json({
+      allKeys: ALL_NAV_KEYS,
+      roles: roles.map((r) => ({
+        id: r.id,
+        name: r.name,
+        department: r.department ?? null,
+        tierRank: r.tierRank ?? null,
+        isSystem: r.isSystem,
+        // admin's permissions aren't trusted from DB rows here either — same
+        // special case GET /roles/:id/permissions already relies on below.
+        permissions: r.isSystem && r.name === "admin" ? ALL_NAV_KEYS : (permsByRole.get(r.id) ?? []),
+      })),
+    });
+  } catch (err: any) {
+    console.error("[GET /roles/permissions-matrix]", err);
+    jsonError(res, 500, err?.message ?? "Failed to load permissions matrix");
+  }
+});
+
 router.get("/roles/:id/permissions", async (req, res): Promise<void> => {
   try {
     await bootstrap();
@@ -540,6 +610,7 @@ router.get("/roles/:id/permissions", async (req, res): Promise<void> => {
 
 router.put("/roles/:id/permissions", async (req, res): Promise<void> => {
   try {
+    if (!requireAdmin(req, res)) return;
     await bootstrap();
     const id = parseInt(req.params.id);
     if (isNaN(id)) { jsonError(res, 400, "Invalid role ID"); return; }

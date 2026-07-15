@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, Plus, Pencil, Trash2, Users, Lock, KeyRound, Building2 } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, Users, Lock, KeyRound, Building2, Table2, Check } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -80,6 +80,11 @@ function tierLabel(t: number | null) {
   return TIER_OPTIONS.find((x) => x.value === String(t))?.label ?? `Tier ${t}`;
 }
 
+// CR041 — was missing 6 of 17 real nav keys (milestones/pm-dashboard/
+// audit-log/qa-analytics/defects/resources couldn't be toggled through this
+// editor at all); fixed while building the access-matrix view below, which
+// reads the same complete list from the backend rather than a second
+// hardcoded copy of it.
 const NAV_PERMISSION_ITEMS = [
   { key: "nav:requirements",   label: "Requirements" },
   { key: "nav:test-cases",     label: "Test Cases" },
@@ -92,7 +97,22 @@ const NAV_PERMISSION_ITEMS = [
   { key: "nav:admin-search",   label: "Admin Search" },
   { key: "nav:team-hangouts",  label: "Team Hangouts" },
   { key: "nav:configurations", label: "Configuration" },
+  { key: "nav:milestones",     label: "Milestones" },
+  { key: "nav:pm-dashboard",   label: "PM Dashboard" },
+  { key: "nav:audit-log",      label: "Audit Log" },
+  { key: "nav:qa-analytics",   label: "QA Analytics" },
+  { key: "nav:defects",        label: "Defects" },
+  { key: "nav:resources",      label: "Resources" },
+  { key: "nav:risk-register",  label: "Risk Register" },
 ];
+
+const NAV_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(
+  NAV_PERMISSION_ITEMS.map((item) => [item.key, item.label]),
+);
+
+function labelForNavKey(key: string): string {
+  return NAV_LABEL_BY_KEY[key] ?? key.replace(/^nav:/, "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 const QUERY_KEY = ["roles"];
 
@@ -106,6 +126,7 @@ export default function Roles() {
   const [deleteRole, setDeleteRole] = useState<Role | null>(null);
   const [permRole, setPermRole] = useState<Role | null>(null);
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
+  const [matrixOpen, setMatrixOpen] = useState(false);
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -172,6 +193,17 @@ export default function Roles() {
       return res.json();
     },
     enabled: !!permRole,
+  });
+
+  interface MatrixRole { id: number; name: string; department: string | null; tierRank: number | null; isSystem: boolean; permissions: string[]; }
+  const { data: matrixData, isLoading: matrixLoading } = useQuery<{ allKeys: string[]; roles: MatrixRole[] }>({
+    queryKey: ["role-permissions-matrix"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/roles/permissions-matrix`, { headers: authHeaders });
+      if (!res.ok) throw new Error("Failed to load access matrix");
+      return res.json();
+    },
+    enabled: matrixOpen,
   });
 
   // Sync fetched permissions into selectedPerms when dialog opens
@@ -286,10 +318,16 @@ export default function Roles() {
             <p className="text-sm text-muted-foreground">Define roles and control access across the system</p>
           </div>
         </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="w-4 h-4" />
-          New Role
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setMatrixOpen(true)} className="gap-2">
+            <Table2 className="w-4 h-4" />
+            View Access Matrix
+          </Button>
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="w-4 h-4" />
+            New Role
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -594,6 +632,92 @@ export default function Roles() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Access Matrix — read-only view of role_nav_permissions, grouped by department */}
+      <Dialog open={matrixOpen} onOpenChange={setMatrixOpen}>
+        <DialogContent className="sm:max-w-6xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Table2 className="w-4 h-4" />
+              Access Matrix
+            </DialogTitle>
+            <DialogDescription>
+              Editing happens per-role — click a role's Permissions button to change it.
+            </DialogDescription>
+          </DialogHeader>
+
+          {matrixLoading || !matrixData ? (
+            <div className="py-6 text-sm text-muted-foreground text-center">Loading…</div>
+          ) : (
+            <div className="overflow-x-auto flex-1">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 bg-background w-40">Role</TableHead>
+                    {matrixData.allKeys.map((key) => (
+                      <TableHead key={key} title={labelForNavKey(key)} className="text-center whitespace-nowrap px-2">
+                        {labelForNavKey(key)}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {DEPARTMENTS.map((dept) => {
+                    const deptRoles = matrixData.roles
+                      .filter((r) => r.department === dept.value)
+                      .sort((a, b) => (b.tierRank ?? 0) - (a.tierRank ?? 0));
+                    if (deptRoles.length === 0) return null;
+                    return (
+                      <Fragment key={dept.value}>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableCell colSpan={matrixData.allKeys.length + 1} className="text-xs font-semibold text-muted-foreground py-1.5">
+                            {dept.label}
+                          </TableCell>
+                        </TableRow>
+                        {deptRoles.map((role) => (
+                          <TableRow key={role.id}>
+                            <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.name}</TableCell>
+                            {matrixData.allKeys.map((key) => (
+                              <TableCell key={key} className="text-center px-2">
+                                {role.permissions.includes(key) ? <Check className="w-4 h-4 text-primary inline" /> : null}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
+                  {(() => {
+                    const otherRoles = matrixData.roles
+                      .filter((r) => !DEPARTMENTS.some((d) => d.value === r.department))
+                      .sort((a, b) => (b.tierRank ?? 0) - (a.tierRank ?? 0));
+                    if (otherRoles.length === 0) return null;
+                    return (
+                      <Fragment key="other">
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableCell colSpan={matrixData.allKeys.length + 1} className="text-xs font-semibold text-muted-foreground py-1.5">
+                            Other
+                          </TableCell>
+                        </TableRow>
+                        {otherRoles.map((role) => (
+                          <TableRow key={role.id}>
+                            <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.name}</TableCell>
+                            {matrixData.allKeys.map((key) => (
+                              <TableCell key={key} className="text-center px-2">
+                                {role.permissions.includes(key) ? <Check className="w-4 h-4 text-primary inline" /> : null}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </Fragment>
+                    );
+                  })()}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

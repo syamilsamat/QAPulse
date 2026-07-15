@@ -34,6 +34,7 @@ import Teams from "@/pages/Teams";
 import RequirementDetail from "@/pages/RequirementDetail";
 import Milestones from "@/pages/Milestones";
 import PmDashboard from "@/pages/PmDashboard";
+import RiskRegister from "@/pages/RiskRegister";
 import Resources from "@/pages/Resources";
 import QAAnalytics from "@/pages/QAAnalytics";
 
@@ -156,6 +157,13 @@ function Router() {
         <ProtectedRoute
           component={PmDashboard}
           roles={["hod_pm", "pm_lead", "admin", "cto", "pmo"]}
+        />
+      </Route>
+
+      <Route path="/risk-register">
+        <ProtectedRoute
+          component={RiskRegister}
+          roles={["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto", "pmo"]}
         />
       </Route>
 

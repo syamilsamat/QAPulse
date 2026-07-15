@@ -47,6 +47,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 🟡 Implemented, deploy pending | 2026-07-15 |
 | [CR038](#cr038--qa_manager-department-wide-access--utilization-) | qa_manager Department-Wide Access & Utilization % | ✅ Deployed | 2026-07-15 |
 | [CR039](#cr039--requirement-qa-chat) | Requirement Q&A Chat | ✅ Deployed | 2026-07-15 |
+| [CR040](#cr040--standalone-risk-register-page) | Standalone Risk Register Page | ✅ Deployed | 2026-07-15 |
+| [CR041](#cr041--access-matrix-view--role-permission-endpoint-lockdown) | Access Matrix View + Role-Permission Endpoint Lockdown | ✅ Deployed | 2026-07-15 |
 
 ---
 
@@ -1213,3 +1215,48 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Non-goals:** no admin-facing browsing of other users' conversations; no project-scoping filter on the search (ambiguity is resolved by asking, confirmed as the intended behavior, not a gap to fix later); no reuse of `entityType`/`entityId` for anything beyond requirements in v1; no history-list browsing inside the floating widget's Requirement mode (AI Hub tab only).
 
 **Scope:** `lib/db/src/schema/conversations.ts` (3 new columns + 2 indexes), `lib/db/src/schema/index.ts` (missing exports), `artifacts/api-server/src/routes/roles.ts` (bootstrap table coverage), `artifacts/api-server/src/routes/ai.ts` (matching + grounding helpers, 3 new endpoints), `artifacts/qa-pulse/src/pages/AiFeatures.tsx` (new tab), `artifacts/qa-pulse/src/components/Layout.tsx` (Requirement mode toggle in the floating widget). Requires `pnpm --filter @workspace/db push` for existing dev databases (self-heals on fresh databases via the new bootstrap coverage).
+
+---
+
+### CR040 — Standalone Risk Register Page
+**Status:** ✅ Deployed (2026-07-15)
+
+**Origin:** a RACI exercise over QAPulse's core processes (done in a planning conversation, not a formal review) flagged that `qa_lead`/`fa_lead` are Consulted stakeholders for risk — they have the actual domain knowledge (quality/testing risk, requirement/scope risk) to make Risk Register entries meaningful — but structurally can't be, because CR033 built the Risk Register as a card embedded inside PM Dashboard, and PM Dashboard is `hod_pm`/`pm_lead`/`admin`/`cto`/`pmo`-only. Confirms a real gap, not a hypothetical one: `PmDashboard.tsx`'s own `CAN_WRITE_ROLES` constant already includes `qa_lead`/`fa_lead` (`["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"]`) and the backend write gate is tier-based (`getRoleTierRank(role) >= 2`, which both roles already clear) — the write path was already anticipated, it's simply unreachable because nothing gates the *page* at that grain.
+
+**Decision: split, not duplicate.** Extract the Risk Register into its own page at its own permission key, rather than granting `qa_lead`/`fa_lead` the whole `nav:pm-dashboard` key (simpler, but hands them Burn Rate/SPI/Capacity/Closed-Milestones panels they have no RACI stake in) or duplicating the UI in two places (drifts over time).
+
+**Backend:** none needed. `artifacts/api-server/src/routes/risks.ts`'s existing `GET/POST/PATCH/DELETE /risks` endpoints are already fully general — `canAccessProject`-scoped, tier-based write gate — and already registered. This CR is a pure access-surface change.
+
+**Frontend:**
+- Extract the existing `Risk` interface, `RiskLevel`/`RiskStatus`/`ScoreBand` types, `RISK_CATEGORY_LABELS`, `SCORE_MATRIX`/`riskScoreBand()`, `CAN_WRITE_ROLES`, and the `RisksCard`/`RiskDialog` components out of `PmDashboard.tsx` into a shared component (both the new page and, if kept, PM Dashboard need the identical UI — extraction avoids the two drifting apart, unlike the deliberate per-page `callAiEndpoint` duplication elsewhere, which was justified there by the helpers being trivially small).
+- New page `RiskRegister.tsx` at `/risk-register` — owns its own project/milestone picker state (`RisksCard` takes `projectId`/`milestones` as props with no internal picker of its own — confirmed nothing reusable exists outside `PmDashboard`'s local state for this).
+- `PmDashboard.tsx` loses the inline Risks card entirely (the "split," not a copy) — replaced with a small "Risk Register →" link to the new page, so `hod_pm`/`pm_lead` don't lose the connection from their dashboard, they just navigate to see it now.
+- New `nav:risk-register` permission key, following the exact `nav:resources` (CR034) wiring pattern: `ALL_NAV_KEYS` entry, `DEFAULT_PERMISSIONS` grants for `admin`, `cto`, `hod_pm`, `pm_lead` (preserving existing PM Dashboard-side access) plus `qa_lead`, `fa_lead` (the new grant this CR exists for), a `NAV_ITEMS` entry in `Layout.tsx`, and a `ProtectedRoute` registration in `App.tsx`. **Unlike `nav:resources`** (which the CR034 audit found has no narrow backfill block for existing databases — a gap, not a pattern to repeat), this CR adds one, matching the `nav:pm-dashboard`/`nav:qa-analytics`/`nav:defects` precedent.
+- `pmo` reaches Risk Register today only through PM Dashboard, via a hardcoded special case in `Layout.tsx`'s nav filter (`item.href === "/pmo-report" || item.href === "/pm-dashboard"`) that bypasses the permission-key system entirely. That special case needs `/risk-register` added to it too, or `pmo` silently loses access it has today.
+
+**Explicitly not granted:** `hod_qa`/`hod_fa`/`hod_dev` (marked Informed, not Consulted, in the RACI exercise) — Informed doesn't require page access; revisit only if there's a concrete ask for it, not preemptively.
+
+**Scope:** `artifacts/qa-pulse/src/components/` (new shared Risk Register component, extracted from `PmDashboard.tsx`), `artifacts/qa-pulse/src/pages/RiskRegister.tsx` (new), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (remove inline card, add link), `artifacts/qa-pulse/src/components/Layout.tsx` (nav entry + `pmo` special case), `artifacts/qa-pulse/src/App.tsx` (route), `artifacts/api-server/src/routes/roles.ts` (`nav:risk-register` key, grants, narrow backfill). No schema changes, no migration.
+
+---
+
+### CR041 — Access Matrix View + Role-Permission Endpoint Lockdown
+**Status:** ✅ Deployed (2026-07-15)
+
+**Origin:** grew out of the same access-review conversation as CR040. Two asks: (1) a way to *view* the full role-vs-permission matrix from the Roles admin page itself, sourced from live data, not a one-off external visualization; (2) confirm that only `admin` can actually change access — "better not change" that.
+
+**Found while grounding #2 — a real gap, not a formality.** `PUT /roles/:id/permissions`, `POST /roles`, `PATCH /roles/:id`, and `DELETE /roles/:id` have **no backend auth gate at all** — protection today is purely the client-side `ProtectedRoute roles={["admin"]}` on the `/roles` route. Any authenticated user hitting these endpoints directly, regardless of role, could currently create roles, delete roles, or rewrite any role's permissions. Every other admin-only route in this codebase (`teams.ts`, `audit-log.ts`) already has a local `requireAdmin(req, res)` helper doing this check server-side — `roles.ts` is the one file that never got it. This CR closes that, which is exactly what "only admin can change the access" already assumes is true today but isn't.
+
+**Also found:** the existing per-role permission editor's checkbox list (`NAV_PERMISSION_ITEMS` in `Roles.tsx`) only covered 11 of the (then) 17 real `nav:` keys — `nav:milestones`, `nav:pm-dashboard`, `nav:audit-log`, `nav:qa-analytics`, `nav:defects`, `nav:resources` couldn't even be toggled through the UI that's supposed to manage them. Fixed as part of this CR (now 18 keys, since CR040's `nav:risk-register` landed in the same session) since the new matrix view needs the complete, accurate key list anyway — building it correctly once and reusing it for both surfaces avoids re-introducing the same staleness.
+
+**Backend (`artifacts/api-server/src/routes/roles.ts`):**
+- New local `requireAdmin(req, res): boolean` (identical shape to `teams.ts`/`audit-log.ts`'s copies), called at the top of `POST /roles`, `PATCH /roles/:id`, `DELETE /roles/:id`, `PUT /roles/:id/permissions`. `GET /roles` and `GET /roles/:id/permissions` stay open — this closes the *change* gap the ask was actually about, not a blanket lockdown of reads that other parts of the app might depend on.
+- New `GET /roles/permissions-matrix`, `requireAdmin`-gated — returns `{ allKeys: string[], roles: [{ id, name, department, tierRank, isSystem, permissions: string[] }] }` in one call instead of N+1 (one `GET .../permissions` per role, which is what a naive matrix view would otherwise need). `admin`'s `permissions` is hardcoded to the full `ALL_NAV_KEYS` list, mirroring the same special case already in `GET /roles/:id/permissions` (line 527-529) rather than trusting DB rows that endpoint doesn't trust either; every other role reads its real `role_nav_permissions` rows, one query grouped in JS rather than N role-scoped queries.
+
+**Frontend (`artifacts/qa-pulse/src/pages/Roles.tsx`):**
+- Replaced the incomplete `NAV_PERMISSION_ITEMS` (11 of 18 keys — also missing the new `nav:risk-register` from CR040) with the full 18-key label map; the per-role permission editor's checkbox list now iterates it too, fixing the 6 previously-untoggleable keys as a side effect. The matrix view's columns come from the new endpoint's `allKeys` at runtime (`labelForNavKey()` falls back to a prettified key for anything not in the local map, so a future `nav:` key still renders instead of silently vanishing even before someone adds its label).
+- New "View Access Matrix" button (page header, alongside "New Role") opening a wide `Dialog` with a `Table`: roles as rows, grouped by department with a header row per group and sorted by tier descending within each group, permission keys as columns, read-only (a check icon per granted cell, no click-to-toggle), horizontal scroll for the 18 columns. Editing stays exclusively through the existing per-role permission dialog — the matrix is a reference view, not a second editing surface.
+
+**Non-goals:** no bulk/matrix-level editing (toggle cells directly in the grid) — that's meaningfully more UI/state complexity for a feature whose actual ask was "view," not "edit differently"; the existing per-role dialog remains the only way to change anything. No change to who can *view* `/roles` itself (still admin-only via the existing route gate) — this CR doesn't widen or narrow that.
+
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (`requireAdmin` helper + 4 gate call-sites + new matrix endpoint), `artifacts/qa-pulse/src/pages/Roles.tsx` (matrix dialog, fixed permission-key label map). No schema changes, no migration.

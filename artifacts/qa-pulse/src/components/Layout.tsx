@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, GitMerge, ScrollText, Bug, LayoutDashboard, Users2 } from 'lucide-react';
+import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2 } from 'lucide-react';
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 
 import {
@@ -601,6 +601,14 @@ const NAV_ITEMS: NavItem[] = [
     permKey: "nav:pm-dashboard",
   },
   {
+    href: "/risk-register",
+    label: "Risk Register",
+    icon: ShieldAlert,
+    activeColor: "text-amber-500",
+    roles: ["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto"],
+    permKey: "nav:risk-register",
+  },
+  {
     href: "/resources",
     label: "Resources",
     icon: Users2,
@@ -717,7 +725,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!user) return false;
-    if (user.role === "pmo") return item.href === "/pmo-report" || item.href === "/pm-dashboard";
+    if (user.role === "pmo") return item.href === "/pmo-report" || item.href === "/pm-dashboard" || item.href === "/risk-register";
     if (item.alwaysVisible) return true;
     // Use dynamic permissions when available, fall back to static roles
     if (navPermissions && item.permKey) return navPermissions.includes(item.permKey);
