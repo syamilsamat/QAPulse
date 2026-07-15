@@ -45,6 +45,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR035](#cr035--direct-project--module-access-assignment-replaces-team-based-project-access) | Direct Project & Module Access Assignment (replaces team-based project access) | ✅ Deployed | 2026-07-13 |
 | [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 🟡 Implemented, deploy pending | 2026-07-14 |
 | [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 🟡 Implemented, deploy pending | 2026-07-15 |
+| [CR038](#cr038--qa_manager-department-wide-access--utilization-) | qa_manager Department-Wide Access & Utilization % | ✅ Deployed | 2026-07-15 |
 
 ---
 
@@ -246,7 +247,7 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 - **Found and fixed in passing:** the nav-permission bootstrap only backfills new keys into `admin`'s permissions on restart, not other roles — meaning `hod_pm` (seeded before today) would never have picked up `nav:pm-dashboard` without a manual Roles-page edit. Extended the backfill to `admin`+`cto` (both meant to hold every key) plus a narrow single-key backfill for `hod_pm`/`pm_lead`, without blanket-reapplying full permission lists (which would silently undo any admin's deliberate customization via `PUT /roles/:id/permissions` on every restart).
 - **Milestone filter on Requirements + deep-link** *(2026-07-05)*: the Requirements page already showed Milestone as a mandatory field and a list column but had no way to filter by it (unlike Project/Module/Priority, which all did). Added a Milestone filter select, scoped to the currently-selected Project filter (same dependency the create/edit form's own Milestone picker already has, since `GET /milestones` requires a `projectId`). Clicking a milestone tile on the PM Dashboard now deep-links to `/requirements?projectId=&milestoneId=`, pre-filtering both — mirrors CR018's `?tc=` deep-link convention.
 - **Part 5 — `qa_manager` role added** *(2026-07-05)*: tier 3, department `qa`, sitting between `qa_lead` (2) and `hod_qa` (4) — closes the mirror-image gap of the `pm_lead` addition (QA now has Member/Lead/Manager/HOD, one tier deeper than PM/FA/Dev, matching the original Part 5 spec's intent that QA gets an extra tier). Nav permissions mirror `qa_lead`'s set. Seeded fresh (new role, no backfill needed — unlike `hod_pm`/`pm_lead`'s `nav:pm-dashboard` backfill, which needed the narrow single-key treatment since those roles already existed).
-- **Scope-parity caveat:** `middleware/access.ts`'s `scopeToUserProjects` only has two visibility buckets — `tierRank >= 5` (unrestricted) and `tierRank >= 4` (whole department). Everything below tier 4 — including the new `qa_manager` at tier 3 — falls into the same team-scoped bucket as `qa_lead`/`qa_member`. The role exists and is selectable, but it does **not** yet have functionally broader visibility than `qa_lead`; giving "Manager" a real middle scope (e.g. "sees all teams a manager is assigned to, not just their own") would need a new access-control tier and a way to record which teams a manager owns — not built.
+- **Scope-parity caveat — resolved by CR038 (2026-07-15):** `middleware/access.ts`'s `scopeToUserProjects` originally only had two visibility buckets — `tierRank >= 5` (unrestricted) and `tierRank >= 4` (whole department) — so `qa_manager` at tier 3 fell into the same scoped bucket as `qa_lead`/`qa_member` despite being a distinct tier. CR038 lowered the department-wide-reach threshold to `tierRank >= 3` (and the matching `getModuleScope` bypass threshold to match), so `qa_manager` now has real department-wide visibility, same mechanism as HOD.
 - **`milestones.completed_at` added** *(2026-07-05)*: authoritative timestamp for when a milestone actually finished, auto-stamped by `PATCH /milestones/:id` on the transition into `status = "completed"` (and cleared if it moves away again) — same pattern as `requirements.approvedAt`/`rejectedAt`. Built as groundwork for the phase-breakdown report below.
 - **"Where did the time go" phase-breakdown report** *(2026-07-05)*: `GET /dashboard/milestone-phase-breakdown?milestoneId=` + a Milestone selector added to PM Dashboard (next to the existing Project selector, same project-scoped pattern used everywhere else). Selecting a milestone shows a segmented timeline plus a 5-milestone trend strip with averaged phase lengths — built specifically so a QA lead can show, with real timestamps instead of an argument, that a delay sat upstream of testing rather than assuming QA caused it.
   - **Up to 5 phases, computed from data that already exists** (no new tracking beyond `completedAt` above): **Requirements** (first requirement created → last requirement approved, only once *all* are approved) → **Gap before QA** (last approval → first QA test actually executed) → **QA testing** (first QA execution → last QA execution *if a UAT file exists for the milestone, else through to `completedAt`* — QA absorbs any final wrap-up when there's no UAT lane to hand off to) → **Gap before UAT** (only shown if non-zero and a UAT file exists) → **UAT** (first UAT execution → `completedAt`, or ongoing).
@@ -1129,3 +1130,32 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 **Non-goals:** no automatic/scheduled assessment runs (a stale-data assessment silently going out to stakeholders is worse than an explicit button); no cross-milestone portfolio prediction (needs assessment history to exist first); no cost/CPI signals (no cost data — see CR033 non-goals).
 
 **Scope:** `lib/db/src/schema/` (new `milestone_risk_assessments` table + bootstrap `CREATE TABLE IF NOT EXISTS` in `roles.ts`, moved together per CR036 discipline), `artifacts/api-server/src/routes/ai.ts` (new endpoint), `artifacts/api-server/src/routes/milestones.ts` (history GET), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (card). One DB migration.
+
+---
+
+### CR038 — qa_manager Department-Wide Access & Utilization %
+**Status:** ✅ Deployed (2026-07-15)
+
+Two small, unrelated fixes bundled together because both were sitting as named-but-unresolved items from `docs/pmo-pain-points-review.md` and the CR014 register, and both resolved cleanly once their blocking decisions were made.
+
+**Part 1 — qa_manager department-wide access (closes CR014's scope-parity caveat)**
+
+CR014 seeded `qa_manager` at tier 3 (between `qa_lead` and `hod_qa`) but `middleware/access.ts`'s `scopeToUserProjects`/`getModuleScope` only had a department-wide-reach branch at tier ≥ 4 — so `qa_manager` never had functionally broader visibility than `qa_lead`, despite being seeded as a distinct tier. CR034 had already carved out a narrower exception (`resource-view` specifically lowered its own threshold to tier ≥ 3), but every other page (Requirements, Test Cases, Traceability, Defects, Tasks, QA Analytics) still treated `qa_manager` as tier 2.
+
+**Decision (user call, 2026-07-15):** lower the general threshold, matching CR014's original intent, accepting the tension with CR035's explicit-assignment philosophy — a manager now sees their whole department's projects automatically again, not just what's been explicitly assigned to them. Considered and rejected: leaving it as-is on the theory that CR035's self-assignment mechanism (a tier ≥3 manager can already assign themselves to any project in their department) already resolves this in spirit — rejected because it still requires a manual per-project self-assignment step that `hod_qa` never has to do, which isn't real parity.
+
+- `scopeToUserProjects` (`access.ts`): department-wide-reach branch changed from `tierRank >= 4` to `tierRank >= 3`.
+- `getModuleScope` (`access.ts`): module-restriction-bypass threshold changed from `tierRank >= 4` to `tierRank >= 3` to match — otherwise a manager with new department-wide project reach could still be module-restricted within an individual project from an earlier, narrower assignment.
+- Generalizes department-agnostically, same as CR034/CR035's own tier-3 carve-outs: QA is the only department with a real tier-3 role today, so this is a no-op for FA/Dev/PM until one exists there.
+
+**Part 2 — Utilization % on PM Dashboard Capacity table**
+
+Parked in CR034, CR036, and CR037 pending a decision on whether QAPulse models per-user available capacity or falls back to a flat assumption.
+
+**Decision (user call, 2026-07-15):** flat 40h/week per person, no per-user configurable capacity field.
+
+- `dashboard.ts`'s `GET /dashboard/pm-summary`: new `WEEKLY_CAPACITY_HOURS = 40` constant; each capacity entry gains `utilizationPct = round(estimatedHours / 40 * 100)`.
+- `PmDashboard.tsx`'s `CapacityTable`: new "Utilization" column, red at ≥100%, amber at ≥80%, muted otherwise; tooltip notes the flat-40h assumption.
+- **Deliberately not added to the Resources page (CR034).** That page has no hours signal at all for any department, and QA/FA specifically have no natural hours-estimate source (execution PIC / requirement authorship don't carry effort estimates) — utilization there would need an entirely different proxy metric, not just this capacity-model decision. Only Dev/PM (task-based `estimatedHours`) get this column, on the page that already had the underlying data.
+
+**Scope:** `artifacts/api-server/src/middleware/access.ts` (2 threshold changes + doc comments), `artifacts/api-server/src/routes/dashboard.ts` (`WEEKLY_CAPACITY_HOURS`, `utilizationPct`), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (`CapacityEntry` type, Utilization column). No schema changes, no migration.

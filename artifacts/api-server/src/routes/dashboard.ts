@@ -8,6 +8,11 @@ const router: IRouter = Router();
 
 const PM_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
 
+// CR038 — flat assumed weekly capacity per person, used for the Capacity
+// table's utilization % column. No per-user configurable capacity field
+// (deliberately parked in CR034/CR036/CR037 pending this exact decision).
+const WEEKLY_CAPACITY_HOURS = 40;
+
 function classifyResult(result: string | null): "passed" | "failed" | "blocked" | "notRun" {
   const r = result?.toLowerCase() ?? "";
   if (r === "passed" || r === "pass") return "passed";
@@ -161,11 +166,21 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
       }
     }
 
+    // CR038 — utilization %, parked since CR034/CR036/CR037 pending a
+    // capacity-model decision. Resolved: flat 40h/week per person, no
+    // per-user configurable capacity field. Only meaningful for Dev/PM
+    // (the only roles with task-based estimatedHours today) — not added to
+    // the Resources page (CR034), which has no hours signal at all for
+    // QA/FA (execution PIC / requirement authorship carry no estimate).
+    const capacity = Array.from(capacityByUser.values())
+      .map(entry => ({ ...entry, utilizationPct: Math.round((entry.estimatedHours / WEEKLY_CAPACITY_HOURS) * 100) }))
+      .sort((a, b) => b.openTaskCount - a.openTaskCount);
+
     return {
       projectId: project.id,
       projectName: project.name,
       milestones: milestoneSummaries,
-      capacity: Array.from(capacityByUser.values()).sort((a, b) => b.openTaskCount - a.openTaskCount),
+      capacity,
     };
   });
 

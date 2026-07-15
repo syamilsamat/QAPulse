@@ -47,6 +47,7 @@ interface CapacityEntry {
   openTaskCount: number;
   estimatedHours: number;
   overdueTaskCount: number;
+  utilizationPct: number;
 }
 
 interface ProjectSummary {
@@ -801,6 +802,7 @@ function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
           <th className="text-left font-normal pb-1">Person</th>
           <th className="text-right font-normal pb-1">Open tasks</th>
           <th className="text-right font-normal pb-1">Est. hours</th>
+          <th className="text-right font-normal pb-1">Utilization</th>
           <th className="text-right font-normal pb-1">Overdue</th>
         </tr>
       </thead>
@@ -810,6 +812,14 @@ function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
             <td className="py-1.5">{c.name}</td>
             <td className="py-1.5 text-right">{c.openTaskCount}</td>
             <td className="py-1.5 text-right">{Math.round(c.estimatedHours)}</td>
+            <td
+              className={`py-1.5 text-right font-medium ${
+                c.utilizationPct >= 100 ? "text-red-600" : c.utilizationPct >= 80 ? "text-amber-600" : "text-muted-foreground"
+              }`}
+              title="Assumes a flat 40h/week capacity per person"
+            >
+              {c.utilizationPct}%
+            </td>
             <td className={`py-1.5 text-right ${c.overdueTaskCount > 0 ? "text-red-600" : ""}`}>{c.overdueTaskCount}</td>
           </tr>
         ))}

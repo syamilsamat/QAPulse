@@ -34,9 +34,11 @@ export function getAuthContext(req: Request): AuthContext | null {
  * CR035 — team-based project access (project_teams) is no longer consulted
  * here at all; project_members is the sole source of truth, and (since the
  * old cross-join backfill was removed) it now only ever holds real, explicit
- * assignments. HOD tier still gets department-wide reach, computed from
- * whoever in their department has a real direct assignment — safe to do now
- * that the table isn't universally noisy anymore.
+ * assignments. Manager tier and above get department-wide reach (CR038 —
+ * previously HOD-only; the gap where qa_manager didn't have functionally
+ * broader visibility than qa_lead, called out at CR014, is closed here),
+ * computed from whoever in their department has a real direct assignment —
+ * safe to do now that the table isn't universally noisy anymore.
  */
 export async function scopeToUserProjects(userId: number, role: string): Promise<number[] | null> {
   if (role === "admin") return null;
@@ -49,9 +51,10 @@ export async function scopeToUserProjects(userId: number, role: string): Promise
     // CTO tier — sees everything
     if (tierRank >= 5) return null;
 
-    if (tierRank >= 4 && department) {
-      // HOD — every project with at least one direct assignment for
-      // someone in their department (not "their own" assignments only).
+    if (tierRank >= 3 && department) {
+      // Manager tier and above — every project with at least one direct
+      // assignment for someone in their department (not "their own"
+      // assignments only).
       const rows = await db
         .select({ projectId: projectMembersTable.projectId })
         .from(projectMembersTable)
@@ -91,14 +94,18 @@ export interface ModuleScope {
  * fetch, same pattern as every other batch-then-filter endpoint in this
  * codebase). restricted: false means "no module filter" — either the user
  * has whole-project access, or their tier is high enough to bypass module
- * scoping entirely (HOD+/admin/cto).
+ * scoping entirely (Manager+/HOD+/admin/cto — CR038 lowered this from
+ * HOD-only to match scopeToUserProjects' tier-3 threshold, so a manager
+ * with department-wide project reach isn't still module-restricted within
+ * an individual project they were previously given a narrower assignment
+ * on).
  */
 export async function getModuleScope(userId: number, role: string, projectId: number): Promise<ModuleScope> {
   if (role === "admin") return { restricted: false, moduleName: null };
 
   const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
   const tierRank = roleRow?.tierRank ?? 1;
-  if (tierRank >= 4) return { restricted: false, moduleName: null };
+  if (tierRank >= 3) return { restricted: false, moduleName: null };
 
   const [assignment] = await db
     .select({ moduleId: projectMembersTable.moduleId })
