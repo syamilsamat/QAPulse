@@ -2,20 +2,20 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "qa-pulse-web",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set PORT=18440&& set BASE_PATH=/&& corepack pnpm --filter @workspace/qa-pulse run dev"
-      ],
-      "port": 18440
-    },
-    {
       "name": "qa-pulse-web-mac",
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
         "cd /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse && PORT=18440 BASE_PATH=/ /opt/homebrew/bin/pnpm --filter @workspace/qa-pulse run dev"
+      ],
+      "port": 18440
+    },
+    {
+      "name": "qa-pulse-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=18440&& set BASE_PATH=/&& corepack pnpm --filter @workspace/qa-pulse run dev"
       ],
       "port": 18440
     }

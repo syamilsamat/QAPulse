@@ -14,7 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Building2, Users, AlertTriangle, Clock, ShieldAlert, Archive, Quote, Sparkles } from "lucide-react";
+import { Loader2, Building2, Users, AlertTriangle, Clock, Archive, Quote, Sparkles } from "lucide-react";
+import { RisksCard, CAN_WRITE_ROLES as RISK_WRITE_ROLES } from "@/components/RiskRegisterCard";
 import { format } from "date-fns";
 
 interface MilestoneSummary {
@@ -1152,27 +1153,6 @@ export default function PmDashboard() {
         </div>
       </div>
 
-      {filterProject !== "all" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <CardContent className="p-4 sm:p-5">
-              <button
-                type="button"
-                onClick={() => navigate(`/risk-register?projectId=${filterProject}`)}
-                className="flex items-center justify-between w-full text-left hover:opacity-80 transition-opacity"
-              >
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-                  <p className="text-sm font-medium">Risk Register</p>
-                </div>
-                <span className="text-xs text-muted-foreground">View risks →</span>
-              </button>
-            </CardContent>
-          </Card>
-          <ClosedMilestonesCard projectId={Number(filterProject)} token={token} />
-        </div>
-      )}
-
       {filterMilestone !== "all" && (
         <>
           {/* ── Phase Timeline ─────────────────────────────────────────────── */}
@@ -1299,6 +1279,18 @@ export default function PmDashboard() {
             </div>
           )}
         </>
+      )}
+
+      {filterProject !== "all" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <RisksCard
+            projectId={Number(filterProject)}
+            token={token}
+            milestones={milestonesForFilter}
+            canWrite={RISK_WRITE_ROLES.includes(user?.role ?? "")}
+          />
+          <ClosedMilestonesCard projectId={Number(filterProject)} token={token} />
+        </div>
       )}
 
       {data && (

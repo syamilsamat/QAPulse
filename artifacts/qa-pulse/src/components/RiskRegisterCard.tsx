@@ -111,7 +111,8 @@ export function riskScoreBand(probability: RiskLevel, impact: RiskLevel): ScoreB
   return SCORE_MATRIX[probability][impact];
 }
 
-export const CAN_WRITE_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"];
+// Mirrors the server rule in risks.ts: tierRank >= 2 (lead or above) may write.
+export const CAN_WRITE_ROLES = ["admin", "qa_lead", "fa_lead", "dev_lead", "pm_lead", "qa_manager", "hod_qa", "hod_fa", "hod_dev", "hod_pm", "cto"];
 
 const EMPTY_RISK_FORM = {
   title: "", description: "", category: "other", probability: "medium" as RiskLevel,
