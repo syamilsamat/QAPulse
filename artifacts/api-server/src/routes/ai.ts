@@ -10,12 +10,18 @@ import {
   milestonesTable,
   risksTable,
   defectsTable,
+  defectLinksTable,
+  executionTestCasesTable,
+  requirementCommentsTable,
+  projectsTable,
   milestoneRiskAssessmentsTable,
+  conversations,
+  messages,
 } from "@workspace/db";
 import { GoogleGenAI } from "@google/genai";
 import { logActivity } from "./_audit";
 import { actorFromReq } from "./auth";
-import { getAuthContext, canAccessProject } from "../middleware/access";
+import { getAuthContext, canAccessProject, scopeToUserProjects } from "../middleware/access";
 import { computeRequirementTimelines, summarizeTimelines, computeKpiMetrics, rollupExecutionByMilestone } from "./dashboard";
 
 const router: IRouter = Router();
@@ -1229,6 +1235,364 @@ Give at most 3 factors, most important first. Be direct and specific — no hedg
     console.error("Milestone risk assessment failed:", error);
     res.status(502).json({ error: "AI assessment unavailable — try again shortly" });
   }
+});
+
+// ==========================================
+// 13. REQUIREMENT Q&A CHAT (CR039)
+// ==========================================
+// No requirement picker — the user just asks a question and the backend
+// auto-matches which requirement it's about via keyword search over
+// title/description/acceptanceCriteria (not vector/RAG — one requirement's
+// worth of data is small enough to fetch and inject directly). A
+// conversation stays unresolved (conversations.entityId null) until exactly
+// one requirement is the clear top match; two or more tied top matches
+// return as candidates for the user to pick rather than guessing.
+
+const REQUIREMENT_CHAT_STOPWORDS = new Set([
+  "the", "is", "a", "an", "for", "what", "of", "and", "to", "in", "on",
+  "with", "does", "do", "how", "this", "that", "are", "was", "were",
+  "be", "it", "its", "can", "will", "should", "would", "there",
+]);
+
+function extractKeywords(message: string): string[] {
+  return Array.from(new Set(
+    message
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !REQUIREMENT_CHAT_STOPWORDS.has(w)),
+  ));
+}
+
+interface RequirementCandidate {
+  id: number;
+  title: string;
+  projectId: number | null;
+  projectName: string | null;
+  score: number;
+}
+
+type MatchResult =
+  | { outcome: "no_match" }
+  | { outcome: "resolved"; requirement: RequirementCandidate }
+  | { outcome: "ambiguous"; candidates: RequirementCandidate[]; totalMatches: number };
+
+async function findMatchingRequirements(message: string, ctx: { userId: number; role: string }): Promise<MatchResult> {
+  const keywords = extractKeywords(message);
+  if (keywords.length === 0) return { outcome: "no_match" };
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  let allReqs = await db.select().from(requirementsTable);
+  if (accessible !== null) {
+    allReqs = allReqs.filter((r) => r.projectId == null || accessible.includes(r.projectId));
+  }
+
+  const projects = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable);
+  const projectNameById = new Map<number, string>(projects.map((p) => [p.id, p.name]));
+
+  const scored: RequirementCandidate[] = [];
+  for (const r of allReqs) {
+    const title = (r.title ?? "").toLowerCase();
+    const description = (r.description ?? "").toLowerCase();
+    const ac = (r.acceptanceCriteria ?? "").toLowerCase();
+    let score = 0;
+    for (const kw of keywords) {
+      if (title.includes(kw)) score += 3;
+      if (description.includes(kw)) score += 2;
+      if (ac.includes(kw)) score += 2;
+    }
+    if (score > 0) {
+      scored.push({
+        id: r.id,
+        title: r.title,
+        projectId: r.projectId,
+        projectName: r.projectId != null ? projectNameById.get(r.projectId) ?? null : null,
+        score,
+      });
+    }
+  }
+
+  if (scored.length === 0) return { outcome: "no_match" };
+
+  scored.sort((a, b) => b.score - a.score);
+  const topScore = scored[0].score;
+  const topGroup = scored.filter((c) => c.score === topScore);
+
+  if (topGroup.length === 1) return { outcome: "resolved", requirement: topGroup[0] };
+  return { outcome: "ambiguous", candidates: topGroup.slice(0, 5), totalMatches: topGroup.length };
+}
+
+async function buildRequirementGroundingBlock(
+  requirementId: number,
+): Promise<{ block: string; title: string; projectName: string | null } | null> {
+  const [req] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, requirementId));
+  if (!req) return null;
+
+  let projectName: string | null = null;
+  if (req.projectId != null) {
+    const [proj] = await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, req.projectId));
+    projectName = proj?.name ?? null;
+  }
+
+  const testCases = await db.select().from(testCasesTable).where(eq(testCasesTable.requirementId, requirementId));
+  const executionRows = await db.select().from(executionTestCasesTable).where(eq(executionTestCasesTable.requirementId, requirementId));
+  const defectLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.requirementId, requirementId));
+  const defectIds = defectLinks.map((l) => l.defectId);
+  const linkedDefects = defectIds.length
+    ? await db.select().from(defectsTable).where(inArray(defectsTable.id, defectIds))
+    : [];
+  const comments = await db.select().from(requirementCommentsTable)
+    .where(eq(requirementCommentsTable.requirementId, requirementId))
+    .orderBy(requirementCommentsTable.createdAt);
+
+  const userIds = [req.approvedBy, req.rejectedBy, req.devAssigneeId].filter((x): x is number => !!x);
+  const users = userIds.length
+    ? await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, userIds))
+    : [];
+  const nameOf = (id: number | null) => (id == null ? null : users.find((u) => u.id === id)?.name ?? `user #${id}`);
+
+  const tcSummary = testCases.length
+    ? testCases.map((tc) => `- ${tc.title} (status: ${tc.status})`).join("\n")
+    : "None";
+  const execSummary = executionRows.length
+    ? executionRows.map((e) => `- ${e.caseName ?? e.testCaseId ?? "Untitled"}: ${e.result ?? "not executed"}`).join("\n")
+    : "None";
+  const defectSummary = linkedDefects.length
+    ? linkedDefects.map((d) => {
+        const link = defectLinks.find((l) => l.defectId === d.id);
+        const tag = link?.linkType === "requirement" ? "[requirement-authoring defect]" : "[code/test defect]";
+        return `- ${tag} ${d.defectCode ?? "DEF-?"}: ${d.title} (${d.status}, ${d.severity})`;
+      }).join("\n")
+    : "None";
+  const commentSummary = comments.length
+    ? comments.map((c) => `- ${c.body}`).join("\n")
+    : "None";
+
+  const block = `
+Requirement: ${req.title}
+Project: ${projectName ?? "Unknown"}
+Module: ${req.module ?? "Unspecified"}
+Description: ${req.description ?? "Not provided"}
+Acceptance Criteria: ${req.acceptanceCriteria ?? "Not provided"}
+Review Status: ${req.reviewStatus}${req.approvedBy ? ` (approved by ${nameOf(req.approvedBy)})` : ""}${req.rejectedBy ? ` (rejected by ${nameOf(req.rejectedBy)})` : ""}
+Dev Status: ${req.devStatus ?? "Not started"}${req.devAssigneeId ? ` (assigned to ${nameOf(req.devAssigneeId)})` : ""}
+
+Linked Test Cases:
+${tcSummary}
+
+Execution Results:
+${execSummary}
+
+Linked Defects:
+${defectSummary}
+
+Discussion Comments:
+${commentSummary}
+`.trim();
+
+  return { block, title: req.title, projectName };
+}
+
+async function answerFromGrounding(
+  groundingBlock: string,
+  newMessage: string,
+  history: { role: string; content: string }[],
+): Promise<{ reply: string }> {
+  let historyText = "";
+  if (history.length > 0) {
+    historyText = "--- Conversation History ---\n";
+    history.forEach((m) => { historyText += `${m.role === "user" ? "User" : "Assistant"}: ${m.content}\n\n`; });
+    historyText += "----------------------------\n\n";
+  }
+
+  const systemPrompt = `You are a QA assistant answering questions about ONE specific requirement, grounded strictly in the data provided below. Do not invent test cases, defects, or statuses that aren't in the data. If asked about something not covered by the data, say so plainly. Be concise, professional, and technical.
+You MUST return your response as a JSON object matching this exact schema:
+{ "reply": "Your detailed markdown formatted response here" }`;
+
+  const userPrompt = `Requirement grounding data:\n${groundingBlock}\n\n${historyText}New User Message: ${newMessage}\n\nRespond to the new user message using only the grounding data and conversation history above. Format your output strictly as JSON.`;
+
+  const content = await executeAiTask(systemPrompt, userPrompt);
+  const fallback = { reply: "I'm sorry, I encountered a formatting error while generating my response. Please try again." };
+  const parsed = safeParseJSON(content, fallback);
+  return { reply: parsed.reply || fallback.reply };
+}
+
+router.post("/ai/requirement-chat", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  try {
+    const { message, conversationId, resolvedRequirementId } = req.body ?? {};
+
+    // ── Resolving a disambiguation choice (chip click, not free text) ──────
+    if (resolvedRequirementId != null) {
+      if (!conversationId) { res.status(400).json({ error: "conversationId is required" }); return; }
+      const [convo] = await db.select().from(conversations).where(eq(conversations.id, Number(conversationId)));
+      if (!convo || convo.userId !== ctx.userId) { res.status(404).json({ error: "Conversation not found" }); return; }
+      if (convo.entityId != null) { res.status(409).json({ error: "Conversation already resolved" }); return; }
+
+      const grounding = await buildRequirementGroundingBlock(Number(resolvedRequirementId));
+      if (!grounding) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+      const priorMessages = await db.select().from(messages)
+        .where(eq(messages.conversationId, convo.id)).orderBy(desc(messages.createdAt));
+      const lastUserMsg = priorMessages.find((m) => m.role === "user");
+      if (!lastUserMsg) { res.status(409).json({ error: "No question to answer for this conversation" }); return; }
+
+      await db.update(conversations)
+        .set({ entityType: "requirement", entityId: Number(resolvedRequirementId) })
+        .where(eq(conversations.id, convo.id));
+
+      const { reply } = await answerFromGrounding(grounding.block, lastUserMsg.content, []);
+      await db.insert(messages).values({ conversationId: convo.id, role: "assistant", content: reply });
+
+      res.json({
+        status: "answered",
+        conversationId: convo.id,
+        reply,
+        matchedRequirement: { id: Number(resolvedRequirementId), title: grounding.title, projectName: grounding.projectName },
+      });
+      return;
+    }
+
+    // ── Normal message ───────────────────────────────────────────────────
+    if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
+
+    let convo: typeof conversations.$inferSelect;
+    if (conversationId) {
+      const [existing] = await db.select().from(conversations).where(eq(conversations.id, Number(conversationId)));
+      if (!existing || existing.userId !== ctx.userId) { res.status(404).json({ error: "Conversation not found" }); return; }
+      convo = existing;
+    } else {
+      const [created] = await db.insert(conversations).values({
+        title: message.trim().slice(0, 80),
+        userId: ctx.userId,
+        entityType: null,
+        entityId: null,
+      }).returning();
+      convo = created;
+    }
+
+    await db.insert(messages).values({ conversationId: convo.id, role: "user", content: message.trim() });
+
+    // Already resolved earlier in this conversation — sticky, skip matching.
+    if (convo.entityId != null) {
+      const grounding = await buildRequirementGroundingBlock(convo.entityId);
+      if (!grounding) { res.status(404).json({ error: "Requirement not found" }); return; }
+      const history = await db.select({ role: messages.role, content: messages.content })
+        .from(messages).where(eq(messages.conversationId, convo.id)).orderBy(messages.createdAt);
+      // history includes the message just inserted above as its last item —
+      // drop it (it's passed separately as newMessage) and keep up to 10 prior.
+      const { reply } = await answerFromGrounding(grounding.block, message.trim(), history.slice(-11, -1));
+      await db.insert(messages).values({ conversationId: convo.id, role: "assistant", content: reply });
+      res.json({
+        status: "answered",
+        conversationId: convo.id,
+        reply,
+        matchedRequirement: { id: convo.entityId, title: grounding.title, projectName: grounding.projectName },
+      });
+      return;
+    }
+
+    // Not yet resolved — run matching against this message.
+    const match = await findMatchingRequirements(message.trim(), ctx);
+
+    if (match.outcome === "no_match") {
+      const reply = "I couldn't find a requirement matching that. Try mentioning the requirement's title or a specific detail from it.";
+      await db.insert(messages).values({ conversationId: convo.id, role: "assistant", content: reply });
+      res.json({ status: "no_match", conversationId: convo.id, reply });
+      return;
+    }
+
+    if (match.outcome === "ambiguous") {
+      const moreNote = match.totalMatches > match.candidates.length
+        ? ` (and ${match.totalMatches - match.candidates.length} more — try adding more detail to narrow it down)`
+        : "";
+      const text = `I found requirements that might match${moreNote}:`;
+      const content = JSON.stringify({ type: "disambiguation", text, candidates: match.candidates });
+      await db.insert(messages).values({ conversationId: convo.id, role: "assistant", content });
+      res.json({ status: "ambiguous", conversationId: convo.id, reply: text, candidates: match.candidates });
+      return;
+    }
+
+    // resolved on the first try
+    await db.update(conversations)
+      .set({ entityType: "requirement", entityId: match.requirement.id })
+      .where(eq(conversations.id, convo.id));
+    const grounding = await buildRequirementGroundingBlock(match.requirement.id);
+    if (!grounding) { res.status(404).json({ error: "Requirement not found" }); return; }
+    const { reply } = await answerFromGrounding(grounding.block, message.trim(), []);
+    await db.insert(messages).values({ conversationId: convo.id, role: "assistant", content: reply });
+    res.json({
+      status: "answered",
+      conversationId: convo.id,
+      reply,
+      matchedRequirement: { id: match.requirement.id, title: match.requirement.title, projectName: match.requirement.projectName },
+    });
+  } catch (error: any) {
+    console.error("Requirement Chat Error:", error);
+    res.status(500).json({ error: error.message || "An error occurred while communicating with the AI." });
+  }
+});
+
+router.get("/ai/requirement-chat/conversations", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const convos = await db.select().from(conversations)
+    .where(eq(conversations.userId, ctx.userId))
+    .orderBy(desc(conversations.createdAt));
+
+  const reqIds = convos.map((c) => c.entityId).filter((id): id is number => id != null);
+  const reqRows = reqIds.length
+    ? await db.select({ id: requirementsTable.id, title: requirementsTable.title, projectId: requirementsTable.projectId })
+        .from(requirementsTable).where(inArray(requirementsTable.id, reqIds))
+    : [];
+  const projectIds = reqRows.map((r) => r.projectId).filter((id): id is number => id != null);
+  const projRows = projectIds.length
+    ? await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, projectIds))
+    : [];
+  const projNameById = new Map(projRows.map((p) => [p.id, p.name]));
+  const reqById = new Map(reqRows.map((r) => [r.id, r]));
+
+  const result = await Promise.all(convos.map(async (c) => {
+    const [lastMsg] = await db.select({ content: messages.content })
+      .from(messages).where(eq(messages.conversationId, c.id))
+      .orderBy(desc(messages.createdAt)).limit(1);
+    const reqRow = c.entityId != null ? reqById.get(c.entityId) : undefined;
+    let snippet: string | null = null;
+    if (lastMsg?.content) {
+      try {
+        const parsed = JSON.parse(lastMsg.content);
+        snippet = parsed?.type === "disambiguation" ? parsed.text : lastMsg.content.slice(0, 120);
+      } catch {
+        snippet = lastMsg.content.slice(0, 120);
+      }
+    }
+    return {
+      id: c.id,
+      title: c.title,
+      resolvedRequirement: reqRow
+        ? { id: reqRow.id, title: reqRow.title, projectName: reqRow.projectId != null ? projNameById.get(reqRow.projectId) ?? null : null }
+        : null,
+      lastMessageSnippet: snippet,
+      createdAt: c.createdAt.toISOString(),
+    };
+  }));
+
+  res.json(result);
+});
+
+router.get("/ai/requirement-chat/conversations/:id/messages", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const convoId = Number(req.params.id);
+  const [convo] = await db.select().from(conversations).where(eq(conversations.id, convoId));
+  if (!convo || convo.userId !== ctx.userId) { res.status(404).json({ error: "Conversation not found" }); return; }
+
+  const rows = await db.select().from(messages).where(eq(messages.conversationId, convoId)).orderBy(messages.createdAt);
+  res.json(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, createdAt: m.createdAt.toISOString() })));
 });
 
 export default router;

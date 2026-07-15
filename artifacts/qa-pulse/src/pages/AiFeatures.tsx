@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -35,6 +35,9 @@ import {
   XCircle,
   RefreshCw,
   Upload,
+  MessageSquare,
+  Plus,
+  Send,
 } from "lucide-react";
 
 const API_BASE = () => getApiUrl();
@@ -51,6 +54,17 @@ async function callAiEndpoint(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+async function callAiGet(token: string | null, endpoint: string) {
+  const res = await fetch(`${API_BASE()}${endpoint}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -116,6 +130,114 @@ export default function AiFeatures() {
   });
   const [testDataResult, setTestDataResult] = useState<any>(null);
   const [testDataLoading, setTestDataLoading] = useState(false);
+
+  // CR039 — Requirement Q&A Chat: no picker, the backend auto-matches which
+  // requirement a message is about (or asks, if it's ambiguous).
+  const [chatConversationId, setChatConversationId] = useState<number | null>(null);
+  const [chatMessages, setChatMessages] = useState<
+    Array<{
+      role: "user" | "assistant";
+      content: string;
+      matchedRequirement?: { id: number; title: string; projectName: string | null };
+      candidates?: Array<{ id: number; title: string; projectName: string | null }>;
+    }>
+  >([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatHistoryList, setChatHistoryList] = useState<any[]>([]);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatScrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, chatLoading]);
+
+  const refreshChatHistory = () => {
+    callAiGet(token, "/ai/requirement-chat/conversations")
+      .then(setChatHistoryList)
+      .catch(() => setChatHistoryList([]));
+  };
+
+  useEffect(() => {
+    if (token) refreshChatHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const sendReqChat = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setChatLoading(true);
+    const isNewConversation = chatConversationId == null;
+    try {
+      const res = await callAiEndpoint(token, "/ai/requirement-chat", {
+        message: userMsg,
+        conversationId: chatConversationId ?? undefined,
+      });
+      setChatConversationId(res.conversationId);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, matchedRequirement: res.matchedRequirement, candidates: res.candidates },
+      ]);
+      if (isNewConversation) refreshChatHistory();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Chat Error", description: err.message });
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const resolveReqChatCandidate = async (candidate: { id: number; title: string; projectName: string | null }) => {
+    if (!chatConversationId) return;
+    setChatLoading(true);
+    try {
+      const res = await callAiEndpoint(token, "/ai/requirement-chat", {
+        conversationId: chatConversationId,
+        resolvedRequirementId: candidate.id,
+      });
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, matchedRequirement: res.matchedRequirement },
+      ]);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Chat Error", description: err.message });
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const loadReqChatConversation = async (id: number) => {
+    setChatConversationId(id);
+    setChatLoading(true);
+    try {
+      const msgs = await callAiGet(token, `/ai/requirement-chat/conversations/${id}/messages`);
+      setChatMessages(
+        msgs.map((m: any) => {
+          if (m.role === "assistant") {
+            try {
+              const parsed = JSON.parse(m.content);
+              if (parsed?.type === "disambiguation") {
+                return { role: "assistant", content: parsed.text, candidates: parsed.candidates };
+              }
+            } catch {
+              // plain text assistant reply, fall through
+            }
+          }
+          return { role: m.role, content: m.content };
+        }),
+      );
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Load Error", description: err.message });
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const startNewReqChat = () => {
+    setChatConversationId(null);
+    setChatMessages([]);
+    setChatInput("");
+  };
 
   const run = async <T,>(
     setLoading: (v: boolean) => void,
@@ -194,6 +316,13 @@ export default function AiFeatures() {
             >
               <TestTube className="w-3.5 h-3.5" />
               Test Data
+            </TabsTrigger>
+            <TabsTrigger
+              value="reqchat"
+              className="gap-1.5 justify-start sm:justify-center py-2"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Requirement Chat
             </TabsTrigger>
           </TabsList>
         </ScrollArea>
@@ -898,6 +1027,130 @@ export default function AiFeatures() {
                     </ScrollArea>
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="reqchat">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                Requirement Q&amp;A Chat
+              </CardTitle>
+              <CardDescription>
+                Ask a question about any requirement — no need to pick one, the
+                answer is grounded in its description, test cases, execution
+                results, defects, and discussion.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-xl flex flex-col h-[500px]">
+                <div className="flex items-center justify-between p-3 border-b bg-muted/40 shrink-0">
+                  <span className="text-sm font-medium">
+                    {chatConversationId ? "Conversation" : "History"}
+                  </span>
+                  {(chatMessages.length > 0 || chatConversationId) && (
+                    <Button variant="ghost" size="sm" onClick={startNewReqChat}>
+                      <Plus className="w-3.5 h-3.5 mr-1" /> New Chat
+                    </Button>
+                  )}
+                </div>
+
+                {chatMessages.length === 0 && !chatConversationId ? (
+                  <ScrollArea className="flex-1 p-3">
+                    {chatHistoryList.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-10">
+                        No past conversations yet. Ask a question below to start one.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {chatHistoryList.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => loadReqChatConversation(c.id)}
+                            className="w-full text-left p-3 rounded-lg border hover:bg-muted transition-colors"
+                          >
+                            <p className="text-sm font-medium">
+                              {c.resolvedRequirement
+                                ? `${c.resolvedRequirement.title}${c.resolvedRequirement.projectName ? ` · ${c.resolvedRequirement.projectName}` : ""}`
+                                : c.title}
+                            </p>
+                            {c.lastMessageSnippet && (
+                              <p className="text-xs text-muted-foreground truncate">{c.lastMessageSnippet}</p>
+                            )}
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              {new Date(c.createdAt).toLocaleString()}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </ScrollArea>
+                ) : (
+                  <ScrollArea className="flex-1 p-3">
+                    <div className="space-y-4">
+                      {chatMessages.map((m, i) => (
+                        <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                          {m.role === "assistant" && m.matchedRequirement && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-primary bg-primary/10 rounded px-2 py-0.5">
+                              <FileSearch className="w-3 h-3" />
+                              {m.matchedRequirement.title}
+                              {m.matchedRequirement.projectName ? ` · ${m.matchedRequirement.projectName}` : ""}
+                            </span>
+                          )}
+                          <div
+                            className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                              m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
+                            }`}
+                          >
+                            {m.content}
+                          </div>
+                          {m.role === "assistant" && m.candidates && m.candidates.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {m.candidates.map((c) => (
+                                <button
+                                  key={c.id}
+                                  disabled={chatLoading}
+                                  onClick={() => resolveReqChatCandidate(c)}
+                                  className="text-xs px-3 py-1.5 rounded-full border hover:bg-muted transition-colors disabled:opacity-50"
+                                >
+                                  {c.title}
+                                  {c.projectName ? ` · ${c.projectName}` : ""}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div className="bg-muted rounded-xl px-4 py-3 w-fit">
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                      <div ref={chatScrollRef} />
+                    </div>
+                  </ScrollArea>
+                )}
+
+                <div className="flex gap-2 p-3 border-t shrink-0">
+                  <Input
+                    placeholder="Ask about any requirement..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendReqChat();
+                      }
+                    }}
+                    disabled={chatLoading}
+                  />
+                  <Button onClick={sendReqChat} disabled={chatLoading || !chatInput.trim()} size="icon">
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

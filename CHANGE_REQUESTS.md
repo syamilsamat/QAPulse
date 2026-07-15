@@ -46,6 +46,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 🟡 Implemented, deploy pending | 2026-07-14 |
 | [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 🟡 Implemented, deploy pending | 2026-07-15 |
 | [CR038](#cr038--qa_manager-department-wide-access--utilization-) | qa_manager Department-Wide Access & Utilization % | ✅ Deployed | 2026-07-15 |
+| [CR039](#cr039--requirement-qa-chat) | Requirement Q&A Chat | ✅ Deployed | 2026-07-15 |
 
 ---
 
@@ -1159,3 +1160,56 @@ Parked in CR034, CR036, and CR037 pending a decision on whether QAPulse models p
 - **Deliberately not added to the Resources page (CR034).** That page has no hours signal at all for any department, and QA/FA specifically have no natural hours-estimate source (execution PIC / requirement authorship don't carry effort estimates) — utilization there would need an entirely different proxy metric, not just this capacity-model decision. Only Dev/PM (task-based `estimatedHours`) get this column, on the page that already had the underlying data.
 
 **Scope:** `artifacts/api-server/src/middleware/access.ts` (2 threshold changes + doc comments), `artifacts/api-server/src/routes/dashboard.ts` (`WEEKLY_CAPACITY_HOURS`, `utilizationPct`), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (`CapacityEntry` type, Utilization column). No schema changes, no migration.
+
+---
+
+### CR039 — Requirement Q&A Chat
+**Status:** ✅ Deployed
+
+Today's AI Hub (`AiFeatures.tsx`) is six fixed one-shot tools (Req Analyzer, Edge Cases, Duplicate Check, Coverage Gap, Weekly Summary, Test Data) — one button in, one fixed JSON report out. There's also a separate floating chat widget app-wide (`GlobalQACopilot`, `Layout.tsx`), but it's completely ungrounded — zero database queries, generic assistant, history in `localStorage` only. Neither let a user ask a free-form question and get an answer grounded in one specific requirement's actual stored data (description, linked test cases, execution results, linked defects, review history, discussion comments).
+
+**Explicitly separate from:** the existing `GlobalQACopilot` widget, which stays a generic ungrounded assistant — this is a new, dedicated, requirement-scoped tool, not an extension of that one.
+
+---
+
+**Design — no picker, auto-match by keyword search.** The design changed during review from an explicit `SearchableSelect` requirement picker to a picker-free, auto-matching chat — a user just asks a question (e.g. "what's the min password length for login page") with no selection step beyond opening the tab:
+
+- **One always-visible chat box, no requirement picker.** On the first message of a new conversation, the backend extracts keywords from the message and searches requirement `title`/`description`/`acceptanceCriteria` (not just title — a real question rarely repeats the requirement's name) across every requirement the user can access. No project-scoping filter — search spans everything; ambiguity is resolved by asking, not by narrowing scope upfront.
+- **Three outcomes per first message:** zero matches → say so plainly; exactly one requirement scores highest → answer, grounded, and the conversation becomes **sticky** to that requirement for every later message (no re-matching); two or more requirements tie for the top score → return them as structured **candidates** rather than guess — the user picks by clicking a chip, not by the AI silently choosing one. This generalizes past "same title in two projects" — it also catches two *differently-titled* requirements in one project with conflicting values (e.g. "Requirement 1" says min password 3, "Requirement 1.9" says min password 8): content-based matching surfaces both, and the chat never silently picks one and presents it as fact. Arguably a feature — surfacing that two requirements disagree is a real spec-inconsistency signal.
+- **Disambiguation resolves by clicking a candidate**, not by re-parsing a free-text reply like "the second one" — the candidate list comes back as structured data and renders as clickable chips.
+- **No vector search / RAG.** One requirement's worth of linked data is small enough to fetch directly and inject wholesale into the prompt — same non-RAG pattern `/ai/coverage-gap` and `/ai/analyze-requirement` already use.
+- **New dedicated endpoint**, not an extension of `/ai/chat` — matches the precedent of CR037 adding `/ai/milestone-risk` as its own endpoint rather than overloading a neighbor.
+- **Persist conversation history**, reviving the existing-but-unused `conversations`/`messages` tables (found to be completely unwired — not exported from `schema/index.ts`, no bootstrap `CREATE TABLE` coverage at all, same class of gap CR037 caught once already for the `risks` table) rather than another ad-hoc `localStorage` pattern. Per-user — a personal AI scratchpad, not a shared thread (that's the existing Discussion tab on `RequirementDetail.tsx`).
+
+---
+
+**Data model** — extend the existing tables, no new ones (3 new columns, not 2 — corrected during build):
+```ts
+// conversations — added:
+userId: integer("user_id").notNull(),
+entityType: text("entity_type"), // null until resolved; "requirement" once matched — polymorphic-shaped like activityTable for future reuse
+entityId: integer("entity_id"),  // null while unresolved (ambiguous/no-match)
+```
+Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unchanged. `schema/index.ts` gained the missing `conversations`/`messages` export lines, and `roles.ts`'s `bootstrap()` gained `CREATE TABLE IF NOT EXISTS` coverage for both tables (they'd only ever existed via an early ad-hoc `drizzle-kit push` — a fresh database would have 500'd on these endpoints otherwise).
+
+**Grounding data fetched per requirement**: title/description/acceptance criteria/module, `reviewStatus` + `approvedBy`/`rejectedBy`, `devStatus`/`devAssigneeId` (CR030), linked library test cases, execution results, linked defects via `defectLinksTable` (CR031 requirement-source ones flagged distinctly as "[requirement-authoring defect]"), discussion thread comments. Assembled fresh per request, not cached.
+
+**Backend** (`artifacts/api-server/src/routes/ai.ts`):
+- `findMatchingRequirements(message, ctx)` — stopword-filtered keyword extraction, scored search (title ×3, description ×2, acceptance criteria ×2 per keyword hit) scoped via `scopeToUserProjects`, grouped by top score to classify `no_match` / `resolved` / `ambiguous` (up to 5 candidates returned).
+- `buildRequirementGroundingBlock(requirementId)` — the structured context block described above, reusing the `eq(table.requirementId, id)` idiom already used at `/ai/coverage-gap`/`/ai/analyze-requirement`.
+- `POST /ai/requirement-chat` — two request shapes on one route: `{ message, conversationId? }` for a new/continuing message (branches on already-resolved/sticky vs. not-yet-resolved → run matching → `no_match`/`ambiguous`/`resolved`), and `{ conversationId, resolvedRequirementId }` for resolving a disambiguation chip click (answers the original stored question against the newly-resolved requirement).
+- `GET /ai/requirement-chat/conversations` — this user's own past conversations, each with its resolved requirement (if any) and a last-message snippet.
+- `GET /ai/requirement-chat/conversations/:id/messages` — full message list, ownership-checked.
+- Auth: `getAuthContext` required on all three (for `userId` ownership, not an added authorization layer — matches the lighter sibling precedent of `/ai/analyze-requirement`/`/ai/coverage-gap`, which rely on `nav:ai-hub` gating alone).
+
+**Frontend** (`artifacts/qa-pulse/src/pages/AiFeatures.tsx`):
+- New 7th "Requirement Chat" tab — no picker, no requirement preview card. One header (label + "New Chat"), a message list, an input row.
+- An assistant message can carry a `matchedRequirement` badge (small pill above the bubble showing which requirement it answered from) or `candidates` (rendered as clickable chips instead of prose, for disambiguation).
+- History list (no active conversation) toggles with the live message thread (active conversation) — same panel, different content.
+- New local `callAiGet` helper (GET-capable sibling to the existing POST-only `callAiEndpoint`) — kept local to this file, no shared cross-page module, matching the repo's established per-page-duplication convention (`Layout.tsx` and this file already each keep their own `callAiEndpoint`).
+
+**Follow-up, same day — Requirement mode in the floating `GlobalQACopilot` widget.** Revisited the "stays generic by design" non-goal below: `Layout.tsx`'s floating widget gained a small General/Requirement mode toggle in its header, so the requirement-grounded chat is reachable from anywhere in the app, not just the AI Hub tab. Requirement mode is a separate persisted thread (own `conversationId`, own message array) from General mode's existing `localStorage`-backed thread — switching modes never loses either conversation. Reuses the exact same `/ai/requirement-chat` endpoints and message/badge/candidate-chip rendering as the AI Hub tab; General mode's own logic and `/ai/chat` backing are untouched. Deliberately kept minimal for the widget's size — no history-list browsing here (the AI Hub tab is still the place for that).
+
+**Non-goals:** no admin-facing browsing of other users' conversations; no project-scoping filter on the search (ambiguity is resolved by asking, confirmed as the intended behavior, not a gap to fix later); no reuse of `entityType`/`entityId` for anything beyond requirements in v1; no history-list browsing inside the floating widget's Requirement mode (AI Hub tab only).
+
+**Scope:** `lib/db/src/schema/conversations.ts` (3 new columns + 2 indexes), `lib/db/src/schema/index.ts` (missing exports), `artifacts/api-server/src/routes/roles.ts` (bootstrap table coverage), `artifacts/api-server/src/routes/ai.ts` (matching + grounding helpers, 3 new endpoints), `artifacts/qa-pulse/src/pages/AiFeatures.tsx` (new tab), `artifacts/qa-pulse/src/components/Layout.tsx` (Requirement mode toggle in the floating widget). Requires `pnpm --filter @workspace/db push` for existing dev databases (self-heals on fresh databases via the new bootstrap coverage).

@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // 1. Replaced MessageSquare with Bot
-import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon } from "lucide-react";
+import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon, FileSearch } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const API_BASE = () => getApiUrl();
@@ -88,6 +88,75 @@ function GlobalQACopilot() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // CR039 follow-up — Requirement mode, alongside the existing General mode.
+  // Separate state/thread so switching modes never loses either conversation.
+  // No history-list browsing here (kept minimal for the widget's size) — use
+  // the AI Hub's Requirement Chat tab for that.
+  const [chatMode, setChatMode] = useState<"general" | "requirement">("general");
+  const [reqChatConversationId, setReqChatConversationId] = useState<number | null>(null);
+  const [reqChatMessages, setReqChatMessages] = useState<
+    Array<{
+      role: "user" | "assistant";
+      content: string;
+      matchedRequirement?: { id: number; title: string; projectName: string | null };
+      candidates?: Array<{ id: number; title: string; projectName: string | null }>;
+    }>
+  >([]);
+  const [reqChatInput, setReqChatInput] = useState("");
+  const [reqChatLoading, setReqChatLoading] = useState(false);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [reqChatMessages, reqChatLoading]);
+
+  const sendReqChat = async () => {
+    if (!reqChatInput.trim()) return;
+    const userMsg = reqChatInput.trim();
+    setReqChatInput("");
+    setReqChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setReqChatLoading(true);
+    try {
+      const res = await callAiEndpoint(token, "/ai/requirement-chat", {
+        message: userMsg,
+        conversationId: reqChatConversationId ?? undefined,
+      });
+      setReqChatConversationId(res.conversationId);
+      setReqChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, matchedRequirement: res.matchedRequirement, candidates: res.candidates },
+      ]);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Chat Error", description: err.message });
+    } finally {
+      setReqChatLoading(false);
+    }
+  };
+
+  const resolveReqChatCandidate = async (candidate: { id: number; title: string; projectName: string | null }) => {
+    if (!reqChatConversationId) return;
+    setReqChatLoading(true);
+    try {
+      const res = await callAiEndpoint(token, "/ai/requirement-chat", {
+        conversationId: reqChatConversationId,
+        resolvedRequirementId: candidate.id,
+      });
+      setReqChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, matchedRequirement: res.matchedRequirement },
+      ]);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Chat Error", description: err.message });
+    } finally {
+      setReqChatLoading(false);
+    }
+  };
+
+  const startNewReqChat = () => {
+    setReqChatConversationId(null);
+    setReqChatMessages([]);
+    setReqChatInput("");
+  };
 
   useEffect(() => {
     if (user?.id && typeof window !== "undefined") {
@@ -177,12 +246,12 @@ function GlobalQACopilot() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              {chatMessages.length > 0 && (
+              {(chatMode === "general" ? chatMessages.length > 0 : reqChatMessages.length > 0) && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={startNewChat}
+                  onClick={chatMode === "general" ? startNewChat : startNewReqChat}
                   title="New Chat"
                 >
                   <Plus className="w-4 h-4" />
@@ -198,6 +267,25 @@ function GlobalQACopilot() {
               </Button>
             </div>
           </CardHeader>
+          <div className="flex border-b shrink-0 text-xs">
+            <button
+              onClick={() => setChatMode("general")}
+              className={`flex-1 py-1.5 text-center transition-colors ${
+                chatMode === "general" ? "font-medium border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              General
+            </button>
+            <button
+              onClick={() => setChatMode("requirement")}
+              className={`flex-1 py-1.5 text-center transition-colors ${
+                chatMode === "requirement" ? "font-medium border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Requirement
+            </button>
+          </div>
+          {chatMode === "general" ? (
           <CardContent className="flex-1 flex flex-col gap-3 min-h-0 p-3">
             <ScrollArea className="flex-1 pr-3 -mr-3">
               {chatMessages.length === 0 && (
@@ -281,6 +369,79 @@ function GlobalQACopilot() {
               </Button>
             </div>
           </CardContent>
+          ) : (
+          <CardContent className="flex-1 flex flex-col gap-3 min-h-0 p-3">
+            <ScrollArea className="flex-1 pr-3 -mr-3">
+              {reqChatMessages.length === 0 && (
+                <div className="text-center py-10 text-muted-foreground space-y-3">
+                  <FileSearch className="w-10 h-10 mx-auto opacity-30" />
+                  <p className="text-sm">
+                    Ask about any requirement — I'll find it automatically.
+                  </p>
+                </div>
+              )}
+              <div className="space-y-4">
+                {reqChatMessages.map((m, i) => (
+                  <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                    {m.role === "assistant" && m.matchedRequirement && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                        <FileSearch className="w-2.5 h-2.5" />
+                        {m.matchedRequirement.title}
+                        {m.matchedRequirement.projectName ? ` · ${m.matchedRequirement.projectName}` : ""}
+                      </span>
+                    )}
+                    <div
+                      className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                        m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
+                      }`}
+                    >
+                      {m.content}
+                    </div>
+                    {m.role === "assistant" && m.candidates && m.candidates.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {m.candidates.map((c) => (
+                          <button
+                            key={c.id}
+                            disabled={reqChatLoading}
+                            onClick={() => resolveReqChatCandidate(c)}
+                            className="text-[11px] px-2.5 py-1 rounded-full border hover:bg-muted transition-colors disabled:opacity-50"
+                          >
+                            {c.title}
+                            {c.projectName ? ` · ${c.projectName}` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {reqChatLoading && (
+                  <div className="bg-muted rounded-xl px-4 py-3 w-fit">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                <div ref={scrollRef} />
+              </div>
+            </ScrollArea>
+            <div className="flex gap-2 shrink-0 pt-2 border-t">
+              <Input
+                placeholder="Ask about any requirement..."
+                value={reqChatInput}
+                onChange={(e) => setReqChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendReqChat()}
+                disabled={reqChatLoading}
+                className="text-sm"
+              />
+              <Button
+                onClick={sendReqChat}
+                disabled={reqChatLoading || !reqChatInput.trim()}
+                size="icon"
+                className="shrink-0"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardContent>
+          )}
         </Card>
       ) : (
         /* 3. Updated main trigger button with specific hex code and text-white */

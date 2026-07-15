@@ -240,6 +240,41 @@ export async function bootstrap() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`);
 
+  // CR039 — Requirement Q&A Chat. conversations/messages predate bootstrap
+  // coverage entirely (existed only via an early ad-hoc drizzle-kit push,
+  // same class of gap CR037 found for `risks` above) — first bootstrap-owned
+  // entry for both. entity_type/entity_id stay null until a conversation
+  // resolves to a matched requirement.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      entity_type TEXT,
+      entity_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS conversations_entity_idx ON conversations (entity_type, entity_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations (user_id)`);
+  // ALTER path for a dev DB where conversations already exists from the old
+  // ad-hoc push (pre-dates user_id/entity_type/entity_id) — DEFAULT 0 on
+  // user_id only matters for that branch; the CREATE path above always
+  // starts from zero rows since the table was previously unused.
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS entity_type TEXT`);
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS entity_id INTEGER`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   for (const role of DEFAULT_ROLES) {
     await pool.query(
       `INSERT INTO roles (name, description, is_system, department, tier_rank) VALUES ($1, $2, $3, $4, $5)
