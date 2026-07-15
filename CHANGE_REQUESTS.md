@@ -21,7 +21,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | ✅ Deployed | 2026-07-04 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
-| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | 🟡 Partially Deployed | 2026-07-04 |
+| [CR014](#cr014--org-wide-role-hierarchy--project-level-access-control) | Org-wide Role Hierarchy & Project-Level Access Control | ✅ Deployed | 2026-07-15 |
 | [CR015](#cr015--per-requirement-ai-test-case-generation) | Per-Requirement AI Test Case Generation | ✅ Deployed | 2026-07-04 |
 | [CR016](#cr016--traceability-matrix-requirement-hierarchy) | Traceability Matrix Requirement Hierarchy | ✅ Deployed | 2026-07-03 |
 | [CR017](#cr017--milestonesprint-aware-traceability-matrix) | Milestone/Sprint-Aware Traceability Matrix | ✅ Deployed | 2026-07-06 |
@@ -43,8 +43,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR033](#cr033--pm-dashboard-ipecc-coverage-milestone-closing--risk-register) | PM Dashboard: IPECC Coverage (Milestone Closing + Risk Register) | ✅ Deployed | 2026-07-13 |
 | [CR034](#cr034--resource-management-project-scoped-capacity--milestone-focus) | Resource Management: Project-Scoped Capacity & Milestone Focus | ✅ Deployed | 2026-07-13 |
 | [CR035](#cr035--direct-project--module-access-assignment-replaces-team-based-project-access) | Direct Project & Module Access Assignment (replaces team-based project access) | ✅ Deployed | 2026-07-13 |
-| [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | 🟡 Implemented, deploy pending | 2026-07-14 |
-| [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | 🟡 Implemented, deploy pending | 2026-07-15 |
+| [CR036](#cr036--pm-quick-wins-verdict-report-rename-task-dependencies-overallocation-flag) | PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag | ✅ Deployed | 2026-07-15 |
+| [CR037](#cr037--ai-risk-predictor-milestone-level) | AI Risk Predictor (Milestone-Level) | ✅ Deployed | 2026-07-15 |
 | [CR038](#cr038--qa_manager-department-wide-access--utilization-) | qa_manager Department-Wide Access & Utilization % | ✅ Deployed | 2026-07-15 |
 | [CR039](#cr039--requirement-qa-chat) | Requirement Q&A Chat | ✅ Deployed | 2026-07-15 |
 | [CR040](#cr040--standalone-risk-register-page) | Standalone Risk Register Page | ✅ Deployed | 2026-07-15 |
@@ -231,7 +231,7 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 ---
 
 ### CR014 — Org-wide Role Hierarchy & Project-Level Access Control
-**Status:** 🟡 Partially Deployed (2026-07-04)
+**Status:** ✅ Deployed (completed 2026-07-15 — Parts 1–5 shipped incrementally 2026-07-04→05; the last open item, the Part 5 `qa_manager` scope-parity caveat, was closed by CR038, and the review-workflow gaps it pointed to were closed by CR023)
 **Source:** originally drafted on branch `claude/microsoft-login-integration-6cm4go` (as "PM/BA onboarding"; BA role renamed to Functional Analyst since this org merged Business Analyst and System Analyst into one title). Implementation landed on `main` independently of that branch (commits `d028150`, `795b878` + PR #293) — only CR013 (SSO) still lives on the unmerged branch.
 
 **Deployed (2026-07-04):**
@@ -1063,7 +1063,7 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 ---
 
 ### CR036 — PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag
-**Status:** 🟡 Implemented (2026-07-14) — awaiting Replit deploy + `db push` for the new `tasks.blocked_by_task_id` column (also covered by a bootstrap `ALTER TABLE` on server start)
+**Status:** ✅ Deployed (2026-07-15) — went live with the CR038+ deploys; the `tasks.blocked_by_task_id` column is bootstrap-covered (`ALTER TABLE ... IF NOT EXISTS` on server start), so no manual `db push` was needed
 
 **Implementation notes (2026-07-14):** All three parts built as specified below. Blocker resolution added to `formatTask` (`blockedByTaskName`/`blockedByTaskStatus`) so the badge grays out once the blocker is done. `validateBlocker` walks the chain with a visited set (bounded loop, no recursive CTE). On the Resources page the previous subtle green "on N milestones" label became the amber "Overallocated · N milestones" badge + row tint, with an "Overallocated only" checkbox filter. Rename covered the sidebar label, the standalone-PMO sidebar item, "Report Portal", and the "QMPulse — Report Dashboard" header.
 **Origin:** `docs/pmo-pain-points-review.md` — three of the four still-open items from that review, bundled as one low-risk deploy. The fourth (AI Risk Predictor, now unblocked by CR033's risk register) is deliberately **not** in this CR — it has a different risk profile (external AI dependency, prompt-quality iteration) and deserves its own rollback unit; it becomes CR037 when picked up. Utilization % is also excluded (see Non-goals).
@@ -1104,7 +1104,7 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 ---
 
 ### CR037 — AI Risk Predictor (Milestone-Level)
-**Status:** 🟡 Implemented (2026-07-15) — awaiting Replit deploy + `db push` for the new `milestone_risk_assessments` table (also covered by a bootstrap `CREATE TABLE` on server start)
+**Status:** ✅ Deployed (2026-07-15) — went live with the CR038+ deploys; the `milestone_risk_assessments` table is bootstrap-covered (`CREATE TABLE IF NOT EXISTS` on server start), so no manual `db push` was needed
 
 **Implementation notes (2026-07-15):** Built as planned. `POST /ai/milestone-risk` lives in `ai.ts` and imports the CR032 timeline machinery (`computeRequirementTimelines`/`summarizeTimelines`/`computeKpiMetrics`/`rollupExecutionByMilestone`, now exported from `dashboard.ts`) — the five-signal snapshot is computed server-side and the model only synthesizes. Any parse failure or non-enum risk level returns 502 "AI assessment unavailable," nothing is stored. History via `GET /milestones/:id/risk-assessments` (newest-first, limit 20). Card renders after the KPI row in the milestone drill-down with level badge, top-3 factors (Primary/Secondary weights), mitigation line, last-assessed stamp, and compact history chips. **Found and fixed in passing:** the CR033 `risks` table existed only via drizzle-kit push and was missing from the bootstrap SQL — a brand-new database's Risk Register would have 500'd; added the `CREATE TABLE IF NOT EXISTS risks` block alongside the new assessments table.
 **Depends on:** CR033 (risk register — the data model this was explicitly deferred for in `docs/pmo-pain-points-review.md`), CR032 (multi-cycle phase timeline — the rework-churn signal), CR020 (escape history), CR026 (defect trend queries to reuse).
