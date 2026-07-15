@@ -114,6 +114,47 @@ function labelForNavKey(key: string): string {
   return NAV_LABEL_BY_KEY[key] ?? key.replace(/^nav:/, "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// CR043 — static RACI overlay for the Access Matrix dialog. This is a
+// governance judgment (who is Responsible/Accountable/Consulted/Informed per
+// page), not data the system stores — deliberately hardcoded while the RACI
+// itself is young; revisit as a table only if it becomes a living artifact
+// that admins need to edit in-app. Roles absent from a key's entry (and
+// custom roles like a hand-added devops) simply have no RACI stake there.
+// Utility pages (inbox, team-hangouts, admin-search) carry no RACI at all.
+type RaciLetter = "R" | "A" | "C" | "I";
+
+const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
+  "nav:requirements":   { fa_member: "R", fa_lead: "A", qa_manager: "C", qa_lead: "C", qa_member: "C", dev_lead: "C", dev_member: "C", pm_lead: "C", hod_qa: "I", hod_fa: "I", hod_dev: "I", hod_pm: "I", cto: "I" },
+  "nav:test-cases":     { qa_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", fa_member: "C", dev_lead: "C", dev_member: "C", hod_qa: "I", hod_fa: "I", hod_dev: "I", hod_pm: "I", pm_lead: "I", cto: "I" },
+  "nav:traceability":   { qa_lead: "R", hod_qa: "A", qa_manager: "C", qa_member: "C", fa_lead: "C", pm_lead: "C", fa_member: "I", hod_fa: "I", hod_dev: "I", hod_pm: "I", cto: "I" },
+  "nav:tasks":          { qa_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", pm_lead: "C", hod_qa: "I", hod_fa: "I", hod_pm: "I", cto: "I" },
+  "nav:ai-hub":         { qa_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", hod_qa: "I", hod_fa: "I", cto: "I" },
+  "nav:report":         { qa_lead: "R", hod_qa: "A", qa_manager: "C", qa_member: "C", fa_lead: "I", fa_member: "I", hod_fa: "I", dev_lead: "I", dev_member: "I", hod_dev: "I", pm_lead: "I", hod_pm: "I", cto: "I" },
+  "nav:milestones":     { qa_lead: "R", pm_lead: "A", qa_manager: "C", qa_member: "C", fa_lead: "C", fa_member: "C", hod_qa: "I", hod_fa: "I", hod_pm: "I", cto: "I" },
+  "nav:pm-dashboard":   { pm_lead: "R", hod_pm: "A", pmo: "C", cto: "I" },
+  "nav:risk-register":  { pm_lead: "R", hod_pm: "A", qa_lead: "C", fa_lead: "C", pmo: "C", hod_qa: "I", hod_fa: "I", hod_dev: "I", cto: "I" },
+  "nav:qa-analytics":   { qa_lead: "R", qa_manager: "A", hod_qa: "I", cto: "I" },
+  "nav:defects":        { qa_member: "R", dev_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", fa_member: "C", dev_lead: "C", hod_qa: "I", hod_dev: "I", cto: "I" },
+  "nav:resources":      { qa_lead: "R", fa_lead: "R", dev_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", pm_lead: "C", cto: "I" },
+  "nav:configurations": { qa_lead: "R", hod_qa: "A", qa_manager: "C", pm_lead: "C", hod_fa: "I", hod_pm: "I", cto: "I" },
+  "nav:team":           { qa_lead: "R", fa_lead: "R", dev_lead: "R", pm_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", cto: "I" },
+  "nav:audit-log":      { admin: "R", cto: "I" },
+};
+
+const RACI_CELL_CLASS: Record<RaciLetter, string> = {
+  R: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  A: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
+  C: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  I: "text-muted-foreground",
+};
+
+const RACI_LEGEND: { letter: RaciLetter; label: string }[] = [
+  { letter: "R", label: "Responsible" },
+  { letter: "A", label: "Accountable" },
+  { letter: "C", label: "Consulted" },
+  { letter: "I", label: "Informed" },
+];
+
 const QUERY_KEY = ["roles"];
 
 export default function Roles() {
@@ -127,6 +168,7 @@ export default function Roles() {
   const [permRole, setPermRole] = useState<Role | null>(null);
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
   const [matrixOpen, setMatrixOpen] = useState(false);
+  const [matrixView, setMatrixView] = useState<"access" | "raci">("access");
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -205,6 +247,28 @@ export default function Roles() {
     },
     enabled: matrixOpen,
   });
+
+  function matrixCell(role: MatrixRole, key: string) {
+    const hasAccess = role.permissions.includes(key);
+    if (matrixView === "access") {
+      return hasAccess ? <Check className="w-4 h-4 text-primary inline" /> : null;
+    }
+    const letter = RACI_MAP[key]?.[role.name];
+    if (!letter) return hasAccess ? <span className="text-muted-foreground">·</span> : null;
+    if (letter === "I") return <span className={`text-xs ${RACI_CELL_CLASS.I}`}>I</span>;
+    const gap = !hasAccess;
+    return (
+      <span
+        className={`inline-flex items-center justify-center min-w-6 h-5 px-1 rounded text-xs font-semibold ${
+          gap ? "bg-red-500/15 text-red-600 dark:text-red-400 ring-1 ring-red-500" : RACI_CELL_CLASS[letter]
+        }`}
+        title={gap ? `${letter} — but no access (gap)` : letter}
+      >
+        {letter}
+        {gap ? "!" : ""}
+      </span>
+    );
+  }
 
   // Sync fetched permissions into selectedPerms when dialog opens
   const [permRoleIdLoaded, setPermRoleIdLoaded] = useState<number | null>(null);
@@ -646,6 +710,32 @@ export default function Roles() {
             </DialogDescription>
           </DialogHeader>
 
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-1">
+              <Button size="sm" variant={matrixView === "access" ? "default" : "outline"} onClick={() => setMatrixView("access")}>
+                Access
+              </Button>
+              <Button size="sm" variant={matrixView === "raci" ? "default" : "outline"} onClick={() => setMatrixView("raci")}>
+                RACI
+              </Button>
+            </div>
+            {matrixView === "raci" && (
+              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                {RACI_LEGEND.map(({ letter, label }) => (
+                  <span key={letter} className="flex items-center gap-1">
+                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-xs font-semibold ${RACI_CELL_CLASS[letter]}`}>{letter}</span>
+                    {label}
+                  </span>
+                ))}
+                <span className="flex items-center gap-1">
+                  <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded text-xs font-semibold bg-red-500/15 text-red-600 dark:text-red-400 ring-1 ring-red-500">R!</span>
+                  RACI role but no access (gap)
+                </span>
+                <span>· = access, no RACI stake</span>
+              </div>
+            )}
+          </div>
+
           {matrixLoading || !matrixData ? (
             <div className="py-6 text-sm text-muted-foreground text-center">Loading…</div>
           ) : (
@@ -679,7 +769,7 @@ export default function Roles() {
                             <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.name}</TableCell>
                             {matrixData.allKeys.map((key) => (
                               <TableCell key={key} className="text-center px-2">
-                                {role.permissions.includes(key) ? <Check className="w-4 h-4 text-primary inline" /> : null}
+                                {matrixCell(role, key)}
                               </TableCell>
                             ))}
                           </TableRow>
@@ -704,7 +794,7 @@ export default function Roles() {
                             <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.name}</TableCell>
                             {matrixData.allKeys.map((key) => (
                               <TableCell key={key} className="text-center px-2">
-                                {role.permissions.includes(key) ? <Check className="w-4 h-4 text-primary inline" /> : null}
+                                {matrixCell(role, key)}
                               </TableCell>
                             ))}
                           </TableRow>

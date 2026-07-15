@@ -50,6 +50,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR040](#cr040--standalone-risk-register-page) | Standalone Risk Register Page | ✅ Deployed | 2026-07-15 |
 | [CR041](#cr041--access-matrix-view--role-permission-endpoint-lockdown) | Access Matrix View + Role-Permission Endpoint Lockdown | ✅ Deployed | 2026-07-15 |
 | [CR042](#cr042--fa-department-access-to-defects) | FA Department Access to Defects | ✅ Deployed | 2026-07-15 |
+| [CR043](#cr043--raci-overlay-on-the-access-matrix) | RACI Overlay on the Access Matrix | ✅ Deployed | 2026-07-15 |
 
 ---
 
@@ -1276,3 +1277,19 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Deliberately unchanged:** raising requirement defects stays gated to `REQUIREMENT_DEFECT_ROLES` (dev/QA) — FA's RACI role is Consulted/receiver (they get assigned, fix, and resubmit via RequirementDetail), not raiser. Backend `GET /defects` needed no change (project-scoped, not department-gated).
 
 **Scope:** `artifacts/api-server/src/routes/roles.ts` (2 grants + backfill block), `artifacts/qa-pulse/src/components/Layout.tsx` (nav roles), `artifacts/qa-pulse/src/App.tsx` (route roles sync). No schema changes, no migration.
+
+---
+
+### CR043 — RACI Overlay on the Access Matrix
+**Status:** ✅ Deployed (2026-07-15)
+
+**Origin:** after CR041's Access Matrix shipped, the user expected to see the RACI letters from the access-review analysis in it — but RACI (Responsible/Accountable/Consulted/Informed per page × role) is a governance judgment, not data the system stores, so the live matrix could only ever show checkmarks. Decision: static overlay (option 1) — hardcode the RACI designation map in the frontend and add a view toggle — rather than a new editable table (option 2), which is only worth building if RACI becomes a living artifact admins maintain in-app.
+
+**Frontend (`artifacts/qa-pulse/src/pages/Roles.tsx`):**
+- `RACI_MAP`: hardcoded `Record<navKey, Record<roleName, "R"|"A"|"C"|"I">>` covering 15 of the 18 nav keys — utility pages (`nav:inbox`, `nav:team-hangouts`, `nav:admin-search`) deliberately carry no RACI. The designations mirror the access-review exercise (e.g. Requirements: fa_member R / fa_lead A; Risk Register: pm_lead R / hod_pm A / qa_lead+fa_lead C; Milestones' A on pm_lead and Verdict Report's A on hod_qa were flagged as debatable judgment calls at the time).
+- Access/RACI toggle in the matrix dialog. Access view unchanged (live checkmarks). RACI view: colored letter chips (R blue, A purple, C amber, I muted), red `X!`-style flag when an R/A/C role lacks the actual permission (live gap detection — the map is static but the gap check runs against real `role_nav_permissions` data), muted `·` for access with no RACI stake, and blank for custom roles (e.g. a hand-added `devops`) that have no RACI defined.
+- Legend row shown only in RACI view.
+
+**Non-goals:** no RACI editing, no RACI storage, no backend changes at all. When the org's RACI thinking changes, `RACI_MAP` is a code edit — that's the accepted trade-off of option 1.
+
+**Scope:** `artifacts/qa-pulse/src/pages/Roles.tsx` only. No schema changes, no migration.
