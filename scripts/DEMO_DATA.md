@@ -11,20 +11,28 @@ a real user.
 Two projects, each with a full sprint/release history:
 
 - **Customer Portal Revamp — DEMO** — auth, search, checkout, cart, wishlist
+  - Sprint 10 (completed — oldest benchmark row, fast QA turnaround)
+  - Sprint 11 (completed — one requirement rejected then approved, 75% first-pass)
   - Sprint 12 (completed, ~90% pass)
   - Sprint 13 (active, **overdue** — due 3 days ago, still incomplete)
   - Sprint 14 (planned, nothing executed yet)
 - **Mobile Banking App — DEMO** — fund transfer, statements, bill payment,
   biometrics, rewards
+  - SIT Phase 1 (completed — older benchmark row)
   - UAT Phase 1 (completed, ~95% pass)
   - Release 2.0 (active, **at risk** — due in 4 days, ~50% coverage)
   - Release 2.1 (planned)
 
+The three completed portal sprints (and two completed banking phases) exist
+so the PM Dashboard's **"Is this a pattern?"** benchmark table has real
+history to average — phase durations deliberately worsen Sprint 10 → 11 → 12
+so the trend tells a story.
+
 Plus: 6 users across the real role ladder (PM Lead, QA Lead, 2 QA Members,
-FA Lead, Dev Lead), 2 teams, ~25 requirements in a real parent/child
-hierarchy with FA review states (including one rejected → revised →
-resubmitted → approved, to show the full re-review flow), ~30 test cases,
-5 execution files (QA + UAT) with realistic pass/fail/blocked/not-run
+FA Lead, Dev Lead), 2 teams, ~37 requirements in a real parent/child
+hierarchy with FA review states (including rejected → revised →
+resubmitted → approved, to show the full re-review flow), ~38 test cases,
+10 execution files (QA + UAT) with realistic pass/fail/blocked/not-run
 results, 6 defects (including a production escape with root-cause
 classification and an auto-created regression test case), and 12 tasks
 spread across the team with a couple deliberately overdue.
@@ -52,6 +60,18 @@ QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-da
 
 Takes a minute or two — it's making several hundred real API calls, the same
 as a person clicking through the app would. Progress prints as it goes.
+
+Then run the backdate pass — everything above was just created "now", so
+without it the PM Dashboard's phase timeline and "Is this a pattern?"
+benchmark show 0-day phases:
+
+```bash
+DATABASE_URL=$DATABASE_URL npx tsx src/backdate-demo-activity.ts
+```
+
+It rewrites requirement/activity/execution timestamps (and completed
+milestones' `completedAt`) to the per-milestone anchors defined at the top
+of that script.
 
 All demo users share one password: `Demo@2026` (see `demo-data.ts`'s
 `DEMO_PASSWORD` if you change it). Their emails are all

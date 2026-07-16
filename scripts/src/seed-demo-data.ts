@@ -234,7 +234,7 @@ async function main() {
       // gives the History panel a real before/after diff to show.
       await api(`/requirements/${created.id}`, authorToken, {
         method: "PATCH",
-        body: { description: `${r.description} Cart merge rule: if the same item exists in both carts, quantities are summed (capped at available stock).` },
+        body: { description: r.revisedDescription ?? `${r.description} Cart merge rule: if the same item exists in both carts, quantities are summed (capped at available stock).` },
       });
       await api(`/requirements/${created.id}/review`, authorToken, {
         method: "PATCH", body: { action: "submit" },

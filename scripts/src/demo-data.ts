@@ -118,6 +118,21 @@ export interface DemoMilestone {
 }
 
 export const MILESTONES: DemoMilestone[] = [
+  // Older completed sprints — benchmark history for the PM Dashboard's
+  // "Is this a pattern?" trend table (it averages the last 5 completed
+  // milestones in the project). Phase durations worsen sprint over sprint
+  // (Sprint 10 → 11 → 12), so the table tells a visible story.
+  {
+    key: "sprint10", projectKey: "portal", name: "Sprint 10", type: "sprint", status: "completed", targetDate: "2026-04-15",
+    startDate: "2026-03-16", reqTargetDate: "2026-03-24", devTargetDate: "2026-04-03", qaTargetDate: "2026-04-10", uatTargetDate: "2026-04-15",
+    lessonsLearned: "Smoothest sprint of the quarter — small, well-sliced requirements meant QA turned everything around in under a week. Worth protecting this scope discipline as the team takes on the checkout work.",
+    closedByKey: "amir",
+  },
+  {
+    key: "sprint11", projectKey: "portal", name: "Sprint 11", type: "sprint", status: "completed", targetDate: "2026-05-13",
+    startDate: "2026-04-13", reqTargetDate: "2026-04-22", devTargetDate: "2026-05-04", qaTargetDate: "2026-05-09", uatTargetDate: "2026-05-13",
+    closedByKey: "amir",
+  },
   // Completed — all phase targets met, pills show grey (done). Carries
   // lessons learned, to show the "captured" state on the PM Dashboard.
   {
@@ -135,6 +150,13 @@ export const MILESTONES: DemoMilestone[] = [
   {
     key: "sprint14", projectKey: "portal", name: "Sprint 14", type: "sprint", status: "planned", targetDate: "2026-07-29",
     startDate: "2026-07-04", reqTargetDate: "2026-07-14", devTargetDate: "2026-07-19", qaTargetDate: "2026-07-22", uatTargetDate: "2026-07-29",
+  },
+  // Older completed phase — second benchmark row for the banking project's
+  // "Is this a pattern?" table.
+  {
+    key: "sit1", projectKey: "banking", name: "SIT Phase 1", type: "phase", status: "completed", targetDate: "2026-04-28",
+    startDate: "2026-03-28", reqTargetDate: "2026-04-06", devTargetDate: "2026-04-17", qaTargetDate: "2026-04-27", uatTargetDate: "2026-04-28",
+    closedByKey: "amir",
   },
   // Completed — phase targets all met. Closed but no lessons learned
   // captured yet, to show that state on the PM Dashboard too.
@@ -181,9 +203,81 @@ export interface DemoRequirement {
   reviewFlow: ReviewFlow;
   reviewerKey?: string;
   rejectComment?: string;
+  // reject-then-approve only — what the author changes the description to
+  // when revising in response to the reject comment. Falls back to a generic
+  // cart-merge clarification in seed-demo-data.ts if omitted.
+  revisedDescription?: string;
 }
 
 export const REQUIREMENTS: DemoRequirement[] = [
+  // ── Sprint 10 (Customer Portal, completed — oldest benchmark row) ───────
+  // All approved first-pass (100% first-pass rate in the trend table).
+  {
+    key: "r-register", projectKey: "portal", milestoneKey: "sprint10",
+    title: "Customer account registration", module: "Authentication", priority: "high",
+    description: "New customers can create a portal account with their email address and a password.",
+    acceptanceCriteria: [
+      "Registration requires a unique email address and a password meeting the strength policy",
+      "A verification email is sent before the account becomes active",
+    ],
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-pwd-reset", projectKey: "portal", milestoneKey: "sprint10", parentKey: "r-register",
+    title: "Password reset via email link", module: "Authentication", priority: "normal",
+    description: "Customers who forget their password can request a time-limited reset link by email.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-browse", projectKey: "portal", milestoneKey: "sprint10",
+    title: "Browse products by category", module: "Search", priority: "high",
+    description: "Customers can browse the catalog through a category tree without typing a search query.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-cart-add", projectKey: "portal", milestoneKey: "sprint10",
+    title: "Add product to shopping cart", module: "Cart", priority: "high",
+    description: "Customers can add a product to their cart from the product page and see the cart count update.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+
+  // ── Sprint 11 (Customer Portal, completed) ──────────────────────────────
+  // One reject-then-approve (75% first-pass rate — dips in the trend table).
+  {
+    key: "r-profile", projectKey: "portal", milestoneKey: "sprint11",
+    title: "Edit customer profile details", module: "Authentication", priority: "normal",
+    description: "Customers can update their display name, phone number, and default shipping address from a profile page.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-search-filter", projectKey: "portal", milestoneKey: "sprint11",
+    title: "Filter search results by price and rating", module: "Search", priority: "high",
+    description: "Search results can be narrowed with a price range slider and a minimum star-rating filter.",
+    acceptanceCriteria: [
+      "Filters apply without a full page reload",
+      "Active filters are shown as removable chips above the results",
+    ],
+    authorKey: "siti", reviewFlow: "reject-then-approve", reviewerKey: "nadia",
+    rejectComment: "The AC doesn't say how ties are ordered when two products have the same rating — QA can't write a deterministic expected result. Please define the tie-break rule.",
+    revisedDescription: "Search results can be narrowed with a price range slider and a minimum star-rating filter. Tie-break rule: products with equal rating are ordered by review count, then by newest first.",
+  },
+  {
+    key: "r-cart-qty", projectKey: "portal", milestoneKey: "sprint11",
+    title: "Update item quantity in cart", module: "Cart", priority: "normal",
+    description: "Customers can change the quantity of any cart line item, with the total recalculating immediately.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-checkout-reg", projectKey: "portal", milestoneKey: "sprint11",
+    title: "Checkout for registered customers", module: "Checkout", priority: "urgent",
+    description: "Logged-in customers can complete a purchase using their saved shipping address and payment method.",
+    acceptanceCriteria: [
+      "Saved address and payment method are pre-filled at checkout",
+      "Order appears in the customer's order history immediately after payment",
+    ],
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+
   // ── Sprint 12 (Customer Portal, completed) ──────────────────────────────
   {
     key: "r-login", projectKey: "portal", milestoneKey: "sprint12",
@@ -312,6 +406,30 @@ export const REQUIREMENTS: DemoRequirement[] = [
     authorKey: "siti", reviewFlow: "none",
   },
 
+  // ── SIT Phase 1 (Mobile Banking, completed — older benchmark row) ───────
+  {
+    key: "r-pin-login", projectKey: "banking", milestoneKey: "sit1",
+    title: "Secure 6-digit PIN login", module: "Authentication", priority: "high",
+    description: "Customers log in to the app with a 6-digit PIN, with the account locking after repeated failures.",
+    acceptanceCriteria: [
+      "PIN entry is masked and never stored in plain text",
+      "Three consecutive wrong PINs lock the app for 15 minutes",
+    ],
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-balance", projectKey: "banking", milestoneKey: "sit1",
+    title: "Account balance overview on home screen", module: "Statements", priority: "high",
+    description: "After login, the home screen shows current and available balance for every linked account.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+  {
+    key: "r-txn-history", projectKey: "banking", milestoneKey: "sit1",
+    title: "View past transfer history", module: "Fund Transfer", priority: "normal",
+    description: "Customers can view a chronological list of their past transfers with amount, date, and recipient.",
+    authorKey: "siti", reviewFlow: "approve", reviewerKey: "nadia",
+  },
+
   // ── UAT Phase 1 (Mobile Banking, completed) ─────────────────────────────
   {
     key: "r-transfer", projectKey: "banking", milestoneKey: "uat1",
@@ -427,6 +545,26 @@ export interface DemoTestCase {
 }
 
 export const TEST_CASES: DemoTestCase[] = [
+  // Sprint 10
+  { key: "tc-register-happy", requirementKey: "r-register", title: "Register a new account with a unique email", preconditions: "The email address is not yet registered.", testSteps: "1. Open the registration page\n2. Enter a unique email and a policy-compliant password\n3. Submit and follow the verification email link", expectedResult: "Account is created, the verification link activates it, and the customer can log in.", type: "automation_candidate", priority: "high", authorKey: "nadia" },
+  { key: "tc-register-dupe", requirementKey: "r-register", title: "Registration rejects an already-registered email", preconditions: "The email address is already registered.", testSteps: "1. Open the registration page\n2. Enter the already-registered email\n3. Submit", expectedResult: "Registration is blocked with a clear 'email already in use' message.", type: "manual", priority: "normal", authorKey: "farid" },
+  { key: "tc-pwd-reset", requirementKey: "r-pwd-reset", title: "Password reset link expires after its time limit", preconditions: "A reset link was requested more than 24 hours ago.", testSteps: "1. Request a password reset\n2. Wait past the link's expiry window\n3. Open the link", expectedResult: "The expired link is rejected and the customer is prompted to request a new one.", type: "manual", priority: "normal", authorKey: "farid" },
+  { key: "tc-browse-cat", requirementKey: "r-browse", title: "Category tree lists products of the selected category", preconditions: "Catalog contains products in the 'Accessories' category.", testSteps: "1. Open the category tree\n2. Select 'Accessories'", expectedResult: "Only products belonging to 'Accessories' are listed.", type: "automation_candidate", priority: "high", authorKey: "farid" },
+  { key: "tc-cart-add", requirementKey: "r-cart-add", title: "Adding a product updates the cart count", preconditions: "Customer is on a product page with an empty cart.", testSteps: "1. Click 'Add to cart'\n2. Observe the cart icon", expectedResult: "The cart count badge changes from 0 to 1 and the product is in the cart.", type: "automation_candidate", priority: "high", authorKey: "nadia" },
+
+  // Sprint 11
+  { key: "tc-profile-edit", requirementKey: "r-profile", title: "Profile changes persist after re-login", preconditions: "Customer is logged in.", testSteps: "1. Change the display name and phone number on the profile page\n2. Save\n3. Log out and log back in", expectedResult: "The updated details are shown after re-login.", type: "manual", priority: "normal", authorKey: "farid" },
+  { key: "tc-filter-price", requirementKey: "r-search-filter", title: "Price range filter narrows results", preconditions: "Catalog contains products priced both inside and outside RM50–RM100.", testSteps: "1. Search for a broad term\n2. Set the price slider to RM50–RM100", expectedResult: "Only products priced within RM50–RM100 remain in the results, without a page reload.", type: "automation_candidate", priority: "high", authorKey: "farid" },
+  { key: "tc-filter-rating", requirementKey: "r-search-filter", title: "Equal-rating products are ordered by review count", preconditions: "Two products share the same star rating with different review counts.", testSteps: "1. Apply a minimum-rating filter that includes both products\n2. Compare their order in the results", expectedResult: "The product with more reviews is listed first (tie-break rule).", type: "manual", priority: "normal", authorKey: "farid", aiAssisted: true },
+  { key: "tc-cart-qty", requirementKey: "r-cart-qty", title: "Quantity change recalculates the cart total", preconditions: "Cart contains one item with quantity 1.", testSteps: "1. Open the cart\n2. Change the item quantity to 3", expectedResult: "Line subtotal and cart total update immediately to 3× the unit price.", type: "automation_candidate", priority: "normal", authorKey: "nadia" },
+  { key: "tc-checkout-reg", requirementKey: "r-checkout-reg", title: "Registered checkout pre-fills saved details", preconditions: "Customer has a saved address and payment method.", testSteps: "1. Add an item to cart\n2. Proceed to checkout while logged in", expectedResult: "Saved shipping address and payment method are pre-filled; order completes and appears in order history.", type: "automation_candidate", priority: "urgent", authorKey: "nadia" },
+
+  // SIT Phase 1 (Banking)
+  { key: "tc-pin-login-ok", requirementKey: "r-pin-login", title: "Correct PIN logs the customer in", preconditions: "Customer has an activated app profile with a set PIN.", testSteps: "1. Launch the app\n2. Enter the correct 6-digit PIN", expectedResult: "Customer lands on the home screen with their accounts visible.", type: "automation_candidate", priority: "high", authorKey: "weiling" },
+  { key: "tc-pin-lockout", requirementKey: "r-pin-login", title: "Three wrong PINs lock the app for 15 minutes", preconditions: "Customer has a set PIN and the app is not currently locked.", testSteps: "1. Enter a wrong PIN three times in a row\n2. Attempt a fourth login with the correct PIN", expectedResult: "The fourth attempt is blocked with a lockout message showing the remaining wait time.", type: "manual", priority: "high", authorKey: "weiling" },
+  { key: "tc-balance-home", requirementKey: "r-balance", title: "Home screen shows balances for all linked accounts", preconditions: "Customer has two linked accounts.", testSteps: "1. Log in\n2. Inspect the home screen account cards", expectedResult: "Both accounts appear with correct current and available balances.", type: "manual", priority: "high", authorKey: "weiling" },
+  { key: "tc-txn-history", requirementKey: "r-txn-history", title: "Transfer history lists transfers newest first", preconditions: "Account has at least 5 past transfers.", testSteps: "1. Open Transfer history\n2. Check the ordering and details of the entries", expectedResult: "Transfers are listed newest first with amount, date, and recipient shown for each.", type: "manual", priority: "normal", authorKey: "weiling" },
+
   // Sprint 12
   { key: "tc-login-valid", requirementKey: "r-login", title: "Login succeeds with valid credentials", preconditions: "A registered, active customer account exists.", testSteps: "1. Go to the login page\n2. Enter the registered email and correct password\n3. Click Sign In", expectedResult: "User is redirected to the dashboard and their name appears in the header.", type: "automation_candidate", priority: "high", authorKey: "nadia" },
   { key: "tc-login-invalid", requirementKey: "r-login", title: "Login fails with wrong password", preconditions: "A registered, active customer account exists.", testSteps: "1. Go to the login page\n2. Enter the registered email with an incorrect password\n3. Click Sign In", expectedResult: "A generic 'invalid email or password' error is shown; the specific wrong field is not revealed.", type: "manual", priority: "high", authorKey: "nadia" },
@@ -481,6 +619,59 @@ export interface DemoExecutionFile {
 }
 
 export const EXECUTION_FILES: DemoExecutionFile[] = [
+  // Sprint 10 — QA and UAT files, so the phase timeline gets a bounded QA
+  // segment (QA ends where UAT begins) and a UAT segment for the benchmark.
+  {
+    key: "ex-sprint10-qa", projectKey: "portal", milestoneKey: "sprint10",
+    redmineTicketId: "QA-1010", title: "Sprint 10 — Registration & Browse", fileType: "qa", tracker: "QA Testing", qaPic: "Farid Karim",
+    rows: [
+      { tcKey: "tc-register-happy", result: "Passed" },
+      { tcKey: "tc-register-dupe", result: "Passed" },
+      { tcKey: "tc-pwd-reset", result: "Failed", actualResult: "Reset link older than 24 hours still opened the reset form and accepted a new password." },
+      { tcKey: "tc-browse-cat", result: "Passed" },
+      { tcKey: "tc-cart-add", result: "Passed" },
+    ],
+  },
+  {
+    key: "ex-sprint10-uat", projectKey: "portal", milestoneKey: "sprint10",
+    redmineTicketId: "UAT-1010", title: "Sprint 10 — Registration UAT", fileType: "uat", tracker: "UAT", qaPic: "Amir Rahman",
+    rows: [
+      { tcKey: "tc-register-happy", result: "Passed" },
+      { tcKey: "tc-cart-add", result: "Passed" },
+    ],
+  },
+  // Sprint 11 — same QA + UAT pairing.
+  {
+    key: "ex-sprint11-qa", projectKey: "portal", milestoneKey: "sprint11",
+    redmineTicketId: "QA-1011", title: "Sprint 11 — Profile, Filters & Checkout", fileType: "qa", tracker: "QA Testing", qaPic: "Farid Karim",
+    rows: [
+      { tcKey: "tc-profile-edit", result: "Passed" },
+      { tcKey: "tc-filter-price", result: "Passed" },
+      { tcKey: "tc-filter-rating", result: "Failed", actualResult: "Equal-rating products came back in random order between refreshes — the review-count tie-break is not applied." },
+      { tcKey: "tc-cart-qty", result: "Passed" },
+      { tcKey: "tc-checkout-reg", result: "Passed" },
+    ],
+  },
+  {
+    key: "ex-sprint11-uat", projectKey: "portal", milestoneKey: "sprint11",
+    redmineTicketId: "UAT-1011", title: "Sprint 11 — Checkout UAT", fileType: "uat", tracker: "UAT", qaPic: "Amir Rahman",
+    rows: [
+      { tcKey: "tc-checkout-reg", result: "Passed" },
+      { tcKey: "tc-filter-price", result: "Passed" },
+    ],
+  },
+  // SIT Phase 1 (Banking) — QA-type file only; the QA segment closes at the
+  // milestone's (backdated) completion date.
+  {
+    key: "ex-sit1", projectKey: "banking", milestoneKey: "sit1",
+    redmineTicketId: "QA-2000", title: "SIT Phase 1 — Login & Balances", fileType: "qa", tracker: "QA Testing", qaPic: "Wei Ling Tan",
+    rows: [
+      { tcKey: "tc-pin-login-ok", result: "Passed" },
+      { tcKey: "tc-pin-lockout", result: "Passed" },
+      { tcKey: "tc-balance-home", result: "Passed" },
+      { tcKey: "tc-txn-history", result: "Failed", actualResult: "Transfers older than 90 days are missing from the list entirely instead of paginating." },
+    ],
+  },
   {
     key: "ex-sprint12", projectKey: "portal", milestoneKey: "sprint12",
     redmineTicketId: "QA-1012", title: "Sprint 12 — Auth & Search Regression", fileType: "qa", tracker: "QA Testing", qaPic: "Nadia Sulaiman",

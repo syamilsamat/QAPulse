@@ -58,6 +58,7 @@ const milestonesTable = pgTable("milestones", {
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
   uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
 const executionFilesTable = pgTable("execution_files", {
@@ -75,36 +76,43 @@ const executionTestCasesTable = pgTable("execution_test_cases", {
 
 // ── Timeline config per milestone ─────────────────────────────────────────
 // All values are "days before today". Must be strictly decreasing down each
-// column — created > submit > approve > devAssign > readyForQA > qaExec
+// column — created > submit > approve > devAssign > readyForQA > qaExec.
+// devAssign sits ~3 days after approve so the Gap phase is a small,
+// deliberate segment instead of an accident of jitter.
+// `completed` (completed milestones only) backdates milestones.completedAt —
+// without it the real PATCH transition stamps completedAt = seed time, which
+// makes every open-ended trailing phase (QA with no UAT file, UAT) run all
+// the way to "now" and dwarf the rest of the timeline.
 
 const ANCHORS: Record<string, {
   created: number;
   submit: number;
   approve: number;
-  devAssign: number;  // same as approve → 0d gap → gap bar hidden
+  devAssign: number;
   readyForQA: number;
   qaExec: number;    // when first QA execution result was recorded
   uatExec: number;   // when first UAT execution result was recorded — must
                       // stay well below qaExec so QA visibly finishes first
+  completed?: number; // completed milestones only — see note above
 }> = {
-  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 54, readyForQA: 37, qaExec: 34, uatExec: 29 },
-  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 24, readyForQA: 14, qaExec: 11, uatExec: 6  },
-  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 8,  readyForQA: 2,  qaExec: 1,  uatExec: 0  },
-  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 42, readyForQA: 21, qaExec: 18, uatExec: 12 },
-  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 10, readyForQA: 4,  qaExec: 2,  uatExec: 0  },
-  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 73, readyForQA: 49, qaExec: 45, uatExec: 39 },
+  // Portal — completed sprint history worsens 10 → 11 → 12 so the
+  // "Is this a pattern?" benchmark table tells a visible story.
+  "Sprint 10":   { created: 122, submit: 119, approve: 115, devAssign: 112, readyForQA: 102, qaExec: 99, uatExec: 95, completed: 92 },
+  "Sprint 11":   { created: 94,  submit: 91,  approve: 86,  devAssign: 83,  readyForQA: 70,  qaExec: 67, uatExec: 61, completed: 58 },
+  "Sprint 12":   { created: 60, submit: 57, approve: 54, devAssign: 51, readyForQA: 37, qaExec: 34, uatExec: 29, completed: 22 },
+  "Sprint 13":   { created: 28, submit: 26, approve: 24, devAssign: 21, readyForQA: 14, qaExec: 11, uatExec: 6  },
+  "Sprint 14":   { created: 12, submit: 10, approve: 8,  devAssign: 5,  readyForQA: 2,  qaExec: 1,  uatExec: 0  },
+  // Banking
+  "SIT Phase 1": { created: 110, submit: 107, approve: 103, devAssign: 100, readyForQA: 89, qaExec: 86, uatExec: 82, completed: 79 },
+  "Release 2.0": { created: 48, submit: 45, approve: 42, devAssign: 39, readyForQA: 21, qaExec: 18, uatExec: 12 },
+  "Release 2.1": { created: 14, submit: 12, approve: 10, devAssign: 7,  readyForQA: 4,  qaExec: 2,  uatExec: 0  },
+  "UAT Phase 1": { created: 80, submit: 77, approve: 73, devAssign: 70, readyForQA: 49, qaExec: 45, uatExec: 39, completed: 31 },
 };
 
 function daysAgo(n: number): Date {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d;
-}
-
-// Small jitter so requirements in the same milestone have slightly different
-// timestamps — looks natural in the per-requirement timeline view.
-function jitter(base: number, max = 2): number {
-  return base + Math.floor(Math.random() * (max + 1));
 }
 
 async function main() {
@@ -130,14 +138,21 @@ async function main() {
     for (const entry of milestoneManifest) {
       const demoM = MILESTONES.find((m) => (entry.label as string).startsWith(m.name));
       if (!demoM || (!demoM.startDate && !demoM.reqTargetDate && !demoM.devTargetDate && !demoM.qaTargetDate && !demoM.uatTargetDate)) continue;
+      // Backdate completedAt too — the seed's real PATCH transition stamped
+      // it "now", which would stretch every trailing phase to today.
+      const anchor = ANCHORS[demoM.name];
+      const completedAt = demoM.status === "completed" && anchor?.completed !== undefined
+        ? daysAgo(anchor.completed)
+        : undefined;
       await db.update(milestonesTable).set({
         startDate: demoM.startDate ? new Date(demoM.startDate) : null,
         reqTargetDate: demoM.reqTargetDate ? new Date(demoM.reqTargetDate) : null,
         devTargetDate: demoM.devTargetDate ? new Date(demoM.devTargetDate) : null,
         qaTargetDate: demoM.qaTargetDate ? new Date(demoM.qaTargetDate) : null,
         uatTargetDate: demoM.uatTargetDate ? new Date(demoM.uatTargetDate) : null,
+        ...(completedAt ? { completedAt } : {}),
       }).where(eq(milestonesTable.id, entry.id as number));
-      console.log(`  [${demoM.name}] start=${demoM.startDate} req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate} uat=${demoM.uatTargetDate}`);
+      console.log(`  [${demoM.name}] start=${demoM.startDate} req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate} uat=${demoM.uatTargetDate}${completedAt ? ` completed=${anchor!.completed}d ago` : ""}`);
     }
     console.log("");
 
@@ -196,13 +211,20 @@ async function main() {
       }
 
       const a = ANCHORS[anchorKey];
-      const createdAgo    = jitter(a.created);
-      const submitAgo     = jitter(a.submit);
-      const approveAgo    = jitter(a.approve);
-      const devAssignAgo  = jitter(a.devAssign);
-      const readyForQaAgo = jitter(a.readyForQA);
-      const qaExecAgo     = jitter(a.qaExec);
-      const uatExecAgo    = jitter(a.uatExec);
+      // ONE random offset per requirement, applied to every anchor — shifts
+      // each requirement's whole timeline by 0–2 days so rows don't align
+      // perfectly, without ever reordering events. (Jittering each anchor
+      // independently could put e.g. dev_assign before approve, which left
+      // the phase state machine stuck in "gap" until milestone completion —
+      // the source of the phantom multi-week Gap segments.)
+      const off = Math.floor(Math.random() * 3);
+      const createdAgo    = a.created    + off;
+      const submitAgo     = a.submit     + off;
+      const approveAgo    = a.approve    + off;
+      const devAssignAgo  = a.devAssign  + off;
+      const readyForQaAgo = a.readyForQA + off;
+      const qaExecAgo     = a.qaExec     + off;
+      const uatExecAgo    = a.uatExec    + off;
 
       // 1. Backdate the requirement row
       await db
@@ -213,17 +235,23 @@ async function main() {
 
       // 2. Backdate existing activity events
       const reqEvents = events.filter((e) => e.entityId === req.id).sort((a, b) => a.id - b.id);
-      // For requirements with multiple submit events (e.g. approve-then-edit:
-      // first submit before approve, second submit after dev-assign), assign
-      // timestamps in order so the sequence remains valid.
+      // Requirements with multiple submit events come from two flows that
+      // need different second-submit placement:
+      //  - reject-then-approve (has a reject event): the re-submit happened
+      //    BEFORE the approve → land it just before approveAgo, otherwise
+      //    the state machine sees a post-approve submit and opens a phantom
+      //    second Requirements cycle that runs to milestone completion.
+      //  - approve-then-edit (no reject): the re-submit is a genuine
+      //    mid-development rework → land it between devAssign and readyForQA.
       const submitEvents = reqEvents.filter((e) => e.type === "requirement_submit");
-      // resubmit mid-dev lands halfway between devAssign and readyForQA
-      const resubmitAgo = Math.round((devAssignAgo + readyForQaAgo) / 2);
+      const hasReject = reqEvents.some((e) => e.type === "requirement_reject");
+      const resubmitAgo = hasReject
+        ? approveAgo + 1
+        : Math.round((devAssignAgo + readyForQaAgo) / 2);
       let submitIdx = 0;
       for (const ev of reqEvents) {
         let target: Date | null = null;
         if (ev.type === "requirement_submit") {
-          // First submit = before approve; any further submit = re-submit mid-dev
           target = submitIdx === 0 ? daysAgo(submitAgo) : daysAgo(resubmitAgo);
           submitIdx++;
         } else if (ev.type === "requirement_approve")           target = daysAgo(approveAgo);
@@ -255,7 +283,9 @@ async function main() {
       // 4. Insert dev_ready_for_qa event if none exists.
       //    Skip for requirements that have a re-submit after dev-assign
       //    (approve-then-edit flow) — dev was blocked, never reached QA.
-      const hasResubmitAfterDev = submitEvents.length > 1;
+      //    A reject-then-approve requirement also has two submits, but both
+      //    happened before the approve — its dev ran to completion normally.
+      const hasResubmitAfterDev = submitEvents.length > 1 && !hasReject;
       const hasReadyForQa = reqEvents.some((e) => e.type === "requirement_dev_ready_for_qa");
       if (!hasReadyForQa && !hasResubmitAfterDev) {
         await db.insert(activityTable).values({
