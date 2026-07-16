@@ -49,6 +49,7 @@ interface Milestone {
   devTargetDate: string | null;
   qaTargetDate: string | null;
   uatTargetDate: string | null;
+  goLiveDate: string | null;
   lessonsLearned: string | null;
   closedBy: number | null;
   createdAt: string;
@@ -105,7 +106,7 @@ export default function Milestones() {
   const [filterProject, setFilterProject] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", lessonsLearned: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", lessonsLearned: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -131,7 +132,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", lessonsLearned: "" });
+    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", lessonsLearned: "" });
     setDialogOpen(true);
   };
 
@@ -147,6 +148,7 @@ export default function Milestones() {
       devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
       uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
+      goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
       lessonsLearned: m.lessonsLearned ?? "",
     });
     setDialogOpen(true);
@@ -168,6 +170,7 @@ export default function Milestones() {
         devTargetDate: form.devTargetDate || null,
         qaTargetDate: form.qaTargetDate || null,
         uatTargetDate: form.uatTargetDate || null,
+        goLiveDate: form.goLiveDate || null,
         lessonsLearned: form.lessonsLearned.trim() || null,
       };
       const res = editing
@@ -360,6 +363,10 @@ export default function Milestones() {
                 <div className="space-y-1">
                   <Label className="text-xs">UAT done by</Label>
                   <Input type="date" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Go-Live</Label>
+                  <Input type="date" value={form.goLiveDate} onChange={(e) => setForm({ ...form, goLiveDate: e.target.value })} />
                 </div>
               </div>
             </div>

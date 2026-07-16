@@ -58,6 +58,7 @@ const milestonesTable = pgTable("milestones", {
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
   uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
+  goLiveDate: timestamp("go_live_date", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
@@ -150,6 +151,7 @@ async function main() {
         devTargetDate: demoM.devTargetDate ? new Date(demoM.devTargetDate) : null,
         qaTargetDate: demoM.qaTargetDate ? new Date(demoM.qaTargetDate) : null,
         uatTargetDate: demoM.uatTargetDate ? new Date(demoM.uatTargetDate) : null,
+        goLiveDate: demoM.goLiveDate ? new Date(demoM.goLiveDate) : null,
         ...(completedAt ? { completedAt } : {}),
       }).where(eq(milestonesTable.id, entry.id as number));
       console.log(`  [${demoM.name}] start=${demoM.startDate} req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate} uat=${demoM.uatTargetDate}${completedAt ? ` completed=${anchor!.completed}d ago` : ""}`);

@@ -12,6 +12,10 @@ export const milestonesTable = pgTable("milestones", {
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
   uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
+  // Planned go-live (deployment) date — the last phase marker, set by the
+  // PM. Plan-only: there is no activity-log event stream behind it, so it
+  // renders as a target pill/marker, not a measured actual-duration phase.
+  goLiveDate: timestamp("go_live_date", { withTimezone: true }),
   // CR023p1.2 — needed to notify the milestone's PM on a linked requirement's rejection
   createdBy: integer("created_by"),
   // Auto-stamped when status transitions to 'completed' (and cleared if it

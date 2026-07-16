@@ -122,6 +122,7 @@ interface PhaseReport {
     devTargetDate?: string | null;
     qaTargetDate?: string | null;
     uatTargetDate?: string | null;
+    goLiveDate?: string | null;
   };
   phaseSummary: PhaseSummaryEntry[] | null;
   plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
@@ -994,6 +995,7 @@ function RequirementGanttChart({
   const allDates: Date[] = [now];
   if (milestone.startDate) allDates.push(new Date(milestone.startDate));
   if (milestone.targetDate) allDates.push(new Date(milestone.targetDate));
+  if (milestone.goLiveDate) allDates.push(new Date(milestone.goLiveDate));
   for (const p of planPhases) allDates.push(p.start, p.end);
   for (const r of withData) {
     for (const s of r.timeline) {
@@ -1015,6 +1017,9 @@ function RequirementGanttChart({
   const todayX = Math.min(Math.max(diffDays(axisStart, now) * GANTT_PX_PER_DAY, 0), trackWidth);
   const planEndX = milestone.targetDate
     ? Math.min(Math.max(diffDays(axisStart, new Date(milestone.targetDate)) * GANTT_PX_PER_DAY, 0), trackWidth)
+    : null;
+  const goLiveX = milestone.goLiveDate
+    ? Math.min(Math.max(diffDays(axisStart, new Date(milestone.goLiveDate)) * GANTT_PX_PER_DAY, 0), trackWidth)
     : null;
 
   const segmentBar = (key: string, ongoing: boolean, left: number, width: number, label: string, tooltip: string) => (
@@ -1056,6 +1061,14 @@ function RequirementGanttChart({
                   style={{ left: planEndX }}
                 >
                   Due · {format(new Date(milestone.targetDate!), "d MMM")}
+                </span>
+              )}
+              {goLiveX !== null && (
+                <span
+                  className="absolute top-1 -translate-x-1/2 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-600 text-white whitespace-nowrap"
+                  style={{ left: goLiveX }}
+                >
+                  Go-Live · {format(new Date(milestone.goLiveDate!), "d MMM")}
                 </span>
               )}
             </div>
@@ -1118,10 +1131,13 @@ function RequirementGanttChart({
             );
           })}
 
-          {/* Today + plan-end marker lines */}
+          {/* Today + plan-end + go-live marker lines */}
           <div className="absolute top-0 bottom-0 border-l border-foreground/40 pointer-events-none" style={{ left: GANTT_LABEL_WIDTH + todayX }} />
           {planEndX !== null && (
             <div className="absolute top-0 bottom-0 border-l border-dashed border-destructive/60 pointer-events-none" style={{ left: GANTT_LABEL_WIDTH + planEndX }} />
+          )}
+          {goLiveX !== null && (
+            <div className="absolute top-0 bottom-0 border-l border-dashed border-emerald-600/60 pointer-events-none" style={{ left: GANTT_LABEL_WIDTH + goLiveX }} />
           )}
         </div>
       </div>
@@ -1286,7 +1302,7 @@ export default function PmDashboard() {
                   <p className="text-sm font-medium mb-0.5">Where did the time go — {phaseReport?.milestone.name ?? "…"}</p>
                   <p className="text-xs text-muted-foreground">Plan vs actual phase durations, averaged across requirements.</p>
                 </div>
-                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate || phaseReport.milestone.uatTargetDate || phaseReport.milestone.targetDate) && (() => {
+                {phaseReport && (phaseReport.milestone.startDate || phaseReport.milestone.reqTargetDate || phaseReport.milestone.devTargetDate || phaseReport.milestone.qaTargetDate || phaseReport.milestone.uatTargetDate || phaseReport.milestone.goLiveDate || phaseReport.milestone.targetDate) && (() => {
                   const today = new Date();
                   const activeKeys = new Set(phaseReport.phaseSummary?.map(s => s.key) ?? []);
                   const pills = [
@@ -1296,6 +1312,7 @@ export default function PmDashboard() {
                     { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
                     { key: "uat", label: "UAT by", target: phaseReport.milestone.uatTargetDate },
                     { key: "end", label: "End", target: phaseReport.milestone.targetDate },
+                    { key: "golive", label: "Go-Live", target: phaseReport.milestone.goLiveDate },
                   ]
                     .filter(p => p.target)
                     .map(p => {
@@ -1305,7 +1322,7 @@ export default function PmDashboard() {
                         : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
                         : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
                         : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed"
-                        : (p.key === "uat" || p.key === "end") ? phaseReport.milestone.status === "completed" : false;
+                        : (p.key === "uat" || p.key === "end" || p.key === "golive") ? phaseReport.milestone.status === "completed" : false;
                       return { ...p, dt, late: past && !done };
                     });
 

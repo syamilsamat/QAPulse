@@ -167,6 +167,7 @@ async function main() {
         devTargetDate: m.devTargetDate ?? null,
         qaTargetDate: m.qaTargetDate ?? null,
         uatTargetDate: m.uatTargetDate ?? null,
+        goLiveDate: m.goLiveDate ?? null,
       },
     });
     milestoneIdByKey.set(m.key, milestone.id);
