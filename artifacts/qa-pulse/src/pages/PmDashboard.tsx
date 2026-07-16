@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Building2, Users, AlertTriangle, Clock, Archive, Quote, Sparkles } from "lucide-react";
+import { Loader2, Building2, Users, AlertTriangle, Clock, Archive, Quote, Sparkles, ChevronRight } from "lucide-react";
 import { RisksCard, CAN_WRITE_ROLES as RISK_WRITE_ROLES } from "@/components/RiskRegisterCard";
 import { format } from "date-fns";
 
@@ -98,6 +98,7 @@ interface RequirementPhaseEntry {
   id: number;
   title: string;
   status: string;
+  parentId: number | null;
   timeline: PhaseSegment[];
 }
 
@@ -932,6 +933,24 @@ function diffDays(a: Date, b: Date): number {
   return (b.getTime() - a.getTime()) / 86_400_000;
 }
 
+const GANTT_LEGEND: { key: string; label: string }[] = [
+  { key: "requirements", label: "Requirements" },
+  { key: "gap", label: "Gap" },
+  { key: "develop", label: "Develop" },
+  { key: "qa", label: "QA testing" },
+  { key: "uat", label: "UAT" },
+];
+
+// Diagonal hatching over the phase color marks a segment as still running —
+// a solid bar reads as finished work.
+const GANTT_ONGOING_HATCH = "repeating-linear-gradient(45deg, rgba(255,255,255,0.22) 0 4px, transparent 4px 8px)";
+
+function ganttStatusDot(status: string): string | null {
+  if (status.startsWith("Rejected")) return "bg-red-500";
+  if (status === "In review" || status === "Not yet approved") return "bg-amber-500";
+  return null; // approved rows carry no dot — only exceptions get flagged
+}
+
 function RequirementGanttChart({
   requirements,
   milestone,
@@ -944,10 +963,38 @@ function RequirementGanttChart({
     return <p className="text-sm text-muted-foreground">Not enough data yet — no requirements linked.</p>;
   }
 
+  // Waterfall order: roots sorted by when their first phase started, each
+  // followed by its children (indented) so the parent/child hierarchy reads
+  // as a WBS. A child whose parent isn't on the chart renders as a root.
+  const idsOnChart = new Set(withData.map((r) => r.id));
+  const firstStart = (r: RequirementPhaseEntry) => new Date(r.timeline[0].start).getTime();
+  const byStart = (a: RequirementPhaseEntry, b: RequirementPhaseEntry) => firstStart(a) - firstStart(b);
+  const emitWithChildren = (r: RequirementPhaseEntry, depth: number): { r: RequirementPhaseEntry; depth: number }[] => [
+    { r, depth },
+    ...withData.filter((c) => c.parentId === r.id).sort(byStart).flatMap((c) => emitWithChildren(c, depth + 1)),
+  ];
+  const orderedRows = withData
+    .filter((r) => r.parentId == null || !idsOnChart.has(r.parentId))
+    .sort(byStart)
+    .flatMap((r) => emitWithChildren(r, 0));
+
   const now = new Date();
+
+  // Baseline: the milestone's phase target dates, rendered as a "Plan" row
+  // so per-requirement bars can be read against the committed schedule.
+  const planPhases = ([
+    { key: "requirements", from: milestone.startDate, to: milestone.reqTargetDate },
+    { key: "develop", from: milestone.reqTargetDate, to: milestone.devTargetDate },
+    { key: "qa", from: milestone.devTargetDate, to: milestone.qaTargetDate },
+    { key: "uat", from: milestone.qaTargetDate, to: milestone.uatTargetDate },
+  ] as const)
+    .filter((p) => p.from && p.to && new Date(p.to) > new Date(p.from))
+    .map((p) => ({ key: p.key, start: new Date(p.from!), end: new Date(p.to!) }));
+
   const allDates: Date[] = [now];
   if (milestone.startDate) allDates.push(new Date(milestone.startDate));
   if (milestone.targetDate) allDates.push(new Date(milestone.targetDate));
+  for (const p of planPhases) allDates.push(p.start, p.end);
   for (const r of withData) {
     for (const s of r.timeline) {
       allDates.push(new Date(s.start));
@@ -970,56 +1017,132 @@ function RequirementGanttChart({
     ? Math.min(Math.max(diffDays(axisStart, new Date(milestone.targetDate)) * GANTT_PX_PER_DAY, 0), trackWidth)
     : null;
 
+  const segmentBar = (key: string, ongoing: boolean, left: number, width: number, label: string, tooltip: string) => (
+    <div
+      className={`absolute top-1 h-5 rounded ${PHASE_COLOR[key]} ${ongoing ? "opacity-70" : ""} flex items-center overflow-hidden`}
+      style={{ left, width, ...(ongoing ? { backgroundImage: GANTT_ONGOING_HATCH } : {}) }}
+      title={tooltip}
+    >
+      {width >= 56 && <span className="text-[10px] text-white font-medium px-1.5 truncate">{label}</span>}
+      {ongoing && <ChevronRight className="w-3 h-3 text-white/90 ml-auto mr-0.5 shrink-0" />}
+    </div>
+  );
+
   return (
-    <div className="overflow-x-auto border rounded-md">
-      <div className="relative" style={{ width: GANTT_LABEL_WIDTH + trackWidth }}>
-        <div className="flex border-b">
-          <div className="sticky left-0 z-20 bg-card shrink-0" style={{ width: GANTT_LABEL_WIDTH }} />
-          <div className="relative shrink-0" style={{ width: trackWidth, height: 22 }}>
-            {ticks.map((t, i) => (
-              <span key={i} className="absolute top-1 text-[10px] text-muted-foreground" style={{ left: t.x }}>{t.label}</span>
-            ))}
+    <div className="space-y-2">
+      <div className="overflow-x-auto border rounded-md">
+        <div className="relative" style={{ width: GANTT_LABEL_WIDTH + trackWidth }}>
+          {/* Gridlines behind everything (painted first) */}
+          {ticks.map((t, i) => (
+            <div key={i} className="absolute top-0 bottom-0 border-l border-border/50 pointer-events-none" style={{ left: GANTT_LABEL_WIDTH + t.x }} />
+          ))}
+
+          {/* Header: marker chips on top, date ticks below */}
+          <div className="flex border-b">
+            <div className="sticky left-0 z-20 bg-card shrink-0" style={{ width: GANTT_LABEL_WIDTH }} />
+            <div className="relative shrink-0" style={{ width: trackWidth, height: 42 }}>
+              {ticks.map((t, i) => (
+                <span key={i} className="absolute bottom-1 text-[10px] text-muted-foreground pl-1" style={{ left: t.x }}>{t.label}</span>
+              ))}
+              <span
+                className="absolute top-1 -translate-x-1/2 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-foreground text-background whitespace-nowrap"
+                style={{ left: todayX }}
+              >
+                Today · {format(now, "d MMM")}
+              </span>
+              {planEndX !== null && (
+                <span
+                  className="absolute top-[22px] -translate-x-1/2 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive text-white whitespace-nowrap"
+                  style={{ left: planEndX }}
+                >
+                  Due · {format(new Date(milestone.targetDate!), "d MMM")}
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* Baseline row from the milestone's phase target dates */}
+          {planPhases.length > 0 && (
+            <div className="flex items-center border-b bg-muted/30">
+              <div className="sticky left-0 z-20 bg-card shrink-0 px-2 py-1 text-[11px] italic text-muted-foreground" style={{ width: GANTT_LABEL_WIDTH }}>
+                Plan
+              </div>
+              <div className="relative shrink-0" style={{ width: trackWidth, height: 20 }}>
+                {planPhases.map((p) => {
+                  const left = diffDays(axisStart, p.start) * GANTT_PX_PER_DAY;
+                  const width = Math.max(diffDays(p.start, p.end) * GANTT_PX_PER_DAY, 4);
+                  return (
+                    <div
+                      key={p.key}
+                      className={`absolute top-1.5 h-2 rounded-sm ${PHASE_COLOR[p.key]} opacity-40`}
+                      style={{ left, width }}
+                      title={`Plan ${GANTT_LEGEND.find((l) => l.key === p.key)?.label}: ${format(p.start, "d MMM")} → ${format(p.end, "d MMM")}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {orderedRows.map(({ r, depth }) => {
+            const dot = ganttStatusDot(r.status);
+            return (
+              <div key={r.id} className="flex items-center border-b last:border-b-0">
+                <div
+                  className="sticky left-0 z-20 bg-card shrink-0 pr-2 py-1.5 text-xs font-medium flex items-center gap-1.5"
+                  style={{ width: GANTT_LABEL_WIDTH, paddingLeft: 8 + depth * 14 }}
+                  title={`${r.title} — ${r.status}`}
+                >
+                  {depth > 0 && <span className="text-muted-foreground shrink-0">└</span>}
+                  {dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />}
+                  <span className="truncate">{r.title}</span>
+                </div>
+                <div className="relative shrink-0" style={{ width: trackWidth, height: 28 }}>
+                  {r.timeline.map((s, i) => {
+                    const segStart = new Date(s.start);
+                    const segEnd = s.end ? new Date(s.end) : now;
+                    const left = diffDays(axisStart, segStart) * GANTT_PX_PER_DAY;
+                    const width = Math.max(diffDays(segStart, segEnd) * GANTT_PX_PER_DAY, 4);
+                    return (
+                      <span key={i}>
+                        {segmentBar(
+                          s.key, s.ongoing, left, width,
+                          `${s.label} · ${fmtDays(s.days)}d`,
+                          `${r.title} — ${s.label}: ${fmtDays(s.days)}d${s.ongoing ? " (ongoing)" : ""} · ${r.status}`,
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Today + plan-end marker lines */}
+          <div className="absolute top-0 bottom-0 border-l border-foreground/40 pointer-events-none" style={{ left: GANTT_LABEL_WIDTH + todayX }} />
+          {planEndX !== null && (
+            <div className="absolute top-0 bottom-0 border-l border-dashed border-destructive/60 pointer-events-none" style={{ left: GANTT_LABEL_WIDTH + planEndX }} />
+          )}
         </div>
-        {withData.map((r) => (
-          <div key={r.id} className="flex items-center border-b last:border-b-0">
-            <div
-              className="sticky left-0 z-20 bg-card shrink-0 px-2 py-1.5 text-xs font-medium truncate"
-              style={{ width: GANTT_LABEL_WIDTH }}
-              title={r.title}
-            >
-              {r.title}
-            </div>
-            <div className="relative shrink-0" style={{ width: trackWidth, height: 28 }}>
-              {r.timeline.map((s, i) => {
-                const segStart = new Date(s.start);
-                const segEnd = s.end ? new Date(s.end) : now;
-                const left = diffDays(axisStart, segStart) * GANTT_PX_PER_DAY;
-                const width = Math.max(diffDays(segStart, segEnd) * GANTT_PX_PER_DAY, 4);
-                return (
-                  <div
-                    key={i}
-                    className={`absolute top-1 h-5 rounded ${PHASE_COLOR[s.key]} ${s.ongoing ? "opacity-70" : ""}`}
-                    style={{ left, width }}
-                    title={`${s.label}: ${fmtDays(s.days)}d${s.ongoing ? " (ongoing)" : ""}`}
-                  />
-                );
-              })}
-            </div>
-          </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {GANTT_LEGEND.map((l) => (
+          <span key={l.key} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className={`w-2.5 h-2.5 rounded-sm ${PHASE_COLOR[l.key]}`} />
+            {l.label}
+          </span>
         ))}
-        <div
-          className="absolute top-0 bottom-0 border-l border-foreground/40 pointer-events-none"
-          style={{ left: GANTT_LABEL_WIDTH + todayX }}
-          title={`Today: ${format(now, "d MMM")}`}
-        />
-        {planEndX !== null && (
-          <div
-            className="absolute top-0 bottom-0 border-l border-dashed border-destructive/60 pointer-events-none"
-            style={{ left: GANTT_LABEL_WIDTH + planEndX }}
-            title={`Plan end: ${format(new Date(milestone.targetDate!), "d MMM")}`}
-          />
-        )}
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="w-2.5 h-2.5 rounded-sm bg-muted-foreground/60" style={{ backgroundImage: GANTT_ONGOING_HATCH }} />
+          Ongoing
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> In review
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Rejected
+        </span>
       </div>
     </div>
   );

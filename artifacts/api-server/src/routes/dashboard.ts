@@ -362,6 +362,7 @@ interface RequirementTimelineEntry {
   id: number;
   title: string;
   status: string;
+  parentId: number | null;
   timeline: PhaseSegment[];
 }
 
@@ -370,7 +371,7 @@ interface RequirementTimelineEntry {
 // no-N+1 discipline as the CR026 analytics endpoint.
 export async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
   const reqs = await db
-    .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, createdAt: requirementsTable.createdAt })
+    .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, parentId: requirementsTable.parentId, createdAt: requirementsTable.createdAt })
     .from(requirementsTable)
     .where(eq(requirementsTable.milestoneId, milestoneId));
   if (reqs.length === 0) return [];
@@ -424,7 +425,7 @@ export async function computeRequirementTimelines(milestoneId: number, milestone
       status = "Approved · awaiting QA";
     }
 
-    return { id: r.id, title: r.title, status, timeline };
+    return { id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline };
   });
 }
 
