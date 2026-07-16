@@ -42,6 +42,7 @@ export async function login(email: string, password: string): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -65,25 +66,41 @@ export interface ApiCallOptions {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// A single request may never respond at all (sleeping repl, wedged proxy) —
+// without this, fetch waits forever and the whole seed run silently hangs.
+const REQUEST_TIMEOUT_MS = 60_000;
+
 /** Authenticated JSON fetch. Throws with the response body on non-2xx.
- *  The API's apiLimiter (300 req/min per IP, artifacts/api-server/src/app.ts)
- *  is easily tripped by this script's several-hundred-call seed run — retry
- *  429s with exponential backoff instead of aborting the whole run. */
+ *  Retries with exponential backoff on: 429 (the API's apiLimiter, 300
+ *  req/min, is easily tripped by this script's several-hundred-call run),
+ *  502/503/504 (proxy blips), and network errors/timeouts — instead of
+ *  hanging forever or aborting the whole run on a transient failure. */
 export async function api<T = any>(path: string, token: string, opts: ApiCallOptions = {}): Promise<T> {
   const maxRetries = 5;
   let res!: Response;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    res = await fetch(`${getBaseUrl()}${path}`, {
-      method: opts.method ?? "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    });
-    if (res.status !== 429 || attempt === maxRetries) break;
     const waitMs = Math.min(2000 * 2 ** attempt, 15_000);
-    console.log(`  ...rate limited on ${opts.method ?? "GET"} ${path}, waiting ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+    try {
+      res = await fetch(`${getBaseUrl()}${path}`, {
+        method: opts.method ?? "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (e: any) {
+      if (attempt === maxRetries) {
+        throw new Error(`${opts.method ?? "GET"} ${path} got no response after ${maxRetries + 1} attempts: ${e?.message ?? e}`);
+      }
+      console.log(`  ...${opts.method ?? "GET"} ${path} ${e?.name === "TimeoutError" ? `timed out after ${REQUEST_TIMEOUT_MS / 1000}s` : `failed (${e?.message ?? e})`}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await sleep(waitMs);
+      continue;
+    }
+    const retriable = res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504;
+    if (!retriable || attempt === maxRetries) break;
+    console.log(`  ...${res.status} on ${opts.method ?? "GET"} ${path}, waiting ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
     await sleep(waitMs);
   }
   if (!res.ok) {
