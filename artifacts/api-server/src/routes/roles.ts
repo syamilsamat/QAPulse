@@ -157,6 +157,8 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
   // Planned go-live date — last phase marker on the PM Dashboard, set by the PM.
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`);
+  // Test environment (ENV1…ENV6) the milestone runs in, set by the PM.
+  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS environment TEXT`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);

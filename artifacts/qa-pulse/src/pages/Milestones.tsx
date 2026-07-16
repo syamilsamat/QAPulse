@@ -50,6 +50,7 @@ interface Milestone {
   qaTargetDate: string | null;
   uatTargetDate: string | null;
   goLiveDate: string | null;
+  environment: string | null;
   lessonsLearned: string | null;
   closedBy: number | null;
   createdAt: string;
@@ -77,6 +78,8 @@ const TYPE_OPTIONS = [
   { value: "phase", label: "Phase" },
   { value: "release", label: "Release" },
 ];
+
+const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
 
 const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
@@ -106,7 +109,7 @@ export default function Milestones() {
   const [filterProject, setFilterProject] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", lessonsLearned: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -132,7 +135,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", lessonsLearned: "" });
+    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
     setDialogOpen(true);
   };
 
@@ -149,6 +152,7 @@ export default function Milestones() {
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
       uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
       goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
+      environment: m.environment ?? "none",
       lessonsLearned: m.lessonsLearned ?? "",
     });
     setDialogOpen(true);
@@ -171,6 +175,7 @@ export default function Milestones() {
         qaTargetDate: form.qaTargetDate || null,
         uatTargetDate: form.uatTargetDate || null,
         goLiveDate: form.goLiveDate || null,
+        environment: form.environment === "none" ? null : form.environment,
         lessonsLearned: form.lessonsLearned.trim() || null,
       };
       const res = editing
@@ -266,10 +271,17 @@ export default function Milestones() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                {m.targetDate && (
-                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <CalendarDays className="w-3.5 h-3.5" />
-                    <span>Target: {format(new Date(m.targetDate), "dd MMM yyyy")}</span>
+                {(m.targetDate || m.environment) && (
+                  <div className="flex items-center justify-between gap-2">
+                    {m.targetDate ? (
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        <span>Target: {format(new Date(m.targetDate), "dd MMM yyyy")}</span>
+                      </div>
+                    ) : <span />}
+                    {m.environment && (
+                      <Badge variant="outline" className="text-[10px] font-mono shrink-0">{m.environment}</Badge>
+                    )}
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -333,13 +345,29 @@ export default function Milestones() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Target Date</Label>
-              <Input
-                type="date"
-                value={form.targetDate}
-                onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Target Date</Label>
+                <Input
+                  type="date"
+                  value={form.targetDate}
+                  onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Environment</Label>
+                <Select value={form.environment} onValueChange={(v) => setForm({ ...form, environment: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select environment" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not set</SelectItem>
+                    {ENVIRONMENT_OPTIONS.map((env) => (
+                      <SelectItem key={env} value={env}>{env}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>

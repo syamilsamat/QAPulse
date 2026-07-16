@@ -511,6 +511,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
     uatTargetDate: (milestone as any).uatTargetDate?.toISOString() ?? null,
     goLiveDate: (milestone as any).goLiveDate?.toISOString() ?? null,
+    environment: (milestone as any).environment ?? null,
   };
 
   const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);

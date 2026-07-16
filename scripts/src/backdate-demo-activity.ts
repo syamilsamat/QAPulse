@@ -59,6 +59,7 @@ const milestonesTable = pgTable("milestones", {
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
   uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
   goLiveDate: timestamp("go_live_date", { withTimezone: true }),
+  environment: text("environment"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
@@ -137,6 +138,7 @@ async function main() {
     // been restarted, the UPDATE below would crash on the missing column
     // and abort the whole backdate pass — leaving every phase at ~0 days.
     await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS environment TEXT`);
 
     // ── Step 0: patch phase target dates onto existing seeded milestones ──
     // Handles the case where milestones were seeded before this feature shipped.
@@ -158,6 +160,7 @@ async function main() {
         qaTargetDate: demoM.qaTargetDate ? new Date(demoM.qaTargetDate) : null,
         uatTargetDate: demoM.uatTargetDate ? new Date(demoM.uatTargetDate) : null,
         goLiveDate: demoM.goLiveDate ? new Date(demoM.goLiveDate) : null,
+        environment: demoM.environment ?? null,
         ...(completedAt ? { completedAt } : {}),
       }).where(eq(milestonesTable.id, entry.id as number));
       console.log(`  [${demoM.name}] start=${demoM.startDate} req=${demoM.reqTargetDate} dev=${demoM.devTargetDate} qa=${demoM.qaTargetDate} uat=${demoM.uatTargetDate}${completedAt ? ` completed=${anchor!.completed}d ago` : ""}`);

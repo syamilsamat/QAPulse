@@ -21,6 +21,8 @@ function canWrite(role: string) {
   return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(role);
 }
 
+const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
+
 function fmt(m: typeof milestonesTable.$inferSelect) {
   return {
     id: m.id,
@@ -35,6 +37,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     qaTargetDate: m.qaTargetDate?.toISOString() ?? null,
     uatTargetDate: m.uatTargetDate?.toISOString() ?? null,
     goLiveDate: m.goLiveDate?.toISOString() ?? null,
+    environment: m.environment ?? null,
     createdBy: m.createdBy ?? null,
     completedAt: m.completedAt?.toISOString() ?? null,
     lessonsLearned: m.lessonsLearned ?? null,
@@ -88,8 +91,11 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate } = req.body;
+  const { projectId, name, type = "cr", status = "planned", targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
+  if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
+    res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
+  }
 
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
   if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
@@ -106,6 +112,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     qaTargetDate: qaTargetDate ? new Date(qaTargetDate) : null,
     uatTargetDate: uatTargetDate ? new Date(uatTargetDate) : null,
     goLiveDate: goLiveDate ? new Date(goLiveDate) : null,
+    environment: environment ?? null,
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
@@ -162,6 +169,12 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
   if (req.body.uatTargetDate !== undefined) update.uatTargetDate = req.body.uatTargetDate ? new Date(req.body.uatTargetDate) : null;
   if (req.body.goLiveDate !== undefined) update.goLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
+  if (req.body.environment !== undefined) {
+    if (req.body.environment != null && !VALID_ENVIRONMENTS.includes(req.body.environment)) {
+      res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
+    }
+    update.environment = req.body.environment ?? null;
+  }
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.status !== undefined) {
     update.status = req.body.status;

@@ -16,6 +16,8 @@ export const milestonesTable = pgTable("milestones", {
   // PM. Plan-only: there is no activity-log event stream behind it, so it
   // renders as a target pill/marker, not a measured actual-duration phase.
   goLiveDate: timestamp("go_live_date", { withTimezone: true }),
+  // Test environment this milestone runs in ('ENV1'…'ENV6'), set by the PM.
+  environment: text("environment"),
   // CR023p1.2 — needed to notify the milestone's PM on a linked requirement's rejection
   createdBy: integer("created_by"),
   // Auto-stamped when status transitions to 'completed' (and cleared if it
