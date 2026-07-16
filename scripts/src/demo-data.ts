@@ -685,6 +685,17 @@ export const EXECUTION_FILES: DemoExecutionFile[] = [
       { tcKey: "tc-search-autocomplete", result: "Passed" },
     ],
   },
+  // Sprint 12 UAT — without a UAT-type file the completed milestone's
+  // actual bar has no UAT phase at all (phases only exist where execution
+  // rows of that file type exist).
+  {
+    key: "ex-sprint12-uat", projectKey: "portal", milestoneKey: "sprint12",
+    redmineTicketId: "UAT-1012", title: "Sprint 12 — Auth & Search UAT", fileType: "uat", tracker: "UAT", qaPic: "Amir Rahman",
+    rows: [
+      { tcKey: "tc-login-valid", result: "Passed" },
+      { tcKey: "tc-search-basic", result: "Passed" },
+    ],
+  },
   {
     key: "ex-sprint13-qa", projectKey: "portal", milestoneKey: "sprint13",
     redmineTicketId: "QA-1013", title: "Sprint 13 — Checkout & Cart", fileType: "qa", tracker: "QA Testing", qaPic: "Farid Karim",
@@ -702,6 +713,20 @@ export const EXECUTION_FILES: DemoExecutionFile[] = [
     rows: [
       { tcKey: "tc-guest-checkout-happy", result: "Passed" },
       { tcKey: "tc-guest-promo-valid", result: "Not Executed" },
+    ],
+  },
+  // UAT Phase 1's QA (SIT) run — without a QA-type file the milestone's
+  // actual bar jumps straight from Develop to UAT with no QA testing phase.
+  // The e-statement TC passing here while failing later in UAT also sets up
+  // the escape story.
+  {
+    key: "ex-uat1-qa", projectKey: "banking", milestoneKey: "uat1",
+    redmineTicketId: "QA-2001", title: "UAT Phase 1 — SIT Regression", fileType: "qa", tracker: "QA Testing", qaPic: "Wei Ling Tan",
+    rows: [
+      { tcKey: "tc-transfer-basic", result: "Passed" },
+      { tcKey: "tc-transfer-otp-valid", result: "Passed" },
+      { tcKey: "tc-transfer-limit", result: "Passed" },
+      { tcKey: "tc-estatement-download", result: "Passed" },
     ],
   },
   {

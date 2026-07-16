@@ -132,6 +132,12 @@ async function main() {
   const db = drizzle(pool);
 
   try {
+    // Self-heal: go_live_date is normally created by the server's bootstrap
+    // on startup, but if this script runs before the new server code has
+    // been restarted, the UPDATE below would crash on the missing column
+    // and abort the whole backdate pass — leaving every phase at ~0 days.
+    await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`);
+
     // ── Step 0: patch phase target dates onto existing seeded milestones ──
     // Handles the case where milestones were seeded before this feature shipped.
     console.log("Setting phase target dates on demo milestones...");

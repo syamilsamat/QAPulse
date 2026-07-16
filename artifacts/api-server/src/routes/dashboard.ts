@@ -259,7 +259,7 @@ const RELEVANT_EVENT_TYPES = [
 // closes that segment, no matter how many reject/revise/resubmit loops
 // (CR023) happened first. requirement_reject and requirement_dev_start are
 // intentionally not queried anywhere here — neither one moves a boundary.
-function computeTimelineFromEvents(
+export function computeTimelineFromEvents(
   requirementCreatedAt: Date,
   events: { type: string; createdAt: Date }[], // pre-filtered to RELEVANT_EVENT_TYPES, ascending
   qaExecTimes: Date[], // ascending
