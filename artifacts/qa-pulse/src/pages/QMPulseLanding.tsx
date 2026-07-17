@@ -12,11 +12,13 @@ import {
   Bug,
   ChevronDown,
   ClipboardList,
+  FileCheck,
   FileSpreadsheet,
   GitBranch,
-  Layers,
   PlayCircle,
+  Rocket,
   ShieldCheck,
+  Users,
   Workflow,
 } from "lucide-react";
 import PulseScene from "@/components/landing/PulseScene";
@@ -32,68 +34,86 @@ gsap.registerPlugin(ScrollTrigger);
 const FEATURES = [
   {
     icon: ClipboardList,
-    title: "Test Case Library",
-    desc: "Author, organise and version every test case — steps, expected results and modules in one searchable library.",
+    title: "Requirements & Review",
+    desc: "FAs author requirements with acceptance criteria, then walk them through a real review workflow — approve, reject, revise, re-review.",
   },
   {
     icon: PlayCircle,
-    title: "Execution Tracking",
-    desc: "Live pass / fail / blocked counts per run, per module, per ticket. Watch a release's heartbeat in real time.",
+    title: "Test Management",
+    desc: "A versioned test case library feeding QA and UAT execution runs — live pass / fail / blocked counts per milestone and environment.",
   },
   {
     icon: Bug,
-    title: "Defect Management",
-    desc: "Raise defects straight from a failing step, then drive CAPA and Pareto analysis from the full status history.",
-  },
-  {
-    icon: GitBranch,
-    title: "Deep Redmine Sync",
-    desc: "Tickets, projects and custom fields flow both ways. Your tracker and your QA workspace never drift apart.",
-  },
-  {
-    icon: Bot,
-    title: "AI-Assisted Authoring",
-    desc: "Draft test cases from requirements in seconds, with AI-assisted flags so reviewers always know the origin.",
+    title: "Defects & Escape Analysis",
+    desc: "Raise defects from a failing step, classify production escapes by root cause, and backfill regression tests automatically.",
   },
   {
     icon: BarChart3,
-    title: "PMO Report Portal",
-    desc: "Module-level summaries, verdict emails and styled Excel exports — reporting that builds itself.",
+    title: "PM Command Center",
+    desc: "Phase timelines, baseline-vs-actual Gantt, capacity and SPI — plus benchmark history that answers \"is this a pattern?\".",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Risk & Governance",
+    desc: "A living risk register, an audit trail on every action, and a role access matrix with RACI overlay — governance built in, not bolted on.",
+  },
+  {
+    icon: Bot,
+    title: "AI Copilots",
+    desc: "Generate test cases from requirements, draft verdicts, predict milestone risk and chat with your requirements — four copilots, one hub.",
   },
 ];
 
-const STEPS = [
-  {
-    icon: Layers,
-    step: "01",
-    title: "Plan",
-    desc: "Pull requirements and Redmine tickets into scoped projects with milestones and assigned resources.",
-  },
+const PHASES = [
   {
     icon: ClipboardList,
+    step: "01",
+    title: "Requirements",
+    color: "#a78bfa",
+    desc: "FAs author requirements with acceptance criteria — versioned, discussed and linked to everything downstream.",
+  },
+  {
+    icon: FileCheck,
     step: "02",
-    title: "Author",
-    desc: "Build the test case library — by hand or with AI assistance — mapped to modules and requirements.",
+    title: "Review",
+    color: "#f0abfc",
+    desc: "Submit, approve or reject with comments. Segregation of duties is enforced — nobody approves their own work.",
+  },
+  {
+    icon: GitBranch,
+    step: "03",
+    title: "Develop",
+    color: "#818cf8",
+    desc: "Approved work lands in the dev queue — assignment, blockers and the ready-for-QA handoff, all tracked.",
   },
   {
     icon: PlayCircle,
-    step: "03",
-    title: "Execute",
-    desc: "Run execution files per ticket. Every status change is audited for traceability and CAPA.",
+    step: "04",
+    title: "QA testing",
+    color: "#2dd4bf",
+    desc: "Execution files per milestone and environment. A failing step raises a defect with full context attached.",
   },
   {
-    icon: FileSpreadsheet,
-    step: "04",
-    title: "Report",
-    desc: "One click to verdict emails, PMO dashboards and review-logged Excel deliverables.",
+    icon: Users,
+    step: "05",
+    title: "UAT",
+    color: "#60a5fa",
+    desc: "Business sign-off runs in dedicated UAT files — same traceability, separate verdict.",
+  },
+  {
+    icon: Rocket,
+    step: "06",
+    title: "Go-live",
+    color: "#34d399",
+    desc: "The PM sets the go-live plan; dashboards track every phase against it, with risks and an AI read on delivery.",
   },
 ];
 
 const STATS = [
-  { value: 100, suffix: "%", label: "traceability, from requirement to verdict" },
-  { value: 6, suffix: "", label: "role-based portals in a single platform" },
-  { value: 40, suffix: "%", label: "less time spent assembling reports" },
-  { value: 1, suffix: "", label: "source of truth for your whole QA operation" },
+  { value: 100, suffix: "%", label: "traceability, from requirement to go-live" },
+  { value: 15, suffix: "", label: "roles governed by one access matrix" },
+  { value: 4, suffix: "", label: "AI copilots built into the platform" },
+  { value: 1, suffix: "", label: "source of truth for the whole delivery team" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -202,6 +222,21 @@ const QMPulseLanding: React.FC = () => {
         },
       );
 
+      // ECG pulse strip draws segment by segment as it scrolls into view —
+      // per-segment duration proportional to path length keeps the draw
+      // speed constant across the whole line.
+      const segs = gsap.utils.toArray<SVGPathElement>(".pulse-seg");
+      if (segs.length > 0) {
+        const stripTl = gsap.timeline({
+          scrollTrigger: { trigger: ".pulse-strip", start: "top 85%", end: "top 35%", scrub: 0.5 },
+        });
+        segs.forEach((p) => {
+          const len = p.getTotalLength();
+          gsap.set(p, { strokeDasharray: len, strokeDashoffset: len });
+          stripTl.to(p, { strokeDashoffset: 0, duration: len, ease: "none" });
+        });
+      }
+
       // Workflow spine draws itself while the section scrolls
       gsap.fromTo(
         ".workflow-spine",
@@ -286,7 +321,7 @@ const QMPulseLanding: React.FC = () => {
                 Features
               </a>
               <a href="#workflow" className="hover:text-teal-300 transition-colors">
-                Workflow
+                Lifecycle
               </a>
               <a href="#numbers" className="hover:text-teal-300 transition-colors">
                 Why QMPulse
@@ -309,19 +344,20 @@ const QMPulseLanding: React.FC = () => {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-400" />
               </span>
-              Quality Management Pulse
+              Quality-led delivery
             </div>
 
             <h1 className="mt-8 text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight leading-[1.05]">
-              <span className="hero-line block">The pulse of your</span>
+              <span className="hero-line block">One pulse.</span>
               <span className="hero-line block bg-gradient-to-r from-teal-300 via-cyan-300 to-sky-400 bg-clip-text text-transparent">
-                product quality.
+                From requirement to go-live.
               </span>
             </h1>
 
             <p className="hero-desc mt-7 max-w-2xl text-lg md:text-xl text-slate-300/90 leading-relaxed">
-              QMPulse unifies test cases, execution runs, defects and PMO reporting into one
-              live heartbeat — so your team always knows exactly how healthy the release is.
+              QMPulse connects FA requirements, dev handoffs, QA execution, UAT, defects,
+              risks and PMO reporting into one live system — so everyone from analyst to PM
+              sees the same truth.
             </p>
 
             <div className="mt-10 flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full max-w-xs sm:max-w-none sm:w-auto">
@@ -354,10 +390,11 @@ const QMPulseLanding: React.FC = () => {
                   The platform
                 </p>
                 <h2 className="mt-3 text-4xl md:text-5xl font-bold tracking-tight">
-                  Everything your QA team runs on
+                  One platform for the whole delivery team
                 </h2>
                 <p className="mt-4 text-lg text-slate-300/90">
-                  Six systems your team juggles today, beating as one.
+                  FA, dev, QA and PM working the same living data — not four tools stitched
+                  together with exports.
                 </p>
               </div>
 
@@ -380,16 +417,41 @@ const QMPulseLanding: React.FC = () => {
             </div>
           </section>
 
-          {/* ------------------------------------------------ workflow */}
+          {/* ------------------------------------------------ lifecycle */}
           <section id="workflow" className="relative py-24 md:py-32 px-5 sm:px-6">
             <div className="mx-auto max-w-4xl">
               <div className="reveal text-center">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-300">
-                  Workflow
+                  Lifecycle
                 </p>
                 <h2 className="mt-3 text-4xl md:text-5xl font-bold tracking-tight">
-                  From plan to verdict
+                  One heartbeat, six phases
                 </h2>
+                <p className="mt-4 text-lg text-slate-300/90">
+                  The same phases your PM Dashboard tracks — the landing page is an honest
+                  preview, not marketing art.
+                </p>
+              </div>
+
+              {/* ECG pulse strip — one colored spike per phase, drawn on scroll */}
+              <div className="pulse-strip reveal mt-14">
+                <svg viewBox="0 0 640 96" className="w-full block" aria-hidden="true">
+                  <line x1="0" y1="48" x2="640" y2="48" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+                  <path className="pulse-seg" d="M0 48 L60 48 L70 33 L80 59 L90 48 L106 48" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinejoin="round" />
+                  <path className="pulse-seg" d="M106 48 L166 48 L176 31 L186 61 L196 48 L212 48" fill="none" stroke="#f0abfc" strokeWidth="2.5" strokeLinejoin="round" />
+                  <path className="pulse-seg" d="M212 48 L272 48 L282 27 L292 63 L302 48 L318 48" fill="none" stroke="#818cf8" strokeWidth="2.5" strokeLinejoin="round" />
+                  <path className="pulse-seg" d="M318 48 L378 48 L388 23 L398 65 L408 48 L424 48" fill="none" stroke="#2dd4bf" strokeWidth="2.5" strokeLinejoin="round" />
+                  <path className="pulse-seg" d="M424 48 L484 48 L494 27 L504 61 L514 48 L530 48" fill="none" stroke="#60a5fa" strokeWidth="2.5" strokeLinejoin="round" />
+                  <path className="pulse-seg" d="M530 48 L588 48 L596 17 L604 48 L640 48" fill="none" stroke="#34d399" strokeWidth="2.5" strokeLinejoin="round" />
+                  <circle cx="596" cy="17" r="4" fill="#34d399" />
+                </svg>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-y-2 text-center mt-2">
+                  {PHASES.map((p) => (
+                    <span key={p.step} className="text-[11px] sm:text-xs font-semibold tracking-wide" style={{ color: p.color }}>
+                      {p.title}
+                    </span>
+                  ))}
+                </div>
               </div>
 
               <div className="workflow-list relative mt-14 md:mt-20">
@@ -397,7 +459,7 @@ const QMPulseLanding: React.FC = () => {
                 <div className="workflow-spine absolute left-5 md:left-1/2 -translate-x-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-teal-400 via-cyan-400/60 to-transparent" />
 
                 <div className="space-y-12 md:space-y-20">
-                  {STEPS.map((s, i) => (
+                  {PHASES.map((s, i) => (
                     <div
                       key={s.step}
                       className={`workflow-item relative flex items-center pl-14 md:pl-0 md:gap-16 ${
@@ -406,7 +468,7 @@ const QMPulseLanding: React.FC = () => {
                     >
                       <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 sm:p-7">
                         <div className="flex items-center gap-3">
-                          <span className="text-teal-300">
+                          <span style={{ color: s.color }}>
                             <s.icon className="w-6 h-6" />
                           </span>
                           <h3 className="text-xl sm:text-2xl font-semibold">{s.title}</h3>
@@ -416,7 +478,10 @@ const QMPulseLanding: React.FC = () => {
                         </p>
                       </div>
                       {/* node on the spine */}
-                      <span className="absolute left-5 md:left-1/2 -translate-x-1/2 grid place-items-center w-10 h-10 md:w-12 md:h-12 rounded-full border border-teal-400/40 bg-[#04070f] text-xs md:text-sm font-bold text-teal-300 shadow-lg shadow-teal-500/20">
+                      <span
+                        className="absolute left-5 md:left-1/2 -translate-x-1/2 grid place-items-center w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#04070f] text-xs md:text-sm font-bold"
+                        style={{ border: `1px solid ${s.color}66`, color: s.color }}
+                      >
                         {s.step}
                       </span>
                       <div className="hidden md:block flex-1" />
@@ -452,10 +517,10 @@ const QMPulseLanding: React.FC = () => {
                 </div>
                 <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-slate-400 border-t border-white/10 pt-8">
                   <span className="inline-flex items-center gap-2">
-                    <Workflow className="w-4 h-4 text-teal-300" /> Redmine-native integration
+                    <ShieldCheck className="w-4 h-4 text-teal-300" /> Audit trail on every action
                   </span>
                   <span className="inline-flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-teal-300" /> AI-assisted test authoring
+                    <Workflow className="w-4 h-4 text-teal-300" /> Integrates with Redmine
                   </span>
                   <span className="inline-flex items-center gap-2">
                     <FileSpreadsheet className="w-4 h-4 text-teal-300" /> Audit-ready Excel exports
@@ -473,8 +538,8 @@ const QMPulseLanding: React.FC = () => {
                 Feel the pulse.
               </h2>
               <p className="mt-5 text-lg text-slate-300/90">
-                Sign in and see the live heartbeat of your product quality — test cases,
-                executions, defects and reports, beating in one place.
+                Sign in and see your delivery's live heartbeat — requirements, tests,
+                defects, risks and go-live plans, beating in one place.
               </p>
               <button
                 onClick={goLogin}
@@ -493,7 +558,7 @@ const QMPulseLanding: React.FC = () => {
                 <Activity className="w-4 h-4 text-teal-400" />
                 QMPulse — Quality Management Pulse
               </span>
-              <span>© 2026 QMPulse. The pulse of your product quality.</span>
+              <span>© 2026 QMPulse. One pulse — from requirement to go-live.</span>
             </div>
           </footer>
         </main>
