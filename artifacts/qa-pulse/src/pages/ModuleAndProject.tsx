@@ -1579,11 +1579,59 @@ interface ProjectMemberRow {
   name: string;
   email: string;
   role: string;
-  moduleId: number | null;
-  moduleName: string | null;
+  moduleIds: number[];
+  moduleNames: string[];
   assignedBy: number | null;
   assignedByName: string | null;
   assignedAt: string | null;
+}
+
+// CR044 — multi-select module scope picker. Empty selection = whole project.
+function ModuleScopeSelect({ modules, selected, onChange }: {
+  modules: ExecutionModule[];
+  selected: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = (id: number) =>
+    onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+
+  const label = selected.length === 0
+    ? "Whole project"
+    : selected.length === 1
+      ? modules.find(m => m.id === selected[0])?.name ?? "1 module"
+      : `${selected.length} modules`;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={open} className="w-52 justify-between font-normal">
+          <span className="truncate">{label}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search modules…" />
+          <CommandList>
+            <CommandEmpty>No modules found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem onSelect={() => { onChange([]); setOpen(false); }}>
+                <Check className={`mr-2 h-4 w-4 ${selected.length === 0 ? "opacity-100" : "opacity-0"}`} />
+                Whole project
+              </CommandItem>
+              {modules.map(m => (
+                <CommandItem key={m.id} onSelect={() => toggle(m.id)}>
+                  <Check className={`mr-2 h-4 w-4 ${selected.includes(m.id) ? "opacity-100" : "opacity-0"}`} />
+                  {m.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function paApi(path: string, token: string | null) {
@@ -1658,7 +1706,7 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
   });
 
   const [assignUserId, setAssignUserId] = useState("");
-  const [assignModuleId, setAssignModuleId] = useState("whole");
+  const [assignModuleIds, setAssignModuleIds] = useState<number[]>([]);
 
   const refreshProject = () => {
     queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
@@ -1676,11 +1724,11 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
 
   const handleAssign = async () => {
     if (!projectId || !assignUserId) { toast({ variant: "destructive", title: "Select someone to assign" }); return; }
-    const body = { userId: Number(assignUserId), moduleId: assignModuleId === "whole" ? null : Number(assignModuleId) };
+    const body = { userId: Number(assignUserId), moduleIds: assignModuleIds };
     const res = await paApiWrite(`/projects/${projectId}/members`, token, { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) { const d = await res.json().catch(() => ({})); toast({ variant: "destructive", title: d.error ?? "Failed to assign" }); return; }
     toast({ title: "Access granted" });
-    setAssignUserId(""); setAssignModuleId("whole");
+    setAssignUserId(""); setAssignModuleIds([]);
     refreshProject();
   };
 
@@ -1769,9 +1817,15 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
                           {m.assignedAt ? ` · ${new Date(m.assignedAt).toLocaleDateString()}` : ""}
                         </p>
                       </div>
-                      <Badge variant={m.moduleName ? "outline" : "secondary"} className="text-[11px]">
-                        {m.moduleName ?? "Whole project"}
-                      </Badge>
+                      <div className="flex items-center gap-1 flex-wrap justify-end max-w-[40%]">
+                        {m.moduleNames.length === 0 ? (
+                          <Badge variant="secondary" className="text-[11px]">Whole project</Badge>
+                        ) : (
+                          m.moduleNames.map(name => (
+                            <Badge key={name} variant="outline" className="text-[11px]">{name}</Badge>
+                          ))
+                        )}
+                      </div>
                       <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => handleRemove(m.id)}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -1786,7 +1840,7 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium">Assign someone</CardTitle>
               <CardDescription>
-                {isAdmin ? "As admin you can assign anyone." : `You can assign people in your own department at your tier or below.`}
+                {isAdmin ? "As admin you can assign anyone." : `You can assign people in your own department at your tier or below.`} Pick one or more modules to scope their access, or leave it as Whole project.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex items-center gap-2 flex-wrap">
@@ -1798,13 +1852,10 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
                 searchPlaceholder="Search people…"
                 className="w-64"
               />
-              <SearchableSelect
-                value={assignModuleId}
-                onValueChange={setAssignModuleId}
-                options={[{ value: "whole", label: "Whole project" }, ...projectModules.map(m => ({ value: String(m.id), label: m.name }))]}
-                placeholder="Scope"
-                searchPlaceholder="Search modules…"
-                className="w-52"
+              <ModuleScopeSelect
+                modules={projectModules}
+                selected={assignModuleIds}
+                onChange={setAssignModuleIds}
               />
               <Button onClick={handleAssign} className="gap-2">
                 <UserPlus className="w-4 h-4" /> Assign

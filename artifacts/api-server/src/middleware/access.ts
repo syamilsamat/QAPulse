@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
   rolesTable,
@@ -84,7 +84,7 @@ export async function canAccessProject(userId: number, role: string, projectId: 
 
 export interface ModuleScope {
   restricted: boolean;
-  moduleName: string | null;
+  moduleNames: string[];
 }
 
 /**
@@ -99,22 +99,29 @@ export interface ModuleScope {
  * with department-wide project reach isn't still module-restricted within
  * an individual project they were previously given a narrower assignment
  * on).
+ *
+ * CR044 — a grant can now cover several modules (moduleIds array); legacy
+ * single-moduleId rows are read as a one-element list so pre-CR044 grants
+ * keep working without a data migration.
  */
 export async function getModuleScope(userId: number, role: string, projectId: number): Promise<ModuleScope> {
-  if (role === "admin") return { restricted: false, moduleName: null };
+  if (role === "admin") return { restricted: false, moduleNames: [] };
 
   const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
   const tierRank = roleRow?.tierRank ?? 1;
-  if (tierRank >= 3) return { restricted: false, moduleName: null };
+  if (tierRank >= 3) return { restricted: false, moduleNames: [] };
 
   const [assignment] = await db
-    .select({ moduleId: projectMembersTable.moduleId })
+    .select({ moduleId: projectMembersTable.moduleId, moduleIds: projectMembersTable.moduleIds })
     .from(projectMembersTable)
     .where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.userId, userId)));
-  if (!assignment || assignment.moduleId == null) return { restricted: false, moduleName: null };
+  if (!assignment) return { restricted: false, moduleNames: [] };
 
-  const [mod] = await db.select({ name: executionModulesTable.name }).from(executionModulesTable).where(eq(executionModulesTable.id, assignment.moduleId));
-  return { restricted: true, moduleName: mod?.name ?? null };
+  const ids = assignment.moduleIds ?? (assignment.moduleId != null ? [assignment.moduleId] : []);
+  if (ids.length === 0) return { restricted: false, moduleNames: [] };
+
+  const mods = await db.select({ name: executionModulesTable.name }).from(executionModulesTable).where(inArray(executionModulesTable.id, ids));
+  return { restricted: true, moduleNames: mods.map(m => m.name) };
 }
 
 /** Single-record convenience wrapper over getModuleScope — prefer
@@ -122,7 +129,7 @@ export async function getModuleScope(userId: number, role: string, projectId: nu
 export async function canAccessModule(userId: number, role: string, projectId: number, recordModule: string | null): Promise<boolean> {
   const scope = await getModuleScope(userId, role, projectId);
   if (!scope.restricted) return true;
-  return recordModule === scope.moduleName;
+  return recordModule != null && scope.moduleNames.includes(recordModule);
 }
 
 /**

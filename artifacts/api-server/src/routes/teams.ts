@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import {
   db,
   teamsTable,
@@ -52,6 +52,31 @@ async function requireManagerTier(req: any, res: any): Promise<{ userId: number;
 // extra same-department + tier >= target's tier check on top of
 // requireManagerTier — a qa_manager can assign a qa_lead, but not a
 // dev_lead (different department) or an hod_qa (higher tier).
+// CR044 — normalize the request's module scope. Accepts the new
+// moduleIds array, or the legacy single moduleId (seed scripts, old
+// clients). Returns null for whole-project access, a deduped id array
+// for a module-scoped grant, or undefined when the payload is malformed.
+function parseModuleIds(body: any): number[] | null | undefined {
+  if (Array.isArray(body?.moduleIds)) {
+    const ids = [...new Set(body.moduleIds.map(Number))] as number[];
+    if (ids.some((id) => !Number.isInteger(id))) return undefined;
+    return ids.length > 0 ? ids : null;
+  }
+  if (body?.moduleIds != null) return undefined;
+  if (body?.moduleId != null) {
+    const id = Number(body.moduleId);
+    return Number.isInteger(id) ? [id] : undefined;
+  }
+  return null;
+}
+
+async function modulesBelongToProject(projectId: number, moduleIds: number[]): Promise<boolean> {
+  const assoc = await db.select({ moduleId: projectModulesTable.moduleId })
+    .from(projectModulesTable)
+    .where(and(eq(projectModulesTable.projectId, projectId), inArray(projectModulesTable.moduleId, moduleIds)));
+  return assoc.length === moduleIds.length;
+}
+
 async function requireAssignerRights(req: any, res: any, targetUserId: number): Promise<{ userId: number; role: string } | null> {
   const ctx = await requireManagerTier(req, res);
   if (!ctx) return null;
@@ -339,8 +364,13 @@ router.get("/projects/:id/members", async (req, res): Promise<void> => {
       .from(projectMembersTable)
       .where(eq(projectMembersTable.projectId, projectId));
 
+    // CR044 — a row's module scope is moduleIds (array), falling back to the
+    // legacy single moduleId for rows written before the multi-module change.
+    const scopeIdsOf = (r: typeof rows[number]): number[] =>
+      r.moduleIds ?? (r.moduleId != null ? [r.moduleId] : []);
+
     const userIds = [...new Set(rows.map(r => r.userId))];
-    const moduleIds = [...new Set(rows.map(r => r.moduleId).filter((id): id is number => id != null))];
+    const moduleIds = [...new Set(rows.flatMap(scopeIdsOf))];
     const assignedByIds = [...new Set(rows.map(r => r.assignedBy).filter((id): id is number => id != null))];
     const [users, modules, assigners] = await Promise.all([
       userIds.length ? db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, role: usersTable.role }).from(usersTable).where(inArray(usersTable.id, userIds)) : [],
@@ -354,10 +384,11 @@ router.get("/projects/:id/members", async (req, res): Promise<void> => {
     const members = rows.map(r => {
       const user = userById.get(r.userId);
       if (!user) return null;
+      const scopeIds = scopeIdsOf(r);
       return {
         ...user,
-        moduleId: r.moduleId,
-        moduleName: r.moduleId != null ? (moduleById.get(r.moduleId)?.name ?? null) : null,
+        moduleIds: scopeIds,
+        moduleNames: scopeIds.map(id => moduleById.get(id)?.name).filter((n): n is string => n != null),
         assignedBy: r.assignedBy,
         assignedByName: r.assignedBy != null ? (assignerById.get(r.assignedBy) ?? null) : null,
         assignedAt: r.assignedAt,
@@ -375,7 +406,8 @@ router.post("/projects/:id/members", async (req, res): Promise<void> => {
     if (isNaN(projectId)) { res.status(400).json({ error: "Invalid project ID" }); return; }
     const userId = Number(req.body.userId);
     if (!userId) { res.status(400).json({ error: "userId is required" }); return; }
-    const moduleId = req.body.moduleId != null ? Number(req.body.moduleId) : null;
+    const moduleIds = parseModuleIds(req.body);
+    if (moduleIds === undefined) { res.status(400).json({ error: "moduleIds must be an array of module IDs" }); return; }
 
     const ctx = await requireAssignerRights(req, res, userId);
     if (!ctx) return;
@@ -383,18 +415,17 @@ router.post("/projects/:id/members", async (req, res): Promise<void> => {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
     if (!project) { res.status(404).json({ error: "Project not found" }); return; }
 
-    if (moduleId != null) {
-      const [assoc] = await db.select().from(projectModulesTable).where(and(eq(projectModulesTable.projectId, projectId), eq(projectModulesTable.moduleId, moduleId)));
-      if (!assoc) { res.status(400).json({ error: "That module isn't associated with this project yet" }); return; }
+    if (moduleIds !== null && !(await modulesBelongToProject(projectId, moduleIds))) {
+      res.status(400).json({ error: "One or more modules aren't associated with this project yet" }); return;
     }
 
     await db.insert(projectMembersTable)
-      .values({ projectId, userId, moduleId, assignedBy: ctx.userId, assignedAt: new Date() })
-      .onConflictDoUpdate({ target: [projectMembersTable.projectId, projectMembersTable.userId], set: { moduleId, assignedBy: ctx.userId, assignedAt: new Date() } });
+      .values({ projectId, userId, moduleIds, moduleId: null, assignedBy: ctx.userId, assignedAt: new Date() })
+      .onConflictDoUpdate({ target: [projectMembersTable.projectId, projectMembersTable.userId], set: { moduleIds, moduleId: null, assignedBy: ctx.userId, assignedAt: new Date() } });
 
     await logActivity({
       type: "project_member_assigned",
-      description: `Assigned to project #${projectId}${moduleId != null ? ` (module-scoped)` : " (whole project)"}`,
+      description: `Assigned to project #${projectId}${moduleIds !== null ? ` (${moduleIds.length} module${moduleIds.length === 1 ? "" : "s"})` : " (whole project)"}`,
       userId: ctx.userId, entityId: userId, entityType: "project_member",
     });
     res.sendStatus(201);
@@ -408,23 +439,23 @@ router.patch("/projects/:id/members/:userId", async (req, res): Promise<void> =>
     const projectId = parseInt(req.params.id);
     const userId = parseInt(req.params.userId);
     if (isNaN(projectId) || isNaN(userId)) { res.status(400).json({ error: "Invalid ID" }); return; }
-    const moduleId = req.body.moduleId != null ? Number(req.body.moduleId) : null;
+    const moduleIds = parseModuleIds(req.body);
+    if (moduleIds === undefined) { res.status(400).json({ error: "moduleIds must be an array of module IDs" }); return; }
 
     const ctx = await requireAssignerRights(req, res, userId);
     if (!ctx) return;
 
-    if (moduleId != null) {
-      const [assoc] = await db.select().from(projectModulesTable).where(and(eq(projectModulesTable.projectId, projectId), eq(projectModulesTable.moduleId, moduleId)));
-      if (!assoc) { res.status(400).json({ error: "That module isn't associated with this project yet" }); return; }
+    if (moduleIds !== null && !(await modulesBelongToProject(projectId, moduleIds))) {
+      res.status(400).json({ error: "One or more modules aren't associated with this project yet" }); return;
     }
 
     await db.update(projectMembersTable)
-      .set({ moduleId, assignedBy: ctx.userId, assignedAt: new Date() })
+      .set({ moduleIds, moduleId: null, assignedBy: ctx.userId, assignedAt: new Date() })
       .where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.userId, userId)));
 
     await logActivity({
       type: "project_member_updated",
-      description: `Project #${projectId} assignment updated${moduleId != null ? " (module-scoped)" : " (whole project)"}`,
+      description: `Project #${projectId} assignment updated${moduleIds !== null ? ` (${moduleIds.length} module${moduleIds.length === 1 ? "" : "s"})` : " (whole project)"}`,
       userId: ctx.userId, entityId: userId, entityType: "project_member",
     });
     res.sendStatus(200);
@@ -503,9 +534,16 @@ router.delete("/projects/:id/modules/:moduleId", async (req, res): Promise<void>
     if (isNaN(projectId) || isNaN(moduleId)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
     await db.delete(projectModulesTable).where(and(eq(projectModulesTable.projectId, projectId), eq(projectModulesTable.moduleId, moduleId)));
-    // Any existing assignments scoped to this module on this project fall back to whole-project
-    // rather than being silently orphaned/invalid.
+    // Any existing assignments scoped to this module on this project drop it from
+    // their scope rather than being silently orphaned/invalid — a grant left with
+    // no modules falls back to whole-project, same as the pre-CR044 behavior.
     await db.update(projectMembersTable).set({ moduleId: null }).where(and(eq(projectMembersTable.projectId, projectId), eq(projectMembersTable.moduleId, moduleId)));
+    await db.update(projectMembersTable)
+      .set({ moduleIds: sql`NULLIF(array_remove(${projectMembersTable.moduleIds}, ${moduleId}), '{}')` })
+      .where(and(
+        eq(projectMembersTable.projectId, projectId),
+        sql`${projectMembersTable.moduleIds} @> ARRAY[${moduleId}]::integer[]`,
+      ));
     res.sendStatus(204);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Failed to remove module from project" });

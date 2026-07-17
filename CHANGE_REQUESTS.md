@@ -51,6 +51,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR041](#cr041--access-matrix-view--role-permission-endpoint-lockdown) | Access Matrix View + Role-Permission Endpoint Lockdown | ✅ Deployed | 2026-07-15 |
 | [CR042](#cr042--fa-department-access-to-defects) | FA Department Access to Defects | ✅ Deployed | 2026-07-15 |
 | [CR043](#cr043--raci-overlay-on-the-access-matrix) | RACI Overlay on the Access Matrix | ✅ Deployed | 2026-07-15 |
+| [CR044](#cr044--multi-module-project-access) | Multi-Module Project Access | ✅ Deployed | 2026-07-17 |
 
 ---
 
@@ -1293,3 +1294,24 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Non-goals:** no RACI editing, no RACI storage, no backend changes at all. When the org's RACI thinking changes, `RACI_MAP` is a code edit — that's the accepted trade-off of option 1.
 
 **Scope:** `artifacts/qa-pulse/src/pages/Roles.tsx` only. No schema changes, no migration.
+
+### CR044 — Multi-Module Project Access
+**Status:** ✅ Deployed (2026-07-17)
+
+**Origin:** project access grants were limited to "whole project" or exactly one module (single nullable `module_id`, one row per project+user). Real staffing needs all four shapes: whole project, one module, several modules, and several projects each with their own module mix. Prerequisite for the notification-matrix CR (lead fan-outs must respect module scope).
+
+**Schema (`lib/db/src/schema/project-members.ts`):**
+- New `module_ids INTEGER[]` column. `null`/empty = whole-project access; N entries = grant covers exactly those modules. Additive — the composite PK (project_id, user_id) is untouched.
+- Legacy `module_id` kept read-only for pre-CR044 rows: every reader falls back to it when `module_ids` is null; every new write clears it. No data migration needed.
+- Bootstrap-covered (`roles.ts`): `ADD COLUMN IF NOT EXISTS` for `module_id`/`module_ids`/`assigned_by`/`assigned_at` — the bootstrap `CREATE TABLE project_members` predated CR035 and never had the scope columns, so fresh databases were silently missing them; now self-healing. **No manual db push needed.**
+
+**Backend:**
+- `access.ts`: `ModuleScope` is now `{ restricted, moduleNames: string[] }`; `getModuleScope` resolves the id list (array or legacy fallback) to names in one `inArray` lookup. `canAccessModule` does membership check. Tier ≥ 3 bypass and admin short-circuit unchanged.
+- All 5 module-scope filter sites updated to `moduleNames.includes(...)` (requirements, test-cases, defects, test-execution) / array-intersection (tasks).
+- `teams.ts` members endpoints: GET returns `moduleIds`+`moduleNames` arrays; POST/PATCH accept `moduleIds: number[]` (legacy single `moduleId` still accepted — seed scripts unchanged), validate every id against `project_modules`, write `{ moduleIds, moduleId: null }`. Module-disassociation cleanup now also `array_remove`s the id from member scopes (empty → whole-project, matching old fallback).
+
+**Frontend (`ModuleAndProject.tsx` Project Access panel):**
+- Assign scope picker is a multi-select dropdown (Popover+Command, same pattern as ContactMultiSelect): "Whole project" entry clears the selection; picking modules toggles them. Empty selection = whole project.
+- Member list shows one badge per module, or a "Whole project" badge.
+
+**Semantics note:** removing a module from a project drops it from member grants; a grant left with zero modules widens to whole-project (pre-existing CR035 behavior, kept deliberately).

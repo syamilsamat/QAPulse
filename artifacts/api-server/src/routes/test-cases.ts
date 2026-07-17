@@ -343,7 +343,7 @@ router.get("/test-cases", async (req, res): Promise<void> => {
   tcs = tcs.filter((t) => {
     const scope = t.projectId != null ? moduleScopes.get(t.projectId) : undefined;
     if (!scope || !scope.restricted) return true;
-    return t.module === scope.moduleName;
+    return t.module != null && scope.moduleNames.includes(t.module);
   });
 
   const formatted = await Promise.all(tcs.map(formatTestCase));

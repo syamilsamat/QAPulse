@@ -136,6 +136,15 @@ export async function bootstrap() {
   // POST /projects/:id/members) — access should be intentional, not an
   // accident of when the server last restarted.
 
+  // CR035/CR044 — scope + audit columns. The CREATE TABLE above predates
+  // CR035, so a fresh database needs these added explicitly. module_ids
+  // (CR044) is the multi-module scope; legacy single module_id is kept for
+  // pre-CR044 rows (readers fall back to it when module_ids is null).
+  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS module_id INTEGER`);
+  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS module_ids INTEGER[]`);
+  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS assigned_by INTEGER`);
+  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ DEFAULT NOW()`);
+
   // CR014 Part 2 — milestones
   await pool.query(`
     CREATE TABLE IF NOT EXISTS milestones (

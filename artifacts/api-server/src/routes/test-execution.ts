@@ -739,7 +739,7 @@ router.get(
       if (file.projectId != null) {
         const moduleScope = await getModuleScope(ctx.userId, ctx.role, file.projectId);
         if (moduleScope.restricted) {
-          testCases = testCases.filter((t) => t.moduleName === moduleScope.moduleName);
+          testCases = testCases.filter((t) => t.moduleName != null && moduleScope.moduleNames.includes(t.moduleName));
         }
       }
 

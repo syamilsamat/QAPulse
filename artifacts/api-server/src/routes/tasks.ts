@@ -164,7 +164,7 @@ router.get("/tasks", async (req, res): Promise<void> => {
   formatted = formatted.filter((t) => {
     const scope = t.projectId != null ? taskModuleScopes.get(t.projectId) : undefined;
     if (!scope || !scope.restricted) return true;
-    return t.moduleNames.includes(scope.moduleName ?? "");
+    return t.moduleNames.some((n) => scope.moduleNames.includes(n));
   });
 
   res.json(formatted);

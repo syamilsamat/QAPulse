@@ -171,7 +171,7 @@ router.get("/defects", async (req, res): Promise<void> => {
     defects = defects.filter((d: any) => {
       const scope = d.projectId != null ? defectModuleScopes.get(d.projectId) : undefined;
       if (!scope || !scope.restricted) return true;
-      return d.module === scope.moduleName;
+      return d.module != null && scope.moduleNames.includes(d.module);
     });
     if (search?.trim()) {
       const q = search.trim().toLowerCase();

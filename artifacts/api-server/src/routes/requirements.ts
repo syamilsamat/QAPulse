@@ -126,7 +126,7 @@ router.get("/requirements", async (req, res): Promise<void> => {
   reqs = reqs.filter(r => {
     const scope = r.projectId != null ? moduleScopes.get(r.projectId) : undefined;
     if (!scope || !scope.restricted) return true;
-    return r.module === scope.moduleName;
+    return r.module != null && scope.moduleNames.includes(r.module);
   });
 
   const formatted = await Promise.all(reqs.map(formatRequirement));
