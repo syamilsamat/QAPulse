@@ -5,6 +5,7 @@ import { execSync } from "child_process";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { actorFromReq } from "./auth";
 import { logActivity } from "./_audit";
+import { getAuthContext } from "../middleware/access";
 
 let nodemailer: any = null;
 try {
@@ -83,6 +84,15 @@ try {
 } catch {}
 
 const router: IRouter = Router();
+
+// CR049 — every PMO route requires an authenticated user. Without this, the
+// email endpoints (/pmo/send-email, /pmo/send-verdict) let an anonymous
+// caller send mail through the server, and the report/execution GETs leaked
+// data. PMO-role users authenticate on login like everyone else.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 // Endpoint to GET execution details by Ticket ID (from DB)
 router.get("/pmo/execution-details", async (req, res) => {

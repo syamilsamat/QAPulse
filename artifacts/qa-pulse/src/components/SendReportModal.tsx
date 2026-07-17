@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ContactMultiSelect, type ContactOption } from "@/components/ContactMultiSelect";
-import { getApiUrl } from "@/lib/api";
+import { getApiUrl, authHeaders } from "@/lib/api";
 
 interface SendReportModalProps {
   open: boolean;
@@ -31,7 +31,7 @@ export function SendReportModal({ open, onClose, onSend, isSending, reportName }
     setStep(1);
     setTo([]);
     setCc([]);
-    fetch(`${getApiUrl()}/contacts`)
+    fetch(`${getApiUrl()}/contacts`, { headers: authHeaders() })
       .then((r) => r.json())
       .then((data) => setContacts(Array.isArray(data) ? data : []))
       .catch(() => {});

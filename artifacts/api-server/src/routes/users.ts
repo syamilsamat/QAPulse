@@ -16,8 +16,22 @@ import {
   GetUserStatsParams,
   ListUsersQueryParams,
 } from "@workspace/api-zod";
+import { getAuthContext, getRoleTierRank } from "../middleware/access";
 
 const router: IRouter = Router();
+
+// CR049 — the whole user-management surface was unauthenticated, so anyone
+// could POST /users {role:"admin"} and mint an admin, or delete/deactivate
+// accounts. Auth is now required everywhere; privileged identity operations
+// (create / delete / activate / role changes) are Manager-tier+ or admin,
+// and self-service (own profile, password, Redmine key) is allowed for the
+// account owner.
+function requireAuth(req: any, res: any): { userId: number; role: string } | null {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  return ctx;
+}
+const PRIVILEGED_ROLES = ["admin", "cto"];
 
 function formatUser(u: typeof usersTable.$inferSelect) {
   return {
@@ -35,6 +49,7 @@ function formatUser(u: typeof usersTable.$inferSelect) {
 }
 
 router.get("/users", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   const parsed = ListUsersQueryParams.safeParse(req.query);
   let users = await db.select().from(usersTable).orderBy(usersTable.name);
 
@@ -56,14 +71,26 @@ router.get("/users", async (req, res): Promise<void> => {
 });
 
 router.post("/users", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const isAdmin = PRIVILEGED_ROLES.includes(ctx.role);
+  const isManager = (await getRoleTierRank(ctx.role)) >= 3;
+  if (!isManager) { res.status(403).json({ error: "Manager tier or above required to create users" }); return; }
+
   const parsed = CreateUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  // Only an admin/cto may mint another admin/cto — closes the escalation path.
+  if (PRIVILEGED_ROLES.includes(parsed.data.role) && !isAdmin) {
+    res.status(403).json({ error: "Only an admin can create admin/cto accounts" }); return;
+  }
 
   const insertData = {
     ...parsed.data,
+    // Passwords are stored hashed, same as the PATCH path — never plaintext.
+    password: await bcrypt.hash(parsed.data.password, 12),
     mustChangePassword: true,
   };
   const [user] = await db.insert(usersTable).values(insertData).returning();
@@ -71,6 +98,7 @@ router.post("/users", async (req, res): Promise<void> => {
 });
 
 router.get("/users/:id", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   const params = GetUserParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -90,16 +118,30 @@ router.get("/users/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const params = UpdateUserParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
+  const isAdmin = PRIVILEGED_ROLES.includes(ctx.role);
+  const isManager = (await getRoleTierRank(ctx.role)) >= 3;
+  const isSelf = ctx.userId === params.data.id;
+  if (!isManager && !isSelf) {
+    res.status(403).json({ error: "You can only edit your own profile" }); return;
+  }
+
   const parsed = UpdateUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+  // Role changes are an admin-only privilege — a self-service or manager edit
+  // can't escalate anyone (including themselves) to admin.
+  if (parsed.data.role !== undefined && !isAdmin) {
+    res.status(403).json({ error: "Only an admin can change a user's role" }); return;
   }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
@@ -121,10 +163,17 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const id = parseInt(req.params.id);
   if (isNaN(id)) {
     res.status(400).json({ error: "Invalid user ID" });
     return;
+  }
+  // A personal Redmine key is self-service; managers may set it for others.
+  const isManager = (await getRoleTierRank(ctx.role)) >= 3;
+  if (ctx.userId !== id && !isManager) {
+    res.status(403).json({ error: "You can only set your own Redmine key" }); return;
   }
   const { redmineApiKey } = req.body;
   const [user] = await db
@@ -140,6 +189,7 @@ router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
 });
 
 router.get("/users/:id/stats", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   const params = GetUserStatsParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -225,6 +275,11 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
 
 router.patch("/users/:id/active", async (req, res): Promise<void> => {
   try {
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
+    if ((await getRoleTierRank(ctx.role)) < 3) {
+      res.status(403).json({ error: "Manager tier or above required to activate/deactivate users" }); return;
+    }
     const id = parseInt(req.params.id);
     if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
     const { isActive } = req.body;
@@ -238,6 +293,11 @@ router.patch("/users/:id/active", async (req, res): Promise<void> => {
 });
 
 router.delete("/users/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!PRIVILEGED_ROLES.includes(ctx.role)) {
+    res.status(403).json({ error: "Only an admin can delete users" }); return;
+  }
   // Using GetUserParams since it already validates the :id parameter perfectly
   const params = GetUserParams.safeParse(req.params);
   if (!params.success) {

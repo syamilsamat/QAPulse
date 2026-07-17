@@ -78,7 +78,7 @@ import {
   Pencil,
   KeyRound,
 } from "lucide-react";
-import { getApiUrl } from "@/lib/api";
+import { getApiUrl, authHeaders } from "@/lib/api";
 
 interface RedmineProject {
   id: number;
@@ -136,7 +136,7 @@ export default function ModuleAndProject() {
   const [isSavingDocReg, setIsSavingDocReg] = useState(false);
 
   useEffect(() => {
-    fetch(`${getApiUrl()}/document-register`)
+    fetch(`${getApiUrl()}/document-register`, { headers: authHeaders() })
       .then((r) => r.json())
       .then((data) => setDocRegEntries(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -148,7 +148,7 @@ export default function ModuleAndProject() {
     try {
       const url = editingDocRegId ? `${getApiUrl()}/document-register/${editingDocRegId}` : `${getApiUrl()}/document-register`;
       const method = editingDocRegId ? "PUT" : "POST";
-      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(docRegForm) });
+      const r = await fetch(url, { method, headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(docRegForm) });
       const saved = await r.json();
       if (!r.ok) throw new Error(saved?.error ?? `HTTP ${r.status}`);
       if (editingDocRegId) {
@@ -168,7 +168,7 @@ export default function ModuleAndProject() {
   };
 
   const handleDeleteDocReg = async (id: number) => {
-    await fetch(`${getApiUrl()}/document-register/${id}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`${getApiUrl()}/document-register/${id}`, { method: "DELETE", headers: authHeaders() }).catch(() => {});
     setDocRegEntries((prev) => prev.filter((e) => e.id !== id));
     toast({ title: "Entry deleted" });
   };
@@ -470,7 +470,7 @@ export default function ModuleAndProject() {
   const loadContacts = async () => {
     setContactsLoading(true);
     try {
-      const res = await fetch(`${getApiUrl()}/contacts`);
+      const res = await fetch(`${getApiUrl()}/contacts`, { headers: authHeaders() });
       const data = await res.json();
       setContacts(Array.isArray(data) ? data : []);
     } catch {
@@ -489,7 +489,7 @@ export default function ModuleAndProject() {
     try {
       const res = await fetch(`${getApiUrl()}/contacts/sync-redmine`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ apiKey: user?.redmineApiKey ?? undefined }),
       });
       const data = await res.json();
@@ -523,7 +523,7 @@ export default function ModuleAndProject() {
         : `${getApiUrl()}/contacts`;
       const res = await fetch(url, {
         method: editingContact ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(contactForm),
       });
       const data = await res.json();
@@ -544,7 +544,7 @@ export default function ModuleAndProject() {
     if (!contactToDelete) return;
     setContactDeleting(true);
     try {
-      await fetch(`${getApiUrl()}/contacts/${contactToDelete.id}`, { method: "DELETE" });
+      await fetch(`${getApiUrl()}/contacts/${contactToDelete.id}`, { method: "DELETE", headers: authHeaders() });
       toast({ title: "Contact deleted" });
       setContacts((prev) => prev.filter((c) => c.id !== contactToDelete.id));
     } catch {

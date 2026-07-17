@@ -56,6 +56,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR046](#cr046--qa-return-to-dev) | QA Return-to-Dev | ✅ Deployed | 2026-07-18 |
 | [CR047](#cr047--security-audit-pass-1) | Security Audit — Pass 1 (auth & access gaps) | ✅ Deployed | 2026-07-18 |
 | [CR048](#cr048--security-audit-pass-2-role-routing) | Security Audit — Pass 2 (role routing) | ✅ Deployed | 2026-07-18 |
+| [CR049](#cr049--security-audit-pass-3-unauthenticated-routers) | Security Audit — Pass 3 (unauthenticated routers) | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1387,3 +1388,23 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Not changed:** backend `role_nav_permissions` (already correct — it was the source of truth the frontend had drifted from). No server changes at all.
 
 **Scope:** frontend only — `App.tsx`. No schema, no db push.
+
+### CR049 — Security Audit, Pass 3 (Unauthenticated Routers)
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** the inline access-control sweep (after that audit agent was cancelled) found the single most severe issue — an entire family of routers mounted with no auth. No global auth middleware exists (each router is mounted raw in `routes/index.ts`), so these were open to anyone.
+
+**Fix A — `users.ts` (critical: unauthenticated privilege escalation).** `POST /users` accepted `role`, so an anonymous request could mint an admin; `DELETE`, `PATCH`, `/active`, `/redmine-key` were all open too. Now:
+- All routes require auth. Create / delete / activate and any role change are Manager-tier+ (create/activate) or admin (delete, role change); an admin/cto can only be minted by an admin.
+- Profile edits, password, and Redmine key are self-service (owner) or manager.
+- Bonus: `POST /users` now bcrypt-hashes the password (it was storing plaintext; login already auto-migrates, so this is transparent and strictly safer).
+
+**Fix B — `pmo-report.ts` (high: unauthenticated email + data).** Router-level auth guard. Previously `POST /pmo/send-email` and `/pmo/send-verdict` let anyone send mail through the server, and the report/execution GETs leaked data. `/pmo-report` is a login-gated role, not a public share link, so this is transparent.
+
+**Fix C — `calendar.ts`, `contacts.ts`, `document-register.ts`, `social-events.ts` (medium: unauthenticated CRUD).** Router-level auth guards on each.
+
+**Frontend follow-through:** several raw `fetch()` callers sent no `Authorization` header and would have broken under the new guards. Added a shared `authHeaders()` helper in `lib/api.ts` and applied it to the contacts fetch in SendReportModal/SendVerdictModal, and the document-register + contacts + redmine-key calls in Settings and ModuleAndProject. Calendar/social-events (generated client) and the PMO send/report calls already sent the token.
+
+**Scope:** no schema changes, no db push. Backend: `users.ts`, `pmo-report.ts`, `calendar.ts`, `contacts.ts`, `document-register.ts`, `social-events.ts`. Frontend: `lib/api.ts`, `SendReportModal.tsx`, `SendVerdictModal.tsx`, `Settings.tsx`, `ModuleAndProject.tsx`.
+
+**This closes the unauthenticated-endpoint class** found in the audit (CR047 did notifications+redmine; CR049 does the rest). Remaining audit items are the QA-PIC dead deep-link and the defect-sync medium/low batch.

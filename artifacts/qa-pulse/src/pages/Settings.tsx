@@ -5,6 +5,7 @@ import {
   getListUsersQueryKey,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { authHeaders } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -185,7 +186,7 @@ export default function Settings() {
   }, [isLeadOrAdmin]);
 
   useEffect(() => {
-    fetch("/api/document-register")
+    fetch("/api/document-register", { headers: authHeaders() })
       .then((r) => r.json())
       .then((data) => setDocRegEntries(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -197,7 +198,7 @@ export default function Settings() {
     try {
       const url = editingDocRegId ? `/api/document-register/${editingDocRegId}` : "/api/document-register";
       const method = editingDocRegId ? "PUT" : "POST";
-      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(docRegForm) });
+      const r = await fetch(url, { method, headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(docRegForm) });
       const saved = await r.json();
       if (editingDocRegId) {
         setDocRegEntries((prev) => prev.map((e) => (e.id === editingDocRegId ? saved : e)));
@@ -216,7 +217,7 @@ export default function Settings() {
   };
 
   const handleDeleteDocReg = async (id: number) => {
-    await fetch(`/api/document-register/${id}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`/api/document-register/${id}`, { method: "DELETE", headers: authHeaders() }).catch(() => {});
     setDocRegEntries((prev) => prev.filter((e) => e.id !== id));
   };
 
@@ -234,7 +235,7 @@ export default function Settings() {
     try {
       const res = await fetch(`/api/users/${user.id}/redmine-key`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ redmineApiKey: redmineApiKey.trim() || null }),
       });
       if (!res.ok) throw new Error("Failed to save");

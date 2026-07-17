@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ContactMultiSelect, type ContactOption } from "@/components/ContactMultiSelect";
-import { getApiUrl } from "@/lib/api";
+import { getApiUrl, authHeaders } from "@/lib/api";
 
 export type Verdict = "PASS" | "CONDITIONAL SIGN OFF";
 
@@ -49,7 +49,7 @@ export function SendVerdictModal({
     setTo([]);
     setCc([]);
     setReason("");
-    fetch(`${getApiUrl()}/contacts`)
+    fetch(`${getApiUrl()}/contacts`, { headers: authHeaders() })
       .then((r) => r.json())
       .then((data) => setContacts(Array.isArray(data) ? data : []))
       .catch(() => {});

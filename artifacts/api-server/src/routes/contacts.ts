@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { eq, and } from "drizzle-orm";
 import { db, contactsTable } from "@workspace/db";
+import { getAuthContext } from "../middleware/access";
 
 let mysql2: any = null;
 try {
@@ -9,6 +10,12 @@ try {
 } catch {}
 
 const router: IRouter = Router();
+
+// CR049 — contacts (verdict-email recipients) require auth on every route.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 router.get("/contacts", async (_req, res) => {
   try {

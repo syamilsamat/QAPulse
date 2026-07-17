@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, calendarEventsTable, usersTable } from "@workspace/db";
 import { notifyUser } from "./_notify";
+import { getAuthContext } from "../middleware/access";
 import {
   ListCalendarEventsQueryParams,
   CreateCalendarEventBody,
@@ -11,6 +12,12 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+// CR049 — all calendar routes require an authenticated user (was fully open).
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 
 function parseTaggedUserIds(raw: string | null | undefined): number[] {
