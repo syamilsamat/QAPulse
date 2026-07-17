@@ -4,6 +4,7 @@ import { db, milestonesTable, requirementsTable, executionFilesTable } from "@wo
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
+import { notifyRolesInProject } from "./_notify";
 
 const router: IRouter = Router();
 
@@ -119,6 +120,21 @@ router.post("/milestones", async (req, res): Promise<void> => {
   }).returning();
 
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: ctx.id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
+
+  // CR045 — FAs on this project kick off requirement writing when a milestone
+  // opens, so they're the ones told about it (lead + member; HODs excluded
+  // per the notification matrix).
+  await notifyRolesInProject({
+    roles: ["fa_lead", "fa_member"],
+    projectId: m.projectId,
+    title: "New milestone created",
+    message: `Milestone "${m.name}" was created — requirements can now be raised against it.`,
+    type: "milestone_created",
+    entityType: "milestone",
+    entityId: m.id,
+    actorId: (ctx as any).id ?? ctx.userId,
+  }).catch(() => {});
+
   res.status(201).json(fmt(m));
 });
 

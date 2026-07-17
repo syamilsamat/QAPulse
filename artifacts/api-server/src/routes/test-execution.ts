@@ -311,6 +311,17 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       tcCount: 0,
     }).catch(() => {});
 
+    // CR045 — a file created with the QA PIC already set notifies them too,
+    // not just the PATCH path (which only fires when the PIC changes later).
+    if (file.qaPic) {
+      let actorId: number | null = null;
+      try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
+      const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.name, file.qaPic));
+      if (picUser) {
+        await notifyUser(picUser.id, "Assigned as QA PIC", `You have been assigned as QA PIC for execution file "${file.title || file.redmineTicketId}".`, "execution", "execution_file", file.id, actorId).catch(() => {});
+      }
+    }
+
     res.status(201).json({
       id: file.id,
       redmineTicketId: file.redmineTicketId,

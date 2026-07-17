@@ -36,6 +36,7 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: 
   defect_status_changed: { icon: Bug,           color: "text-amber-600",  bg: "bg-amber-50",  label: "Defect" },
   retest_needed:         { icon: RefreshCcw,    color: "text-orange-600", bg: "bg-orange-50", label: "Retest" },
   uat_milestone_ready:   { icon: Calendar,      color: "text-green-600",  bg: "bg-green-50",  label: "UAT" },
+  milestone_created:     { icon: Calendar,      color: "text-indigo-600", bg: "bg-indigo-50", label: "Milestone" },
   comment_posted:        { icon: MessageSquare, color: "text-blue-600",   bg: "bg-blue-50",   label: "Comment" },
 };
 

@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
-import { notifyUser } from "./_notify";
+import { notifyUser, notifyRolesInProject } from "./_notify";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getModuleScope } from "../middleware/access";
 import {
   db,
@@ -658,6 +658,24 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
         notifyUser(uid, title, msg, notifType, "requirement", id, ctx.userId).catch(() => {})
       )
     );
+
+    // CR045 — approval means the requirement is ready for dev assignment, so
+    // Dev Leads on this project (module-scoped per CR044; HODs excluded per
+    // the notification matrix) get told to pick it up in the Dev Queue.
+    if (action === "approve") {
+      await notifyRolesInProject({
+        roles: ["dev_lead"],
+        projectId: req_.projectId,
+        module: req_.module,
+        title: "Requirement ready for dev assignment",
+        message: `"${req_.title}" was approved — assign a developer in the Dev Queue.`,
+        type: "review_approved",
+        entityType: "requirement",
+        entityId: id,
+        actorId: ctx.userId,
+        excludeUserIds: recipients,
+      }).catch(() => {});
+    }
   }
 
   res.json(await formatRequirement(updated));
@@ -793,6 +811,22 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
         notifyUser(uid, "Ready for QA", `"${requirement.title}" is ready for QA testing.`, "requirement_ready_for_qa", "requirement", id, ctx.userId).catch(() => {}),
       ),
     );
+
+    // CR045 — QA Leads on this project (module-scoped per CR044; HODs
+    // excluded per the notification matrix) plan the test assignment, so
+    // dev completion is their signal.
+    await notifyRolesInProject({
+      roles: ["qa_lead"],
+      projectId: requirement.projectId,
+      module: requirement.module,
+      title: "Ready for QA",
+      message: `"${requirement.title}" completed development — assign QA for testing.`,
+      type: "requirement_ready_for_qa",
+      entityType: "requirement",
+      entityId: id,
+      actorId: ctx.userId,
+      excludeUserIds: recipients,
+    }).catch(() => {});
   }
 
   res.json(await formatRequirement(updated));

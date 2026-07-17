@@ -345,7 +345,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       title, description, stepsToReproduce, expectedResult, actualResult,
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName, defectCategory,
-      assigneeId, complexity, targetedStartDate, targetedCompletionDate,
+      assigneeId, assigneeName, complexity, targetedStartDate, targetedCompletionDate,
       source, milestoneId,
     } = req.body ?? {};
 
@@ -431,6 +431,11 @@ router.post("/defects", async (req, res): Promise<void> => {
     }
 
     const actorId = actorFromReq(req);
+    // CR045 — the dialog's assignee is a Redmine member; assigneeName is the
+    // display name we can match against QAPulse users.
+    const localAssigneeId = isRequirementDefect
+      ? null
+      : await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
     const [defect] = await db
       .insert(defectsTable)
       .values({
@@ -448,9 +453,15 @@ router.post("/defects", async (req, res): Promise<void> => {
         foundIn: foundIn ?? (isRequirementDefect ? "Development" : "SIT"),
         defectCategory: categoryAllowed ? defectCategory : null,
         syncStatus: isRequirementDefect ? "not_applicable" : "pending",
-        assigneeId: isRequirementDefect ? requirementRow!.createdBy : null,
-        assigneeName: isRequirementDefect ? (await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, requirementRow!.createdBy!)))[0]?.name ?? null : null,
-        assigneeAssignedAt: isRequirementDefect ? new Date() : null,
+        // CR045 — a QA defect created with an assignee picked in the dialog
+        // stores that assignment locally too (best-effort name match, same
+        // convention as qaPic), not just in Redmine — so the dev is
+        // notified and the Defects page shows the assignment immediately.
+        assigneeId: isRequirementDefect ? requirementRow!.createdBy : localAssigneeId,
+        assigneeName: isRequirementDefect
+          ? (await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, requirementRow!.createdBy!)))[0]?.name ?? null
+          : (typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null),
+        assigneeAssignedAt: isRequirementDefect || localAssigneeId != null ? new Date() : null,
       })
       .returning();
 
@@ -542,6 +553,20 @@ router.post("/defects", async (req, res): Promise<void> => {
 
     await notifyQaLeads(defect, actorId);
 
+    // CR045 — the assigned dev hears about it at creation, not only when the
+    // separate assign endpoint is used later.
+    if (!isRequirementDefect && defect.assigneeId) {
+      await notifyUser(
+        defect.assigneeId,
+        "Defect assigned",
+        `${defectCode} "${defect.title}" has been assigned to you.`,
+        "defect_assigned",
+        "defect",
+        defect.id,
+        actorId,
+      ).catch(() => {});
+    }
+
     res.status(201).json({ ...defect, syncOk: push.ok, syncError: push.ok ? null : push.error });
   } catch (err: any) {
     console.error("[POST /defects]", err);
@@ -558,7 +583,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId, defectCategory } = req.body ?? {};
+    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName } = req.body ?? {};
     if (!redmineId || !title) {
       res.status(400).json({ error: "redmineId and title are required" });
       return;
@@ -601,6 +626,9 @@ router.post("/defects/register", async (req, res): Promise<void> => {
     const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
     let defect = existing;
     if (!existing) {
+      // CR045 — carry the fail-modal's Redmine assignee into the local row
+      // (best-effort name match) so the dev is notified at creation.
+      const localAssigneeId = await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
       const [created] = await db
         .insert(defectsTable)
         .values({
@@ -618,6 +646,9 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           foundIn,
           defectCategory: categoryAllowed ? defectCategory : null,
           statusSyncedAt: null,
+          assigneeId: localAssigneeId,
+          assigneeName: typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null,
+          assigneeAssignedAt: localAssigneeId != null ? new Date() : null,
         })
         .returning();
       const defectCode = `DEF-${String(created.id).padStart(4, "0")}`;
@@ -633,6 +664,19 @@ router.post("/defects/register", async (req, res): Promise<void> => {
         newValue: { title: created.title, redmineId: String(redmineId), foundIn },
       });
       await notifyQaLeads(created, actorId);
+
+      // CR045 — notify the assigned dev at creation (see POST /defects).
+      if (created.assigneeId) {
+        await notifyUser(
+          created.assigneeId,
+          "Defect assigned",
+          `${defectCode} "${created.title}" has been assigned to you.`,
+          "defect_assigned",
+          "defect",
+          created.id,
+          actorId,
+        ).catch(() => {});
+      }
     }
 
     if (executionTcId != null && defect) {

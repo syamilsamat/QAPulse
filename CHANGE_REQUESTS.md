@@ -52,6 +52,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR042](#cr042--fa-department-access-to-defects) | FA Department Access to Defects | ✅ Deployed | 2026-07-15 |
 | [CR043](#cr043--raci-overlay-on-the-access-matrix) | RACI Overlay on the Access Matrix | ✅ Deployed | 2026-07-15 |
 | [CR044](#cr044--multi-module-project-access) | Multi-Module Project Access | ✅ Deployed | 2026-07-17 |
+| [CR045](#cr045--notification-matrix-completion) | Notification Matrix Completion | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1315,3 +1316,22 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 - Member list shows one badge per module, or a "Whole project" badge.
 
 **Semantics note:** removing a module from a project drops it from member grants; a grant left with zero modules widens to whole-project (pre-existing CR035 behavior, kept deliberately).
+
+### CR045 — Notification Matrix Completion
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** the user's action→notification spec was audited against the implementation (2026-07-17); four gaps found. Decision: lead-level fan-outs go to `dev_lead`/`qa_lead`/`fa_lead`+`fa_member` only — **HOD roles are deliberately excluded from all lead fan-outs**. Depends on CR044 (module-scoped grants).
+
+**New shared helper (`_notify.ts`):** `notifyRolesInProject({roles, projectId, module?, excludeUserIds?, ...})` — fans out to users holding the given roles who can access the project; when `module` is set, CR044 module-scoped users are skipped unless their grant covers it (whole-project grants always pass). Skips the actor and anyone already notified via another path.
+
+**The four fixes:**
+1. **Milestone create** (`milestones.ts`): notifies `fa_lead`+`fa_member` with project access — new `milestone_created` type (Calendar icon added to both frontend TYPE_CONFIG maps; deep-links to /milestones).
+2. **Requirement approve** (`requirements.ts`): additional fan-out to `dev_lead` (project+module scoped) — "ready for dev assignment", type `review_approved`, excludes author/assignee already notified.
+3. **Ready for QA** (`requirements.ts`): additional fan-out to `qa_lead` (project+module scoped), type `requirement_ready_for_qa`; existing FA-assignee + milestone-PM notifications kept, deduped via excludeUserIds.
+4. **Defect create with assignee** (`defects.ts` + both frontends): the dialogs' assignee is a Redmine member id, so both creation flows now also send `assigneeName`; backend resolves it via `resolveUserIdByName` (same convention as qaPic), stores `assigneeId`/`assigneeName`/`assigneeAssignedAt` on the local row (POST /defects non-requirement path + POST /defects/register), and notifies the dev with `defect_assigned`. Redmine-only names that don't match a QAPulse user store the name but skip the notification.
+
+**Bonus fix:** execution file **created** with qaPic already set now notifies the PIC (previously only the PATCH path did, and only on change).
+
+**Not changed:** submit-for-review FA fan-out stays project-scoped (spec has no module qualifier there); reject already notified author+assignee+PM (superset of spec, kept).
+
+**Scope:** no schema changes, no db push. `_notify.ts`, `milestones.ts`, `requirements.ts`, `defects.ts`, `test-execution.ts`; frontend `Defects.tsx`, `DefectCreationModal.tsx`, `execution-api.ts`, `NotificationDropdown.tsx`, `Inbox.tsx`.

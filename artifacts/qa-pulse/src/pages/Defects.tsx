@@ -1121,6 +1121,7 @@ function NewDefectDialog({
         body: JSON.stringify({
           ...form,
           assigneeId: selectedAssigneeId,
+          assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
           complexity,
           targetedStartDate: targetedStartDate || undefined,
           targetedCompletionDate: targetedCompletionDate || undefined,

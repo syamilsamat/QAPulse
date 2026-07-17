@@ -272,6 +272,7 @@ export default function DefectCreationModal({
         module: defectModule.trim() || undefined,
         defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
+        assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
       }).catch(() => {});
       onDefectCreated({
         redmineIssueId: result.id.toString(),
