@@ -620,19 +620,21 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
 
   // Notify on submit: every FA-review-tier user with access to this project,
   // excluding the submitter — mirrors the review-queue's own eligibility check.
+  // CR046 — module-scoped (CR044): a reviewer restricted to other modules
+  // can't even open the requirement, so they aren't pinged about it.
+  // Whole-project and tier-3+ reviewers are unaffected.
   if (action === "submit" && req_.projectId != null) {
-    const reviewers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable);
-    const eligible = reviewers.filter((u) => u.id !== ctx.userId && FA_REVIEW_ROLES.includes(u.role));
-    const projectId = req_.projectId;
-    const recipients: number[] = [];
-    for (const u of eligible) {
-      if (await canAccessProject(u.id, u.role, projectId)) recipients.push(u.id);
-    }
-    await Promise.all(
-      recipients.map((uid) =>
-        notifyUser(uid, "Requirement submitted for review", `"${req_.title}" is waiting on your review.`, "review_request", "requirement", id, ctx.userId).catch(() => {})
-      )
-    );
+    await notifyRolesInProject({
+      roles: FA_REVIEW_ROLES,
+      projectId: req_.projectId,
+      module: req_.module,
+      title: "Requirement submitted for review",
+      message: `"${req_.title}" is waiting on your review.`,
+      type: "review_request",
+      entityType: "requirement",
+      entityId: id,
+      actorId: ctx.userId,
+    }).catch(() => {});
   }
 
   // Notify on approve: author + assignee ("routine progress", no PM needed)
