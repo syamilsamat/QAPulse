@@ -6,39 +6,6 @@ settings:
 
 catalogs:
   default:
-    '@replit/vite-plugin-cartographer':
-      specifier: ^0.5.1
-      version: 0.5.5
-    '@replit/vite-plugin-dev-banner':
-      specifier: ^0.1.1
-      version: 0.1.2
-    '@replit/vite-plugin-runtime-error-modal':
-      specifier: ^0.0.6
-      version: 0.0.6
-    '@tailwindcss/vite':
-      specifier: ^4.1.14
-      version: 4.3.0
-    '@tanstack/react-query':
-      specifier: ^5.90.21
-      version: 5.101.0
-    '@types/node':
-      specifier: ^25.3.3
-      version: 25.9.2
-    '@types/react':
-      specifier: ^19.2.0
-      version: 19.2.17
-    '@types/react-dom':
-      specifier: ^19.2.0
-      version: 19.2.3
-    '@vitejs/plugin-react':
-      specifier: ^5.0.4
-      version: 5.2.0
-    class-variance-authority:
-      specifier: ^0.7.1
-      version: 0.7.1
-    clsx:
-      specifier: ^2.1.1
-      version: 2.1.1
     drizzle-orm:
       specifier: ^0.45.2
       version: 0.45.2
@@ -48,27 +15,6 @@ catalogs:
     lucide-react:
       specifier: ^0.545.0
       version: 0.545.0
-    react:
-      specifier: 19.1.0
-      version: 19.1.0
-    react-dom:
-      specifier: 19.1.0
-      version: 19.1.0
-    tailwind-merge:
-      specifier: ^3.3.1
-      version: 3.6.0
-    tailwindcss:
-      specifier: ^4.1.14
-      version: 4.3.0
-    tsx:
-      specifier: ^4.21.0
-      version: 4.22.4
-    vite:
-      specifier: ^7.3.2
-      version: 7.3.5
-    zod:
-      specifier: ^3.25.76
-      version: 3.25.76
 
 overrides:
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
@@ -162,22 +108,19 @@ importers:
         version: 2.8.0
       '@gsap/react':
         specifier: ^2.1.2
-        version: 2.1.2(gsap@3.15.0)(react@19.1.0)
+        version: 2.1.2(gsap@3.15.0)
       '@heyputer/puter.js':
         specifier: ^2.5.1
         version: 2.5.1
       '@react-three/fiber':
         specifier: ^9.3.0
-        version: 9.6.1(@types/react@19.2.17)(react@19.1.0)(three@0.180.0)
-      '@studio-freight/react-lenis':
-        specifier: ^0.0.47
-        version: 0.0.47
+        version: 9.6.1(three@0.180.0)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@types/pg@8.20.0)(mysql2@3.22.5(@types/node@25.9.2))(pg@8.21.0)
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.21.0)
       framer-motion:
         specifier: 'catalog:'
-        version: 12.40.0(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+        version: 12.40.0
       gsap:
         specifier: ^3.15.0
         version: 3.15.0
@@ -189,13 +132,13 @@ importers:
         version: 4.2.1
       lucide-react:
         specifier: 'catalog:'
-        version: 0.545.0(react@19.1.0)
+        version: 0.545.0
       pg:
         specifier: ^8.21.0
         version: 8.21.0
       react-router-dom:
         specifier: ^7.17.0
-        version: 7.17.0(react@19.1.0)
+        version: 7.17.0
       three:
         specifier: 0.180.0
         version: 0.180.0
@@ -522,6 +465,9 @@ importers:
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
+      lenis:
+        specifier: ^1.3.25
+        version: 1.3.25(react@19.1.0)
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
@@ -1985,27 +1931,6 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
-  '@studio-freight/hamo@0.6.33':
-    resolution: {integrity: sha512-U3Nvw5wDvB/jps2/ZbGL2TFL+CcZvJF/tkjL7S7ajuzDi9T5VkqCguws6tuWHttZ74Z6DfXxV1b8F1EB30AyJg==}
-    deprecated: 'The ''@studio-freight/hamo'' package has been renamed to ''hamo''. Please update your dependencies: npm install hamo and visit the documentation: https://www.npmjs.com/package/hamo'
-    peerDependencies:
-      react: ^18.2.0
-      react-dom: ^18.2.0
-
-  '@studio-freight/lenis@1.0.42':
-    resolution: {integrity: sha512-HJAGf2DeM+BTvKzHv752z6Z7zy6bA643nZM7W88Ft9tnw2GsJSp6iJ+3cekjyMIWH+cloL2U9X82dKXgdU8kPg==}
-    deprecated: 'The ''@studio-freight/lenis'' package has been renamed to ''lenis''. Please update your dependencies: npm install lenis and visit the documentation: https://www.npmjs.com/package/lenis'
-
-  '@studio-freight/react-lenis@0.0.47':
-    resolution: {integrity: sha512-h+IAqiyiNo8mRo/CA3/sHCqX2IV0tTLyzZRWsdRaLPtM2aBaRqK0+ISYWTUmktQfcf3qvp4hsn0Oeyt9uXwLTQ==}
-    deprecated: 'The ''@studio-freight/react-lenis'' package has been renamed to ''lenis''. Please update your dependencies: npm install lenis and visit the documentation: https://www.npmjs.com/package/lenis'
-    peerDependencies:
-      react-dom: ^17 || ^18
-
-  '@studio-freight/tempus@0.0.38':
-    resolution: {integrity: sha512-AO1O2fEmfUqWGjEofmPNMQRlwgZ96eB5OFsVJjeH8/RKd1/Yf4zbPnXO+r2TD4aueA6X9JRCJU2GUprI9+m8uQ==}
-    deprecated: 'The ''@studio-freight/tempus'' package has been renamed to ''tempus''. Please update your dependencies: npm install tempus and visit the documentation: https://www.npmjs.com/package/tempus'
-
   '@tabby_ai/hijri-converter@1.0.5':
     resolution: {integrity: sha512-r5bClKrcIusDoo049dSL8CawnHR6mRdDwhlQuIgZRNty68q0x8k3Lf1BtPAMxRf/GgnHBnIO4ujd3+GQdLWzxQ==}
     engines: {node: '>=16.0.0'}
@@ -2166,9 +2091,6 @@ packages:
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
-  '@types/prop-types@15.7.15':
-    resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
-
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
 
@@ -2187,9 +2109,6 @@ packages:
     resolution: {integrity: sha512-HHM3nxyUZ3zAylX8ZEyrDNd2XZOnQ0D5XfunJF5FLQnZbHHYq4UWvW1QfelQNXv1ICNkwYhfxjwfnqivYB6bFg==}
     peerDependencies:
       '@types/react': '*'
-
-  '@types/react@18.3.31':
-    resolution: {integrity: sha512-vfEqpXTvwT91yhmwdfouStN2hSKwTvyRs8qpLfADyrq/kxDw0hZM7Wk9Ug1FELj8hIby+S/+kQCSRFF32nv2Qw==}
 
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
@@ -3249,9 +3168,6 @@ packages:
   jszip@3.10.1:
     resolution: {integrity: sha512-xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g==}
 
-  just-debounce-it@3.2.0:
-    resolution: {integrity: sha512-WXzwLL0745uNuedrCsCs3rpmfD6DBaf7uuVwaq98/8dafURfgQaBsSpjiPp5+CW6Vjltwy9cOGI6qE71b3T8iQ==}
-
   jwa@2.0.1:
     resolution: {integrity: sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==}
 
@@ -3261,6 +3177,20 @@ packages:
   lazystream@1.0.1:
     resolution: {integrity: sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw==}
     engines: {node: '>= 0.6.3'}
+
+  lenis@1.3.25:
+    resolution: {integrity: sha512-mOKxayErlaONK8fm4LN3XNd99Qu4plTpn9h9qf8wxzjGrJDzuD84FYzZ81HCd6ZsWp++VWVwOzL286Pf2s2u4A==}
+    peerDependencies:
+      '@nuxt/kit': '>=3.0.0'
+      react: '>=17.0.0'
+      vue: '>=3.0.0'
+    peerDependenciesMeta:
+      '@nuxt/kit':
+        optional: true
+      react:
+        optional: true
+      vue:
+        optional: true
 
   leven@4.1.0:
     resolution: {integrity: sha512-KZ9W9nWDT7rF7Dazg8xyLHGLrmpgq2nVNFUckhqdW3szVP6YhCpp/RAnpmVExA9JvrMynjwSLVrEj3AepHR6ew==}
@@ -3473,10 +3403,6 @@ packages:
   named-placeholders@1.1.6:
     resolution: {integrity: sha512-Tz09sEL2EEuv5fFowm419c1+a/jSMiBjI9gHxVLrVdbUkkNUUfjsVYs9pVZu5oCon/kmRh9TfLEObFtkVxmY0w==}
     engines: {node: '>=8.0.0'}
-
-  nanoevents@9.1.0:
-    resolution: {integrity: sha512-Jd0fILWG44a9luj8v5kED4WI+zfkkgwKyRQKItTtlPfEsh7Lznfi1kr8/iZ+XAIss4Qq5GqRB0qtWbaz9ceO/A==}
-    engines: {node: ^18.0.0 || >=20.0.0}
 
   nanoid@3.3.12:
     resolution: {integrity: sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==}
@@ -3879,10 +3805,6 @@ packages:
     peerDependenciesMeta:
       react-dom:
         optional: true
-
-  react@18.3.1:
-    resolution: {integrity: sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==}
-    engines: {node: '>=0.10.0'}
 
   react@19.1.0:
     resolution: {integrity: sha512-FS+XFBNvn3GTAWq26joslQgWNoFu08F4kl0J4CgdNKADkdSGXQyTCnKteIAJy96Br6YbpEU1LSzV5dYtjMkMDg==}
@@ -4448,21 +4370,6 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zustand@4.5.7:
-    resolution: {integrity: sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==}
-    engines: {node: '>=12.7.0'}
-    peerDependencies:
-      '@types/react': '>=16.8'
-      immer: '>=9.0.6'
-      react: '>=16.8'
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      immer:
-        optional: true
-      react:
-        optional: true
-
   zustand@5.0.14:
     resolution: {integrity: sha512-/8tAspM5LMPr28b3fwLYrtdj77ECpfZviaP75CMTnwO8ISyaE4GDIG/9rDDYq/cH9D2Xw2A2RXglLInmVBQB/g==}
     engines: {node: '>=12.20.0'}
@@ -4701,10 +4608,9 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@gsap/react@2.1.2(gsap@3.15.0)(react@19.1.0)':
+  '@gsap/react@2.1.2(gsap@3.15.0)':
     dependencies:
       gsap: 3.15.0
-      react: 19.1.0
 
   '@heyputer/kv.js@0.2.1': {}
 
@@ -5673,19 +5579,19 @@ snapshots:
 
   '@radix-ui/rect@1.1.2': {}
 
-  '@react-three/fiber@9.6.1(@types/react@19.2.17)(react@19.1.0)(three@0.180.0)':
+  '@react-three/fiber@9.6.1(three@0.180.0)':
     dependencies:
       '@babel/runtime': 7.29.7
       '@types/webxr': 0.5.24
       base64-js: 1.5.1
       buffer: 6.0.3
-      its-fine: 2.0.0(@types/react@19.2.17)
+      its-fine: 2.0.0
       react-use-measure: 2.1.7
       scheduler: 0.27.0
       suspend-react: 0.1.3
       three: 0.180.0
-      use-sync-external-store: 1.6.0(react@19.1.0)
-      zustand: 5.0.14(@types/react@19.2.17)(use-sync-external-store@1.6.0(react@19.1.0))
+      use-sync-external-store: 1.6.0
+      zustand: 5.0.14(use-sync-external-store@1.6.0)
     transitivePeerDependencies:
       - '@types/react'
       - immer
@@ -5769,28 +5675,6 @@ snapshots:
   '@shikijs/vscode-textmate@10.0.2': {}
 
   '@sindresorhus/merge-streams@4.0.0': {}
-
-  '@studio-freight/hamo@0.6.33(react@18.3.1)':
-    dependencies:
-      '@studio-freight/tempus': 0.0.38
-      just-debounce-it: 3.2.0
-      nanoevents: 9.1.0
-      react: 18.3.1
-
-  '@studio-freight/lenis@1.0.42': {}
-
-  '@studio-freight/react-lenis@0.0.47':
-    dependencies:
-      '@studio-freight/hamo': 0.6.33(react@18.3.1)
-      '@studio-freight/lenis': 1.0.42
-      '@types/react': 18.3.31
-      clsx: 2.1.1
-      react: 18.3.1
-      zustand: 4.5.7(@types/react@18.3.31)(react@18.3.1)
-    transitivePeerDependencies:
-      - immer
-
-  '@studio-freight/tempus@0.0.38': {}
 
   '@tabby_ai/hijri-converter@1.0.5': {}
 
@@ -5962,8 +5846,6 @@ snapshots:
       pg-protocol: 1.14.0
       pg-types: 2.2.0
 
-  '@types/prop-types@15.7.15': {}
-
   '@types/qs@6.15.1': {}
 
   '@types/raf@3.4.3':
@@ -5975,14 +5857,7 @@ snapshots:
     dependencies:
       '@types/react': 19.2.17
 
-  '@types/react-reconciler@0.28.9(@types/react@19.2.17)':
-    dependencies:
-      '@types/react': 19.2.17
-
-  '@types/react@18.3.31':
-    dependencies:
-      '@types/prop-types': 15.7.15
-      csstype: 3.2.3
+  '@types/react-reconciler@0.28.9': {}
 
   '@types/react@19.2.17':
     dependencies:
@@ -6457,6 +6332,11 @@ snapshots:
       mysql2: 3.22.5(@types/node@25.9.2)
       pg: 8.21.0
 
+  drizzle-orm@0.45.2(@types/pg@8.20.0)(pg@8.21.0):
+    optionalDependencies:
+      '@types/pg': 8.20.0
+      pg: 8.21.0
+
   drizzle-zod@0.8.3(drizzle-orm@0.45.2(@types/pg@8.20.0)(mysql2@3.22.5(@types/node@25.9.2))(pg@8.21.0))(zod@3.25.76):
     dependencies:
       drizzle-orm: 0.45.2(@types/pg@8.20.0)(mysql2@3.22.5(@types/node@25.9.2))(pg@8.21.0)
@@ -6691,6 +6571,12 @@ snapshots:
 
   frac@1.1.2: {}
 
+  framer-motion@12.40.0:
+    dependencies:
+      motion-dom: 12.40.0
+      motion-utils: 12.39.0
+      tslib: 2.8.1
+
   framer-motion@12.40.0(react-dom@19.1.0(react@19.1.0))(react@19.1.0):
     dependencies:
       motion-dom: 12.40.0
@@ -6908,9 +6794,9 @@ snapshots:
 
   isexe@2.0.0: {}
 
-  its-fine@2.0.0(@types/react@19.2.17):
+  its-fine@2.0.0:
     dependencies:
-      '@types/react-reconciler': 0.28.9(@types/react@19.2.17)
+      '@types/react-reconciler': 0.28.9
     transitivePeerDependencies:
       - '@types/react'
 
@@ -6973,8 +6859,6 @@ snapshots:
       readable-stream: 2.3.8
       setimmediate: 1.0.5
 
-  just-debounce-it@3.2.0: {}
-
   jwa@2.0.1:
     dependencies:
       buffer-equal-constant-time: 1.0.1
@@ -6989,6 +6873,10 @@ snapshots:
   lazystream@1.0.1:
     dependencies:
       readable-stream: 2.3.8
+
+  lenis@1.3.25(react@19.1.0):
+    optionalDependencies:
+      react: 19.1.0
 
   leven@4.1.0: {}
 
@@ -7074,6 +6962,8 @@ snapshots:
       yallist: 3.1.1
 
   lru.min@1.1.4: {}
+
+  lucide-react@0.545.0: {}
 
   lucide-react@0.545.0(react@19.1.0):
     dependencies:
@@ -7164,8 +7054,6 @@ snapshots:
   named-placeholders@1.1.6:
     dependencies:
       lru.min: 1.1.4
-
-  nanoevents@9.1.0: {}
 
   nanoid@3.3.12: {}
 
@@ -7555,15 +7443,13 @@ snapshots:
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
 
-  react-router-dom@7.17.0(react@19.1.0):
+  react-router-dom@7.17.0:
     dependencies:
-      react: 19.1.0
-      react-router: 7.17.0(react@19.1.0)
+      react-router: 7.17.0
 
-  react-router@7.17.0(react@19.1.0):
+  react-router@7.17.0:
     dependencies:
       cookie: 1.1.1
-      react: 19.1.0
       set-cookie-parser: 2.7.2
 
   react-smooth@4.0.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0):
@@ -7592,10 +7478,6 @@ snapshots:
       react-dom: 19.1.0(react@19.1.0)
 
   react-use-measure@2.1.7: {}
-
-  react@18.3.1:
-    dependencies:
-      loose-envify: 1.4.0
 
   react@19.1.0: {}
 
@@ -7996,9 +7878,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.17
 
-  use-sync-external-store@1.6.0(react@18.3.1):
-    dependencies:
-      react: 18.3.1
+  use-sync-external-store@1.6.0: {}
 
   use-sync-external-store@1.6.0(react@19.1.0):
     dependencies:
@@ -8154,14 +8034,6 @@ snapshots:
 
   zod@3.25.76: {}
 
-  zustand@4.5.7(@types/react@18.3.31)(react@18.3.1):
-    dependencies:
-      use-sync-external-store: 1.6.0(react@18.3.1)
+  zustand@5.0.14(use-sync-external-store@1.6.0):
     optionalDependencies:
-      '@types/react': 18.3.31
-      react: 18.3.1
-
-  zustand@5.0.14(@types/react@19.2.17)(use-sync-external-store@1.6.0(react@19.1.0)):
-    optionalDependencies:
-      '@types/react': 19.2.17
-      use-sync-external-store: 1.6.0(react@19.1.0)
+      use-sync-external-store: 1.6.0
