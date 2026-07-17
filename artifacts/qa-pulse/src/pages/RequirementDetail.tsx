@@ -109,6 +109,9 @@ export default function RequirementDetail() {
   const [aiLoading, setAiLoading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [devLoading, setDevLoading] = useState(false);
+  // CR046 — QA returning a ready_for_qa requirement back to dev
+  const [returnMode, setReturnMode] = useState(false);
+  const [returnReason, setReturnReason] = useState("");
   // CR031 — requirement defect raise/reassign
   const [raiseDefectOpen, setRaiseDefectOpen] = useState(false);
   const [defectTitle, setDefectTitle] = useState("");
@@ -332,19 +335,28 @@ export default function RequirementDetail() {
     }
   };
 
-  const doDevAction = async (action: "assign" | "start" | "ready_for_qa", devAssigneeId?: number) => {
+  const doDevAction = async (action: "assign" | "start" | "ready_for_qa" | "return_to_dev", devAssigneeId?: number, reason?: string) => {
     if (!reqId) return;
     setDevLoading(true);
     try {
       const res = await api(`/requirements/${reqId}/dev`, token, {
         method: "PATCH",
-        body: JSON.stringify({ action, ...(devAssigneeId != null ? { devAssigneeId } : {}) }),
+        body: JSON.stringify({
+          action,
+          ...(devAssigneeId != null ? { devAssigneeId } : {}),
+          ...(reason?.trim() ? { reason: reason.trim() } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Action failed" }); return; }
       toast({
-        title: action === "assign" ? "Assigned for development" : action === "start" ? "Marked in progress" : "Marked ready for QA",
+        title: action === "assign" ? "Assigned for development"
+          : action === "start" ? "Marked in progress"
+          : action === "return_to_dev" ? "Returned to development"
+          : "Marked ready for QA",
       });
+      setReturnMode(false);
+      setReturnReason("");
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
     } catch {
       toast({ variant: "destructive", title: "Action failed" });
@@ -955,6 +967,33 @@ export default function RequirementDetail() {
 
                   {req.readyForQaAt && (
                     <p className="text-xs text-green-600">Ready for QA since {format(new Date(req.readyForQaAt), "dd MMM yyyy")}</p>
+                  )}
+
+                  {/* CR046 — QA can push a not-actually-done requirement back to dev */}
+                  {req.devStatus === "ready_for_qa" &&
+                    (["qa_member", "qa_lead", "hod_qa", "admin", "cto"].includes(user?.role ?? "") || isLeadTier) && (
+                    returnMode ? (
+                      <div className="space-y-2 pt-1">
+                        <Textarea
+                          value={returnReason}
+                          onChange={(e) => setReturnReason(e.target.value)}
+                          placeholder="What's missing or broken? (sent to the developer)"
+                          className="text-xs min-h-[60px]"
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="destructive" disabled={devLoading} onClick={() => doDevAction("return_to_dev", undefined, returnReason)}>
+                            Confirm Return
+                          </Button>
+                          <Button size="sm" variant="ghost" disabled={devLoading} onClick={() => { setReturnMode(false); setReturnReason(""); }}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10" disabled={devLoading} onClick={() => setReturnMode(true)}>
+                        Return to Dev
+                      </Button>
+                    )
                   )}
                 </>
               )}

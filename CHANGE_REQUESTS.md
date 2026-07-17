@@ -53,6 +53,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR043](#cr043--raci-overlay-on-the-access-matrix) | RACI Overlay on the Access Matrix | ✅ Deployed | 2026-07-15 |
 | [CR044](#cr044--multi-module-project-access) | Multi-Module Project Access | ✅ Deployed | 2026-07-17 |
 | [CR045](#cr045--notification-matrix-completion) | Notification Matrix Completion | ✅ Deployed | 2026-07-18 |
+| [CR046](#cr046--qa-return-to-dev) | QA Return-to-Dev | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1335,3 +1336,20 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Not changed:** submit-for-review FA fan-out stays project-scoped (spec has no module qualifier there); reject already notified author+assignee+PM (superset of spec, kept).
 
 **Scope:** no schema changes, no db push. `_notify.ts`, `milestones.ts`, `requirements.ts`, `defects.ts`, `test-execution.ts`; frontend `Defects.tsx`, `DefectCreationModal.tsx`, `execution-api.ts`, `NotificationDropdown.tsx`, `Inbox.tsx`.
+
+### CR046 — QA Return-to-Dev
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** `ready_for_qa` was a terminal dev status (the API 409'd any further change), so when a dev/dev-lead marked work ready prematurely, QA had no way to push it back — the requirement sat in "Ready for QA" on every dashboard while QA chased the dev out-of-band.
+
+**Backend (`requirements.ts` PATCH /requirements/:id/dev):**
+- New action `return_to_dev`, valid only from `ready_for_qa`. Sets `devStatus` back to `in_progress` (same assignee), clears `readyForQaAt`. Optional `reason` string.
+- Permission: QA roles (`qa_member`/`qa_lead`/`hod_qa`), admin/cto, or any Lead-tier user.
+- Activity log: `requirement_dev_return_to_dev`, reason included in the description.
+- Notifications: the dev assignee gets "Returned to development" with the reason (`returned_to_dev` type, red RefreshCcw icon); `dev_lead`s on the project (module-scoped, HODs excluded, assignee deduped) see the bounce too.
+
+**Phase timeline (`dashboard.ts` CR032 machine):** `requirement_dev_return_to_dev` added to RELEVANT_EVENT_TYPES; from the `testing` state, a return that precedes any resubmit ends the QA segment and resumes `develop` **within the same cycle** (it's rework, not a new requirements round). Without this, post-return dev time was silently counted as testing.
+
+**Frontend (`RequirementDetail.tsx` Development card):** when status is Ready for QA, QA-tier/Lead users see a "Return to Dev" button → inline reason textarea → Confirm Return (destructive styling). New `returned_to_dev` icon entries in NotificationDropdown + Inbox.
+
+**Scope:** no schema changes, no db push.

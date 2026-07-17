@@ -248,6 +248,7 @@ const RELEVANT_EVENT_TYPES = [
   "requirement_approve",
   "requirement_dev_assign",
   "requirement_dev_ready_for_qa",
+  "requirement_dev_return_to_dev", // CR046 — QA bounced it back to dev
 ];
 
 // Look-ahead state machine, not a single reactive pass over events — at each
@@ -346,6 +347,16 @@ export function computeTimelineFromEvents(
       }
     } else {
       const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      // CR046 — QA can return a not-actually-done requirement to dev. If that
+      // happens before any resubmit, testing ends there and Develop resumes
+      // within the same cycle (it's rework, not a new requirements round).
+      const returnEv = nextEventOfType(["requirement_dev_return_to_dev"], phaseStart);
+      if (returnEv && (!submitEv || returnEv.createdAt < submitEv.createdAt)) {
+        emitTesting(testingWindowStart!, returnEv.createdAt, cycle);
+        phaseStart = returnEv.createdAt;
+        state = "develop";
+        continue;
+      }
       const windowEnd = submitEv ? submitEv.createdAt : milestoneCompletedAt;
       emitTesting(testingWindowStart!, windowEnd, cycle);
       if (!submitEv) break;

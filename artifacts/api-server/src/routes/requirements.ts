@@ -731,9 +731,9 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
   const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
   if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
 
-  const { action, devAssigneeId } = req.body ?? {};
-  if (!["assign", "start", "ready_for_qa"].includes(action)) {
-    res.status(400).json({ error: "action must be assign, start, or ready_for_qa" }); return;
+  const { action, devAssigneeId, reason } = req.body ?? {};
+  if (!["assign", "start", "ready_for_qa", "return_to_dev"].includes(action)) {
+    res.status(400).json({ error: "action must be assign, start, ready_for_qa, or return_to_dev" }); return;
   }
 
   if (((requirement as any).reviewStatus ?? "draft") !== "approved") {
@@ -759,6 +759,20 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
     update.devStatus = "assigned";
     update.devAssignedAt = now;
     update.devAssignedBy = ctx.userId;
+  } else if (action === "return_to_dev") {
+    // CR046 — QA found the work isn't actually done: push it back to the dev.
+    // ready_for_qa is no longer terminal; the requirement re-enters
+    // in_progress with the same assignee.
+    if (!currentDevAssigneeId) { res.status(409).json({ error: "Requirement has no dev assignee yet" }); return; }
+    if (currentDevStatus !== "ready_for_qa") {
+      res.status(409).json({ error: "Only a requirement marked ready for QA can be returned to development" }); return;
+    }
+    const QA_RETURN_ROLES = ["qa_member", "qa_lead", "hod_qa", "admin", "cto"];
+    if (!QA_RETURN_ROLES.includes(ctx.role) && !isLead) {
+      res.status(403).json({ error: "Only QA or a Lead can return a requirement to development" }); return;
+    }
+    update.devStatus = "in_progress";
+    update.readyForQaAt = null;
   } else {
     if (!currentDevAssigneeId) { res.status(409).json({ error: "Requirement has no dev assignee yet" }); return; }
     if (ctx.userId !== currentDevAssigneeId && !isLead) {
@@ -781,7 +795,9 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
       ? `Requirement "${requirement.title}" assigned to ${assignedDevName} for development`
       : action === "start"
         ? `Requirement "${requirement.title}" — development started`
-        : `Requirement "${requirement.title}" marked ready for QA`,
+        : action === "return_to_dev"
+          ? `Requirement "${requirement.title}" returned to development by QA${typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : ""}`
+          : `Requirement "${requirement.title}" marked ready for QA`,
     userId: ctx.userId,
     entityId: id,
     entityType: "requirement",
@@ -826,6 +842,31 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
       entityId: id,
       actorId: ctx.userId,
       excludeUserIds: recipients,
+    }).catch(() => {});
+  } else if (action === "return_to_dev") {
+    // CR046 — the assigned dev hears why their work came back; their Dev
+    // Lead (module-scoped, HODs excluded) sees the bounce too.
+    const reasonSuffix = typeof reason === "string" && reason.trim() ? ` Reason: ${reason.trim()}` : "";
+    await notifyUser(
+      currentDevAssigneeId,
+      "Returned to development",
+      `"${requirement.title}" was returned to you by QA — it isn't ready for testing yet.${reasonSuffix}`,
+      "returned_to_dev",
+      "requirement",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+    await notifyRolesInProject({
+      roles: ["dev_lead"],
+      projectId: requirement.projectId,
+      module: requirement.module,
+      title: "Requirement returned to development",
+      message: `"${requirement.title}" was returned to development by QA.${reasonSuffix}`,
+      type: "returned_to_dev",
+      entityType: "requirement",
+      entityId: id,
+      actorId: ctx.userId,
+      excludeUserIds: currentDevAssigneeId != null ? [currentDevAssigneeId] : [],
     }).catch(() => {});
   }
 
