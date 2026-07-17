@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>QMPulse — From requirement to verdict, one living heartbeat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  :root {
+    --bg: #04070f;
+    --ink: #e6edf7;
+    --ink-dim: #9fb0c7;
+    --ink-faint: #5c6b82;
+    --pulse: #3af5c8;
+    --sky: #38bdf8;
+    --violet: #a78bfa;
+    --line: rgba(255, 255, 255, 0.08);
+    --card: rgba(255, 255, 255, 0.04);
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    overflow-x: clip;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  ::selection { background: rgba(58, 245, 200, 0.3); }
+  a { color: inherit; text-decoration: none; }
+
+  /* ---------- backdrop ---------- */
+  #scene { position: fixed; inset: 0; z-index: 0; display: block; }
+  .vignette {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(4, 7, 15, 0.86) 100%);
+  }
+
+  /* ---------- nav ---------- */
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 50; }
+  .nav {
+    max-width: 76rem; margin: 0 auto; padding: 1rem 1.5rem;
+    display: flex; align-items: center; justify-content: space-between;
+    backdrop-filter: blur(12px); background: rgba(4, 7, 15, 0.55);
+    border-bottom: 1px solid var(--line);
+    border-radius: 0 0 1rem 1rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.65rem; font-weight: 650; font-size: 1.1rem; letter-spacing: -0.01em; }
+  .brand em { color: var(--pulse); font-style: normal; }
+  .brand-mark {
+    width: 2.2rem; height: 2.2rem; border-radius: 0.7rem; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--pulse), var(--sky));
+    box-shadow: 0 8px 24px rgba(58, 245, 200, 0.28);
+  }
+  .brand-mark svg { width: 1.25rem; height: 1.25rem; stroke: var(--bg); stroke-width: 2.5; fill: none; }
+  .nav nav { display: flex; gap: 1.8rem; font-size: 0.875rem; color: var(--ink-dim); }
+  .nav nav a { transition: color 0.2s; }
+  .nav nav a:hover { color: var(--pulse); }
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08); color: var(--ink);
+    padding: 0.5rem 1.25rem; font-size: 0.875rem; font-weight: 500;
+    cursor: pointer; transition: background 0.2s;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+  @media (max-width: 820px) { .nav nav { display: none; } }
+
+  /* ---------- shared ---------- */
+  main { position: relative; z-index: 10; }
+  section { padding: 7rem 1.5rem; }
+  .wrap { max-width: 76rem; margin: 0 auto; }
+  .narrow { max-width: 60rem; margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--pulse);
+  }
+  h1, h2 { letter-spacing: -0.025em; text-wrap: balance; }
+  .grad-text {
+    background: linear-gradient(90deg, #5eead4, #67e8f9, var(--sky));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    border: none; border-radius: 999px; cursor: pointer;
+    background: linear-gradient(90deg, var(--pulse), var(--sky));
+    color: var(--bg); font-weight: 650; font-size: 1rem;
+    padding: 0.9rem 2rem;
+    box-shadow: 0 16px 40px rgba(58, 245, 200, 0.22);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn-primary:hover { transform: scale(1.03); box-shadow: 0 18px 48px rgba(58, 245, 200, 0.36); }
+  .btn-primary svg, .btn-ghost svg { width: 1.1em; height: 1.1em; stroke: currentColor; stroke-width: 2.2; fill: none; }
+
+  .sec-head { text-align: center; max-width: 44rem; margin: 0 auto; }
+  .sec-head h2 { font-size: clamp(2rem, 4.5vw, 3rem); font-weight: 720; margin-top: 0.8rem; }
+  .sec-head p { margin-top: 1rem; font-size: 1.1rem; color: var(--ink-dim); }
+
+  /* reveals */
+  .reveal { opacity: 0; transform: translateY(40px); transition: opacity 0.8s cubic-bezier(0.22,1,0.36,1), transform 0.8s cubic-bezier(0.22,1,0.36,1); }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    min-height: 100svh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding-top: 6rem; position: relative;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    border: 1px solid rgba(58, 245, 200, 0.3); border-radius: 999px;
+    background: rgba(58, 245, 200, 0.09); padding: 0.42rem 1.1rem;
+  }
+  .pill .dot { position: relative; width: 8px; height: 8px; }
+  .pill .dot::before, .pill .dot::after { content:""; position:absolute; inset:0; border-radius:50%; background: var(--pulse); }
+  .pill .dot::before { animation: ping 1.6s cubic-bezier(0,0,0.2,1) infinite; }
+  @keyframes ping { 75%, 100% { transform: scale(2.4); opacity: 0; } }
+  .hero h1 { font-size: clamp(2.6rem, 7vw, 4.7rem); font-weight: 750; line-height: 1.05; margin-top: 2rem; }
+  .hero p { margin-top: 1.75rem; max-width: 42rem; font-size: clamp(1.05rem, 2vw, 1.22rem); line-height: 1.65; color: var(--ink-dim); }
+  .hero-ctas { margin-top: 2.5rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
+  .hero-chips { margin-top: 2.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; justify-content: center; font-size: 0.8rem; color: var(--ink-faint); font-family: var(--mono); letter-spacing: 0.04em; }
+  .hero-chips span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .hero-chips b { color: var(--ink-dim); font-weight: 600; }
+  .scroll-hint {
+    position: absolute; bottom: 1.6rem; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.25em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .scroll-hint svg { width: 1.2rem; height: 1.2rem; stroke: currentColor; stroke-width: 2; fill: none; animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+  @media (max-width: 640px) { .scroll-hint { display: none; } }
+
+  /* ---------- personas ---------- */
+  .persona-grid {
+    margin-top: 3.5rem; display: grid; gap: 1.1rem;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  }
+  .persona {
+    border: 1px solid var(--line); border-radius: 1.1rem; background: var(--card);
+    backdrop-filter: blur(6px); padding: 1.5rem;
+    transition: transform 0.3s, border-color 0.3s, background 0.3s;
+  }
+  .persona:hover { transform: translateY(-5px); border-color: rgba(58,245,200,0.4); background: rgba(255,255,255,0.07); }
+  .persona .tag { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--pulse); }
+  .persona h3 { margin-top: 0.5rem; font-size: 1.12rem; font-weight: 650; }
+  .persona p { margin-top: 0.55rem; font-size: 0.9rem; line-height: 1.55; color: var(--ink-dim); }
+  .persona .ic { width: 2.6rem; height: 2.6rem; border-radius: 0.7rem; display: grid; place-items: center; margin-bottom: 1rem;
+    background: linear-gradient(135deg, rgba(58,245,200,0.16), rgba(56,189,248,0.16)); border: 1px solid rgba(58,245,200,0.22); }
+  .persona .ic svg { width: 1.3rem; height: 1.3rem; stroke: var(--pulse); stroke-width: 1.9; fill: none; }
+
+  /* ---------- flow / lifecycle ---------- */
+  .flow { max-width: 60rem; margin: 0 auto; }
+  .flow-list { position: relative; margin-top: 4rem; display: flex; flex-direction: column; gap: 3rem; }
+  .spine {
+    position: absolute; left: 1.4rem; top: 0; bottom: 0; width: 1px;
+    background: linear-gradient(to bottom, var(--pulse), rgba(103,232,249,0.5), transparent);
+    transform-origin: top center;
+  }
+  .step { position: relative; padding-left: 4rem; }
+  .step .box { border: 1px solid var(--line); border-radius: 1.1rem; background: var(--card); backdrop-filter: blur(6px); padding: 1.5rem 1.7rem; }
+  .step .box-head { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+  .step .box-head svg { width: 1.35rem; height: 1.35rem; stroke: var(--pulse); stroke-width: 1.9; fill: none; }
+  .step .box h3 { font-size: 1.3rem; font-weight: 650; }
+  .step .box .dept { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--bg); background: var(--pulse); padding: 0.2rem 0.55rem; border-radius: 999px; font-weight: 700; }
+  .step .box p { margin-top: 0.7rem; font-size: 0.95rem; line-height: 1.6; color: var(--ink-dim); }
+  .step .box .mods { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .step .box .mods span { font-size: 0.72rem; color: var(--ink-faint); border: 1px solid var(--line); border-radius: 999px; padding: 0.15rem 0.6rem; }
+  .node {
+    position: absolute; left: 1.4rem; top: 1.4rem; transform: translateX(-50%);
+    width: 2.8rem; height: 2.8rem; border-radius: 50%; display: grid; place-items: center;
+    font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: var(--pulse);
+    background: var(--bg); border: 1px solid rgba(58,245,200,0.4);
+    box-shadow: 0 8px 24px rgba(58,245,200,0.18);
+  }
+  .step .box .dept + .dept { margin-left: -0.2rem; }
+
+  /* runs-throughout band */
+  .throughout { margin-top: 2.5rem; margin-left: 4rem; border: 1px dashed rgba(58,245,200,0.25); border-radius: 1.2rem; background: rgba(58,245,200,0.03); padding: 1.7rem; }
+  .throughout .th-head { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--pulse); text-align: center; margin-bottom: 1.3rem; }
+  .throughout .th-grid { display: grid; gap: 1.4rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .throughout .th-item { display: flex; gap: 0.7rem; }
+  .throughout .th-item svg { width: 1.3rem; height: 1.3rem; stroke: var(--pulse); stroke-width: 1.9; fill: none; flex-shrink: 0; margin-top: 0.1rem; }
+  .throughout .th-item b { font-weight: 640; font-size: 0.95rem; }
+  .throughout .th-item p { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.5; margin-top: 0.2rem; }
+  @media (max-width: 640px) { .throughout { margin-left: 0; } }
+
+  /* ---------- capabilities groups ---------- */
+  .cap-groups { margin-top: 3.5rem; display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .cap-group { border: 1px solid var(--line); border-radius: 1.2rem; background: var(--card); backdrop-filter: blur(6px); padding: 1.6rem; }
+  .cap-group > .gh { display: flex; align-items: center; gap: 0.6rem; padding-bottom: 1rem; margin-bottom: 0.4rem; border-bottom: 1px solid var(--line); }
+  .cap-group > .gh svg { width: 1.2rem; height: 1.2rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+  .cap-group > .gh span { font-weight: 680; font-size: 1.05rem; }
+  .cap-item { display: flex; gap: 0.7rem; padding: 0.7rem 0; }
+  .cap-item .tick { color: var(--pulse); flex-shrink: 0; margin-top: 0.15rem; }
+  .cap-item .tick svg { width: 1rem; height: 1rem; stroke: var(--pulse); stroke-width: 2.4; fill: none; }
+  .cap-item b { font-weight: 620; font-size: 0.95rem; }
+  .cap-item p { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.5; margin-top: 0.15rem; }
+
+  /* ---------- backbone (redmine + ai) ---------- */
+  .split { margin-top: 3.5rem; display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .panel { border: 1px solid var(--line); border-radius: 1.3rem; background: var(--card); backdrop-filter: blur(6px); padding: 2rem; position: relative; overflow: hidden; }
+  .panel::after { content:""; position:absolute; inset:0; background: radial-gradient(circle at 100% 0%, rgba(58,245,200,0.08), transparent 60%); pointer-events:none; }
+  .panel .ic { width: 3rem; height: 3rem; border-radius: 0.8rem; display: grid; place-items: center; margin-bottom: 1.1rem;
+    background: linear-gradient(135deg, rgba(58,245,200,0.16), rgba(56,189,248,0.16)); border: 1px solid rgba(58,245,200,0.22); }
+  .panel .ic svg { width: 1.4rem; height: 1.4rem; stroke: var(--pulse); stroke-width: 1.9; fill: none; }
+  .panel h3 { font-size: 1.35rem; font-weight: 680; }
+  .panel > p { margin-top: 0.6rem; font-size: 0.95rem; color: var(--ink-dim); line-height: 1.6; }
+  .panel ul { margin-top: 1.1rem; display: flex; flex-direction: column; gap: 0.65rem; }
+  .panel li { display: flex; gap: 0.6rem; font-size: 0.9rem; color: var(--ink-dim); line-height: 1.5; }
+  .panel li svg { width: 1rem; height: 1rem; stroke: var(--pulse); stroke-width: 2.4; fill: none; flex-shrink: 0; margin-top: 0.15rem; }
+
+  /* ---------- governance ---------- */
+  .gov-grid { margin-top: 3.5rem; display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .gov { border: 1px solid var(--line); border-radius: 1.1rem; background: var(--card); backdrop-filter: blur(6px); padding: 1.6rem; }
+  .gov .ic { width: 2.6rem; height: 2.6rem; border-radius: 0.7rem; display: grid; place-items: center; margin-bottom: 1rem;
+    background: linear-gradient(135deg, rgba(167,139,250,0.16), rgba(56,189,248,0.16)); border: 1px solid rgba(167,139,250,0.28); }
+  .gov .ic svg { width: 1.3rem; height: 1.3rem; stroke: var(--violet); stroke-width: 1.9; fill: none; }
+  .gov h3 { font-size: 1.08rem; font-weight: 650; }
+  .gov p { margin-top: 0.5rem; font-size: 0.88rem; color: var(--ink-dim); line-height: 1.55; }
+
+  /* ---------- numbers ---------- */
+  .band { border: 1px solid var(--line); border-radius: 1.5rem; background: rgba(255,255,255,0.03); backdrop-filter: blur(10px); padding: clamp(2rem, 5vw, 3.5rem); }
+  .band-head { display: flex; align-items: center; gap: 0.8rem; }
+  .band-head svg { width: 1.5rem; height: 1.5rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+  .band-head h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 700; }
+  .stats { margin-top: 2.5rem; display: grid; gap: 2.5rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .stat-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: clamp(2.2rem, 5vw, 3rem); font-weight: 700;
+    background: linear-gradient(90deg, #5eead4, var(--sky)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stat-label { margin-top: 0.4rem; font-size: 0.85rem; line-height: 1.5; color: var(--ink-dim); }
+  .chips { margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; font-size: 0.85rem; color: var(--ink-faint); }
+  .chips span { display: inline-flex; align-items: center; gap: 0.5rem; }
+  .chips svg { width: 1rem; height: 1rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+
+  /* ---------- CTA ---------- */
+  .cta { text-align: center; padding: 9rem 1.5rem; }
+  .cta .heart { width: 3rem; height: 3rem; margin: 0 auto; }
+  .cta .heart svg { width: 100%; height: 100%; stroke: var(--pulse); stroke-width: 2.4; fill: none; }
+  .cta h2 { font-size: clamp(2.4rem, 6vw, 3.6rem); font-weight: 750; margin-top: 1.4rem; }
+  .cta p { margin-top: 1.2rem; font-size: 1.1rem; color: var(--ink-dim); max-width: 38rem; margin-inline: auto; line-height: 1.65; }
+  .cta .btn-primary { margin-top: 2.4rem; font-size: 1.1rem; padding: 1rem 2.5rem; }
+
+  /* ---------- footer ---------- */
+  footer { position: relative; z-index: 10; border-top: 1px solid var(--line); padding: 2rem 1.5rem; font-size: 0.85rem; color: var(--ink-faint); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; justify-content: space-between; }
+  footer .sig { display: inline-flex; align-items: center; gap: 0.5rem; }
+  footer svg { width: 1rem; height: 1rem; stroke: var(--pulse); stroke-width: 2; fill: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-hint svg, .pill .dot::before { animation: none; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<header>
+  <div class="nav">
+    <div class="brand">
+      <span class="brand-mark"><svg viewBox="0 0 24 24"><polyline points="2 12 6 12 9 4 14 20 17 12 22 12"/></svg></span>
+      QM<em>Pulse</em>
+    </div>
+    <nav>
+      <a href="#teams">Teams</a>
+      <a href="#flow">The Flow</a>
+      <a href="#platform">Platform</a>
+      <a href="#trust">Governance</a>
+    </nav>
+    <a class="btn-ghost" href="#cta">Sign in <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+  </div>
+</header>
+
+<main>
+  <!-- ============ 1. HERO ============ -->
+  <section class="hero">
+    <div class="pill reveal"><span class="dot"></span><span class="eyebrow">Quality Management Pulse</span></div>
+    <h1 class="reveal">From first requirement<br />to final verdict —<br /><span class="grad-text">one living heartbeat.</span></h1>
+    <p class="reveal">QMPulse unifies functional analysis, planning, development, QA and PMO reporting into a single, traceable flow — so every team feels the same pulse, in real time, from intake to sign-off.</p>
+    <div class="hero-ctas reveal">
+      <a class="btn-primary" href="#cta">Start the flow <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      <a class="btn-ghost" href="#flow" style="padding:0.9rem 2rem;font-size:1rem;">See the lifecycle</a>
+    </div>
+    <div class="hero-chips reveal">
+      <span><b>5</b> teams</span>
+      <span><b>8</b> lifecycle stages</span>
+      <span><b>1</b> source of truth</span>
+      <span>Redmine-synced</span>
+      <span>AI-accelerated</span>
+    </div>
+    <div class="scroll-hint">Follow the pulse <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+  </section>
+
+  <!-- ============ 2. PERSONAS ============ -->
+  <section id="teams">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow">Built for the whole delivery org</div>
+        <h2>Five teams. One source of truth.</h2>
+        <p>QMPulse isn't a QA tool bolted onto a tracker. It's the shared heartbeat every role works from — each with the view they need, all on the same live data.</p>
+      </div>
+      <div class="persona-grid">
+        <div class="persona reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></div>
+          <div class="tag">Project &amp; PMO</div>
+          <h3>Own the milestone</h3>
+          <p>Open the milestone, plan environments and capacity, then drive it all the way to close — watching schedule health, SPI and slippage in real time.</p>
+        </div>
+        <div class="persona reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></div>
+          <div class="tag">Functional Analysts</div>
+          <h3>Sharper requirements</h3>
+          <p>Author requirements, catch the gaps with AI, and peer-approve each other's work — no one ever signs off their own.</p>
+        </div>
+        <div class="persona reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/></svg></div>
+          <div class="tag">Developers</div>
+          <h3>Fix in context</h3>
+          <p>Pick up defects with full reproduction detail and history, resolve them, and let the status sync straight back to Redmine.</p>
+        </div>
+        <div class="persona reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg></div>
+          <div class="tag">QA Engineers</div>
+          <h3>Prove every path</h3>
+          <p>Author, execute and evidence every test against every requirement — with the release heartbeat updating as you go.</p>
+        </div>
+        <div class="persona reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <div class="tag">Leadership</div>
+          <h3>The pulse at a glance</h3>
+          <p>First-pass rate, stability and schedule performance across every project — the readiness of every release, one screen.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3. THE FLOW (centerpiece) ============ -->
+  <section id="flow">
+    <div class="flow">
+      <div class="sec-head reveal">
+        <div class="eyebrow">The flow</div>
+        <h2>One milestone, one continuous heartbeat.</h2>
+        <p>The PMO opens it, the PMO closes it — and in between, every team hands off cleanly, gets notified at each beat, and works from the same live data. Risk is tracked start to finish.</p>
+      </div>
+      <div class="flow-list">
+        <div class="spine" id="spine"></div>
+
+        <div class="step reveal">
+          <span class="node">01</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><h3>Plan the milestone</h3><span class="dept">PMO</span></div>
+            <p>Every cycle starts with the PMO. They create the milestone — scope, target dates and test environments — and the teams involved are notified the moment the clock starts.</p>
+            <div class="mods"><span>Milestones</span><span>Configuration</span><span>PM Dashboard</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">02</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><h3>Author requirements</h3><span class="dept">FA</span></div>
+            <p>Functional Analysts capture the requirements for the milestone. The AI Requirement Analyzer works alongside the author and reviewing FAs, flagging vague or untestable specs before they spread.</p>
+            <div class="mods"><span>Requirements</span><span>AI Requirement Analyzer</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">03</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M17 11l2 2 4-4"/></svg><h3>Peer-approve</h3><span class="dept">FA</span></div>
+            <p>A second FA reviews and approves each requirement — never its own author, and only from within the same project. Segregation of duties is enforced, not assumed.</p>
+            <div class="mods"><span>Requirement approval</span><span>Same-project reviewer</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">04</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/></svg><h3>Assign &amp; build</h3><span class="dept">Dev Lead</span><span class="dept">Dev</span></div>
+            <p>The Dev Lead is notified to assign approved requirements across the team. Developers build, and flip each item to <em style="color:var(--pulse);font-style:normal">"For QA Test"</em> when it's ready — while the QA Lead is notified in parallel to start planning tests.</p>
+            <div class="mods"><span>Task assignment</span><span>Status: For QA Test</span><span>Notifications</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">05</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg><h3>Author test cases</h3><span class="dept">QA</span></div>
+            <p>In parallel with development, QA writes test cases mapped to each requirement — by hand or AI-assisted — so the moment a build lands, the tests are already waiting.</p>
+            <div class="mods"><span>Test Cases</span><span>AI Authoring</span><span>Traceability</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">06</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg><h3>Execute testing</h3><span class="dept">QA</span></div>
+            <p>Once a developer hands a ticket to QA, execution runs per environment. Pass, fail and blocked update live; defects are raised straight from the failing step and pushed back to Dev through Redmine.</p>
+            <div class="mods"><span>Execution Dashboard</span><span>Defects</span><span>Redmine write-back</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">07</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><h3>Close testing &amp; track</h3><span class="dept">QA</span></div>
+            <p>QA ends testing and updates their tasks against the milestone. Is it 100% clean, or are blockers still open? The milestone tells the truth at a glance — for everyone watching.</p>
+            <div class="mods"><span>Milestones</span><span>Tasks</span><span>QA Analytics</span></div>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="node">08</span>
+          <div class="box">
+            <div class="box-head"><svg viewBox="0 0 24 24"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></svg><h3>UAT, close &amp; learn</h3><span class="dept">UAT</span><span class="dept">PMO</span></div>
+            <p>UAT runs to sign-off. The PMO marks UAT complete, then completes and closes the milestone — and lessons learned are captured so the next cycle starts sharper than the last.</p>
+            <div class="mods"><span>UAT sign-off</span><span>Milestone close</span><span>Lessons learned</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- cross-cutting: runs through the whole milestone -->
+      <div class="throughout reveal">
+        <div class="th-head">Running through every beat</div>
+        <div class="th-grid">
+          <div class="th-item">
+            <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+            <div><b>Notifications</b><p>Every hand-off pings the people who need to act — PMO, FA, Dev Lead, QA Lead and their teams. Nobody waits on an email that never comes.</p></div>
+          </div>
+          <div class="th-item">
+            <svg viewBox="0 0 24 24"><path d="M10.3 3.6L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.6a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <div><b>Risk register</b><p>Risks are logged, scored and tracked from the milestone's first day to its last — visible right beside the plan the whole way through.</p></div>
+          </div>
+          <div class="th-item">
+            <svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0012 2z"/></svg>
+            <div><b>Lessons learned</b><p>When the milestone closes, what worked and what slipped is captured — turning every release into fuel for the next.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4. CAPABILITIES ============ -->
+  <section id="platform">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow">The platform</div>
+        <h2>Everything the release needs — in one place.</h2>
+        <p>Twelve capabilities, four disciplines, zero spreadsheets flying around on email.</p>
+      </div>
+      <div class="cap-groups">
+        <div class="cap-group reveal">
+          <div class="gh"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span>Plan &amp; Govern</span></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Milestones &amp; sprints</b><p>Scoped projects, environments and target dates with live schedule health.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Resources &amp; capacity</b><p>See who's loaded, who's free, and where the next bottleneck is forming.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Risk register</b><p>Log, score and track risks with owners and mitigation, right beside the plan.</p></div></div>
+        </div>
+        <div class="cap-group reveal">
+          <div class="gh"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><span>Build &amp; Test</span></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Test-case library</b><p>Versioned cases with steps, expected results and module mapping.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Execution tracking</b><p>Live pass / fail / blocked per run, per module, per environment.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Defect management</b><p>Raise from a failing step; drive CAPA and Pareto from full status history.</p></div></div>
+        </div>
+        <div class="cap-group reveal">
+          <div class="gh"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><span>Analyze &amp; Report</span></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>PM dashboard</b><p>SPI, first-pass and stability, plus a plan-vs-actual phase timeline.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>QA analytics</b><p>Trends across milestones — quality signals leadership can act on.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Verdict reports</b><p>One-click PMO summaries, verdict emails and styled Excel exports.</p></div></div>
+        </div>
+        <div class="cap-group reveal">
+          <div class="gh"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6z"/></svg><span>Platform</span></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Role-based access</b><p>15 roles across 5 departments — everyone sees exactly their slice.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Full audit log</b><p>Every change captured with a complete, searchable history trail.</p></div></div>
+          <div class="cap-item"><span class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Redmine + AI</b><p>Two-way tracker sync and an AI hub woven through the whole flow.</p></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5. BACKBONE: REDMINE + AI ============ -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow">The backbone</div>
+        <h2>Redmine-synced. AI-accelerated.</h2>
+        <p>Two forces run through every stage: your tracker stays the system of record, and AI removes the busywork between the beats.</p>
+      </div>
+      <div class="split">
+        <div class="panel reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.2 7l7.4 3.7M8.2 17l7.4-3.7"/></svg></div>
+          <h3>Deep Redmine sync</h3>
+          <p>QMPulse doesn't replace Redmine — it makes it flow. Tickets, projects and custom fields move both ways, so your tracker and your quality workspace never drift apart.</p>
+          <ul>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Import requirements and tickets, hierarchy intact</li>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Push defects and status changes straight back</li>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Insert-only sync — nothing gets clobbered</li>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Custom-field mapping across both systems</li>
+          </ul>
+        </div>
+        <div class="panel reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/><path d="M12 8V4M8 4h8"/></svg></div>
+          <h3>The AI Hub</h3>
+          <p>AI is woven through the lifecycle, not tacked on the side — flagging risk early, drafting the tedious parts, and answering questions in plain language.</p>
+          <ul>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Requirement Analyzer — catches vague, untestable specs</li>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> AI test-case generation from requirements</li>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> QA Copilot — ask anything about your workspace</li>
+            <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Requirement Chat — converse with your specs</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6. GOVERNANCE ============ -->
+  <section id="trust">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow">Trust &amp; control</div>
+        <h2>Enterprise-grade by default.</h2>
+        <p>When quality is the product, the platform that measures it has to be accountable too.</p>
+      </div>
+      <div class="gov-grid">
+        <div class="gov reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6z"/></svg></div>
+          <h3>Role-based access</h3>
+          <p>15 roles across FA, PM, Dev, QA and leadership — each with a purpose-built view and the permissions to match.</p>
+        </div>
+        <div class="gov reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
+          <h3>Full audit trail</h3>
+          <p>Every requirement, test, defect and verdict change is logged and searchable — nothing happens off the record.</p>
+        </div>
+        <div class="gov reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2"/></svg></div>
+          <h3>End-to-end traceability</h3>
+          <p>Requirement → test → execution → defect → verdict. Follow any thread in either direction, instantly.</p>
+        </div>
+        <div class="gov reveal">
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div>
+          <h3>On-prem ready</h3>
+          <p>Deploy inside your own network. Verdict emails, Excel exports and reporting run entirely on your terms.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 7. NUMBERS ============ -->
+  <section>
+    <div class="wrap">
+      <div class="band reveal">
+        <div class="band-head">
+          <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+          <h2>Why teams run on QMPulse</h2>
+        </div>
+        <div class="stats">
+          <div><div class="stat-num"><span class="count" data-value="100">0</span>%</div><div class="stat-label">traceability, requirement to verdict</div></div>
+          <div><div class="stat-num"><span class="count" data-value="8">0</span></div><div class="stat-label">stages, from PMO plan to PMO close</div></div>
+          <div><div class="stat-num"><span class="count" data-value="15">0</span></div><div class="stat-label">roles across 5 departments, one platform</div></div>
+          <div><div class="stat-num"><span class="count" data-value="1">0</span></div><div class="stat-label">source of truth for the whole delivery org</div></div>
+        </div>
+        <div class="chips">
+          <span><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.2 7l7.4 3.7M8.2 17l7.4-3.7"/></svg> Redmine-native, two-way sync</span>
+          <span><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/><path d="M12 8V4M8 4h8"/></svg> AI woven through every stage</span>
+          <span><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg> Audit-ready Excel &amp; verdict exports</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 8. CTA ============ -->
+  <section class="cta" id="cta">
+    <div class="reveal">
+      <div class="heart"><svg viewBox="0 0 24 24"><polyline points="2 12 6 12 9 4 14 20 17 12 22 12"/></svg></div>
+      <h2>Feel the pulse.</h2>
+      <p>From the first requirement to the final verdict, QMPulse keeps every team beating as one. Sign in and see your delivery come alive.</p>
+      <a class="btn-primary" href="#top">Sign in to QMPulse <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="sig"><svg viewBox="0 0 24 24"><polyline points="2 12 6 12 9 4 14 20 17 12 22 12"/></svg> QMPulse — Quality Management Pulse</span>
+    <span>© 2026 QMPulse. From requirement to verdict, one living heartbeat.</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* reveals */
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach(function (el, i) {
+    el.style.transitionDelay = (i % 5) * 0.05 + "s";
+    io.observe(el);
+  });
+
+  /* counters */
+  var cio = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      cio.unobserve(e.target);
+      var el = e.target, end = +el.dataset.value, t0 = performance.now();
+      if (reduced) { el.textContent = end; return; }
+      (function tick(now) {
+        var p = Math.min((now - t0) / 1400, 1);
+        el.textContent = Math.round(end * (1 - Math.pow(1 - p, 3)));
+        if (p < 1) requestAnimationFrame(tick);
+      })(t0);
+    });
+  }, { threshold: 0.6 });
+  document.querySelectorAll(".count").forEach(function (el) { cio.observe(el); });
+
+  /* workflow spine draw */
+  var spine = document.getElementById("spine");
+  function updateSpine() {
+    if (!spine) return;
+    var list = spine.parentElement.getBoundingClientRect();
+    var p = Math.min(Math.max((innerHeight * 0.72 - list.top) / list.height, 0), 1);
+    spine.style.transform = "scaleY(" + p + ")";
+  }
+
+  /* 3D corridor backdrop — ECG line into depth, floating panels, particles, grid */
+  var cv = document.getElementById("scene"), cx = cv.getContext("2d");
+  var W = 0, H = 0, DPR = Math.min(devicePixelRatio || 1, 1.5);
+  function resize() { W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + "px"; cv.style.height = H + "px"; cx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+  resize(); addEventListener("resize", resize);
+
+  var Z0 = 10, Z1 = -52, BEATS = 8;
+  function bump(u, c, w, a) { return a * Math.exp(-((u - c) * (u - c)) / (2 * w * w)); }
+  function ecgY(u) { return bump(u,0.18,0.028,0.22)+bump(u,0.36,0.009,-0.32)+bump(u,0.40,0.011,1.55)+bump(u,0.44,0.010,-0.42)+bump(u,0.62,0.045,0.36); }
+  var ecg = [];
+  (function () { var N = 420; for (var i = 0; i <= N; i++) { var t = i / N; ecg.push({ x: Math.sin(t*Math.PI*3)*0.9, y: ecgY((t*BEATS)%1)*1.25-1.1, z: Z0-(Z0-Z1)*t }); } })();
+
+  var parts = [];
+  for (var i = 0; i < 200; i++) parts.push({ x:(Math.random()-0.5)*44, y:(Math.random()-0.5)*24, z: Z1-6+Math.random()*(Z0-Z1+16) });
+
+  var panels = [
+    { x:-6.0, y: 0.4, z:  1, tilt: 0.5 },{ x: 6.2, y:-0.5, z: -5, tilt:-0.55 },
+    { x:-6.2, y:-0.8, z:-13, tilt: 0.45 },{ x: 6.0, y: 0.9, z:-21, tilt:-0.5 },
+    { x:-6.0, y: 0.4, z:-30, tilt: 0.55 },{ x: 6.2, y:-0.6, z:-39, tilt:-0.45 }
+  ];
+  var BARS = [0.5, 0.9, 0.65, 1.1, 0.8];
+  var progress = 0, mx = 0, my = 0;
+  addEventListener("scroll", function () { var max = document.documentElement.scrollHeight - innerHeight; progress = max > 0 ? scrollY/max : 0; updateSpine(); }, { passive: true });
+  addEventListener("mousemove", function (e) { mx = (e.clientX/W)*2-1; my = -((e.clientY/H)*2-1); }, { passive: true });
+
+  var cam = { x: 0, y: 0.9, z: 18 };
+  function project(p, out) { var dz = cam.z-p.z; if (dz<0.25) return false; var f = Math.min(W,H)*0.92/dz; out.x = W/2+(p.x-cam.x)*f; out.y = H/2-(p.y-cam.y)*f; out.s = f; return true; }
+  var pr = { x:0, y:0, s:0 };
+
+  function drawEcg(width, style, a) { cx.lineWidth=width; cx.strokeStyle=style; cx.beginPath(); var pen=false; for (var i=0;i<ecg.length;i++){ if(project(ecg[i],pr)){ if(pen)cx.lineTo(pr.x,pr.y); else{cx.moveTo(pr.x,pr.y);pen=true;} } else pen=false; } cx.globalAlpha=a; cx.stroke(); cx.globalAlpha=1; }
+
+  function frame(now) {
+    var t = now/1000;
+    var tz = 18 - progress*(18-(Z1+12));
+    var txx = Math.sin(progress*Math.PI*2)*1.4 + mx*0.6;
+    var ty = 0.9 + Math.sin(progress*Math.PI)*0.8 + my*0.4;
+    cam.x += (txx-cam.x)*0.06; cam.y += (ty-cam.y)*0.06; cam.z += (tz-cam.z)*0.06;
+
+    cx.fillStyle = "#04070f"; cx.fillRect(0,0,W,H);
+
+    cx.strokeStyle = "rgba(20,120,110,0.16)"; cx.lineWidth = 1;
+    var zStart = Math.floor(cam.z)-1;
+    for (var g=0; g<20; g++) { var gz=zStart-g*2; var a=project({x:-26,y:-3.4,z:gz},pr); var ax=pr.x, ay=pr.y; var b=project({x:26,y:-3.4,z:gz},pr); if(a&&b){ cx.globalAlpha=Math.max(0,1-g/18)*0.7; cx.beginPath(); cx.moveTo(ax,ay); cx.lineTo(pr.x,pr.y); cx.stroke(); } }
+    cx.globalAlpha = 1;
+
+    cx.fillStyle = "#67e8f9";
+    for (var i=0;i<parts.length;i++){ var p=parts[i]; var zz=p.z; while(cam.z-zz>66)zz+=72; while(cam.z-zz<-6)zz-=72; if(!project({x:p.x+mx*0.6,y:p.y+my*0.35,z:zz},pr))continue; var r=Math.min(pr.s*0.045,2.4); cx.globalAlpha=Math.min(0.5,pr.s/400); cx.beginPath(); cx.arc(pr.x,pr.y,r,0,6.2832); cx.fill(); }
+    cx.globalAlpha = 1;
+
+    for (var k=0;k<panels.length;k++){ var pl=panels[k]; var fy=pl.y+Math.sin(t*0.6+k*2.1)*0.25; var ct=Math.cos(pl.tilt), st=Math.sin(pl.tilt); var corners=[[-1.5,0.95],[1.5,0.95],[1.5,-0.95],[-1.5,-0.95]]; var proj=[], ok=true; for(var c=0;c<4;c++){ var lx=corners[c][0], ly=corners[c][1]; if(!project({x:pl.x+lx*ct,y:fy+ly,z:pl.z-lx*st},pr)){ok=false;break;} proj.push({x:pr.x,y:pr.y}); } if(!ok)continue; var depth=cam.z-pl.z; var fade=Math.max(0,Math.min(1,(44-depth)/20))*Math.max(0,Math.min(1,depth/3)); if(fade<=0.01)continue; cx.globalAlpha=0.42*fade; cx.fillStyle="rgba(10,21,38,0.85)"; cx.beginPath(); cx.moveTo(proj[0].x,proj[0].y); for(c=1;c<4;c++)cx.lineTo(proj[c].x,proj[c].y); cx.closePath(); cx.fill(); cx.globalAlpha=0.5*fade; cx.strokeStyle="#2dd4bf"; cx.lineWidth=1; cx.stroke(); for(var bIdx=0;bIdx<BARS.length;bIdx++){ var h=BARS[bIdx]*(0.7+(((k+1)*7+bIdx*3)%5)*0.1); var bx=-1+bIdx*0.5; var okA=project({x:pl.x+bx*ct,y:fy-0.7,z:pl.z-bx*st},pr); var bax=pr.x, bay=pr.y; var okB=project({x:pl.x+bx*ct,y:fy-0.7+h,z:pl.z-bx*st},pr); if(!okA||!okB)continue; cx.globalAlpha=0.6*fade; cx.strokeStyle=bIdx%2===0?"#2dd4bf":"#38bdf8"; cx.lineWidth=Math.max(1.5,pr.s*0.07); cx.beginPath(); cx.moveTo(bax,bay); cx.lineTo(pr.x,pr.y); cx.stroke(); } cx.globalAlpha=1; }
+
+    cx.globalCompositeOperation = "lighter"; cx.lineJoin = "round";
+    drawEcg(6, "rgba(20,184,166,0.14)", 1);
+    drawEcg(1.6, "#3af5c8", 0.95);
+    var rp = ecg[Math.floor(((t*0.045)%1)*(ecg.length-1))];
+    if (project(rp, pr)) { var rad=Math.min(pr.s*0.10,22); var grad=cx.createRadialGradient(pr.x,pr.y,0,pr.x,pr.y,rad); grad.addColorStop(0,"rgba(234,255,247,0.9)"); grad.addColorStop(0.3,"rgba(45,212,191,0.5)"); grad.addColorStop(1,"rgba(45,212,191,0)"); cx.fillStyle=grad; cx.beginPath(); cx.arc(pr.x,pr.y,rad,0,6.2832); cx.fill(); }
+    cx.globalCompositeOperation = "source-over";
+
+    if (!reduced) requestAnimationFrame(frame);
+  }
+  updateSpine();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
