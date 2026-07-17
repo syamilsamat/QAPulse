@@ -55,6 +55,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR045](#cr045--notification-matrix-completion) | Notification Matrix Completion | ✅ Deployed | 2026-07-18 |
 | [CR046](#cr046--qa-return-to-dev) | QA Return-to-Dev | ✅ Deployed | 2026-07-18 |
 | [CR047](#cr047--security-audit-pass-1) | Security Audit — Pass 1 (auth & access gaps) | ✅ Deployed | 2026-07-18 |
+| [CR048](#cr048--security-audit-pass-2-role-routing) | Security Audit — Pass 2 (role routing) | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1373,3 +1374,16 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Deferred to later passes:** `/dashboard` self-redirect + route-gate/nav drift (~10 routes), QA-PIC dead deep-link, defect register upsert race (non-unique redmine_id), pending-sync Redmine duplication, wrong-user name resolution, module-delete lockout, isReopen false positives, timeline gap on return-to-dev, stale history query, and assorted low-severity items.
 
 **Scope:** no schema changes, no db push. `notifications.ts`, `redmine.ts`, `requirements.ts`, `defects.ts`, `Layout.tsx`.
+
+### CR048 — Security Audit, Pass 2 (Role Routing)
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** two High findings from the audit — the app was effectively broken for every non-QA role.
+
+**Fix 1 — `/dashboard` self-redirect blank screen.** `ProtectedRoute`'s fallback redirects a blocked user to `/dashboard`, but `/dashboard` was itself gated to `qa_member`/`qa_lead`/`admin` — so an hod_qa/fa_lead/dev_lead/pm_lead/hod_pm/cto bounced to a page that re-blocked them, rendering a blank self-redirect. Fixed by making `/dashboard` reachable by every authenticated user (the sidebar already marks it `alwaysVisible`), so it's a safe universal landing.
+
+**Fix 2 — route-gate vs nav-permission drift (~15 routes).** The sidebar shows items from the backend `role_nav_permissions` (`/my-nav-permissions`, keyed by `nav:*`), but the route guards hardcoded `["qa_member","qa_lead","admin"]` — so FA/PM/dev roles saw nav links that bounced on click, blocking shipped workflows (fa_lead/fa_member couldn't open requirement detail for CR022/CR023 review; dev_lead couldn't reach the CR031/return-to-dev UI). Fixed by making `ProtectedRoute` accept a `permKey` and check it against the same `/my-nav-permissions` data the sidebar uses (shared query cache) — so nav visibility and route access are now driven by one source and can't drift. Each content route got its `nav:*` key; the static `roles` arrays were corrected to match `roles.ts` `DEFAULT_PERMISSIONS` and now serve only as a fallback for when the permissions fetch fails. Admin short-circuits; pmo keeps its two-page special-casing; permission-gated routes show a loader (not a flash-redirect) while permissions load.
+
+**Not changed:** backend `role_nav_permissions` (already correct — it was the source of truth the frontend had drifted from). No server changes at all.
+
+**Scope:** frontend only — `App.tsx`. No schema, no db push.

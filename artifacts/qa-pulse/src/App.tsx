@@ -1,9 +1,10 @@
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { Layout } from "@/components/Layout";
+import { getApiUrl } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
@@ -47,14 +48,35 @@ const queryClient = new QueryClient({
   },
 });
 
+// CR048 — a route's access is decided by the same nav-permission key the
+// sidebar uses (`/my-nav-permissions`, backend role_nav_permissions), so a
+// visible nav item can never point at a route that then bounces the user.
+// The static `roles` array is only a fallback for when that fetch fails or a
+// route has no permKey (admin-only pages). `permKey` present + perms loaded
+// is authoritative.
 function ProtectedRoute({
   component: Component,
   roles,
+  permKey,
 }: {
   component: React.ComponentType;
   roles?: string[];
+  permKey?: string;
 }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, token } = useAuth();
+
+  const { data: navPermissions, isLoading: permsLoading } = useQuery<string[] | null>({
+    queryKey: ["my-nav-permissions"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/my-nav-permissions`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user && user.role !== "pmo" && !!permKey,
+  });
 
   if (isLoading) {
     return (
@@ -68,16 +90,32 @@ function ProtectedRoute({
     return <Redirect to="/login" />;
   }
 
-  if (roles && !roles.includes(user.role)) {
-    if (user.role === "pmo") {
-      return <Redirect to="/pmo-report" />;
+  // pmo is a two-page role handled by its own routes; anywhere it lands that
+  // isn't explicitly its own goes to the PMO report.
+  const denied = (): boolean => {
+    if (user.role === "admin") return false;
+    if (permKey && user.role !== "pmo") {
+      // Wait for permissions rather than flash-redirect a user who's allowed.
+      if (navPermissions === undefined) return false;
+      if (navPermissions) return !navPermissions.includes(permKey);
+      // fetch failed → fall through to the static role fallback
     }
-    return <Redirect to="/dashboard" />;
+    return roles ? !roles.includes(user.role) : false;
+  };
+
+  // Block render until permissions resolve for permKey-gated routes.
+  if (permKey && user.role !== "admin" && user.role !== "pmo" && navPermissions === undefined && permsLoading) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
-  // pmo is a minimal, two-page role (PMO Report + PM Dashboard) — routes
-  // that explicitly allow pmo (passed the check above) render normally with
-  // Layout; anything not explicitly allowed already redirected above.
+  if (denied()) {
+    return <Redirect to={user.role === "pmo" ? "/pmo-report" : "/dashboard"} />;
+  }
+
   return (
     <Layout>
       <Component />
@@ -125,37 +163,42 @@ function Router() {
         )}
       </Route>
 
+      {/* CR048 — Dashboard is the universal fallback landing (sidebar marks it
+        alwaysVisible), so every authenticated role must be able to reach it.
+        Previously gated to QA roles, which made the ProtectedRoute fallback
+        redirect (→ /dashboard) a self-blocking blank screen for everyone else. */}
       <Route path="/dashboard">
-        <ProtectedRoute
-          component={Dashboard}
-          roles={["qa_member", "qa_lead", "admin"]}
-        />
+        <ProtectedRoute component={Dashboard} />
       </Route>
 
       <Route path="/requirements">
         <ProtectedRoute
           component={Requirements}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:requirements"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/requirements/:id">
         <ProtectedRoute
           component={RequirementDetail}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:requirements"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/milestones">
         <ProtectedRoute
           component={Milestones}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:milestones"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/pm-dashboard">
         <ProtectedRoute
           component={PmDashboard}
+          permKey="nav:pm-dashboard"
           roles={["hod_pm", "pm_lead", "admin", "cto", "pmo"]}
         />
       </Route>
@@ -163,6 +206,7 @@ function Router() {
       <Route path="/risk-register">
         <ProtectedRoute
           component={RiskRegister}
+          permKey="nav:risk-register"
           roles={["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto", "pmo"]}
         />
       </Route>
@@ -170,6 +214,7 @@ function Router() {
       <Route path="/resources">
         <ProtectedRoute
           component={Resources}
+          permKey="nav:resources"
           roles={["qa_lead", "qa_manager", "hod_qa", "fa_lead", "hod_fa", "dev_lead", "hod_dev", "pm_lead", "hod_pm", "admin", "cto"]}
         />
       </Route>
@@ -177,13 +222,15 @@ function Router() {
       <Route path="/traceability">
         <ProtectedRoute
           component={TraceabilityMatrix}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:traceability"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/qa-analytics">
         <ProtectedRoute
           component={QAAnalytics}
+          permKey="nav:qa-analytics"
           roles={["qa_lead", "qa_manager", "hod_qa", "admin", "cto"]}
         />
       </Route>
@@ -192,7 +239,8 @@ function Router() {
       <Route path="/configurations">
         <ProtectedRoute
           component={ModuleAndProject}
-          roles={["qa_lead", "admin"]}
+          permKey="nav:configurations"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "pm_lead"]}
         />
       </Route>
 
@@ -205,7 +253,7 @@ function Router() {
       </Route>
 
       <Route path="/audit-log">
-        <ProtectedRoute component={AuditLog} roles={["admin"]} />
+        <ProtectedRoute component={AuditLog} permKey="nav:audit-log" roles={["admin", "cto"]} />
       </Route>
 
       <Route path="/defects">
@@ -214,6 +262,7 @@ function Router() {
           those roles saw the sidebar link but got redirected on click. */}
         <ProtectedRoute
           component={Defects}
+          permKey="nav:defects"
           roles={["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"]}
         />
       </Route>
@@ -221,92 +270,105 @@ function Router() {
       <Route path="/test-cases/execution-details/:ticketId">
         <ProtectedRoute
           component={TestExecutionDetails}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:test-cases"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/test-cases/execution-details">
         <ProtectedRoute
           component={TestExecutionDetails}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:test-cases"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/test-cases/execution">
         <ProtectedRoute
           component={TestCasesExecution}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:test-cases"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/test-cases/execution/:id">
         <ProtectedRoute
           component={TestCasesExecutionProgressPage}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:test-cases"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/test-cases">
         <ProtectedRoute
           component={TestCases}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:test-cases"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/tasks">
         <ProtectedRoute
           component={Tasks}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:tasks"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "pm_lead"]}
         />
       </Route>
 
       <Route path="/history-trail">
         <ProtectedRoute
           component={HistoryTrail}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:tasks"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "pm_lead"]}
         />
       </Route>
 
       <Route path="/team">
-        <ProtectedRoute component={Team} roles={["qa_lead", "admin"]} />
+        <ProtectedRoute
+          component={Team}
+          permKey="nav:team"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "fa_lead", "dev_lead", "pm_lead"]}
+        />
       </Route>
 
       <Route path="/admin/search">
-        <ProtectedRoute component={AdminSearch} roles={["admin"]} />
+        <ProtectedRoute component={AdminSearch} permKey="nav:admin-search" roles={["admin", "cto"]} />
       </Route>
 
+      {/* Account/Settings — alwaysVisible in the sidebar, reachable by all. */}
       <Route path="/settings">
-        <ProtectedRoute
-          component={Settings}
-          roles={["qa_member", "qa_lead", "admin"]}
-        />
+        <ProtectedRoute component={Settings} />
       </Route>
 
       <Route path="/inbox">
         <ProtectedRoute
           component={Inbox}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:inbox"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "pm_lead"]}
         />
       </Route>
 
       <Route path="/team-hangouts">
         <ProtectedRoute
           component={TeamHangouts}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:team-hangouts"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead"]}
         />
       </Route>
 
       <Route path="/ai-features">
         <ProtectedRoute
           component={AiFeatures}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:ai-hub"
+          roles={["admin", "cto", "hod_qa", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead"]}
         />
       </Route>
 
       <Route path="/report">
         <ProtectedRoute
           component={ReportDashboard}
-          roles={["qa_member", "qa_lead", "admin"]}
+          permKey="nav:report"
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead", "pmo"]}
         />
       </Route>
 
