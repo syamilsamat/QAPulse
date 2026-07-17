@@ -54,6 +54,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR044](#cr044--multi-module-project-access) | Multi-Module Project Access | ✅ Deployed | 2026-07-17 |
 | [CR045](#cr045--notification-matrix-completion) | Notification Matrix Completion | ✅ Deployed | 2026-07-18 |
 | [CR046](#cr046--qa-return-to-dev) | QA Return-to-Dev | ✅ Deployed | 2026-07-18 |
+| [CR047](#cr047--security-audit-pass-1) | Security Audit — Pass 1 (auth & access gaps) | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1355,3 +1356,20 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Defect reopen (same CR, follow-up):** QA could already reopen a defect via the status dropdown (any Redmine status, synced), but the status-change notification only went to reporter + executor — on a QA reopen that's the QA themselves, so the dev heard nothing. Now: (1) the assignee is a recipient of every status change made by someone else; (2) a reopen — an explicit "Reopened"-style status OR leaving a fixed-like status for one that's neither fixed nor closed — sends the dev a dedicated red "Defect reopened" notification (`defect_reopened` type) instead of the generic one. Redmine-side status changes pulled in by background sync intentionally do NOT notify (bulk-sync spam risk).
 
 **Scope:** no schema changes, no db push.
+
+### CR047 — Security Audit, Pass 1
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** a 4-dimension code audit (crawl for bugs/suspicious events) surfaced ~20 findings. Pass 1 fixes the three genuinely urgent ones — the rest are queued for later passes.
+
+**Fix 1 — unauthenticated routers (critical):**
+- `notifications.ts`: every endpoint now derives the user from the JWT via `getAuthContext`, never a client-supplied `userId`. `GET /notifications` filters by `ctx.userId`; `PATCH /:id/read` enforces ownership in the WHERE clause; `mark-all-read` uses `ctx.userId`. The SSE `/notifications/stream` takes the token as a query param (EventSource can't send headers) and binds the stream to the token's own user. Frontend `Layout.tsx` now passes `?token=` instead of `?userId=`. Transparent to the generated client (which already sends Bearer).
+- `redmine.ts`: router-level `router.use` guard rejects anyone without a valid JWT. Previously `resolveApiKey`'s env-key fallback (`REDMINE_API_KEY`) let an anonymous caller create Redmine issues / upload attachments under the server's service account.
+
+**Fix 2 — return_to_dev access hole (CR046 regression):** `PATCH /requirements/:id/dev` never checked project access, so any `qa_member` org-wide could flip any `ready_for_qa` requirement back to dev (and fire the notification fan-out). Added `canAccessProject` + `canAccessModule` gates at the top of the handler, covering all four dev actions.
+
+**Fix 3 — sync-from-redmine project leakage:** the defect insert used `projectId: projectId ?? null` (the requirement branch already fell back to `requirement.projectId`). Since `canAccessDefectProject` treats a null projectId as world-visible, project-scoped defects imported under a requirement leaked to every authenticated user. Now falls back to `requirement.projectId`.
+
+**Deferred to later passes:** `/dashboard` self-redirect + route-gate/nav drift (~10 routes), QA-PIC dead deep-link, defect register upsert race (non-unique redmine_id), pending-sync Redmine duplication, wrong-user name resolution, module-delete lockout, isReopen false positives, timeline gap on return-to-dev, stale history query, and assorted low-severity items.
+
+**Scope:** no schema changes, no db push. `notifications.ts`, `redmine.ts`, `requirements.ts`, `defects.ts`, `Layout.tsx`.

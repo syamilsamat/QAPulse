@@ -1157,7 +1157,11 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             description: issue.description ?? null,
             severity: severityFromPriority(issue.priority?.name),
             module: module ?? issue.category?.name ?? null,
-            projectId: projectId ?? null,
+            // CR047 — fall back to the anchor requirement's project, same as
+            // the requirement branch above. A null projectId is treated as
+            // world-visible by canAccessDefectProject, so dropping it here
+            // leaked project-scoped defects to every authenticated user.
+            projectId: projectId ?? requirement.projectId,
             milestoneId: requirement.milestoneId ?? null,
             reporterId: actorId,
             redmineId: rid,

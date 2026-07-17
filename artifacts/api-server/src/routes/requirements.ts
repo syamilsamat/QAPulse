@@ -3,7 +3,7 @@ import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getModuleScope } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getModuleScope } from "../middleware/access";
 import {
   db,
   requirementsTable,
@@ -732,6 +732,20 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
 
   const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
   if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+  // CR047 — every dev-handoff action requires access to the requirement's
+  // project (and module, for module-scoped users). Previously only the
+  // per-action role gates applied, so any qa_member org-wide could
+  // return_to_dev (or a lead from another project could assign) a
+  // requirement they have no grant on.
+  if (requirement.projectId != null) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+    if (!(await canAccessModule(ctx.userId, ctx.role, requirement.projectId, requirement.module))) {
+      res.status(403).json({ error: "Access denied to this module" }); return;
+    }
+  }
 
   const { action, devAssigneeId, reason } = req.body ?? {};
   if (!["assign", "start", "ready_for_qa", "return_to_dev"].includes(action)) {

@@ -689,13 +689,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // writes a new notification for this user. The 30s poll above stays as a
   // correctness fallback in case the SSE stream silently stalls.
   useEffect(() => {
-    if (!user?.id || user.role === "pmo") return;
-    const es = new EventSource(`${getApiUrl()}/notifications/stream?userId=${user.id}`);
+    if (!user?.id || user.role === "pmo" || !token) return;
+    // Token rides as a query param — EventSource can't set an Authorization
+    // header (CR047). The server binds the stream to the token's own user.
+    const es = new EventSource(`${getApiUrl()}/notifications/stream?token=${encodeURIComponent(token)}`);
     es.onmessage = () => {
       qc.invalidateQueries({ queryKey: ["notifications-unread", user.id] });
     };
     return () => es.close();
-  }, [user?.id, user?.role, qc]);
+  }, [user?.id, user?.role, token, qc]);
 
   const handleLogout = () => {
     setLogoutOpen(false);
