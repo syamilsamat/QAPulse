@@ -1333,7 +1333,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Bonus fix:** execution file **created** with qaPic already set now notifies the PIC (previously only the PATCH path did, and only on change).
 
-**Not changed:** submit-for-review FA fan-out stays project-scoped (spec has no module qualifier there); reject already notified author+assignee+PM (superset of spec, kept).
+**Not changed:** reject already notified author+assignee+PM (superset of spec, kept). ~~Submit-for-review FA fan-out stays project-scoped~~ — superseded 2026-07-18 (commit cc29177): submit is now module-scoped too, since a module-restricted reviewer can't even open an out-of-scope requirement.
 
 **Scope:** no schema changes, no db push. `_notify.ts`, `milestones.ts`, `requirements.ts`, `defects.ts`, `test-execution.ts`; frontend `Defects.tsx`, `DefectCreationModal.tsx`, `execution-api.ts`, `NotificationDropdown.tsx`, `Inbox.tsx`.
 
