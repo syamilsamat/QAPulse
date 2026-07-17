@@ -833,12 +833,22 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     // CR027 — defect_status_changed to the reporter + the linked TC's last
     // executor, and retest_needed to that same executor when the new status
     // reads as "fixed" but the execution row is still sitting on Failed.
+    // CR046 — the assignee (dev) is a recipient too: without them, a QA
+    // reopen notified nobody but the QA themselves.
     const linkedExec = await findLinkedExecutionTc(id);
     const executorId = linkedExec ? await resolveUserIdByName(linkedExec.qaPic) : null;
+
+    // Reopen = an explicit "Reopened"-style status, or leaving a fixed-like
+    // status for one that's neither fixed nor closed (retest failed, back
+    // to the dev) — same heuristic family as RETEST_STATUS.
+    const isReopen =
+      /reopen/i.test(statusRow.name) ||
+      (RETEST_STATUS.test(oldStatus) && !RETEST_STATUS.test(statusRow.name) && !CLOSED_STATUS.test(statusRow.name));
 
     const statusRecipients = new Set<number>();
     if (defect.reporterId) statusRecipients.add(defect.reporterId);
     if (executorId) statusRecipients.add(executorId);
+    if (defect.assigneeId && !isReopen) statusRecipients.add(defect.assigneeId); // reopen gets its own louder message below
     await Promise.all(
       [...statusRecipients].map((uid) =>
         notifyUser(
@@ -852,6 +862,18 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
         ).catch(() => {}),
       ),
     );
+
+    if (isReopen && defect.assigneeId) {
+      await notifyUser(
+        defect.assigneeId,
+        "Defect reopened",
+        `${defect.defectCode ?? `Defect #${id}`} "${defect.title}" failed retest — reopened (${oldStatus} → ${statusRow.name}).`,
+        "defect_reopened",
+        "defect",
+        id,
+        actorId,
+      ).catch(() => {});
+    }
 
     if (executorId && RETEST_STATUS.test(statusRow.name) && linkedExec?.result && /fail/i.test(linkedExec.result)) {
       await notifyUser(

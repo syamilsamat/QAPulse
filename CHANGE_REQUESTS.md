@@ -1352,4 +1352,6 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Frontend (`RequirementDetail.tsx` Development card):** when status is Ready for QA, QA-tier/Lead users see a "Return to Dev" button → inline reason textarea → Confirm Return (destructive styling). New `returned_to_dev` icon entries in NotificationDropdown + Inbox.
 
+**Defect reopen (same CR, follow-up):** QA could already reopen a defect via the status dropdown (any Redmine status, synced), but the status-change notification only went to reporter + executor — on a QA reopen that's the QA themselves, so the dev heard nothing. Now: (1) the assignee is a recipient of every status change made by someone else; (2) a reopen — an explicit "Reopened"-style status OR leaving a fixed-like status for one that's neither fixed nor closed — sends the dev a dedicated red "Defect reopened" notification (`defect_reopened` type) instead of the generic one. Redmine-side status changes pulled in by background sync intentionally do NOT notify (bulk-sync spam risk).
+
 **Scope:** no schema changes, no db push.
