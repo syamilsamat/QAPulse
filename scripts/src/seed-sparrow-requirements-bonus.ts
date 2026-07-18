@@ -170,7 +170,9 @@ async function main() {
 
   // ── RQ-07 — priority escalation on REQ-104 ───────────────────────────────
   console.log("\nRQ-07 — REQ-104 priority escalated normal → urgent (Finance go-live blocker)...");
-  await api(`/requirements/${req104Id}`, danielTok, { method: "PATCH", body: { priority: "urgent" } });
+  // REQ-104's author is Harith (not Daniel) — native (non-Redmine) requirements
+  // are author/assignee-editable only, so the escalation has to come from him.
+  await api(`/requirements/${req104Id}`, harithTok, { method: "PATCH", body: { priority: "urgent" } });
   await api(`/requirements/${req104Id}/comments`, salmahTok, { method: "POST", body: { body: RQ07_NOTE } });
 
   // ── RQ-08 — requirement descoped and reassigned to CR-2026-015 ─────────
