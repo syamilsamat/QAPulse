@@ -46,7 +46,10 @@ export function resolveNotifRoute(entityType: string | null, entityId: number | 
   if (!entityType || !entityId) return null;
   switch (entityType) {
     case "requirement":    return `/requirements/${entityId}`;
-    case "execution_file": return `/test-execution/${entityId}`;
+    // CR050 — the execution page is keyed by redmineTicketId, not the numeric
+    // file id the notification carries, and /test-execution/:id doesn't exist.
+    // Route to the execution dashboard (a valid page) rather than NotFound.
+    case "execution_file": return `/test-cases/execution`;
     case "defect":         return `/defects?highlight=${entityId}`;
     case "task":           return `/tasks?highlight=${entityId}`;
     case "milestone":      return `/milestones?highlight=${entityId}`;

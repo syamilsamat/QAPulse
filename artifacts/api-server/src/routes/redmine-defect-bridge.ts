@@ -208,7 +208,10 @@ async function resolveRedmineUserIdByName(name: string, apiKey: string): Promise
     const exact = users.find(
       (u: any) => `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim().toLowerCase() === name.trim().toLowerCase(),
     );
-    return (exact ?? users[0])?.id ?? null;
+    // CR050 — only an exact name match is safe. Redmine's ?name= is a
+    // substring search, so falling back to users[0] would assign the wrong
+    // person (e.g. "Ali" → "Alia Rahman") into Redmine, the system of record.
+    return exact?.id ?? null;
   } catch {
     return null;
   }

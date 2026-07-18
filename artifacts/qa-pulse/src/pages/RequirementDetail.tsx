@@ -328,6 +328,9 @@ export default function RequirementDetail() {
       setReviewAction(null);
       setReviewComment("");
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      // CR050 — the History timeline on this same page reads this key; the
+      // review action just appended an activity event, so refresh it too.
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
     } catch {
       toast({ variant: "destructive", title: "Review action failed" });
     } finally {
@@ -358,6 +361,8 @@ export default function RequirementDetail() {
       setReturnMode(false);
       setReturnReason("");
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      // CR050 — refresh the History timeline (dev action logged an event).
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
     } catch {
       toast({ variant: "destructive", title: "Action failed" });
     } finally {

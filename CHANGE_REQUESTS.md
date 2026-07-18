@@ -57,6 +57,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR047](#cr047--security-audit-pass-1) | Security Audit — Pass 1 (auth & access gaps) | ✅ Deployed | 2026-07-18 |
 | [CR048](#cr048--security-audit-pass-2-role-routing) | Security Audit — Pass 2 (role routing) | ✅ Deployed | 2026-07-18 |
 | [CR049](#cr049--security-audit-pass-3-unauthenticated-routers) | Security Audit — Pass 3 (unauthenticated routers) | ✅ Deployed | 2026-07-18 |
+| [CR050](#cr050--audit-pass-4-correctness-cleanup) | Audit Pass 4 (correctness cleanup) | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1408,3 +1409,21 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Scope:** no schema changes, no db push. Backend: `users.ts`, `pmo-report.ts`, `calendar.ts`, `contacts.ts`, `document-register.ts`, `social-events.ts`. Frontend: `lib/api.ts`, `SendReportModal.tsx`, `SendVerdictModal.tsx`, `Settings.tsx`, `ModuleAndProject.tsx`.
 
 **This closes the unauthenticated-endpoint class** found in the audit (CR047 did notifications+redmine; CR049 does the rest). Remaining audit items are the QA-PIC dead deep-link and the defect-sync medium/low batch.
+
+### CR050 — Audit Pass 4 (Correctness Cleanup)
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** the remaining medium/low correctness findings from the audit crawl (the non-security batch). Eight fixes, no schema change, no db push.
+
+1. **QA-PIC dead deep-link** (`NotificationDropdown.tsx`): `execution_file` notifications pointed at `/test-execution/:id`, which doesn't exist (the real page is `/test-cases/execution/:ticketId` and keys on redmineTicketId, not the numeric file id the notification carries). Now routes to the execution dashboard — a valid page — instead of NotFound.
+2. **Module-delete lockout** (`test-execution.ts` `DELETE /modules/:id`, CR044 regression): deleting a global module didn't clean `project_members.module_ids`, leaving a member scoped only to it with `{restricted:true, moduleNames:[]}` → they saw nothing in the project. Now `array_remove`s the id (and clears legacy `module_id`); an emptied scope falls back to whole-project.
+3. **Fail-modal defects skipped `milestoneId`** (`defects.ts` `POST /defects/register`): now inherits the execution file's milestone, so these defects appear in the CR026 escape funnel / CR037 risk inputs like every other creation path.
+4. **Stale History timeline** (`RequirementDetail.tsx`): `doReview`/`doDevAction` now invalidate `requirement-history` (not just `requirement`), so approve/reject/return-to-dev refresh the timeline without a remount.
+5. **`isReopen` false positives** (`defects.ts`, tightening the CR046 heuristic): redefined as explicit "Reopened" OR leaving a genuinely resolved state (fixed/resolved/verified/closed) into an active-dev state (in progress/assigned/reopened). No longer misfires on "Ready for Testing → In Progress", "Fixed → Retest", or "Resolved → Feedback".
+6. **Wrong-user Redmine assignment** (`redmine-defect-bridge.ts`): `resolveRedmineUserIdByName` no longer falls back to `users[0]` on no exact match (Redmine's `?name=` is a substring search, so it could assign "Ali" → "Alia Rahman" into the system of record). Returns null instead.
+7. **Case-sensitive QA-PIC lookup** (`test-execution.ts`, both create + PATCH paths): `eq(name)` → `ilike(name)`, matching the defect-side convention, so a Redmine-cased PIC name still resolves; also added the missing `.catch()` so a notify failure can't 500 a successful file update.
+8. **Unguarded SSE broadcast** (`test-execution.ts` `broadcastUpdate`): wrapped the per-client `write` in try/catch (drops dead clients) so a broken SSE connection can't 500 the committed save that triggered the broadcast.
+
+**Deferred (need a migration or larger rework, flagged for a later pass):** defect-register upsert race (needs a partial-unique index on `redmine_id` + dup cleanup → db push); pending-sync Redmine duplication (needs a dedupe-by-marker search before re-POST); return-to-dev timeline gap (QA runs logged between a return and the next resubmit fall outside both testing windows — phase-machine change); unused `?highlight=` params on Defects/Tasks/Milestones; NaN coercion on `GET /defects?projectId=`.
+
+**Scope:** no schema changes, no db push. Backend: `test-execution.ts`, `defects.ts`, `redmine-defect-bridge.ts`. Frontend: `NotificationDropdown.tsx`, `RequirementDetail.tsx`.

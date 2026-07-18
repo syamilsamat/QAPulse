@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, sql, inArray, notInArray } from "drizzle-orm";
+import { eq, and, sql, inArray, notInArray, ilike } from "drizzle-orm";
 import {
   db,
   executionFilesTable,
@@ -14,6 +14,7 @@ import {
   testCasesTable,
   milestonesTable,
   notificationsTable,
+  projectMembersTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
@@ -60,7 +61,13 @@ router.get("/execution-events", (req, res) => {
 
 const broadcastUpdate = (ticketId: string) => {
   clients.forEach((client) => {
-    client.write(`data: ${JSON.stringify({ ticketId, type: "UPDATED" })}\n\n`);
+    // CR050 — a dead SSE client throwing on write must not 500 the save that
+    // triggered this broadcast; drop the client instead.
+    try {
+      client.write(`data: ${JSON.stringify({ ticketId, type: "UPDATED" })}\n\n`);
+    } catch {
+      clients.delete(client);
+    }
   });
 };
 
@@ -115,6 +122,17 @@ router.delete("/modules/:id", async (req, res): Promise<void> => {
     await db
       .delete(executionModulesTable)
       .where(eq(executionModulesTable.id, id));
+
+    // CR050 — a member scoped to this module (CR044 module_ids / legacy
+    // module_id) would otherwise be left referencing a dead id, which
+    // getModuleScope reads as {restricted:true, moduleNames:[]} → they see
+    // nothing in the project. Drop the id from every grant; an empty scope
+    // falls back to whole-project, matching pre-CR044 behavior.
+    await db.update(projectMembersTable).set({ moduleId: null }).where(eq(projectMembersTable.moduleId, id));
+    await db.update(projectMembersTable)
+      .set({ moduleIds: sql`NULLIF(array_remove(${projectMembersTable.moduleIds}, ${id}), '{}')` })
+      .where(sql`${projectMembersTable.moduleIds} @> ARRAY[${id}]::integer[]`);
+
     res.status(204).send();
   } catch {
     res.status(500).json({ error: "Failed to delete module" });
@@ -316,7 +334,9 @@ router.post("/execution-files", async (req, res): Promise<void> => {
     if (file.qaPic) {
       let actorId: number | null = null;
       try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
-      const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.name, file.qaPic));
+      // CR050 — case-insensitive match; qaPic is a free-text name that may
+      // differ in casing from the QAPulse user record.
+      const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, file.qaPic));
       if (picUser) {
         await notifyUser(picUser.id, "Assigned as QA PIC", `You have been assigned as QA PIC for execution file "${file.title || file.redmineTicketId}".`, "execution", "execution_file", file.id, actorId).catch(() => {});
       }
@@ -462,9 +482,11 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
     if (updated.qaPic && updated.qaPic !== prevFile?.qaPic) {
       let actorId: number | null = null;
       try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
-      const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.name, updated.qaPic));
+      const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, updated.qaPic));
       if (picUser) {
-        await notifyUser(picUser.id, "Assigned as QA PIC", `You have been assigned as QA PIC for execution file "${updated.title || updated.redmineTicketId}".`, "execution", "execution_file", updated.id, actorId);
+        // CR050 — best-effort: a notification failure must not 500 an
+        // otherwise-successful file update.
+        await notifyUser(picUser.id, "Assigned as QA PIC", `You have been assigned as QA PIC for execution file "${updated.title || updated.redmineTicketId}".`, "execution", "execution_file", updated.id, actorId).catch(() => {});
       }
     }
 

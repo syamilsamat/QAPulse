@@ -598,6 +598,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
 
     // derive project + environment from the execution row's file
     let projectId: number | null = null;
+    let milestoneId: number | null = null;
     let foundIn = "SIT";
     let execMeta: { libraryTcId: number | null; requirementId: number | null } | null = null;
     if (executionTcId != null) {
@@ -606,6 +607,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           libraryTcId: executionTestCasesTable.libraryTcId,
           requirementId: executionTestCasesTable.requirementId,
           fileProjectId: executionFilesTable.projectId,
+          fileMilestoneId: executionFilesTable.milestoneId,
           fileTracker: executionFilesTable.tracker,
         })
         .from(executionTestCasesTable)
@@ -613,6 +615,10 @@ router.post("/defects/register", async (req, res): Promise<void> => {
         .where(eq(executionTestCasesTable.id, Number(executionTcId)));
       if (row) {
         projectId = row.fileProjectId ?? null;
+        // CR050 — carry the execution file's milestone onto the defect, same
+        // as every other creation path. Without it, fail-modal defects were
+        // missing from the CR026 milestone escape funnel and CR037 risk.
+        milestoneId = row.fileMilestoneId ?? null;
         if (/uat/i.test(row.fileTracker ?? "")) foundIn = "UAT";
         execMeta = { libraryTcId: row.libraryTcId, requirementId: row.requirementId };
       }
@@ -639,6 +645,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           severity: severity ?? "medium",
           module: module ?? null,
           projectId,
+          milestoneId,
           reporterId: actorId,
           redmineId: String(redmineId),
           syncStatus: "synced",
@@ -838,12 +845,17 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     const linkedExec = await findLinkedExecutionTc(id);
     const executorId = linkedExec ? await resolveUserIdByName(linkedExec.qaPic) : null;
 
-    // Reopen = an explicit "Reopened"-style status, or leaving a fixed-like
-    // status for one that's neither fixed nor closed (retest failed, back
-    // to the dev) — same heuristic family as RETEST_STATUS.
+    // CR050 — reopen = an explicit "Reopened" status, OR leaving a genuinely
+    // resolved state (fixed/resolved/verified/closed) back INTO active dev
+    // work (in progress / assigned / reopened). Deliberately narrower than
+    // the old "left any retest-ish status" test, which false-flagged normal
+    // forward moves: "Ready for Testing → In Progress" (QA starting the
+    // retest), "Fixed → Retest", and "Resolved → Feedback" are NOT reopens.
+    const RESOLVED_STATES = /fixed|resolved|verified|closed/i;
+    const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
     const isReopen =
       /reopen/i.test(statusRow.name) ||
-      (RETEST_STATUS.test(oldStatus) && !RETEST_STATUS.test(statusRow.name) && !CLOSED_STATUS.test(statusRow.name));
+      (RESOLVED_STATES.test(oldStatus) && ACTIVE_DEV_STATES.test(statusRow.name));
 
     const statusRecipients = new Set<number>();
     if (defect.reporterId) statusRecipients.add(defect.reporterId);
