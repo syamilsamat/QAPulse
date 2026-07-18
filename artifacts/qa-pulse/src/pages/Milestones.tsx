@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import {
   Plus,
   Pencil,
@@ -107,6 +108,7 @@ export default function Milestones() {
   const queryClient = useQueryClient();
 
   const [filterProject, setFilterProject] = useState<string>("all");
+  useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
   const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
@@ -258,7 +260,7 @@ export default function Milestones() {
       {milestones.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {milestones.map((m) => (
-            <Card key={m.id} className="hover:shadow-md transition-shadow">
+            <Card key={m.id} id={highlightRowId(m.id)} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   Bug,
@@ -170,6 +171,7 @@ export default function Defects() {
   const [, setLocation] = useLocation();
 
   const [tab, setTab] = useState<"qa" | "production" | "other" | "requirement">("qa");
+  useHighlightRow([tab]); // CR051 — focus a defect row from a ?highlight= deep-link
   const [view, setView] = useState<string>("open");
   const [filterProject, setFilterProject] = useState("all");
   const [filterSeverity, setFilterSeverity] = useState("all");
@@ -605,7 +607,7 @@ export default function Defects() {
         <div className="rounded-md border divide-y">
           {defects.map((d) => (
             <Fragment key={d.id}>
-              <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/40" onClick={() => toggleExpand(d.id)}>
+              <div id={highlightRowId(d.id)} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/40" onClick={() => toggleExpand(d.id)}>
                 {expanded.has(d.id) ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">

@@ -1,4 +1,5 @@
-import { pgTable, text, serial, timestamp, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -62,6 +63,12 @@ export const defectsTable = pgTable(
     index("defects_source_idx").on(t.source),
     index("defects_redmine_id_idx").on(t.redmineId),
     index("defects_project_idx").on(t.projectId),
+    // CR051 — a partial UNIQUE index on redmine_id (non-null only, since many
+    // native/pending defects have none) backs the idempotent register upsert:
+    // a double-submit from the fail modal hits a 23505 instead of inserting a
+    // twin. Created in bootstrap (roles.ts) so a fresh DB self-heals; declared
+    // here so the schema stays the source of truth.
+    uniqueIndex("defects_redmine_id_unique").on(t.redmineId).where(sql`${t.redmineId} IS NOT NULL`),
   ],
 );
 

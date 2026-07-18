@@ -411,6 +411,30 @@ export async function bootstrap() {
     );
   }
 
+  // CR051 — partial UNIQUE index on defects.redmine_id backs the idempotent
+  // register upsert. Dedupe any pre-existing duplicates first (repoint their
+  // links to the surviving lowest-id row — FK cascades on delete, so repoint
+  // before deleting or the links vanish), then create the index. All guarded:
+  // a failure here must never block the rest of bootstrap.
+  try {
+    await pool.query(`
+      UPDATE defect_links dl SET defect_id = s.keep_id
+      FROM defects d
+      JOIN (SELECT redmine_id, MIN(id) AS keep_id FROM defects WHERE redmine_id IS NOT NULL GROUP BY redmine_id) s
+        ON d.redmine_id = s.redmine_id
+      WHERE dl.defect_id = d.id AND d.id <> s.keep_id
+    `);
+    await pool.query(`
+      DELETE FROM defects d USING (
+        SELECT redmine_id, MIN(id) AS keep_id FROM defects WHERE redmine_id IS NOT NULL GROUP BY redmine_id
+      ) s
+      WHERE d.redmine_id = s.redmine_id AND d.id <> s.keep_id
+    `);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS defects_redmine_id_unique ON defects (redmine_id) WHERE redmine_id IS NOT NULL`);
+  } catch (e) {
+    console.error("[bootstrap] CR051: failed to create defects.redmine_id unique index", e);
+  }
+
   bootstrapped = true;
 }
 

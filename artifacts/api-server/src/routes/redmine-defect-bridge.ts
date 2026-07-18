@@ -81,6 +81,21 @@ export interface PushResult {
 
 // Write-through push: create the Redmine issue for a QAPulse defect.
 // Idempotent — a defect that already carries a redmineId is never re-pushed.
+// CR051 — search Redmine for an issue whose description carries our unique
+// marker, so a retried push reuses it instead of creating a duplicate.
+// Returns the issue id as a string, or null on no match / any error.
+async function findRedmineIssueByMarker(marker: string, apiKey: string): Promise<string | null> {
+  try {
+    const res = await redmineFetch(`/search.json?q=${encodeURIComponent(marker)}&issues=1&limit=5`, apiKey);
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const hit = (data?.results ?? []).find((r: any) => r?.type === "issue" && typeof r?.id === "number");
+    return hit?.id != null ? String(hit.id) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function pushDefectToRedmine(
   defect: Defect,
   apiKey: string,
@@ -113,12 +128,21 @@ export async function pushDefectToRedmine(
   if (config?.targetedStartDateFieldId && opts.targetedStartDate) customFields.push({ id: config.targetedStartDateFieldId, value: opts.targetedStartDate });
   if (config?.targetedCompletionDateFieldId && opts.targetedCompletionDate) customFields.push({ id: config.targetedCompletionDateFieldId, value: opts.targetedCompletionDate });
 
+  // CR051 — retry-safe: if a previous push created the issue but the response
+  // was lost (timeout/reset after Redmine committed), no redmineId was stored
+  // and this would create a second issue. The description embeds a unique
+  // marker (DEF-code / "QMPulse defect #id"); search for it first and reuse
+  // any existing issue. Best-effort — search failures fall through to create.
+  const marker = defect.defectCode ?? `QMPulse defect #${defect.id}`;
+  const existingRemoteId = await findRedmineIssueByMarker(marker, apiKey);
+  if (existingRemoteId) return { ok: true, redmineId: existingRemoteId };
+
   const descriptionParts = [
     defect.description?.trim(),
     defect.stepsToReproduce ? `*Steps to reproduce:*\n${defect.stepsToReproduce}` : null,
     defect.expectedResult ? `*Expected:*\n${defect.expectedResult}` : null,
     defect.actualResult ? `*Actual:*\n${defect.actualResult}` : null,
-    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${defect.defectCode ?? `QMPulse defect #${defect.id}`} (created via QMPulse)_`,
+    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${marker} (created via QMPulse)_`,
   ].filter(Boolean);
 
   try {

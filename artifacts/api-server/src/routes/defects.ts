@@ -150,8 +150,20 @@ router.get("/defects", async (req, res): Promise<void> => {
   try {
     const { source, severity, projectId, search, escapeStatus, view } = req.query as Record<string, string>;
 
+    // CR051 — a non-numeric projectId (e.g. ?projectId=abc) coerces to NaN,
+    // which silently matched nothing for scoped users and everything for
+    // admins. Reject it explicitly instead.
+    let projectIdNum: number | null = null;
+    if (projectId != null && projectId !== "") {
+      projectIdNum = Number(projectId);
+      if (!Number.isInteger(projectIdNum)) {
+        res.status(400).json({ error: "projectId must be an integer" });
+        return;
+      }
+    }
+
     const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
-    if (projectId && accessible !== null && !accessible.includes(Number(projectId))) {
+    if (projectIdNum != null && accessible !== null && !accessible.includes(projectIdNum)) {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
@@ -162,7 +174,7 @@ router.get("/defects", async (req, res): Promise<void> => {
     }
     if (source) defects = defects.filter((d: any) => d.source === source);
     if (severity) defects = defects.filter((d: any) => d.severity === severity);
-    if (projectId) defects = defects.filter((d: any) => d.projectId === Number(projectId));
+    if (projectIdNum != null) defects = defects.filter((d: any) => d.projectId === projectIdNum);
     if (escapeStatus) defects = defects.filter((d: any) => d.escapeStatus === escapeStatus);
 
     // CR035 — module-scope, checked once per distinct project rather than per row.
@@ -635,29 +647,45 @@ router.post("/defects/register", async (req, res): Promise<void> => {
       // CR045 — carry the fail-modal's Redmine assignee into the local row
       // (best-effort name match) so the dev is notified at creation.
       const localAssigneeId = await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
-      const [created] = await db
-        .insert(defectsTable)
-        .values({
-          title: String(title),
-          description: description ?? null,
-          expectedResult: expectedResult ?? null,
-          actualResult: actualResult ?? null,
-          severity: severity ?? "medium",
-          module: module ?? null,
-          projectId,
-          milestoneId,
-          reporterId: actorId,
-          redmineId: String(redmineId),
-          syncStatus: "synced",
-          source: "qa",
-          foundIn,
-          defectCategory: categoryAllowed ? defectCategory : null,
-          statusSyncedAt: null,
-          assigneeId: localAssigneeId,
-          assigneeName: typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null,
-          assigneeAssignedAt: localAssigneeId != null ? new Date() : null,
-        })
-        .returning();
+      // CR051 — the select-above/insert-below is a TOCTOU: a double-submit
+      // (double-click, slow-network retry) can race past the select. The
+      // partial UNIQUE index on redmine_id makes the loser hit a 23505; we
+      // treat that as "already registered", fetch the winner, and skip the
+      // creation-only side effects (code, notifications).
+      let created: typeof defectsTable.$inferSelect | undefined;
+      try {
+        [created] = await db
+          .insert(defectsTable)
+          .values({
+            title: String(title),
+            description: description ?? null,
+            expectedResult: expectedResult ?? null,
+            actualResult: actualResult ?? null,
+            severity: severity ?? "medium",
+            module: module ?? null,
+            projectId,
+            milestoneId,
+            reporterId: actorId,
+            redmineId: String(redmineId),
+            syncStatus: "synced",
+            source: "qa",
+            foundIn,
+            defectCategory: categoryAllowed ? defectCategory : null,
+            statusSyncedAt: null,
+            assigneeId: localAssigneeId,
+            assigneeName: typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null,
+            assigneeAssignedAt: localAssigneeId != null ? new Date() : null,
+          })
+          .returning();
+      } catch (err: any) {
+        if (err?.code === "23505") {
+          const [winner] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
+          defect = winner;
+        } else {
+          throw err;
+        }
+      }
+      if (created) {
       const defectCode = `DEF-${String(created.id).padStart(4, "0")}`;
       await db.update(defectsTable).set({ defectCode }).where(eq(defectsTable.id, created.id));
       created.defectCode = defectCode;
@@ -683,6 +711,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           created.id,
           actorId,
         ).catch(() => {});
+      }
       }
     }
 

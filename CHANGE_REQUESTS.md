@@ -58,6 +58,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR048](#cr048--security-audit-pass-2-role-routing) | Security Audit — Pass 2 (role routing) | ✅ Deployed | 2026-07-18 |
 | [CR049](#cr049--security-audit-pass-3-unauthenticated-routers) | Security Audit — Pass 3 (unauthenticated routers) | ✅ Deployed | 2026-07-18 |
 | [CR050](#cr050--audit-pass-4-correctness-cleanup) | Audit Pass 4 (correctness cleanup) | ✅ Deployed | 2026-07-18 |
+| [CR051](#cr051--audit-pass-5-deferred-batch) | Audit Pass 5 (deferred batch) | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1427,3 +1428,17 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Deferred (need a migration or larger rework, flagged for a later pass):** defect-register upsert race (needs a partial-unique index on `redmine_id` + dup cleanup → db push); pending-sync Redmine duplication (needs a dedupe-by-marker search before re-POST); return-to-dev timeline gap (QA runs logged between a return and the next resubmit fall outside both testing windows — phase-machine change); unused `?highlight=` params on Defects/Tasks/Milestones; NaN coercion on `GET /defects?projectId=`.
 
 **Scope:** no schema changes, no db push. Backend: `test-execution.ts`, `defects.ts`, `redmine-defect-bridge.ts`. Frontend: `NotificationDropdown.tsx`, `RequirementDetail.tsx`.
+
+### CR051 — Audit Pass 5 (Deferred Batch)
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** the items CR050 deferred because they needed a migration or larger rework. Bootstrap-covered — no manual db push.
+
+1. **Defect register upsert race → idempotent** (`defects.ts`, `roles.ts`, schema): added a partial `UNIQUE` index on `defects.redmine_id` (non-null only). Bootstrap dedupes any pre-existing duplicates first — repointing their `defect_links` to the surviving lowest-id row (FK cascades on delete, so repoint before deleting) — then creates the index, all guarded so it can't block boot. `POST /defects/register` now catches the `23505` unique violation and returns the existing row instead of inserting a twin (creation-only side effects — DEF-code, notifications — are skipped on the losing race).
+2. **Pending-sync Redmine duplication** (`redmine-defect-bridge.ts`): before creating a Redmine issue, `pushDefectToRedmine` searches (`/search.json`) for the unique marker it embeds in every description (`DEF-code` / "QMPulse defect #id"). If a prior push committed but its response was lost, the retry finds and reuses that issue instead of creating a second. Best-effort — search failure falls through to create.
+3. **NaN query coercion** (`defects.ts` `GET /defects`): a non-integer `?projectId=` now returns 400 instead of silently matching nothing (scoped users) or everything (admins).
+4. **`?highlight=` deep-links now focus the row** (new `hooks/use-highlight.ts`): notification deep-links to Defects and Milestones scroll the target row into view and flash a ring. Additive hook (`useHighlightRow` + `highlightRowId`), no logic change. Tasks renders through a data-grid of plain row objects with no per-row DOM id — left as a fast-follow (its deep-link still navigates to the page correctly).
+
+**Deferred (intentionally, with reason):** the return-to-dev **phase-timeline gap** — QA runs logged *after* clicking Return to Dev (before the next resubmit) fall outside both testing windows. The common flow is exec-then-Return, which the existing `[ready, return)` window already captures, so the gap is a rare edge; the fix means touching the CR032 look-ahead state machine, and the destabilization risk outweighs the payoff. Documented for a dedicated change if it ever bites in practice.
+
+**Scope:** `lib/db/src/schema/defects.ts`, `roles.ts`, `defects.ts`, `redmine-defect-bridge.ts`, new `hooks/use-highlight.ts`, `Defects.tsx`, `Milestones.tsx`. Bootstrap creates the index — **no manual db push.**
