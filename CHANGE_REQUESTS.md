@@ -59,6 +59,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR049](#cr049--security-audit-pass-3-unauthenticated-routers) | Security Audit — Pass 3 (unauthenticated routers) | ✅ Deployed | 2026-07-18 |
 | [CR050](#cr050--audit-pass-4-correctness-cleanup) | Audit Pass 4 (correctness cleanup) | ✅ Deployed | 2026-07-18 |
 | [CR051](#cr051--audit-pass-5-deferred-batch) | Audit Pass 5 (deferred batch) | ✅ Deployed | 2026-07-18 |
+| [CR052](#cr052--return-to-dev-timeline-gap) | Return-to-Dev Timeline Gap | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1442,3 +1443,15 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Deferred (intentionally, with reason):** the return-to-dev **phase-timeline gap** — QA runs logged *after* clicking Return to Dev (before the next resubmit) fall outside both testing windows. The common flow is exec-then-Return, which the existing `[ready, return)` window already captures, so the gap is a rare edge; the fix means touching the CR032 look-ahead state machine, and the destabilization risk outweighs the payoff. Documented for a dedicated change if it ever bites in practice.
 
 **Scope:** `lib/db/src/schema/defects.ts`, `roles.ts`, `defects.ts`, `redmine-defect-bridge.ts`, new `hooks/use-highlight.ts`, `Defects.tsx`, `Milestones.tsx`. Bootstrap creates the index — **no manual db push.**
+
+### CR052 — Return-to-Dev Timeline Gap
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** the last audit item, deferred from CR051. In the CR032 phase-timeline state machine, a Return-to-Dev (CR046) ended the testing exec-capture window exactly at the return event. QA runs logged *after* clicking Return (before the next ready-for-QA) — the common "mark failed, then return" sequence when the exec save lands a moment after the click — fell outside both testing windows, so the QA segment could vanish and the period read as pure Develop.
+
+**Fix (`dashboard.ts` `computeTimelineFromEvents`):**
+- `emitTesting` gained an optional `captureEnd` distinct from `windowEnd`: `windowEnd` still bounds the *drawn* segment (so it never overlaps the Develop rework), while `captureEnd` bounds which exec timestamps *count*. Default (no arg) = `windowEnd`, so every existing call is unchanged.
+- On a Return, capture now extends to the start of the **next** testing round (next `requirement_dev_ready_for_qa`, or milestone completion if none) — trailing QA runs count toward this round without being double-counted by the next one (which starts exactly at that boundary).
+- Added `clampStart`: a captured exec past the segment end anchors the bar at `windowStart` instead of inverting into a negative-width segment. This also fixes a latent pre-existing inversion in the normal path (first QA exec later than first UAT exec).
+
+**Scope:** `dashboard.ts` only. No schema, no db push. **This closes the entire audit — CR047–CR052, every finding from the crawl now addressed.**

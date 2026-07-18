@@ -272,20 +272,31 @@ export function computeTimelineFromEvents(
 
   const nextEventOfType = (types: string[], after: Date) =>
     events.find((e) => types.includes(e.type) && e.createdAt > after) ?? null;
-  // Bounded by [windowStart, windowEnd) — emits a qa segment, then a uat
-  // segment, back to back, using whichever execution timestamps actually
-  // fall in this cycle's testing window.
-  const emitTesting = (windowStart: Date, windowEnd: Date | null, cycle: number) => {
-    const inWindow = (d: Date) => d >= windowStart && (windowEnd === null || d < windowEnd);
+  // Emits a qa segment, then a uat segment, back to back, using whichever
+  // execution timestamps fall in this cycle's testing window.
+  //
+  // windowEnd bounds the drawn segment (so it never overlaps the next phase).
+  // captureEnd (CR052) bounds which exec timestamps count — normally the same
+  // as windowEnd, but when a Return-to-Dev ends the window, QA runs logged
+  // just after the return (before the next ready-for-QA) still belong to this
+  // testing round; captureEnd lets them count without drawing the bar past
+  // the return. Segments are still clamped to windowEnd.
+  const emitTesting = (windowStart: Date, windowEnd: Date | null, cycle: number, captureEnd?: Date | null) => {
+    const capEnd = captureEnd === undefined ? windowEnd : captureEnd;
+    const inWindow = (d: Date) => d >= windowStart && (capEnd === null || d < capEnd);
     const qaTimes = qaExecTimes.filter(inWindow);
     const uatTimes = uatExecTimes.filter(inWindow);
     if (qaTimes.length === 0 && uatTimes.length === 0) return;
+    // A captured exec can fall past windowEnd (trailing runs after a Return);
+    // anchor such a segment's start at windowStart so the bar stays inside the
+    // drawn window instead of inverting.
+    const clampStart = (t: Date, end: Date | null) => (end !== null && t > end ? windowStart : t);
     if (qaTimes.length > 0) {
       const qaEnd = uatTimes.length > 0 ? uatTimes[0] : windowEnd;
-      segments.push(makeSegment("qa", cycle, qaTimes[0], qaEnd, now));
+      segments.push(makeSegment("qa", cycle, clampStart(qaTimes[0], qaEnd), qaEnd, now));
     }
     if (uatTimes.length > 0) {
-      segments.push(makeSegment("uat", cycle, uatTimes[0], windowEnd, now));
+      segments.push(makeSegment("uat", cycle, clampStart(uatTimes[0], windowEnd), windowEnd, now));
     }
   };
 
@@ -352,7 +363,14 @@ export function computeTimelineFromEvents(
       // within the same cycle (it's rework, not a new requirements round).
       const returnEv = nextEventOfType(["requirement_dev_return_to_dev"], phaseStart);
       if (returnEv && (!submitEv || returnEv.createdAt < submitEv.createdAt)) {
-        emitTesting(testingWindowStart!, returnEv.createdAt, cycle);
+        // CR052 — count QA runs logged up to the start of the NEXT testing
+        // round (next ready-for-QA), not just before the return click, so a
+        // fail-then-Return sequence whose exec timestamps land just after the
+        // return still renders a QA segment instead of vanishing into Develop.
+        // The next round's window starts at that ready event, so there's no
+        // double-count; the drawn bar still ends at the return.
+        const nextReady = nextEventOfType(["requirement_dev_ready_for_qa"], returnEv.createdAt);
+        emitTesting(testingWindowStart!, returnEv.createdAt, cycle, nextReady?.createdAt ?? milestoneCompletedAt);
         phaseStart = returnEv.createdAt;
         state = "develop";
         continue;
