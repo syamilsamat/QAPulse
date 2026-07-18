@@ -304,47 +304,48 @@
 
     <section id="run" class="panel">
       <h3>Run this before Monday</h3>
+      <p class="step-label" style="margin-bottom:14px;">Run every command below from inside the <code style="display:inline;padding:1px 5px;">scripts/</code> directory — that's where these <code style="display:inline;padding:1px 5px;">pnpm run</code> script names are defined.</p>
       <ol class="steps">
         <li>
           <div>
             <div class="step-label">Main storyline (if not already seeded)</div>
-            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-data.ts
-DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-data.ts</code>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; pnpm run seed:sparrow
+DATABASE_URL=$DATABASE_URL pnpm run seed:sparrow:finalize</code>
           </div>
         </li>
         <li>
           <div>
             <div class="step-label">Requirements page — 12 bonus scenarios (RQ-01…RQ-12)</div>
-            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-requirements-bonus.ts
-DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-requirements-bonus.ts</code>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; pnpm run seed:sparrow:requirements-bonus
+DATABASE_URL=$DATABASE_URL pnpm run seed:sparrow:requirements-bonus:finalize</code>
           </div>
         </li>
         <li>
           <div>
             <div class="step-label">Test Cases &amp; Execution — 12 bonus scenarios (TX-01…TX-12)</div>
-            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-testcases-bonus.ts
-DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-testcases-bonus.ts</code>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; pnpm run seed:sparrow:testcases-bonus
+DATABASE_URL=$DATABASE_URL pnpm run seed:sparrow:testcases-bonus:finalize</code>
           </div>
         </li>
         <li>
           <div>
             <div class="step-label">Defects page — 10 bonus scenarios (DX-01…DX-10)</div>
-            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-defects-bonus.ts
-DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-defects-bonus.ts</code>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; pnpm run seed:sparrow:defects-bonus
+DATABASE_URL=$DATABASE_URL pnpm run seed:sparrow:defects-bonus:finalize</code>
           </div>
         </li>
         <li>
           <div>
             <div class="step-label">PM Dashboard — the CR-2026-020 storyline (PM-01…PM-10)</div>
-            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-pmdashboard.ts
-DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-pmdashboard.ts</code>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; pnpm run seed:sparrow:pmdashboard
+DATABASE_URL=$DATABASE_URL pnpm run seed:sparrow:pmdashboard:finalize</code>
           </div>
         </li>
         <li>
           <div>
             <div class="step-label">Milestones page — 10 bonus scenarios (MS-01…MS-10)</div>
-            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-milestones-bonus.ts
-DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-milestones-bonus.ts</code>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; pnpm run seed:sparrow:milestones-bonus
+DATABASE_URL=$DATABASE_URL pnpm run seed:sparrow:milestones-bonus:finalize</code>
           </div>
         </li>
       </ol>
