@@ -11,7 +11,10 @@ const router: IRouter = Router();
 function requireAuth(req: any, res: any): { userId: number; role: string } | null {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  try { return verifyToken(auth.slice(7)); }
+  try {
+    const { id, role } = verifyToken(auth.slice(7));
+    return { userId: id, role };
+  }
   catch { res.status(401).json({ error: "Unauthorized" }); return null; }
 }
 

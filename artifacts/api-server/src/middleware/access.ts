@@ -47,7 +47,6 @@ export async function scopeToUserProjects(userId: number, role: string): Promise
     const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
     const tierRank = roleRow?.tierRank ?? 1;
     const department = roleRow?.department ?? null;
-    console.log(`[TEMPDEBUG scopeToUserProjects] userId=${userId} role=${role} roleRowFound=${!!roleRow} tierRank=${tierRank} department=${department}`);
 
     // CTO tier — sees everything
     if (tierRank >= 5) return null;
@@ -62,9 +61,7 @@ export async function scopeToUserProjects(userId: number, role: string): Promise
         .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
         .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role))
         .where(eq(rolesTable.department, department));
-      const result = [...new Set(rows.map(r => r.projectId))];
-      console.log(`[TEMPDEBUG scopeToUserProjects] department-wide branch result=${JSON.stringify(result)}`);
-      return result;
+      return [...new Set(rows.map(r => r.projectId))];
     }
 
     // Member / Lead / Manager — only their own direct assignments.
@@ -72,19 +69,15 @@ export async function scopeToUserProjects(userId: number, role: string): Promise
       .select({ projectId: projectMembersTable.projectId })
       .from(projectMembersTable)
       .where(eq(projectMembersTable.userId, userId));
-    const result = [...new Set(direct.map(r => r.projectId))];
-    console.log(`[TEMPDEBUG scopeToUserProjects] direct branch userId=${userId} result=${JSON.stringify(result)}`);
-    return result;
-  } catch (err) {
+    return [...new Set(direct.map(r => r.projectId))];
+  } catch {
     // Tables not yet created (bootstrap pending) — fall back to unrestricted
-    console.log(`[TEMPDEBUG scopeToUserProjects] CAUGHT ERROR, falling back to unrestricted: ${(err as any)?.message ?? err}`);
     return null;
   }
 }
 
 export async function canAccessProject(userId: number, role: string, projectId: number): Promise<boolean> {
   const accessible = await scopeToUserProjects(userId, role);
-  console.log(`[TEMPDEBUG canAccessProject] userId=${userId} role=${role} projectId=${projectId} (type=${typeof projectId}) accessible=${JSON.stringify(accessible)}`);
   if (accessible === null) return true;
   return accessible.includes(projectId);
 }
