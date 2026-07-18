@@ -191,7 +191,7 @@ function Router() {
         <ProtectedRoute
           component={Milestones}
           permKey="nav:milestones"
-          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead"]}
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead", "pmo"]}
         />
       </Route>
 
