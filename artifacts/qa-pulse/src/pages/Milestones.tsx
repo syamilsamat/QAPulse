@@ -14,6 +14,8 @@ import {
   XCircle,
   Loader2,
   Flag,
+  Users,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +87,8 @@ const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
 const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
+  { value: "verified", label: "Verified" },
+  { value: "uat", label: "UAT" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
@@ -95,6 +99,10 @@ function StatusBadge({ status }: { status: string }) {
       return <Badge className="gap-1 bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3" /> Completed</Badge>;
     case "active":
       return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> Active</Badge>;
+    case "verified":
+      return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
+    case "uat":
+      return <Badge className="gap-1 bg-violet-100 text-violet-700 border-violet-200"><Clock className="w-3 h-3" /> UAT</Badge>;
     case "cancelled":
       return <Badge className="gap-1 bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3" /> Cancelled</Badge>;
     default:
@@ -134,6 +142,42 @@ export default function Milestones() {
   });
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(user?.role ?? "");
+
+  // CR054p2 — milestone staffing (edit dialog only; the milestone must exist)
+  const [assigneePick, setAssigneePick] = useState("");
+  const { data: assignees = [] } = useQuery<{ id: number; userId: number; name: string; role: string }[]>({
+    queryKey: ["milestone-assignees", editing?.id],
+    queryFn: async () => {
+      const res = await api(`/milestones/${editing!.id}/assignees`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: dialogOpen && !!editing,
+  });
+  const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["milestone-assignable", editing?.id],
+    queryFn: async () => {
+      const res = await api(`/milestones/${editing!.id}/assignable-users`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: dialogOpen && !!editing && canWrite,
+  });
+  const refreshAssignees = () => queryClient.invalidateQueries({ queryKey: ["milestone-assignees", editing?.id] });
+  const addAssignee = async (userId: string) => {
+    setAssigneePick("");
+    if (!editing) return;
+    const res = await api(`/milestones/${editing.id}/assignees`, token, { method: "POST", body: JSON.stringify({ userId: Number(userId) }) });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast({ variant: "destructive", title: d.error ?? "Failed to assign member" });
+      return;
+    }
+    refreshAssignees();
+  };
+  const removeAssignee = async (userId: number) => {
+    if (!editing) return;
+    const res = await api(`/milestones/${editing.id}/assignees/${userId}`, token, { method: "DELETE" });
+    if (res.ok) refreshAssignees();
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -400,6 +444,34 @@ export default function Milestones() {
                 </div>
               </div>
             </div>
+            {editing && canWrite && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" /> Team
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {assignees.map((a) => (
+                    <Badge key={a.userId} variant="outline" className="gap-1 pr-1">
+                      {a.name}
+                      <button type="button" onClick={() => removeAssignee(a.userId)} className="hover:text-destructive" aria-label={`Remove ${a.name}`}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                  {assignees.length === 0 && <span className="text-xs text-muted-foreground">No one assigned yet.</span>}
+                </div>
+                <Select value={assigneePick} onValueChange={addAssignee}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Add project member…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignableUsers.filter((u) => !assignees.some((a) => a.userId === u.id)).map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.role}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {form.status === "completed" && (
               <div className="space-y-1.5">
                 <Label>Lessons Learned</Label>

@@ -36,6 +36,7 @@ import RequirementDetail from "@/pages/RequirementDetail";
 import Milestones from "@/pages/Milestones";
 import PmDashboard from "@/pages/PmDashboard";
 import RiskRegister from "@/pages/RiskRegister";
+import UatSignoffs from "@/pages/UatSignoffs";
 import Resources from "@/pages/Resources";
 import QAAnalytics from "@/pages/QAAnalytics";
 
@@ -208,6 +209,14 @@ function Router() {
           component={RiskRegister}
           permKey="nav:risk-register"
           roles={["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto", "pmo"]}
+        />
+      </Route>
+
+      <Route path="/uat-signoffs">
+        <ProtectedRoute
+          component={UatSignoffs}
+          permKey="nav:uat-signoffs"
+          roles={["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"]}
         />
       </Route>
 

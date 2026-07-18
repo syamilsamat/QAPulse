@@ -1473,3 +1473,17 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Frontend (`RequirementDetail.tsx`):** the "Requirement Defect" card is now "Requirement Issue" and presents both choices side by side — **Raise Defect** and **Return to FA** — with a one-line explanation of the difference. Return to FA opens an inline reason box → Confirm Return; invalidates the requirement + history queries. New `requirement_returned_to_fa` icon in NotificationDropdown + Inbox; deep-links to the requirement (existing route).
 
 **Scope:** no schema changes, no db push (reuses the rejected state + activity events). `requirements.ts`, `dashboard.ts`, `RequirementDetail.tsx`, `NotificationDropdown.tsx`, `Inbox.tsx`.
+
+### CR054 — UAT Readiness Pack (statuses, milestone staffing, sign-off registry)
+
+**Status: DEPLOYED (2026-07-17)**
+
+**Origin:** end-to-end UAT scenario walkthrough exposed three gaps: no milestone status between "active" and "completed", no formal way for a lead to staff members onto a milestone, and no way to store the signed UAT acceptance document.
+
+**Part 1 — milestone lifecycle statuses.** `planned → active → verified → uat → completed / cancelled`. Server-side validation on POST/PATCH (`VALID_STATUSES`); `verified`/`uat` count as in-flight everywhere `active` did (PM summary activeMilestones, blocked-execution warnings). Status badges added (teal Verified, violet UAT).
+
+**Part 2 — milestone staffing.** New `milestone_assignees` table (bootstrap-covered). Lead-tier `GET/POST/DELETE /milestones/:id/assignees` + `GET /milestones/:id/assignable-users` (candidates = project_members grants; the /projects/:id/members endpoint is manager-tier, too high for a QA lead staffing their own milestone). Assignee must already have project access; assignment notifies the user. UI: "Team" section in the milestone edit dialog — badge list with remove, add-member select.
+
+**Part 3 — UAT sign-off registry.** New `uat_signoffs` table (file bytes base64 in-row, 15 MB cap, bootstrap-covered) + `uat-signoffs.ts` router: scoped list (`scopeToUserProjects` — users only see their projects), upload (lead-tier+), authenticated download with original filename/mime, delete (uploader or admin/cto). New `/uat-signoffs` page: project filter, upload dialog (project → milestone → file → note), table with download/delete. Nav key `nav:uat-signoffs` moved through all three layers (roles.ts defaults + backfill for hod_pm/pm_lead/pmo/cto/qa_manager/hod_qa/qa_lead, Layout.tsx, App.tsx ProtectedRoute) per the CR042 lesson.
+
+**Scope:** lib/db `milestones.ts` schema, api-server `roles.ts` (bootstrap + nav), `milestones.ts`, `dashboard.ts` (2 lines), new `uat-signoffs.ts`, routes `index.ts`; frontend `Milestones.tsx`, new `UatSignoffs.tsx`, `App.tsx`, `Layout.tsx`. Bootstrap-covered — no manual db push.

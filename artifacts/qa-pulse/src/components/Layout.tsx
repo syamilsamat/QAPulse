@@ -5,7 +5,7 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2 } from 'lucide-react';
+import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2, FileCheck2 } from 'lucide-react';
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 
 import {
@@ -608,6 +608,14 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-amber-500",
     roles: ["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto"],
     permKey: "nav:risk-register",
+  },
+  {
+    href: "/uat-signoffs",
+    label: "UAT Sign-offs",
+    icon: FileCheck2,
+    activeColor: "text-teal-500",
+    roles: ["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
+    permKey: "nav:uat-signoffs",
   },
   {
     href: "/resources",

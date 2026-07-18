@@ -187,7 +187,7 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
   const allMilestoneSummaries = resultProjects.flatMap(p => p.milestones);
   const portfolio = {
     totalProjects: projects.length,
-    activeMilestones: allMilestoneSummaries.filter(m => m.status === "active").length,
+    activeMilestones: allMilestoneSummaries.filter(m => ["active", "verified", "uat"].includes(m.status)).length,
     milestonesAtRisk: allMilestoneSummaries.filter(m => m.scheduleRisk === "at-risk").length,
     milestonesOverdue: allMilestoneSummaries.filter(m => m.scheduleRisk === "overdue").length,
   };
@@ -825,7 +825,7 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   const milestones = searchProjectIds.length
     ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, searchProjectIds))
     : [];
-  const activeMilestoneIds = new Set(milestones.filter(m => m.status === "active").map(m => m.id));
+  const activeMilestoneIds = new Set(milestones.filter(m => ["active", "verified", "uat"].includes(m.status)).map(m => m.id));
   const closedMilestoneIds = new Set(milestones.filter(m => m.status === "completed").map(m => m.id));
   const milestoneById = new Map(milestones.map(m => [m.id, m]));
   const allTrackedMilestoneIds = milestones.map(m => m.id);

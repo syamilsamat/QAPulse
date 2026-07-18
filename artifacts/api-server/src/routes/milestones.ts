@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
 import { eq, and, inArray } from "drizzle-orm";
-import { db, milestonesTable, requirementsTable, executionFilesTable } from "@workspace/db";
+import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, requirementsTable, executionFilesTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
-import { notifyRolesInProject } from "./_notify";
+import { notifyRolesInProject, notifyUser } from "./_notify";
 
 const router: IRouter = Router();
 
@@ -26,6 +26,7 @@ function canWrite(role: string) {
 }
 
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
+const VALID_STATUSES = ["planned", "active", "verified", "uat", "completed", "cancelled"];
 
 function fmt(m: typeof milestonesTable.$inferSelect) {
   return {
@@ -99,6 +100,9 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
+  }
+  if (!VALID_STATUSES.includes(status)) {
+    res.status(400).json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }); return;
   }
 
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
@@ -196,6 +200,11 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   }
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.status !== undefined) {
+    // CR054p1 — lifecycle: planned → active → verified (QA passed) → uat
+    // (business testing) → completed, or cancelled at any point.
+    if (!VALID_STATUSES.includes(req.body.status)) {
+      res.status(400).json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }); return;
+    }
     update.status = req.body.status;
     // Auto-stamp the authoritative end-of-QA-phase boundary (PM Dashboard
     // phase breakdown) — set on the transition into 'completed', cleared if
@@ -211,6 +220,93 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
   await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone" });
   res.json(fmt(updated));
+});
+
+// ── CR054p2: milestone staffing ─────────────────────────────────────────────
+// A lead-tier user formally assigns members to a milestone (e.g. QA lead
+// staffs testers). Distinct from project membership, which governs access.
+
+// GET /milestones/:id/assignees
+router.get("/milestones/:id/assignees", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const id = parseInt(req.params.id);
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const rows = await db
+    .select({ id: milestoneAssigneesTable.id, userId: milestoneAssigneesTable.userId, name: usersTable.name, role: usersTable.role, createdAt: milestoneAssigneesTable.createdAt })
+    .from(milestoneAssigneesTable)
+    .innerJoin(usersTable, eq(usersTable.id, milestoneAssigneesTable.userId))
+    .where(eq(milestoneAssigneesTable.milestoneId, id));
+  res.json(rows.map(r => ({ ...r, createdAt: r.createdAt.toISOString() })));
+});
+
+// GET /milestones/:id/assignable-users — staffing candidates = users with a
+// project_members grant on this milestone's project. Lead-tier gate (the
+// /projects/:id/members endpoint is manager-tier, too high for a QA lead
+// staffing their own milestone).
+router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  const id = parseInt(req.params.id);
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const rows = await db
+    .select({ id: usersTable.id, name: usersTable.name, role: usersTable.role })
+    .from(projectMembersTable)
+    .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
+    .where(eq(projectMembersTable.projectId, m.projectId));
+  const seen = new Set<number>();
+  res.json(rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true))));
+});
+
+// POST /milestones/:id/assignees { userId }
+router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  const id = parseInt(req.params.id);
+  const userId = Number(req.body.userId);
+  if (!userId) { res.status(400).json({ error: "userId is required" }); return; }
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+  // The assignee must be able to see the project they're being staffed on.
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!target) { res.status(404).json({ error: "User not found" }); return; }
+  if (!(await canAccessProject(target.id, target.role, m.projectId))) {
+    res.status(400).json({ error: "User has no access to this project — grant project membership first" }); return;
+  }
+
+  const existing = await db.select().from(milestoneAssigneesTable)
+    .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
+  if (existing.length > 0) { res.json({ ok: true, already: true }); return; }
+
+  await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
+  await logActivity({ type: "milestone_assignee_added", description: `${target.name} assigned to milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
+  await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", id, (ctx as any).id ?? ctx.userId).catch(() => {});
+  res.status(201).json({ ok: true });
+});
+
+// DELETE /milestones/:id/assignees/:userId
+router.delete("/milestones/:id/assignees/:userId", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  const id = parseInt(req.params.id);
+  const userId = parseInt(req.params.userId);
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+  await db.delete(milestoneAssigneesTable)
+    .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
+  await logActivity({ type: "milestone_assignee_removed", description: `User #${userId} removed from milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
+  res.json({ ok: true });
 });
 
 // DELETE /milestones/:id

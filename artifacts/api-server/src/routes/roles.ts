@@ -44,25 +44,26 @@ export const ALL_NAV_KEYS = [
   "nav:defects", // CR030 — was role-gated only; now also opens Defects to the dev department
   "nav:resources", // CR034 — lead+ resourcing view (active/idle/closed-history milestone focus)
   "nav:risk-register", // CR040 — standalone Risk Register page, split out of nav:pm-dashboard
+  "nav:uat-signoffs", // CR054 — UAT sign-off registry (upload + project-scoped listing)
 ];
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin:      ALL_NAV_KEYS,
   cto:        ALL_NAV_KEYS,
-  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources"],
-  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register"],
+  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
+  hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:resources"],
   hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
-  qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources"],
-  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register"],
+  qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
+  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
   fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register", "nav:defects"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts", "nav:defects"],
-  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register"],
-  pmo:        [],
+  pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
+  pmo:        ["nav:uat-signoffs"],
 };
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
@@ -168,6 +169,34 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`);
   // Test environment (ENV1…ENV6) the milestone runs in, set by the PM.
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS environment TEXT`);
+
+  // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS milestone_assignees (
+      id SERIAL PRIMARY KEY,
+      milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (milestone_id, user_id)
+    )
+  `);
+
+  // CR054p3 — UAT sign-off documents (file bytes stored base64 in-row)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS uat_signoffs (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      note TEXT,
+      data_base64 TEXT NOT NULL,
+      uploaded_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
@@ -393,6 +422,19 @@ export async function bootstrap() {
     if (!rows[0]) continue;
     await pool.query(
       `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:risk-register') ON CONFLICT DO NOTHING`,
+      [rows[0].id]
+    );
+  }
+
+  // nav:uat-signoffs (CR054p3) — PM family owns the sign-off registry;
+  // QA managers/leads get read access to check UAT closure evidence.
+  for (const roleName of ["hod_pm", "pm_lead", "pmo", "cto", "qa_manager", "hod_qa", "qa_lead"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
+    await pool.query(
+      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:uat-signoffs') ON CONFLICT DO NOTHING`,
       [rows[0].id]
     );
   }

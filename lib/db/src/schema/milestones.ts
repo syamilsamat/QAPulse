@@ -34,3 +34,32 @@ export const milestonesTable = pgTable("milestones", {
 
 export type Milestone = typeof milestonesTable.$inferSelect;
 export type InsertMilestone = typeof milestonesTable.$inferInsert;
+
+// CR054p2 — formal milestone staffing (e.g. QA lead assigns testers to a
+// milestone), distinct from project membership which governs access.
+export const milestoneAssigneesTable = pgTable("milestone_assignees", {
+  id: serial("id").primaryKey(),
+  milestoneId: integer("milestone_id").notNull(),
+  userId: integer("user_id").notNull(),
+  assignedBy: integer("assigned_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// CR054p3 — UAT sign-off documents. File bytes stored base64 in-row: sign-off
+// packs are small (a few MB) and this keeps backup/restore trivial; revisit
+// only if volume grows.
+export const uatSignoffsTable = pgTable("uat_signoffs", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  milestoneId: integer("milestone_id").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  note: text("note"),
+  dataBase64: text("data_base64").notNull(),
+  uploadedBy: integer("uploaded_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type MilestoneAssignee = typeof milestoneAssigneesTable.$inferSelect;
+export type UatSignoff = typeof uatSignoffsTable.$inferSelect;
