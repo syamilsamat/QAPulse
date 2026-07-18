@@ -1,0 +1,1303 @@
+<title>SPARROW Demo Scenarios — Requirements + Test Cases &amp; Execution</title>
+<style>
+  :root {
+    --bg: #f5f8f6;
+    --surface: #ffffff;
+    --surface-2: #eef3f0;
+    --ink: #142621;
+    --muted: #5c6d67;
+    --accent: #1f7a6c;
+    --accent-ink: #ffffff;
+    --accent-soft: #e3f1ec;
+    --border: #dbe5e0;
+    --warn-bg: #fdf3e0;
+    --warn-ink: #7a4a05;
+    --warn-border: #f0d9a8;
+    --danger-bg: #fbeceb;
+    --danger-ink: #8a2f28;
+    --danger-border: #eec7c3;
+    --code-bg: #eef2f0;
+    --shadow: 0 1px 2px rgba(20, 38, 33, 0.04), 0 6px 20px rgba(20, 38, 33, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1613; --surface: #142420; --surface-2: #182d27; --ink: #e7f0ec; --muted: #93a89f;
+      --accent: #57c2ab; --accent-ink: #06231c; --accent-soft: #1b3a32; --border: #23352f;
+      --warn-bg: #2c2410; --warn-ink: #e8b25c; --warn-border: #4a3a14;
+      --danger-bg: #2c1615; --danger-ink: #e08b83; --danger-border: #4a2422; --code-bg: #0f201b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1613; --surface: #142420; --surface-2: #182d27; --ink: #e7f0ec; --muted: #93a89f;
+    --accent: #57c2ab; --accent-ink: #06231c; --accent-soft: #1b3a32; --border: #23352f;
+    --warn-bg: #2c2410; --warn-ink: #e8b25c; --warn-border: #4a3a14;
+    --danger-bg: #2c1615; --danger-ink: #e08b83; --danger-border: #4a2422; --code-bg: #0f201b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8f6; --surface: #ffffff; --surface-2: #eef3f0; --ink: #142621; --muted: #5c6d67;
+    --accent: #1f7a6c; --accent-ink: #ffffff; --accent-soft: #e3f1ec; --border: #dbe5e0;
+    --warn-bg: #fdf3e0; --warn-ink: #7a4a05; --warn-border: #f0d9a8;
+    --danger-bg: #fbeceb; --danger-ink: #8a2f28; --danger-border: #eec7c3; --code-bg: #eef2f0;
+    --shadow: 0 1px 2px rgba(20, 38, 33, 0.04), 0 6px 20px rgba(20, 38, 33, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-weight: 600; text-wrap: balance; letter-spacing: -0.01em;
+  }
+  code, .mono, .datatable td.v, .idpill {
+    font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  a { color: var(--accent); }
+
+  .shell { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar / TOC ─────────────────────────────────────────── */
+  .toc {
+    position: sticky; top: 0; align-self: flex-start; height: 100vh;
+    width: 260px; flex: none; overflow-y: auto;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 24px 16px 24px 20px;
+  }
+  .toc-brand { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .toc-title { font-size: 1.05rem; margin: 0 0 18px 0; line-height: 1.25; }
+  .toc-title em { color: var(--accent); font-style: normal; }
+  .toc-group-label {
+    font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+    margin: 16px 0 6px; padding: 0 8px; font-weight: 700;
+  }
+  .toc-group-label:first-of-type { margin-top: 0; }
+  .toc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .toc-list a {
+    display: flex; align-items: center; gap: 8px;
+    text-decoration: none; color: var(--ink); font-size: 0.86rem;
+    padding: 7px 8px; border-radius: 6px;
+  }
+  .toc-list a:hover { background: var(--surface-2); }
+  .toc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .toc-num { color: var(--muted); font-family: SFMono-Regular, Consolas, monospace; font-size: 0.78rem; width: 2.4ch; }
+  .toc-foot { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.76rem; color: var(--muted); line-height: 1.5; }
+
+  /* ── Main column ───────────────────────────────────────────── */
+  .main { flex: 1; min-width: 0; padding: 40px 48px 96px; max-width: 940px; }
+  header.page-head { margin-bottom: 28px; }
+  .eyebrow { font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .page-head h1 { font-size: 2.05rem; margin: 6px 0 10px; }
+  .page-head p.lede { color: var(--muted); font-size: 1rem; line-height: 1.6; max-width: 66ch; margin: 0; }
+
+  .section-divider {
+    display: flex; align-items: center; gap: 14px; margin: 48px 0 22px;
+  }
+  .section-divider h2 {
+    font-size: 1.5rem; margin: 0; white-space: nowrap;
+  }
+  .section-divider .line { flex: 1; height: 1px; background: var(--border); }
+  .section-sub { color: var(--muted); font-size: 0.94rem; line-height: 1.6; max-width: 68ch; margin: -12px 0 22px; }
+
+  /* Run panel */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 20px 22px; margin: 22px 0;
+  }
+  .panel h3 { margin: 0 0 12px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-family: inherit; font-weight: 700; }
+  ol.steps { margin: 0; padding-left: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 10px; }
+  ol.steps li { counter-increment: step; display: flex; gap: 12px; align-items: flex-start; }
+  ol.steps li::before {
+    content: counter(step); flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink); font-size: 0.72rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  }
+  ol.steps code {
+    display: block; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 0.82rem; overflow-x: auto; white-space: pre;
+  }
+  .step-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 4px; }
+
+  .login-table-wrap { overflow-x: auto; }
+  table.logins { border-collapse: collapse; width: 100%; font-size: 0.83rem; }
+  table.logins th, table.logins td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  table.logins th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.logins td.role { color: var(--muted); }
+
+  /* Legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 18px 0 8px; }
+  .legend .chip { font-size: 0.74rem; }
+
+  /* ── Scenario cards ────────────────────────────────────────── */
+  .scenario {
+    scroll-margin-top: 20px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); margin-bottom: 22px; overflow: hidden;
+    border-left: 4px solid var(--cat-color, var(--accent));
+  }
+  .scenario-head { padding: 18px 22px 4px; }
+  .scenario-kicker { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+  .scenario-id { font-family: SFMono-Regular, Consolas, monospace; font-size: 0.78rem; color: var(--muted); }
+  .scenario h2 { font-size: 1.22rem; margin: 0 0 6px; }
+  .scenario .summary { color: var(--muted); font-size: 0.92rem; line-height: 1.55; margin: 0 0 4px; max-width: 68ch; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.01em; background: var(--surface-2); color: var(--ink); border: 1px solid var(--border);
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cat-color, var(--accent)); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn-ink); border-color: var(--warn-border); }
+  .chip.danger { background: var(--danger-bg); color: var(--danger-ink); border-color: var(--danger-border); }
+
+  .scenario-body { padding: 6px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
+
+  .datatable { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  .datatable td { padding: 5px 0; vertical-align: top; border-bottom: 1px dashed var(--border); }
+  .datatable tr:last-child td { border-bottom: none; }
+  .datatable td.k { color: var(--muted); width: 32%; padding-right: 14px; white-space: nowrap; }
+  .datatable td.v { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .datatable td.v.mono { font-family: SFMono-Regular, Consolas, monospace; font-size: 0.82rem; }
+
+  blockquote {
+    margin: 0; padding: 10px 14px; background: var(--surface-2); border-left: 3px solid var(--border);
+    border-radius: 0 6px 6px 0; font-size: 0.85rem; line-height: 1.5;
+  }
+  blockquote cite { display: block; margin-top: 6px; font-style: normal; color: var(--muted); font-size: 0.78rem; }
+  .thread { display: flex; flex-direction: column; gap: 8px; }
+
+  .note {
+    display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: 8px;
+    font-size: 0.84rem; line-height: 1.5;
+  }
+  .note.warn { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-border); }
+  .note .glyph { flex: none; font-weight: 700; }
+
+  .idpill {
+    display: inline-block; background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 5px; padding: 1px 7px; font-size: 0.8rem;
+  }
+
+  /* Sequential storyline (PM Dashboard) — a connecting line down the left,
+     since these are ordered chapters of one story, not independent picks. */
+  .storyline { position: relative; padding-left: 34px; }
+  .storyline::before {
+    content: ""; position: absolute; left: 13px; top: 6px; bottom: 6px; width: 2px; background: var(--border);
+  }
+  .storyline .scenario { position: relative; }
+  .storyline .step-badge {
+    position: absolute; left: -34px; top: 20px; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--cat-color, var(--accent)); color: var(--cat-color, var(--accent));
+    font-family: SFMono-Regular, Consolas, monospace; font-weight: 700; font-size: 0.78rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  footer.doc-foot { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; }
+
+  @media (max-width: 860px) {
+    .shell { flex-direction: column; }
+    .toc { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    .main { padding: 28px 20px 64px; }
+  }
+</style>
+
+<div class="shell">
+  <nav class="toc">
+    <div class="toc-brand">QAPulse · SPARROW</div>
+    <h1 class="toc-title">Demo Scenarios<br><em>Five pages, one file</em></h1>
+
+    <div class="toc-group-label">Before you present</div>
+    <ul class="toc-list">
+      <li><a href="#run"><span class="toc-dot" style="background:var(--accent)"></span>Run this first</a></li>
+    </ul>
+
+    <div class="toc-group-label">Requirements page</div>
+    <ul class="toc-list">
+      <li><a href="#rq01"><span class="toc-num">RQ01</span><span class="toc-dot" style="background:#4a7fd6"></span>Parent/child hierarchy</a></li>
+      <li><a href="#rq02"><span class="toc-num">RQ02</span><span class="toc-dot" style="background:#4a7fd6"></span>Recursive Redmine import</a></li>
+      <li><a href="#rq03"><span class="toc-num">RQ03</span><span class="toc-dot" style="background:#4a7fd6"></span>Sync from Redmine</a></li>
+      <li><a href="#rq04"><span class="toc-num">RQ04</span><span class="toc-dot" style="background:#a8763e"></span>Attachment lifecycle</a></li>
+      <li><a href="#rq05"><span class="toc-num">RQ05</span><span class="toc-dot" style="background:#7a5cc2"></span>Comment thread</a></li>
+      <li><a href="#rq06"><span class="toc-num">RQ06</span><span class="toc-dot" style="background:#c25c5c"></span>QA-raised defect</a></li>
+      <li><a href="#rq07"><span class="toc-num">RQ07</span><span class="toc-dot" style="background:#c2965c"></span>Priority escalation</a></li>
+      <li><a href="#rq08"><span class="toc-num">RQ08</span><span class="toc-dot" style="background:#4a9dd6"></span>Milestone reassignment</a></li>
+      <li><a href="#rq09"><span class="toc-num">RQ09</span><span class="toc-dot" style="background:#8a8f96"></span>Bulk delete</a></li>
+      <li><a href="#rq10"><span class="toc-num">RQ10</span><span class="toc-dot" style="background:#3fa88a"></span>Backlog requirement</a></li>
+      <li><a href="#rq11"><span class="toc-num">RQ11</span><span class="toc-dot" style="background:#c25c5c"></span>Orphaned child (edge case)</a></li>
+      <li><a href="#rq12"><span class="toc-num">RQ12</span><span class="toc-dot" style="background:#7a5cc2"></span>Revision cascade mid-SIT</a></li>
+    </ul>
+
+    <div class="toc-group-label">Test Cases &amp; Execution</div>
+    <ul class="toc-list">
+      <li><a href="#tx01"><span class="toc-num">TX01</span><span class="toc-dot" style="background:#2f9e8f"></span>Clone a test case</a></li>
+      <li><a href="#tx02"><span class="toc-num">TX02</span><span class="toc-dot" style="background:#4a9dd6"></span>Compile into new exec file</a></li>
+      <li><a href="#tx03"><span class="toc-num">TX03</span><span class="toc-dot" style="background:#9b59b6"></span>AI duplicate-detection</a></li>
+      <li><a href="#tx04"><span class="toc-num">TX04</span><span class="toc-dot" style="background:#9b59b6"></span>AI coverage-gap</a></li>
+      <li><a href="#tx05"><span class="toc-num">TX05</span><span class="toc-dot" style="background:#9b59b6"></span>AI CAPA analysis</a></li>
+      <li><a href="#tx06"><span class="toc-num">TX06</span><span class="toc-dot" style="background:#9b59b6"></span>NL search</a></li>
+      <li><a href="#tx07"><span class="toc-num">TX07</span><span class="toc-dot" style="background:#9b59b6"></span>AI test-data generation</a></li>
+      <li><a href="#tx08"><span class="toc-num">TX08</span><span class="toc-dot" style="background:#2f9e8f"></span>Clone execution file</a></li>
+      <li><a href="#tx09"><span class="toc-num">TX09</span><span class="toc-dot" style="background:#4a9dd6"></span>Execution audit log</a></li>
+      <li><a href="#tx10"><span class="toc-num">TX10</span><span class="toc-dot" style="background:#4a9dd6"></span>Per-row result history</a></li>
+      <li><a href="#tx11"><span class="toc-num">TX11</span><span class="toc-dot" style="background:#c2965c"></span>Stale execution file</a></li>
+      <li><a href="#tx12"><span class="toc-num">TX12</span><span class="toc-dot" style="background:#8a8f96"></span>Deprecate &amp; supersede a TC</a></li>
+    </ul>
+
+    <div class="toc-group-label">Defects page</div>
+    <ul class="toc-list">
+      <li><a href="#dx01"><span class="toc-num">DX01</span><span class="toc-dot" style="background:#c25c5c"></span>Critical, still open today</a></li>
+      <li><a href="#dx02"><span class="toc-num">DX02</span><span class="toc-dot" style="background:#4a9dd6"></span>Reassigned mid-fix</a></li>
+      <li><a href="#dx03"><span class="toc-num">DX03</span><span class="toc-dot" style="background:#4a9dd6"></span>Fails retest twice</a></li>
+      <li><a href="#dx04"><span class="toc-num">DX04</span><span class="toc-dot" style="background:#4a9dd6"></span>Reopened after regression</a></li>
+      <li><a href="#dx05"><span class="toc-num">DX05</span><span class="toc-dot" style="background:#9b59b6"></span>Security category</a></li>
+      <li><a href="#dx06"><span class="toc-num">DX06</span><span class="toc-dot" style="background:#c2965c"></span>Usability, deferred</a></li>
+      <li><a href="#dx07"><span class="toc-num">DX07</span><span class="toc-dot" style="background:#3fa88a"></span>Escape: selection_gap</a></li>
+      <li><a href="#dx08"><span class="toc-num">DX08</span><span class="toc-dot" style="background:#3fa88a"></span>Escape: passed_wrongly</a></li>
+      <li><a href="#dx09"><span class="toc-num">DX09</span><span class="toc-dot" style="background:#8a8f96"></span>Stale, aging defect</a></li>
+      <li><a href="#dx10"><span class="toc-num">DX10</span><span class="toc-dot" style="background:#2f9e8f"></span>Auto-regression TC</a></li>
+    </ul>
+
+    <div class="toc-group-label">PM Dashboard</div>
+    <ul class="toc-list">
+      <li><a href="#pm01"><span class="toc-num">PM01</span><span class="toc-dot" style="background:#c25c5c"></span>Milestone, already overdue</a></li>
+      <li><a href="#pm02"><span class="toc-num">PM02</span><span class="toc-dot" style="background:#3fa88a"></span>Cycle 1 begins on schedule</a></li>
+      <li><a href="#pm03"><span class="toc-num">PM03</span><span class="toc-dot" style="background:#c2965c"></span>SIT round 1 — 4 defects</a></li>
+      <li><a href="#pm04"><span class="toc-num">PM04</span><span class="toc-dot" style="background:#c2965c"></span>3rd-party dependency drags</a></li>
+      <li><a href="#pm05"><span class="toc-num">PM05</span><span class="toc-dot" style="background:#c2965c"></span>Retest finds a regression</a></li>
+      <li><a href="#pm06"><span class="toc-num">PM06</span><span class="toc-dot" style="background:#7a5cc2"></span>Scope change → back to FA</a></li>
+      <li><a href="#pm07"><span class="toc-num">PM07</span><span class="toc-dot" style="background:#7a5cc2"></span>Cycle 2 rebuild</a></li>
+      <li><a href="#pm08"><span class="toc-num">PM08</span><span class="toc-dot" style="background:#c25c5c"></span>Critical defect + risk realized</a></li>
+      <li><a href="#pm09"><span class="toc-num">PM09</span><span class="toc-dot" style="background:#3fa88a"></span>SIT finally clean, 2+ weeks late</a></li>
+      <li><a href="#pm10"><span class="toc-num">PM10</span><span class="toc-dot" style="background:#c25c5c"></span>UAT late, still open today</a></li>
+    </ul>
+
+    <div class="toc-group-label">Milestones page</div>
+    <ul class="toc-list">
+      <li><a href="#ms01"><span class="toc-num">MS01</span><span class="toc-dot" style="background:#c2965c"></span>Re-planned before start</a></li>
+      <li><a href="#ms02"><span class="toc-num">MS02</span><span class="toc-dot" style="background:#3fa88a"></span>Sprint type, clean</a></li>
+      <li><a href="#ms03"><span class="toc-num">MS03</span><span class="toc-dot" style="background:#3fa88a"></span>Phase type, clean</a></li>
+      <li><a href="#ms04"><span class="toc-num">MS04</span><span class="toc-dot" style="background:#8a8f96"></span>Cancelled mid-flight</a></li>
+      <li><a href="#ms05"><span class="toc-num">MS05</span><span class="toc-dot" style="background:#7a5cc2"></span>Sign-off rejected, retried</a></li>
+      <li><a href="#ms06"><span class="toc-num">MS06</span><span class="toc-dot" style="background:#8a8f96"></span>Deleted (duplicate)</a></li>
+      <li><a href="#ms07"><span class="toc-num">MS07</span><span class="toc-dot" style="background:#4a9dd6"></span>Env contention, resolved early</a></li>
+      <li><a href="#ms08"><span class="toc-num">MS08</span><span class="toc-dot" style="background:#4a9dd6"></span>Vendor dependency delay</a></li>
+      <li><a href="#ms09"><span class="toc-num">MS09</span><span class="toc-dot" style="background:#3fa88a"></span>Pure placeholder</a></li>
+      <li><a href="#ms10"><span class="toc-num">MS10</span><span class="toc-dot" style="background:var(--accent)"></span>Full type/status/env coverage</a></li>
+    </ul>
+
+    <ul class="toc-list" style="margin-top:14px;">
+      <li><a href="#logins"><span class="toc-dot" style="background:var(--accent)"></span>Logins</a></li>
+    </ul>
+    <div class="toc-foot">Reference for the CR-2026-014 SPARROW demo dataset. IDs and dates match what the five <code>seed-sparrow-*-bonus.ts</code> / <code>seed-sparrow-pmdashboard.ts</code> scripts create.</div>
+  </nav>
+
+  <main class="main">
+    <header class="page-head">
+      <div class="eyebrow">Presentation reference</div>
+      <h1>54 scenarios across five pages</h1>
+      <p class="lede">Layered on top of the CR-2026-014 storyline: 12 for Requirements, 12 for Test Cases &amp; Execution, 10 for Defects (every one raised from a failed execution row, governance-focused: reassignment, retest loops, reopening, category, escape classification, staleness), a single 10-part PM Dashboard storyline — a NEW milestone that repeats requirement → dev → QA → requirement → dev → QA because of a mid-flight scope change and is still overdue <strong>today</strong> — and 10 for the Milestones page itself: re-planning, every milestone type, cancellation, a rejected sign-off, deletion, and proactive vs. reactive environment contention.</p>
+    </header>
+
+    <section id="run" class="panel">
+      <h3>Run this before Monday</h3>
+      <ol class="steps">
+        <li>
+          <div>
+            <div class="step-label">Main storyline (if not already seeded)</div>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-data.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-data.ts</code>
+          </div>
+        </li>
+        <li>
+          <div>
+            <div class="step-label">Requirements page — 12 bonus scenarios (RQ-01…RQ-12)</div>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-requirements-bonus.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-requirements-bonus.ts</code>
+          </div>
+        </li>
+        <li>
+          <div>
+            <div class="step-label">Test Cases &amp; Execution — 12 bonus scenarios (TX-01…TX-12)</div>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-testcases-bonus.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-testcases-bonus.ts</code>
+          </div>
+        </li>
+        <li>
+          <div>
+            <div class="step-label">Defects page — 10 bonus scenarios (DX-01…DX-10)</div>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-defects-bonus.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-defects-bonus.ts</code>
+          </div>
+        </li>
+        <li>
+          <div>
+            <div class="step-label">PM Dashboard — the CR-2026-020 storyline (PM-01…PM-10)</div>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-pmdashboard.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-pmdashboard.ts</code>
+          </div>
+        </li>
+        <li>
+          <div>
+            <div class="step-label">Milestones page — 10 bonus scenarios (MS-01…MS-10)</div>
+            <code>QAPULSE_API_URL=https://&lt;your-repl-url&gt; npx tsx src/seed-sparrow-milestones-bonus.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-milestones-bonus.ts</code>
+          </div>
+        </li>
+      </ol>
+      <div class="note warn" style="margin-top:14px;">
+        <span class="glyph">!</span>
+        <span>RQ-02/RQ-03 (Redmine) and TX-05/TX-06/TX-07 (live AI calls) don't touch a real external service in this sandbox — see the callouts on each card below before clicking the matching buttons live.</span>
+      </div>
+      <div class="note warn" style="margin-top:10px;">
+        <span class="glyph">⏱</span>
+        <span>DX-01, DX-09, and the entire PM Dashboard layer are anchored to <em>today's actual date</em>, not the shifted historical timeline — re-run their <code>finalize</code> scripts close to when you actually present so "still open today" and "overdue today" stay true.</span>
+      </div>
+      <div class="note warn" style="margin-top:10px;">
+        <span class="glyph">i</span>
+        <span>MS-01's re-planned milestone (and any other "planned/active" Milestones-page entry using the historical timeline) may still show as overdue on today's real dashboard, since the whole historical narrative sits in the past — the interesting thing to point at is the milestone's own edit history, not that day's schedule-risk badge.</span>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ REQUIREMENTS PAGE ══════════════════════ -->
+    <div class="section-divider" id="requirements-section"><h2>Requirements page</h2><div class="line"></div></div>
+    <p class="section-sub">Showcases the parts of the Requirements module the main CR-2026-014 storyline doesn't reach.</p>
+
+    <div class="legend">
+      <span class="chip" style="--cat-color:#4a7fd6"><span class="dot"></span>Redmine / hierarchy</span>
+      <span class="chip" style="--cat-color:#a8763e"><span class="dot"></span>Attachments</span>
+      <span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Comments / revision</span>
+      <span class="chip" style="--cat-color:#c25c5c"><span class="dot"></span>Defects</span>
+      <span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Priority / escalation</span>
+      <span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Milestone</span>
+      <span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Bulk ops</span>
+      <span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Backlog</span>
+    </div>
+
+    <article class="scenario" id="rq01" style="--cat-color:#4a7fd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-01</span><span class="chip" style="--cat-color:#4a7fd6"><span class="dot"></span>Hierarchy</span></div>
+        <h2>Parent/child requirements with cascading module</h2>
+        <p class="summary">Aina authors a parent requirement with two children, then changes the parent's module — both children pick up the change automatically. Demonstrates the tree view, "Add Child," and cascade behaviour.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Parent</td><td class="v"><span class="idpill">REQ-105</span> Wallet balance reconciliation — Payment/Wallet, high priority</td></tr>
+          <tr><td class="k">Children</td><td class="v"><span class="idpill">REQ-106</span> Reconcile against gateway ledger daily (in review, not yet approved)<br><span class="idpill">REQ-107</span> Flag mismatches for manual review (still draft)</td></tr>
+          <tr><td class="k">Actors</td><td class="v">Aina Zulkifli (author) · Harith Rahman (approves REQ-105 only)</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 11 Apr · REQ-105 approved 13 Apr · module cascade 14 Apr</td></tr>
+          <tr><td class="k">Module change</td><td class="v">REQ-105: <span class="mono">Wallet</span> → <span class="mono">Wallet, Reporting</span> — cascades to REQ-106 and REQ-107</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">i</span><span>Deliberately mixed tree states (approved / in-review / draft) so the tree view shows all three status colours at once.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq02" style="--cat-color:#4a7fd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-02</span><span class="chip" style="--cat-color:#4a7fd6"><span class="dot"></span>Redmine import</span></div>
+        <h2>Recursive Redmine import (parent + 2 sub-tickets)</h2>
+        <p class="summary">A ticket with two sub-tasks, imported in one shot — recursive import, not a single-ticket link like REQ-102.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Parent</td><td class="v"><span class="idpill">REQ-108</span> Wallet top-up limits — Redmine <span class="mono">#48300</span>, tracker "User Story" — approved</td></tr>
+          <tr><td class="k">Children</td><td class="v"><span class="idpill">REQ-109</span> Enforce daily top-up cap — Redmine <span class="mono">#48301</span><br><span class="idpill">REQ-110</span> Enforce per-transaction top-up cap — Redmine <span class="mono">#48302</span> — both still draft (imported, not yet reviewed)</td></tr>
+          <tr><td class="k">Actors</td><td class="v">Harith Rahman (imports) · Daniel Wong (approves the parent)</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Imported 09 Apr · REQ-108 approved 13 Apr</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">!</span><span>Simulated — no live Redmine connection in this sandbox. Data looks like a completed import; don't run the real import dialog against these ticket numbers live.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq03" style="--cat-color:#4a7fd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-03</span><span class="chip" style="--cat-color:#4a7fd6"><span class="dot"></span>Redmine sync</span></div>
+        <h2>"Sync from Redmine" preserves local edits</h2>
+        <p class="summary">A single-ticket re-sync refreshes description/AC from Redmine without clobbering a value someone changed locally in QAPulse.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-102</span> Payment status inquiry &amp; requery — Redmine <span class="mono">#48213</span></td></tr>
+          <tr><td class="k">Actor</td><td class="v">Melissa Lim (QA Lead) bumps priority locally: <span class="mono">normal → high</span></td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">18 Apr, 11:00</td></tr>
+          <tr><td class="k">Comment logged</td><td class="v">"Local priority raised to high ahead of the 14 Aug requirements target — re-synced from Redmine #48213 same day; description/AC refreshed, priority untouched by the sync."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq04" style="--cat-color:#a8763e">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-04</span><span class="chip" style="--cat-color:#a8763e"><span class="dot"></span>Attachment</span></div>
+        <h2>Attachment lifecycle with a Redmine-origin distinction</h2>
+        <p class="summary">Aina attaches a supporting document as evidence when resubmitting REQ-103 after Daniel's rejection. Left in place so you can demo download/delete live.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-103</span> Refund initiation &amp; approval</td></tr>
+          <tr><td class="k">File</td><td class="v mono">Finance-SOP-Refund-Approval-Matrix.txt</td></tr>
+          <tr><td class="k">Uploaded by</td><td class="v">Aina Zulkifli, 13 Apr, 17:00</td></tr>
+          <tr><td class="k">Contents</td><td class="v">Finance SOP v3.2 refund approval matrix — up to RM 5,000: 1 approver; above RM 5,000: 2 approvers</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">→</span><span>Live-demo idea: download it, then delete it to show the removal flow — intentionally left un-deleted in the seed data.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq05" style="--cat-color:#7a5cc2">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-05</span><span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Comments</span></div>
+        <h2>Multi-participant comment thread</h2>
+        <p class="summary">A real back-and-forth on REQ-104, not a single note — shows notifications fanning out to the author, assignee, and every prior commenter.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable"><tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-104</span> Payment receipt e-mail</td></tr></table>
+        <div class="thread">
+          <blockquote>Quick question on REQ-104 AC3 — does the BM/English choice come from the buyer's profile setting, or their browser locale at checkout time?<cite>Harith Rahman · 11 Apr, 10:00</cite></blockquote>
+          <blockquote>Profile setting — same field the account statements already use. Browser locale isn't reliable enough for a financial document.<cite>Daniel Wong · 11 Apr, 10:20</cite></blockquote>
+          <blockquote>Noting for QA planning: the receipt send depends on the SMTP relay work (T-85) landing first — flagging so we don't schedule TC-215/216/217 execution before that's done.<cite>Melissa Lim · 11 Apr, 14:00</cite></blockquote>
+        </div>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq06" style="--cat-color:#c25c5c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-06</span><span class="chip" style="--cat-color:#c25c5c"><span class="dot"></span>Defect</span></div>
+        <h2>QA — not Dev — raises a requirement defect</h2>
+        <p class="summary">The main storyline only shows a Dev-raised requirement defect (DEF-0031). This one comes from QA, while writing test cases, before execution even starts.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Defect</td><td class="v mono">DEF-0033</td></tr>
+          <tr><td class="k">Against</td><td class="v"><span class="idpill">REQ-102</span> Payment status inquiry &amp; requery</td></tr>
+          <tr><td class="k">Raised by</td><td class="v">Syafiq Osman (QA Engineer) — while writing TC-212 (requery throttling)</td></tr>
+          <tr><td class="k">Title</td><td class="v">AC2's 5-minute requery interval isn't confirmed against the bank's own rate limit</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Opened 28 Apr, 10:00 → Closed 29 Apr, 15:00</td></tr>
+          <tr><td class="k">Resolution</td><td class="v">"Clarified: the 5-minute interval is per-payment AND capped globally — batched if needed." — Aina Zulkifli</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq07" style="--cat-color:#c2965c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-07</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Priority</span></div>
+        <h2>Priority escalation with a visible audit trail</h2>
+        <p class="summary">A late-breaking business concern bumps a requirement's priority — shown as a clean before/after diff in the History tab.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-104</span> Payment receipt e-mail</td></tr>
+          <tr><td class="k">Change</td><td class="v mono">normal → urgent</td></tr>
+          <tr><td class="k">Changed by</td><td class="v">Daniel Wong (FA Lead)</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">01 Jun, 09:00</td></tr>
+          <tr><td class="k">Note</td><td class="v">"Finance flagged e-mail deliverability as a go-live blocker — priority raised so the receipt e-mail work gets UAT priority." — Salmah Idris</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq08" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-08</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Milestone</span></div>
+        <h2>Requirement descoped and reassigned to a new milestone</h2>
+        <p class="summary">A requirement's milestone link isn't fixed at creation — this one starts in CR-2026-014, then moves to a newly created future milestone once it's descoped.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-111</span> SMS payment notification (stretch) — Notification module, low priority</td></tr>
+          <tr><td class="k">From → To</td><td class="v">CR-2026-014 → <strong>CR-2026-015 — Notification Enhancements</strong> (new milestone, planned, ENV2)</td></tr>
+          <tr><td class="k">Actors</td><td class="v">Aina Zulkifli (author/reassigns) · Harith Rahman (approves) · Salmah Idris (creates CR-2026-015)</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 12 Apr · approved 13 Apr · reassigned 15 Apr</td></tr>
+          <tr><td class="k">Reassignment note</td><td class="v">"Descoped from CR-2026-014 — SMS gateway procurement won't land in time for go-live. Moved to CR-2026-015."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq09" style="--cat-color:#8a8f96">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-09</span><span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Bulk ops</span></div>
+        <h2>Bulk multi-select delete during backlog grooming</h2>
+        <p class="summary">Two abandoned drafts, created then deleted together — demonstrates the checkbox multi-select + confirmation dialog. Both are gone from the list, but the Activity feed still shows the full trail.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Deleted</td><td class="v"><span class="idpill">REQ-112</span> Payment analytics widget (draft)<br><span class="idpill">REQ-113</span> Old wallet cashback idea (draft)</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Daniel Wong</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 09 Apr · deleted 16 Apr, 11:00</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">→</span><span>Nothing to click in the list anymore — check the Activity/History feed to show "created → deleted" for both.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq10" style="--cat-color:#3fa88a">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-10</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Backlog</span></div>
+        <h2>Backlog requirement with no milestone yet</h2>
+        <p class="summary">The Requirements page supports an unscoped holding pen, not only milestone-bound work — this one is intentionally left without a delivery date.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-114</span> Cross-border FPX support (future) — Payment module, low priority</td></tr>
+          <tr><td class="k">Milestone</td><td class="v mono">none</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Aina Zulkifli</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 20 Apr</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq11" style="--cat-color:#c25c5c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-11</span><span class="chip danger"><span class="dot"></span>Known gap — not a feature</span></div>
+        <h2>Orphaned child after a parent is deleted</h2>
+        <p class="summary">Deleting a requirement doesn't touch its children — the child's parent link is simply left dangling. Worth being upfront about this rather than letting the CEO or team discover it unannounced.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Deleted parent</td><td class="v"><span class="idpill">REQ-115</span> Legacy reconciliation revamp (superseded)</td></tr>
+          <tr><td class="k">Orphaned child</td><td class="v"><span class="idpill">REQ-116</span> Update legacy reconciliation batch job — still exists, parent link now points at nothing</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Aina Zulkifli</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 09 Apr · parent deleted 16 Apr, 11:30</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">!</span><span>Suggested framing if it comes up: "Deleting a parent currently doesn't cascade to its children — worth a small fix, flagged here rather than found live." Confident and matter-of-fact, not defensive.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="rq12" style="--cat-color:#7a5cc2">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">RQ-12</span><span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Revision cascade</span></div>
+        <h2>A description edit reopens review — even mid-SIT</h2>
+        <p class="summary">Not a one-off: any time a requirement's description changes, linked test cases and tasks get re-flagged, no matter how far along testing already is.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-103</span> Refund initiation &amp; approval — already deep into SIT execution at this point</td></tr>
+          <tr><td class="k">Change</td><td class="v">AC4 tightened: "…and BOTH approvers must be a different user than the refund initiator"</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Aina Zulkifli</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">18 May, 10:00</td></tr>
+          <tr><td class="k">Flagged for re-review</td><td class="v mono">TC-REG-02, TC-REG-05, and the "Build refund initiation &amp; approval" task</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <!-- ══════════════════════ TEST CASES & EXECUTION ══════════════════════ -->
+    <div class="section-divider" id="testcases-section"><h2>Test Cases &amp; Execution</h2><div class="line"></div></div>
+    <p class="section-sub">Showcases test-case lifecycle management, AI-assisted QA analysis, and the Execution Dashboard's audit/history/staleness machinery — none of it exercised by the main SIT/UAT storyline.</p>
+
+    <div class="legend">
+      <span class="chip" style="--cat-color:#2f9e8f"><span class="dot"></span>Clone</span>
+      <span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Execution ops</span>
+      <span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>AI (live-demo)</span>
+      <span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>At-risk</span>
+      <span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Lifecycle</span>
+    </div>
+
+    <article class="scenario" id="tx01" style="--cat-color:#2f9e8f">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-01</span><span class="chip" style="--cat-color:#2f9e8f"><span class="dot"></span>Clone</span></div>
+        <h2>Clone a test case for a second bank variant</h2>
+        <p class="summary">A single-TC clone, retargeted for a different bank — the fastest way to cover a near-identical scenario without re-authoring from scratch.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Source</td><td class="v"><span class="idpill">TC-201</span> Successful FPX payment updates order to PAID</td></tr>
+          <tr><td class="k">Clone</td><td class="v">"Successful FPX payment via CIMB Clicks updates order to PAID" — preconditions retargeted to the CIMB Clicks sandbox</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Syafiq Osman</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">19 Apr, 10:00</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">i</span><span>Clone always resets <span class="mono">aiAssisted</span> to false and reassigns authorship to whoever clicks Clone — visible if you compare the two TCs' author fields.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx02" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-02</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Execution ops</span></div>
+        <h2>Compile library TCs into a brand-new execution file</h2>
+        <p class="summary">Five happy-path TCs pulled straight from the library into a fresh, purpose-built execution file — a smoke test, not the full SIT/UAT run.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">File</td><td class="v">"Smoke Test — Pre-UAT Sanity Check" — linked to CR-2026-014</td></tr>
+          <tr><td class="k">Rows</td><td class="v mono">TC-201, TC-211, TC-215, TC-REG-01, TC-REG-09 — all Passed</td></tr>
+          <tr><td class="k">QA PIC</td><td class="v">Nurul Huda</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">04 Jun, 09:00</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx03" style="--cat-color:#9b59b6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-03</span><span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>AI</span></div>
+        <h2>AI duplicate-detection flags a near-duplicate TC</h2>
+        <p class="summary">A deliberately near-identical test case triggers the AI dedup check — it only recommends an action, so a human still makes the call.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">New TC</td><td class="v">"Verify FPX payment updates order status after bank debit" — Nurul Huda</td></tr>
+          <tr><td class="k">AI verdict</td><td class="v">≈92% similar to <span class="idpill">TC-201</span> — recommended action: <span class="mono">delete</span></td></tr>
+          <tr><td class="k">Resolution</td><td class="v">Melissa Lim (QA Lead) deleted the near-duplicate</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 22 Apr, 11:00 → deleted 22 Apr, 15:00</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx04" style="--cat-color:#9b59b6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-04</span><span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>AI</span></div>
+        <h2>AI coverage-gap surfaces a zero-coverage requirement</h2>
+        <p class="summary">A newly approved requirement with no test cases at all gets caught by the coverage-gap analyzer — then the gap is closed with a real TC.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Requirement</td><td class="v"><span class="idpill">REQ-117</span> Payment reconciliation report export — Reporting module, approved with <strong>0</strong> test cases</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Created 24 Apr · approved 26 Apr</td></tr>
+          <tr><td class="k">Gap closed by</td><td class="v">Nurul Huda authors "Reconciliation report includes all settled payments for the selected date range" (27 Apr)</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx05" style="--cat-color:#9b59b6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-05</span><span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>AI</span><span class="chip warn"><span class="dot"></span>Live-demo</span></div>
+        <h2>AI CAPA / root-cause analysis on the SIT failure cluster</h2>
+        <p class="summary">Runs the CAPA analyzer over the main storyline's already-seeded SIT failures (TC-209, TC-217, TC-REG-02, plus the 6 ENV4-outage blocks) and clusters them into root-cause items.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable"><tr><td class="k">Source ticket</td><td class="v mono">SIT-CR-2026-014</td></tr></table>
+        <div class="note warn"><span class="glyph">!</span><span>Nothing persists server-side — the seed script runs it once to prove it works, but re-run it live from the Execution Dashboard for a fresh CAPA report during the actual demo.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx06" style="--cat-color:#9b59b6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-06</span><span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>AI</span><span class="chip warn"><span class="dot"></span>Live-demo</span></div>
+        <h2>Natural-language search over the TC library</h2>
+        <p class="summary">The search box auto-detects a natural-language query and re-ranks results by AI relevance instead of plain text matching.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Try typing</td><td class="v">"refund double posting" → should surface <span class="idpill">TC-REG-02</span> and <span class="idpill">TC-REG-05</span></td></tr>
+          <tr><td class="k">Or</td><td class="v">"tests about receipt e-mail language" → should surface <span class="idpill">TC-217</span></td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">i</span><span>Nothing to seed — this runs entirely against test cases already in the library. Purely a live-demo action.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx07" style="--cat-color:#9b59b6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-07</span><span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>AI</span><span class="chip warn"><span class="dot"></span>Live-demo</span></div>
+        <h2>AI test-data generation</h2>
+        <p class="summary">Generates realistic valid/invalid/boundary test data for a given scenario instead of a QA engineer hand-crafting it.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Request</td><td class="v">"Bulk wallet top-up amounts (MYR)" — 10 items, JSON format</td></tr>
+          <tr><td class="k">Context</td><td class="v">Wallet top-up testing for REQ-102 — valid amounts, invalid amounts, boundary values around the top-up caps</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">!</span><span>Ephemeral — re-run live for a fresh set during the demo.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx08" style="--cat-color:#2f9e8f">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-08</span><span class="chip" style="--cat-color:#2f9e8f"><span class="dot"></span>Clone</span></div>
+        <h2>Clone the SIT execution file into a standalone regression snapshot</h2>
+        <p class="summary">A whole execution file cloned in one action, results preserved — a quick way to reuse or archive a completed run elsewhere.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Source</td><td class="v mono">SIT-CR-2026-014</td></tr>
+          <tr><td class="k">Clone</td><td class="v">"Ad-hoc Regression Snapshot — Payment (cloned from SIT)" — results carried over, not reset</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Melissa Lim</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">26 May, 09:00</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">!</span><span>Known gap: the clone endpoint doesn't accept (or let you later set) a milestone link — this file will show as unscoped. Worth mentioning if asked, same spirit as RQ-11.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx09" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-09</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Execution ops</span></div>
+        <h2>Execution file audit log: TCs added, then one removed</h2>
+        <p class="summary">Adding and removing rows from an execution file writes distinct audit-log entries, separate from per-row result history (see TX-10, same file).</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">File</td><td class="v">"Wallet Top-Up Regression Pack"</td></tr>
+          <tr><td class="k">Added</td><td class="v mono">TC-REG-01, TC-REG-04, TC-REG-08 (3 rows)</td></tr>
+          <tr><td class="k">Removed</td><td class="v mono">TC-REG-08 (1 row)</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Syafiq Osman</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">22 May, 09:00 (added) → 09:20 (removed)</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">→</span><span>Check the file's Doc Info / audit log panel — should read "3 test cases added, 1 test case removed."</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx10" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-10</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Execution ops</span></div>
+        <h2>Per-row result history: one row flips twice in one session</h2>
+        <p class="summary">Same file as TX-09 — one row's result changes Not Executed → Failed → Passed, each transition recorded separately from the file-level audit log.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Row</td><td class="v mono">TC-REG-01 (wallet top-up callback reconciliation)</td></tr>
+          <tr><td class="k">Transition 1</td><td class="v">Not Executed → <strong>Failed</strong> — "Simulated top-up callback timeout on first attempt." (22 May, 10:00)</td></tr>
+          <tr><td class="k">Transition 2</td><td class="v">Failed → <strong>Passed</strong> — "Retried — callback received, wallet balance and ledger match." (22 May, 10:35)</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">→</span><span>Check the row's history/retest panel — should show both transitions with timestamps, distinct from the file-level "3 added, 1 removed" audit entries.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx11" style="--cat-color:#c2965c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-11</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>At-risk</span></div>
+        <h2>A stale, neglected execution file</h2>
+        <p class="summary">An incomplete file nobody has touched in days — the Execution Dashboard's staleness flag (its &gt;3-day threshold) should trigger.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">File</td><td class="v">"Regression — Legacy Bank List Refresh (draft, stalled)"</td></tr>
+          <tr><td class="k">Rows</td><td class="v mono">TC-204, TC-214 — both Not Executed</td></tr>
+          <tr><td class="k">Backdated to</td><td class="v">6 days before whenever you run the finalize script (judged against the real current date, not the narrative timeline)</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">i</span><span>Unlike every other scenario in this document, staleness is evaluated against today's actual date — re-running <code>finalize-sparrow-testcases-bonus.ts</code> closer to Monday keeps it accurately "stale."</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="tx12" style="--cat-color:#8a8f96">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">TX-12</span><span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Lifecycle</span></div>
+        <h2>Test case deprecated and superseded by a v2</h2>
+        <p class="summary">An old test case is marked deprecated rather than deleted, with a clearer replacement authored in its place — the library keeps its history instead of silently losing a row.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Deprecated</td><td class="v"><span class="idpill">TC-204</span> FPX bank list shows only active banks and refreshes daily — status set to <span class="mono">deprecated</span></td></tr>
+          <tr><td class="k">Replacement</td><td class="v">"FPX bank list refresh respects a 24h staleness window (v2)" — objective notes it supersedes TC-204</td></tr>
+          <tr><td class="k">Actor</td><td class="v">Syafiq Osman</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">30 Apr, 11:00 → 11:30</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <!-- ══════════════════════ DEFECTS PAGE ══════════════════════ -->
+    <div class="section-divider" id="defects-section"><h2>Defects page</h2><div class="line"></div></div>
+    <p class="section-sub">Every defect below is raised the way the Defects page's own data actually comes from — a failed row in a dedicated execution file ("Defects Showcase — Regression &amp; Governance Deep Dive") — not a requirement defect (see RQ-06) and not an ad-hoc production pull. Dates are relative to whenever you run <code>finalize-sparrow-defects-bonus.ts</code>, so DX-01/DX-09 stay genuinely current.</p>
+
+    <div class="legend">
+      <span class="chip" style="--cat-color:#c25c5c"><span class="dot"></span>Still open</span>
+      <span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Governance</span>
+      <span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>Category</span>
+      <span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Deferred</span>
+      <span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Escape</span>
+      <span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Aging</span>
+      <span class="chip" style="--cat-color:#2f9e8f"><span class="dot"></span>Regression TC</span>
+    </div>
+
+    <article class="scenario" id="dx01" style="--cat-color:#c25c5c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-01</span><span class="chip danger"><span class="dot"></span>Still open, critical</span></div>
+        <h2>A critical blocker that's still open today</h2>
+        <p class="summary">Not everything closes by demo day — this one is a genuine, unresolved critical defect, exactly as the Defects page would show it if a real blocker were sitting open.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Duplicate bank callback processed twice under high concurrent load — a race condition, not a simple dedup miss</td></tr>
+          <tr><td class="k">Severity</td><td class="v mono">critical</td></tr>
+          <tr><td class="k">Reporter</td><td class="v">Nurul Huda</td></tr>
+          <tr><td class="k">Status</td><td class="v mono">Open — 12 days, no fix landed yet</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx02" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-02</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Reassignment</span></div>
+        <h2>Reassigned mid-fix</h2>
+        <p class="summary">A defect gets handed from one developer to another partway through — the assignment history shows both, with a reason.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Reconciliation report daily totals don't match the gateway ledger (timezone boundary bug)</td></tr>
+          <tr><td class="k">Reassigned</td><td class="v">Kavitha Nair → Wei Jun Tan — "Kavitha is fully booked on the refund fixes this week; Wei Jun owns the Reporting module's date-range logic."</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Opened 20d ago · reassigned 17d ago · closed 10d ago</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx03" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-03</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Retest loop</span></div>
+        <h2>Fails retest twice before finally passing</h2>
+        <p class="summary">Two "fixes" in a row don't actually resolve it — the third one does. The full retry history is written into the defect's own record.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Bank list cache fallback doesn't actually serve the cached list — checkout is blocked entirely on refresh failure</td></tr>
+          <tr><td class="k">Retest 1</td><td class="v">Fix pointed at the wrong cache key — still empty list</td></tr>
+          <tr><td class="k">Retest 2</td><td class="v">Cache key fixed, but TTL left at 0 — cache evicted immediately, still failed</td></tr>
+          <tr><td class="k">Final</td><td class="v">Correct key + a sane 24h TTL — retest passed</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Opened 26d ago → closed 14d ago (3 attempts)</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">i</span><span>The three-attempt history is written into the defect's actual-result text, not a separate status-history widget — read it there.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx04" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-04</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Reopened</span></div>
+        <h2>Closed, then reopened after a regression</h2>
+        <p class="summary">A defect that looked done comes back — an unrelated refactor accidentally reverted the fix, and regression testing caught it.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Payment status webhook doesn't retry after a delivery failure</td></tr>
+          <tr><td class="k">First closed</td><td class="v mono">28 days ago</td></tr>
+          <tr><td class="k">Reopened</td><td class="v">16 days ago — "the retry logic was accidentally reverted by an unrelated refactor in the fix for DX-03 — same symptom resurfaced during regression testing"</td></tr>
+          <tr><td class="k">Re-closed</td><td class="v mono">11 days ago</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx05" style="--cat-color:#9b59b6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-05</span><span class="chip" style="--cat-color:#9b59b6"><span class="dot"></span>Category</span></div>
+        <h2>Security-categorised defect</h2>
+        <p class="summary">The defect category field (Lead-tier+ only) is used to flag this as a security issue, not just "high severity."</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Forged decline callback can flip a PAID order back to UNPAID — signature not fully verified before acting</td></tr>
+          <tr><td class="k">Category</td><td class="v mono">security</td></tr>
+          <tr><td class="k">Raised by</td><td class="v">Melissa Lim (QA Lead — sets category directly at creation, Lead-tier+)</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Opened 24d ago → closed 19d ago</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx06" style="--cat-color:#c2965c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-06</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Deferred</span></div>
+        <h2>Low-severity usability defect, deferred</h2>
+        <p class="summary">A different deferral reason and category than DEF-0047 in the main storyline — governed triage isn't a one-off pattern.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Requery-failure error message shows a raw technical error code to the buyer instead of plain language</td></tr>
+          <tr><td class="k">Category</td><td class="v mono">usability</td></tr>
+          <tr><td class="k">Deferral note</td><td class="v">"No functional impact — deferred to the next content-and-copy pass rather than blocking this release."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx07" style="--cat-color:#3fa88a">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-07</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Escape</span></div>
+        <h2>Escape classified: selection_gap</h2>
+        <p class="summary">The edge case existed as an idea but was never turned into a selected test case until this defect forced the issue — a different escape story than the main dataset's coverage_gap.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Wallet balance briefly double-debited on a same-session double payment attempt</td></tr>
+          <tr><td class="k">Escape class</td><td class="v mono">selection_gap</td></tr>
+          <tr><td class="k">Note</td><td class="v">"The regular pack includes the single-session double-submit case (TC-210) but never included this same-session WALLET variant."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx08" style="--cat-color:#3fa88a">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-08</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Escape</span></div>
+        <h2>Escape classified: passed_wrongly</h2>
+        <p class="summary">The test ran and was marked Passed — the assertion just wasn't strong enough to catch the real problem. Completes the 3-way escape taxonomy alongside coverage_gap and selection_gap.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">Settlement timestamp not recorded for auto-resolved (requeried) payments</td></tr>
+          <tr><td class="k">Escape class</td><td class="v mono">passed_wrongly</td></tr>
+          <tr><td class="k">Note</td><td class="v">"TC-213's expected result only checked order status, not the settlement timestamp — the assertion was too narrow. Test case has been strengthened."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx09" style="--cat-color:#8a8f96">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-09</span><span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Aging</span></div>
+        <h2>A stale defect nobody's watching</h2>
+        <p class="summary">Low severity, never assigned, never touched — the kind of thing that quietly ages in a backlog until someone runs a triage sweep.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Title</td><td class="v">FPX bank selection screen doesn't remember the buyer's last-used bank</td></tr>
+          <tr><td class="k">Severity</td><td class="v mono">low</td></tr>
+          <tr><td class="k">Status</td><td class="v mono">New — 47 days untouched, never assigned</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="dx10" style="--cat-color:#2f9e8f">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">DX-10</span><span class="chip" style="--cat-color:#2f9e8f"><span class="dot"></span>Regression TC</span></div>
+        <h2>Auto-generated regression TC from an ordinary QA-found defect</h2>
+        <p class="summary">The main storyline only shows this feature used on a production escape (DEF-P0004) — it works the same way for any everyday QA-found defect.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Defect</td><td class="v">Wallet top-up receipt omits the new balance at the exact daily cap boundary</td></tr>
+          <tr><td class="k">Action</td><td class="v">Regression TC auto-created from the defect record (steps/expected result copied from the defect)</td></tr>
+          <tr><td class="k">Timeline</td><td class="v mono">Opened 17d ago → closed 12d ago</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <!-- ══════════════════════ PM DASHBOARD ══════════════════════ -->
+    <div class="section-divider" id="pmdashboard-section"><h2>PM Dashboard</h2><div class="line"></div></div>
+    <p class="section-sub">Not ten independent scenarios — one continuous storyline, a deliberate contrast to CR-2026-014's clean success story. A NEW milestone, <strong>CR-2026-020 — Loyalty Rewards Integration</strong>, repeats requirement → dev → QA → <strong>requirement (again)</strong> → dev → QA because of a mid-flight scope change and a critical regression — and is still active and overdue <strong>today</strong>. All dates are relative to whenever you run <code>finalize-sparrow-pmdashboard.ts</code>.</p>
+
+    <div class="storyline">
+      <article class="scenario" id="pm01" style="--cat-color:#c25c5c">
+        <div class="step-badge">01</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-01</span><span class="chip danger"><span class="dot"></span>Already overdue</span></div>
+          <h2>The milestone is created — target date already in the past</h2>
+          <p class="summary">CR-2026-020 is created active, with its go-live target already ~21 days behind whenever you view it — the PM Dashboard should immediately show it as <strong>Overdue</strong>.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">Milestone</td><td class="v">CR-2026-020 — Loyalty Rewards Integration, ENV3</td></tr>
+            <tr><td class="k">Plan</td><td class="v">Requirements target 63d ago · dev target 49d ago · QA target 35d ago · UAT target 28d ago · go-live target 21d ago</td></tr>
+            <tr><td class="k">Status</td><td class="v mono">active (never marked completed)</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm02" style="--cat-color:#3fa88a">
+        <div class="step-badge">02</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-02</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>On track</span></div>
+          <h2>Cycle 1 begins — things look fine</h2>
+          <p class="summary">REQ-201 is approved slightly ahead of the requirements target, and dev starts on time — nothing here suggests trouble yet.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">Requirement</td><td class="v">REQ-201 — Loyalty rewards points calculation on checkout (Rewards module, high priority)</td></tr>
+            <tr><td class="k">Reviewer</td><td class="v">Harith Rahman</td></tr>
+            <tr><td class="k">Timeline</td><td class="v mono">Created 68d ago · approved 65d ago (2 days ahead of the 63d target) · dev starts 63d ago</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm03" style="--cat-color:#c2965c">
+        <div class="step-badge">03</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-03</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>First rework wave</span></div>
+          <h2>Dev hands off; SIT round 1 finds 4 defects at once</h2>
+          <p class="summary">A full round of testing lands 4 defects in one pass — tier math, upgrade timing, the ledger API, and a boundary bug.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">Ready for QA</td><td class="v mono">50 days ago (1 day ahead of the 49d dev target)</td></tr>
+            <tr><td class="k">Defects</td><td class="v">DEF-P1 (Premium multiplier never applied) · DEF-P2 (tier upgrade delayed a session) · DEF-P3 (ledger API timeout drops points) · DEF-P4 (exact-threshold buyer misclassified)</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm04" style="--cat-color:#c2965c">
+        <div class="step-badge">04</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-04</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Dependency drag</span></div>
+          <h2>Three defects fix quickly; the fourth drags on a third-party API</h2>
+          <p class="summary">DEF-P1, P2 close fast. DEF-P3 (the ledger API) takes far longer — an external dependency, not a code fix, and it delays the whole retest.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">DEF-P1 / DEF-P2</td><td class="v mono">Closed 45d ago / 44d ago</td></tr>
+            <tr><td class="k">DEF-P3 / DEF-P4</td><td class="v mono">Both closed 38d ago — the third-party ledger API was the bottleneck</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm05" style="--cat-color:#c2965c">
+        <div class="step-badge">05</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-05</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>New regression</span></div>
+          <h2>Retest clears round 1 — but surfaces a brand-new regression</h2>
+          <p class="summary">Right as QA testing should have been wrapping up (at the QA target date), the fix for DEF-P3 introduces DEF-P5 — a double-posting bug in the same ledger code.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">Retest</td><td class="v mono">37 days ago — right at the 35d QA target</td></tr>
+            <tr><td class="k">DEF-P5</td><td class="v">"The ledger retry (fix for DEF-P3) double-posts points on a delayed success" — closed 35d ago</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm06" style="--cat-color:#7a5cc2">
+        <div class="step-badge">06</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-06</span><span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Requirement, again</span></div>
+          <h2>The business changes scope — back through FA review</h2>
+          <p class="summary">This is the literal requirement → dev → QA → <strong>requirement</strong> loop: Finance adds a Gold tier and revises the thresholds mid-flight. Aina edits REQ-201 and resubmits — exactly when the milestone should have been done.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">Change</td><td class="v">Gold tier added (2 points/RM10); thresholds revised to RM 5,000/RM 15,000 per quarter</td></tr>
+            <tr><td class="k">Re-submitted</td><td class="v mono">35 days ago (same day as the QA target)</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm07" style="--cat-color:#7a5cc2">
+        <div class="step-badge">07</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-07</span><span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Cycle 2</span></div>
+          <h2>Re-approved; dev rebuilds under the new scope</h2>
+          <p class="summary">Daniel Wong (FA Lead, not just a peer FA this time) re-approves the revised requirement, and dev restarts — a full second develop+test cycle, guaranteeing the go-live target is missed.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">Reviewer</td><td class="v">Daniel Wong (FA Lead)</td></tr>
+            <tr><td class="k">Timeline</td><td class="v mono">Approved 34d ago · dev restarts 33d ago · ready for QA 27d ago (already past the 28d UAT target)</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm08" style="--cat-color:#c25c5c">
+        <div class="step-badge">08</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-08</span><span class="chip danger"><span class="dot"></span>Critical + risk realized</span></div>
+          <h2>SIT round 3 finds a critical defect; the schedule risk is realized</h2>
+          <p class="summary">The new Gold-tier thresholds resurrect the SAME class of boundary bug as DEF-P4 — this time misclassifying Gold-eligible buyers. A schedule risk raised earlier is now marked realized.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">DEF-P6</td><td class="v mono">critical — opened 26 days ago</td></tr>
+            <tr><td class="k">Risk</td><td class="v">"R-PM01 — Repeated rework cycles have pushed go-live past the target date" — raised by Farhan Abdullah, status <span class="mono">realized</span>, 25 days ago</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm09" style="--cat-color:#3fa88a">
+        <div class="step-badge">09</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-09</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Finally clean</span></div>
+          <h2>The critical defect is fixed; SIT finally reaches 100%</h2>
+          <p class="summary">DEF-P6 takes nearly two weeks to resolve properly (a boundary formula needing Finance sign-off). Round 4 finally passes clean — but by now the milestone is deep past every original target.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">DEF-P6 closed</td><td class="v mono">14 days ago</td></tr>
+            <tr><td class="k">SIT round 4</td><td class="v mono">14 days ago — all 6 test cases Passed</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="scenario" id="pm10" style="--cat-color:#c25c5c">
+        <div class="step-badge">10</div>
+        <div class="scenario-head">
+          <div class="scenario-kicker"><span class="scenario-id">PM-10</span><span class="chip danger"><span class="dot"></span>Still unresolved</span></div>
+          <h2>UAT starts late, finds one more defect — still open today</h2>
+          <p class="summary">UAT only starts 10 days ago (the target was 28 days ago). A business reviewer finds a points-display lag and files a complaint. It's still open right now — the milestone remains active and overdue on the PM Dashboard as you present.</p>
+        </div>
+        <div class="scenario-body">
+          <table class="datatable">
+            <tr><td class="k">UAT started</td><td class="v mono">10 days ago</td></tr>
+            <tr><td class="k">DEF-P7</td><td class="v">"Displayed points balance lags the ledger by several minutes" — medium, assigned to Kavitha Nair, <strong>still open</strong></td></tr>
+            <tr><td class="k">Task in progress</td><td class="v">"UAT support for loyalty rewards" — 70% complete, due in 2 days</td></tr>
+          </table>
+          <div class="note warn"><span class="glyph">→</span><span>This is the live, ongoing "here's what it looks like when it goes wrong" moment — nothing to click, just point at the dashboard.</span></div>
+        </div>
+      </article>
+    </div>
+
+    <!-- ══════════════════════ MILESTONES PAGE ══════════════════════ -->
+    <div class="section-divider" id="milestones-section"><h2>Milestones page</h2><div class="line"></div></div>
+    <p class="section-sub">The main storyline shows one milestone's full lifecycle (planned → active → completed) plus a compressed hotfix. These 10 show the other shapes a milestone takes: re-planning, every type (cr / release / sprint / phase), cancellation, a rejected sign-off, deletion, and both a proactive and a reactive environment-contention story.</p>
+
+    <div class="legend">
+      <span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Re-planned</span>
+      <span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Clean / on-track</span>
+      <span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Cancelled / deleted</span>
+      <span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Sign-off</span>
+      <span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Environment / dependency</span>
+    </div>
+
+    <article class="scenario" id="ms01" style="--cat-color:#c2965c">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-01</span><span class="chip" style="--cat-color:#c2965c"><span class="dot"></span>Re-planned</span></div>
+        <h2>Re-planned before any work starts</h2>
+        <p class="summary">A vendor license delay pushes every phase target out by 2 weeks — before a single requirement or line of code exists. Nobody scrambles; the plan just moves.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">CR-2026-021 — Fraud Detection Rules Update (ENV1)</td></tr>
+          <tr><td class="k">Reason</td><td class="v">"Vendor's fraud-rules engine license renewal is delayed 2 weeks — every phase target pushed out to match rather than compressing QA."</td></tr>
+          <tr><td class="k">Shift</td><td class="v">Start, requirements, dev, QA, UAT, and go-live targets all move +2 weeks in one edit</td></tr>
+          <tr><td class="k">Risk</td><td class="v">R-MS01, external, raised and closed once the license arrived</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms02" style="--cat-color:#3fa88a">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-02</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Sprint type</span></div>
+        <h2>A sprint-type milestone, clean and on time</h2>
+        <p class="summary">Not every milestone is a CR or a release — a small, well-scoped sprint completes exactly on its target date with zero defects.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">SPARROW Sprint 7 — Wallet UX Polish (ENV4)</td></tr>
+          <tr><td class="k">Duration</td><td class="v">2 weeks, start to go-live</td></tr>
+          <tr><td class="k">Lessons learned</td><td class="v">"Smallest, best-scoped milestone of the quarter — worth using as the template for future small UX-only sprints."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms03" style="--cat-color:#3fa88a">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-03</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Phase type</span></div>
+        <h2>A phase-type milestone, clean and on time</h2>
+        <p class="summary">A phase groups work that isn't tied to one single CR — here, a batch of reporting improvements.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">Phase 2 — Reporting Enhancements (ENV5)</td></tr>
+          <tr><td class="k">Lessons learned</td><td class="v">"A phase-type milestone worked well for grouping the reconciliation-report backlog — recommend using this type again for cross-CR reporting work."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms04" style="--cat-color:#8a8f96">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-04</span><span class="chip" style="--cat-color:#8a8f96"><span class="dot"></span>Cancelled</span></div>
+        <h2>Cancelled mid-flight</h2>
+        <p class="summary">Not every milestone survives to completion — a steering-committee decision kills this one after requirements work has already started.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">CR-2026-022 — Crypto Payment Support (ENV3)</td></tr>
+          <tr><td class="k">Status</td><td class="v mono">cancelled</td></tr>
+          <tr><td class="k">Reason</td><td class="v">"Deprioritised by the steering committee — regulatory approval isn't expected within this fiscal year. Requirements already drafted are archived for reconsideration next year."</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms05" style="--cat-color:#7a5cc2">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-05</span><span class="chip" style="--cat-color:#7a5cc2"><span class="dot"></span>Sign-off</span></div>
+        <h2>Sign-off rejected, then approved on retry</h2>
+        <p class="summary">A business reviewer catches a real problem at sign-off — the FA Lead rejects it, the fix lands the next day, and the second sign-off goes through clean.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">CR-2026-023 — SMS OTP Fallback (ENV2)</td></tr>
+          <tr><td class="k">Rejected because</td><td class="v">"The fallback SMS arrives in English only, even for buyers with a Bahasa Melayu preference."</td></tr>
+          <tr><td class="k">Rejected by</td><td class="v">Daniel Wong (FA Lead) — milestone returns to <span class="mono">planned</span></td></tr>
+          <tr><td class="k">Resolution</td><td class="v">Fixed and re-tested the next day; second sign-off approved — status <span class="mono">completed</span></td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms06" style="--cat-color:#8a8f96">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-06</span><span class="chip danger"><span class="dot"></span>Deleted — no cascade</span></div>
+        <h2>Deleted — created by mistake</h2>
+        <p class="summary">A duplicate milestone gets created and deleted 15 minutes later. Demonstrates the DELETE action — and the same "no cascade" characteristic as RQ-11's orphaned requirement.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">CR-2026-024 — Duplicate of CR-2026-023 (created by mistake)</td></tr>
+          <tr><td class="k">Lifecycle</td><td class="v">Created, then deleted 15 minutes later</td></tr>
+        </table>
+        <div class="note warn"><span class="glyph">i</span><span>Anything linked to a deleted milestone (requirements, execution files) keeps a dangling <span class="mono">milestoneId</span> — no cascade exists. This one has nothing linked, so there's nothing to demonstrate that with here, but worth knowing.</span></div>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms07" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-07</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Environment</span></div>
+        <h2>Environment contention, resolved a month ahead</h2>
+        <p class="summary">Contrast to the main storyline's CR-2026-014, where the ENV2 clash was discovered reactively. Here, two milestones' planned SIT windows on ENV6 are caught during planning — a full month before either would have needed it.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestones</td><td class="v">CR-2026-025 — Statement Export Redesign · CR-2026-026 — Merchant Settlement Batch Job</td></tr>
+          <tr><td class="k">Conflict</td><td class="v">Both planned for ENV6 with overlapping SIT windows in mid-September</td></tr>
+          <tr><td class="k">Resolution</td><td class="v">CR-2026-026 moved ENV6 → ENV1, spotted and resolved the day after both were created</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms08" style="--cat-color:#4a9dd6">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-08</span><span class="chip" style="--cat-color:#4a9dd6"><span class="dot"></span>Dependency</span></div>
+        <h2>Start delayed by an external vendor dependency</h2>
+        <p class="summary">A biometric SDK license certificate holds up the start date by over two weeks — flagged the day the milestone was created, resolved well before it threatened the go-live date.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">CR-2026-027 — Biometric Login for Wallet (ENV4)</td></tr>
+          <tr><td class="k">Delay</td><td class="v">Planned start slipped 18 days waiting on the vendor's SDK license certificate</td></tr>
+          <tr><td class="k">Risk</td><td class="v">R-MS08, external, raised the day the delay was noticed, closed once the certificate arrived</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms09" style="--cat-color:#3fa88a">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-09</span><span class="chip" style="--cat-color:#3fa88a"><span class="dot"></span>Placeholder</span></div>
+        <h2>A pure placeholder — nothing started yet</h2>
+        <p class="summary">Sometimes a milestone exists purely to reserve a CR number for something not yet greenlit — no dates, no environment, no requirements.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Milestone</td><td class="v">CR-2026-028 — Multi-Currency Wallet (placeholder)</td></tr>
+          <tr><td class="k">Target date</td><td class="v mono">none — reads as "no-date," not overdue</td></tr>
+          <tr><td class="k">Environment</td><td class="v mono">none picked yet</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <article class="scenario" id="ms10" style="--cat-color:var(--accent)">
+      <div class="scenario-head">
+        <div class="scenario-kicker"><span class="scenario-id">MS-10</span><span class="chip"><span class="dot"></span>Full coverage</span></div>
+        <h2>Every type, status, and environment — in one list</h2>
+        <p class="summary">A "read the list/filter view" wrap-up. Across the full SPARROW dataset, the Milestones page now has every type, every status, and all six environments represented at once.</p>
+      </div>
+      <div class="scenario-body">
+        <table class="datatable">
+          <tr><td class="k">Types</td><td class="v mono">cr (most), release (HOTFIX-2026-003), sprint (Sprint 7), phase (Phase 2)</td></tr>
+          <tr><td class="k">Statuses</td><td class="v mono">planned (CR-2026-015, CR-2026-028) · active (CR-2026-020) · completed (CR-2026-014, HOTFIX, Sprint 7, Phase 2, CR-2026-023) · cancelled (CR-2026-022)</td></tr>
+          <tr><td class="k">Environments</td><td class="v mono">ENV1 (CR-2026-021, post-move CR-2026-026) · ENV2 (CR-2026-015, CR-2026-023) · ENV3 (CR-2026-022, CR-2026-020) · ENV4 (main storyline, Sprint 7, CR-2026-027) · ENV5 (Phase 2) · ENV6 (pre-move CR-2026-025/026)</td></tr>
+        </table>
+      </div>
+    </article>
+
+    <section id="logins" class="panel">
+      <h3>Logins</h3>
+      <p style="margin-top:0;color:var(--muted);font-size:0.88rem;">Same 11 personas throughout — password <code>Sparrow@2026</code> for all.</p>
+      <div class="login-table-wrap">
+        <table class="logins">
+          <thead><tr><th>Name</th><th>Role</th><th>Used most in</th></tr></thead>
+          <tbody>
+            <tr><td>Aina Zulkifli</td><td class="role">FA (author)</td><td>RQ-01, 02, 04, 08, 10, 11, 12 · PM-02, 06</td></tr>
+            <tr><td>Harith Rahman</td><td class="role">FA (peer reviewer)</td><td>RQ-01, 02, 05, 08 · TX-04 · PM-02</td></tr>
+            <tr><td>Daniel Wong</td><td class="role">FA Lead</td><td>RQ-02, 05, 07, 09 · PM-07 · MS-05</td></tr>
+            <tr><td>Farhan Abdullah</td><td class="role">Dev Lead</td><td>PM-02, 07, 08</td></tr>
+            <tr><td>Wei Jun Tan</td><td class="role">Developer</td><td>DX-02, 03, 04, 05 · PM-02, 07</td></tr>
+            <tr><td>Kavitha Nair</td><td class="role">Developer</td><td>DX-07, 10 · PM-10</td></tr>
+            <tr><td>Melissa Lim</td><td class="role">QA Lead</td><td>RQ-03, 05 · TX-03, 05, 07, 08 · DX-01…10 (file owner) · PM-03…10 (file owner) · MS-05 (UAT file)</td></tr>
+            <tr><td>Syafiq Osman</td><td class="role">QA Engineer</td><td>RQ-06 · TX-01, 09, 10, 12 · DX-01, 03, 05, 06, 07, 09 · PM-03</td></tr>
+            <tr><td>Nurul Huda</td><td class="role">QA Engineer</td><td>TX-02, 03, 04, 11 · DX-02, 04, 08, 10 · PM-10</td></tr>
+            <tr><td>Salmah Idris</td><td class="role">PMO</td><td>RQ-07, 08 · PM-01 · MS-01, 02, 03, 05, 06, 07, 09</td></tr>
+            <tr><td>Rizal Hamzah</td><td class="role">Head of PM</td><td>MS-04, 08</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="doc-foot">
+      RQ/TX/MS dates are the actual post-shift calendar dates the seed writes (Aug→Apr, Sep→May, Oct→Jun, Nov→Jul — see <code>PDF_DATE_SHIFT_MONTHS</code> in <code>sparrow-data.ts</code>). TX-11, all of DX, and all of PM are anchored to the real current date instead (re-run their <code>finalize</code> scripts close to presenting). Sources: <code>sparrow-requirements-bonus-data.ts</code>, <code>sparrow-testcases-bonus-data.ts</code>, <code>sparrow-defects-bonus-data.ts</code>, <code>sparrow-pmdashboard-data.ts</code>, <code>sparrow-milestones-bonus-data.ts</code>, and their matching <code>seed-*</code> / <code>finalize-*</code> scripts.
+    </footer>
+  </main>
+</div>
