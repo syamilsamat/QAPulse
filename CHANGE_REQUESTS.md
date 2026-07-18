@@ -60,6 +60,7 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR050](#cr050--audit-pass-4-correctness-cleanup) | Audit Pass 4 (correctness cleanup) | ✅ Deployed | 2026-07-18 |
 | [CR051](#cr051--audit-pass-5-deferred-batch) | Audit Pass 5 (deferred batch) | ✅ Deployed | 2026-07-18 |
 | [CR052](#cr052--return-to-dev-timeline-gap) | Return-to-Dev Timeline Gap | ✅ Deployed | 2026-07-18 |
+| [CR053](#cr053--return-to-fa-flow) | Return-to-FA Flow | ✅ Deployed | 2026-07-18 |
 
 ---
 
@@ -1455,3 +1456,20 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 - Added `clampStart`: a captured exec past the segment end anchors the bar at `windowStart` instead of inverting into a negative-width segment. This also fixes a latent pre-existing inversion in the normal path (first QA exec later than first UAT exec).
 
 **Scope:** `dashboard.ts` only. No schema, no db push. **This closes the entire audit — CR047–CR052, every finding from the crawl now addressed.**
+
+### CR053 — Return-to-FA Flow
+**Status:** ✅ Deployed (2026-07-18)
+
+**Origin:** the symmetric counterpart to CR046's Return-to-Dev. When Dev or QA finds an already-approved requirement is incomplete/wrong, they needed a first-class way to send it back to the FA author — as a phase transition, not only as a requirement defect. Decision: keep **both** — raising a requirement defect (CR031, tracks the problem as a parallel artifact, requirement stays in progress) and returning to FA (re-enters review, shows as a rework cycle on the timeline). The user picks per situation.
+
+**Backend (`requirements.ts`):** new `PATCH /requirements/:id/return-to-fa`.
+- Roles: Dev + QA tiers + admin/cto (`RETURN_TO_FA_ROLES`, mirrors the defect-raiser set). Project + module access gate (CR047 pattern).
+- Precondition: `reviewStatus === "approved"`.
+- Effect: reuses the reject/re-review machinery — `reviewStatus → "rejected"` (author then edits + re-submits via the existing review endpoint), and a full dev-handoff reset (`devStatus`/`devAssigneeId`/`readyForQaAt` cleared) so it re-triages cleanly after re-approval. Optional `reason`.
+- Activity: `requirement_return_to_fa`. Notifies the requirement's author + FA team on the project (module-scoped, author deduped) with the new `requirement_returned_to_fa` type.
+
+**Phase timeline (`dashboard.ts`):** `requirement_return_to_fa` added to RELEVANT_EVENT_TYPES and merged into the gap/develop/testing "back to Requirements" boundary lookups (alongside `requirement_submit`) — so a return-to-FA ends the current phase and opens a fresh Requirements cycle on the PM Dashboard, exactly like a resubmit.
+
+**Frontend (`RequirementDetail.tsx`):** the "Requirement Defect" card is now "Requirement Issue" and presents both choices side by side — **Raise Defect** and **Return to FA** — with a one-line explanation of the difference. Return to FA opens an inline reason box → Confirm Return; invalidates the requirement + history queries. New `requirement_returned_to_fa` icon in NotificationDropdown + Inbox; deep-links to the requirement (existing route).
+
+**Scope:** no schema changes, no db push (reuses the rejected state + activity events). `requirements.ts`, `dashboard.ts`, `RequirementDetail.tsx`, `NotificationDropdown.tsx`, `Inbox.tsx`.

@@ -249,6 +249,7 @@ const RELEVANT_EVENT_TYPES = [
   "requirement_dev_assign",
   "requirement_dev_ready_for_qa",
   "requirement_dev_return_to_dev", // CR046 — QA bounced it back to dev
+  "requirement_return_to_fa", // CR053 — Dev/QA bounced it back to the FA author
 ];
 
 // Look-ahead state machine, not a single reactive pass over events — at each
@@ -319,7 +320,7 @@ export function computeTimelineFromEvents(
       // dev handoff or a resubmit before one ever happened, decides how
       // the gap closes.
       const devAssignEv = nextEventOfType(["requirement_dev_assign"], phaseStart);
-      const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
       const candidates: { at: Date; kind: "dev" | "submit" }[] = [];
       if (devAssignEv) candidates.push({ at: devAssignEv.createdAt, kind: "dev" });
       if (submitEv) candidates.push({ at: submitEv.createdAt, kind: "submit" });
@@ -337,7 +338,7 @@ export function computeTimelineFromEvents(
       }
     } else if (state === "develop") {
       const readyEv = nextEventOfType(["requirement_dev_ready_for_qa"], phaseStart);
-      const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
       // FA edits the requirement mid-development and re-submits for review —
       // if that re-submit arrives before ready_for_qa, end this develop cycle
       // and start a new Requirements cycle (dev is now blocked).
@@ -357,7 +358,7 @@ export function computeTimelineFromEvents(
         state = "testing";
       }
     } else {
-      const submitEv = nextEventOfType(["requirement_submit"], phaseStart);
+      const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
       // CR046 — QA can return a not-actually-done requirement to dev. If that
       // happens before any resubmit, testing ends there and Develop resumes
       // within the same cycle (it's rework, not a new requirements round).

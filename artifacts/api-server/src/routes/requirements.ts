@@ -889,6 +889,109 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
   res.json(await formatRequirement(updated));
 });
 
+// ─── Return to FA (CR053) ────────────────────────────────────────────────────
+// The symmetric counterpart to Return-to-Dev (CR046): when Dev or QA finds an
+// already-approved requirement is incomplete or wrong, they can send it back
+// to the FA author for revision as a first-class phase transition — distinct
+// from raising a requirement defect (CR031), which tracks the problem as a
+// parallel artifact without moving the requirement's phase. Both remain
+// available; the user picks. This reuses the reject/re-review machinery: the
+// requirement goes back to "rejected", the author edits and re-submits via the
+// existing review endpoint, and a fresh Requirements cycle shows on the PM
+// timeline (the phase machine treats requirement_return_to_fa as a boundary).
+const RETURN_TO_FA_ROLES = [
+  "dev_member", "dev_lead", "hod_dev",
+  "qa_member", "qa_lead", "hod_qa",
+  "admin", "cto",
+];
+
+router.patch("/requirements/:id/return-to-fa", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!RETURN_TO_FA_ROLES.includes(ctx.role)) {
+    res.status(403).json({ error: "Only Dev or QA can return a requirement to FA" }); return;
+  }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+  // Same access gate as the dev workflow (CR047): project + module scope.
+  if (requirement.projectId != null) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+    if (!(await canAccessModule(ctx.userId, ctx.role, requirement.projectId, requirement.module))) {
+      res.status(403).json({ error: "Access denied to this module" }); return;
+    }
+  }
+
+  if (((requirement as any).reviewStatus ?? "draft") !== "approved") {
+    res.status(409).json({ error: "Only an approved requirement can be returned to FA" }); return;
+  }
+
+  const { reason } = req.body ?? {};
+  const now = new Date();
+  const currentDevStatus: string | null = (requirement as any).devStatus ?? null;
+
+  // Back to the FA author for revision (reuse the "rejected" state so the
+  // existing re-review flow applies), and pause dev handoff so it can't be
+  // worked until re-approved.
+  // Full reset of the dev handoff — the requirement re-enters review, so it
+  // shouldn't linger in the old assignee's dev queue. After re-approval a Lead
+  // re-triages it (the content may have changed).
+  const [updated] = await db.update(requirementsTable).set({
+    reviewStatus: "rejected",
+    rejectedBy: ctx.userId,
+    rejectedAt: now,
+    devStatus: null,
+    devAssigneeId: null,
+    readyForQaAt: null,
+  } as any).where(eq(requirementsTable.id, id)).returning();
+
+  const reasonSuffix = typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : "";
+  await logActivity({
+    type: "requirement_return_to_fa",
+    description: `Requirement "${requirement.title}" returned to FA${reasonSuffix}`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "requirement",
+    oldValue: { reviewStatus: "approved", devStatus: currentDevStatus },
+    newValue: { reviewStatus: "rejected", reason: reason ?? null },
+  });
+
+  // Notify the requirement's author (the FA who wrote it) + the FA team on the
+  // project (module-scoped, author deduped).
+  const authorId = (requirement as any).createdBy as number | null;
+  if (authorId) {
+    await notifyUser(
+      authorId,
+      "Requirement returned for revision",
+      `"${requirement.title}" was returned to you by ${ctx.role.startsWith("dev") ? "Dev" : "QA"} — it needs changes before it can proceed.${typeof reason === "string" && reason.trim() ? ` Reason: ${reason.trim()}` : ""}`,
+      "requirement_returned_to_fa",
+      "requirement",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+  }
+  await notifyRolesInProject({
+    roles: ["fa_lead", "fa_member"],
+    projectId: requirement.projectId,
+    module: requirement.module,
+    title: "Requirement returned to FA",
+    message: `"${requirement.title}" was returned for revision.${typeof reason === "string" && reason.trim() ? ` Reason: ${reason.trim()}` : ""}`,
+    type: "requirement_returned_to_fa",
+    entityType: "requirement",
+    entityId: id,
+    actorId: ctx.userId,
+    excludeUserIds: authorId != null ? [authorId] : [],
+  }).catch(() => {});
+
+  res.json(await formatRequirement(updated));
+});
+
 // ─── Redmine Import (same logic as Requirements page processRedmineSync) ─────
 const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 const PRIORITY_MAP: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };

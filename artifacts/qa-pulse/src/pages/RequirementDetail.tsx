@@ -112,6 +112,10 @@ export default function RequirementDetail() {
   // CR046 — QA returning a ready_for_qa requirement back to dev
   const [returnMode, setReturnMode] = useState(false);
   const [returnReason, setReturnReason] = useState("");
+  // CR053 — Dev/QA returning an approved requirement to the FA author
+  const [returnToFaOpen, setReturnToFaOpen] = useState(false);
+  const [returnToFaReason, setReturnToFaReason] = useState("");
+  const [returnToFaLoading, setReturnToFaLoading] = useState(false);
   // CR031 — requirement defect raise/reassign
   const [raiseDefectOpen, setRaiseDefectOpen] = useState(false);
   const [defectTitle, setDefectTitle] = useState("");
@@ -397,6 +401,29 @@ export default function RequirementDetail() {
       toast({ variant: "destructive", title: "Failed to raise defect" });
     } finally {
       setDefectLoading(false);
+    }
+  };
+
+  // CR053 — send an approved-but-incomplete requirement back to the FA author
+  const returnToFa = async () => {
+    if (!reqId) return;
+    setReturnToFaLoading(true);
+    try {
+      const res = await api(`/requirements/${reqId}/return-to-fa`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ reason: returnToFaReason.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Failed to return to FA" }); return; }
+      toast({ title: "Returned to FA for revision" });
+      setReturnToFaOpen(false);
+      setReturnToFaReason("");
+      queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to return to FA" });
+    } finally {
+      setReturnToFaLoading(false);
     }
   };
 
@@ -1005,11 +1032,12 @@ export default function RequirementDetail() {
             </CardContent>
           </Card>
 
-          {/* Requirement Defect — flag a problem with this requirement after approval (CR031) */}
+          {/* Requirement Issue — flag a problem with an approved requirement:
+              track it as a defect (CR031) or send it back to the FA (CR053) */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold flex items-center justify-between">
-                Requirement Defect
+                Requirement Issue
                 {openReqDefects.length > 0 && (
                   <Badge variant="outline" className="text-[10px]">{openReqDefects.length} open</Badge>
                 )}
@@ -1084,10 +1112,38 @@ export default function RequirementDetail() {
                           </Button>
                         </div>
                       </div>
+                    ) : returnToFaOpen ? (
+                      // CR053 — send the requirement back to the FA author for revision
+                      <div className="space-y-2 rounded-md border border-destructive/40 px-3 py-2">
+                        <Textarea
+                          className="text-xs min-h-16"
+                          placeholder="What needs to change? (sent to the FA author)"
+                          value={returnToFaReason}
+                          onChange={(e) => setReturnToFaReason(e.target.value)}
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <Button size="sm" variant="ghost" disabled={returnToFaLoading} onClick={() => { setReturnToFaOpen(false); setReturnToFaReason(""); }}>
+                            Cancel
+                          </Button>
+                          <Button size="sm" variant="destructive" disabled={returnToFaLoading} onClick={returnToFa}>
+                            Confirm Return
+                          </Button>
+                        </div>
+                      </div>
                     ) : (
-                      <Button size="sm" variant="outline" onClick={() => setRaiseDefectOpen(true)}>
-                        Raise Requirement Defect
-                      </Button>
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-muted-foreground">
+                          Track the problem as a defect (requirement stays in progress), or send it back to the FA to revise (re-enters review).
+                        </p>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" variant="outline" onClick={() => setRaiseDefectOpen(true)}>
+                            Raise Defect
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10" onClick={() => setReturnToFaOpen(true)}>
+                            Return to FA
+                          </Button>
+                        </div>
+                      </div>
                     )
                   )}
                 </>
