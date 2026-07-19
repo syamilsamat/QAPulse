@@ -23,6 +23,7 @@
     "seed:sparrow:milestones-bonus": "tsx ./src/seed-sparrow-milestones-bonus.ts",
     "seed:sparrow:milestones-bonus:finalize": "tsx ./src/finalize-sparrow-milestones-bonus.ts",
     "seed:sparrow:clear": "tsx ./src/clear-sparrow-data.ts",
+    "clear:playwright": "tsx ./src/clear-playwright-data.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
