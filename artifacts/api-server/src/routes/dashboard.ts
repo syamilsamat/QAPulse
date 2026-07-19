@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable } from "@workspace/db";
+import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
@@ -608,7 +608,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 
   const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
   if (requirementTimelines.length === 0) {
-    res.json({ milestone: milestoneShape, phaseSummary: null, plannedPhaseDays: null, kpis: null, topBlockers: [], trend: null, requirements: [] });
+    res.json({ milestone: milestoneShape, phaseSummary: null, plannedPhaseDays: null, goLiveGap: null, kpis: null, topBlockers: [], trend: null, requirements: [] });
     return;
   }
 
@@ -661,6 +661,28 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     qa: (qaTargetDate && devTargetDate) ? Math.max(0, Math.round((qaTargetDate.getTime() - devTargetDate.getTime()) / 86_400_000)) : null,
     uat: (uatTargetDate && qaTargetDate) ? Math.max(0, Math.round((uatTargetDate.getTime() - qaTargetDate.getTime()) / 86_400_000)) : null,
   } : null;
+
+  // CR056 — Go-Live still can't be a duration bar (there's no "deployment
+  // started" event to measure a span from — see the goLiveDate schema
+  // comment), but the gap BETWEEN the UAT sign-off pack being uploaded and
+  // the PM actually flipping the milestone to "completed" is a real,
+  // measurable duration between two distinct real actions. Only meaningful
+  // once the milestone is actually completed; a milestone can be marked
+  // completed via the plain status PATCH without ever going through a
+  // sign-off upload, in which case there's nothing to diff against.
+  let goLiveGap: { signOffAt: string; completedAt: string; gapDays: number } | null = null;
+  if (milestone.status === "completed" && milestone.completedAt) {
+    const [latestSignOff] = await db.select({ createdAt: uatSignoffsTable.createdAt })
+      .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, milestoneId))
+      .orderBy(desc(uatSignoffsTable.createdAt)).limit(1);
+    if (latestSignOff) {
+      goLiveGap = {
+        signOffAt: latestSignOff.createdAt.toISOString(),
+        completedAt: milestone.completedAt.toISOString(),
+        gapDays: Math.round((milestone.completedAt.getTime() - latestSignOff.createdAt.getTime()) / 86_400_000 * 10) / 10,
+      };
+    }
+  }
 
   // ── Top blockers: requirements stuck in review or rejected ────────────────
   const blockerEntries = requirementTimelines.filter(r =>
@@ -745,6 +767,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     milestone: milestoneShape,
     phaseSummary,
     plannedPhaseDays,
+    goLiveGap,
     kpis,
     topBlockers,
     trend: {

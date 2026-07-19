@@ -131,6 +131,12 @@ interface PhaseReport {
   };
   phaseSummary: PhaseSummaryEntry[] | null;
   plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+  // CR056 — gap between the UAT sign-off pack being uploaded and the PM
+  // actually flipping the milestone to "completed". Go-Live itself stays a
+  // date marker (no "deployment started" event exists to draw a bar from —
+  // see the goLiveDate schema comment), but this gap IS a real measured
+  // duration between two distinct actions, so it renders as a variance pill.
+  goLiveGap: { signOffAt: string; completedAt: string; gapDays: number } | null;
   kpis: {
     timeElapsedPct: number | null;
     workCompletedPct: number;
@@ -531,12 +537,16 @@ const fmtDays = (n: number) => (Math.round(n * 10) / 10).toString();
 function PlanActualTimelineBar({
   actualSegments,
   plannedPhaseDays,
+  goLiveGap,
   scaleDays,
   planMarkerDays,
   onClick,
 }: {
   actualSegments: TimelineBarSegment[];
   plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+  // CR056 — not a bar segment (no duration to draw, see PmDashboard's
+  // PhaseReport comment) — just an extra variance pill alongside the phase ones.
+  goLiveGap?: { signOffAt: string; completedAt: string; gapDays: number } | null;
   // Shared day-to-width scale across a list of bars, so a planMarkerDays line
   // lands at the same x on every row instead of each bar self-normalizing.
   scaleDays?: number;
@@ -631,6 +641,17 @@ function PlanActualTimelineBar({
               {s.label} · unplanned
             </span>
           ))}
+        </div>
+      )}
+
+      {goLiveGap && (
+        <div className={`flex flex-wrap gap-1.5 ${hasPlan ? "pl-[52px]" : ""}`}>
+          <span
+            className="text-[11px] font-medium px-1.5 py-0.5 rounded text-slate-600 bg-slate-100 dark:bg-slate-800/60 dark:text-slate-300"
+            title={`UAT sign-off: ${new Date(goLiveGap.signOffAt).toLocaleDateString()} → Completed: ${new Date(goLiveGap.completedAt).toLocaleDateString()}`}
+          >
+            Go-Live sign-off gap · {fmtDays(goLiveGap.gapDays)}d
+          </span>
         </div>
       )}
 
@@ -1381,6 +1402,7 @@ export default function PmDashboard() {
                   <PlanActualTimelineBar
                     actualSegments={actualSegments}
                     plannedPhaseDays={phaseReport.plannedPhaseDays}
+                    goLiveGap={phaseReport.goLiveGap}
                     onClick={() => setViewMode("timelines")}
                   />
                   {phaseReport.requirements.length > 0 && (
