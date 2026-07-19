@@ -39,6 +39,11 @@ interface CapacityEntry {
   estimatedHours: number;
   overdueTaskCount: number;
   utilizationPct: number;
+  // CR055 — QA/FA open work items (execution PIC / requirement authorship).
+  // Neither carries an hours estimate, so estimatedHours/utilizationPct stay
+  // 0 for someone who only has these and no task.
+  openQaItemCount: number;
+  openFaItemCount: number;
 }
 
 interface ProjectSummary {
@@ -449,38 +454,52 @@ function MilestoneTile({ m, projectId }: { m: MilestoneSummary; projectId: numbe
   );
 }
 
+// CR055 — one open-items breakdown tooltip, e.g. "2 tasks, 3 pending TCs, 1 requirement"
+function openItemsBreakdown(c: CapacityEntry): string {
+  const parts: string[] = [];
+  if (c.openTaskCount > 0) parts.push(`${c.openTaskCount} task${c.openTaskCount === 1 ? "" : "s"}`);
+  if (c.openQaItemCount > 0) parts.push(`${c.openQaItemCount} pending TC${c.openQaItemCount === 1 ? "" : "s"}`);
+  if (c.openFaItemCount > 0) parts.push(`${c.openFaItemCount} requirement${c.openFaItemCount === 1 ? "" : "s"}`);
+  return parts.join(", ") || "—";
+}
+
 function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
   if (capacity.length === 0) {
-    return <p className="text-xs text-muted-foreground">No open tasks assigned in this project.</p>;
+    return <p className="text-xs text-muted-foreground">No open tasks, pending test cases, or draft/rejected requirements in this project.</p>;
   }
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="text-xs text-muted-foreground">
           <th className="text-left font-normal pb-1">Person</th>
-          <th className="text-right font-normal pb-1">Open tasks</th>
+          <th className="text-right font-normal pb-1">Open items</th>
           <th className="text-right font-normal pb-1">Est. hours</th>
           <th className="text-right font-normal pb-1">Utilization</th>
           <th className="text-right font-normal pb-1">Overdue</th>
         </tr>
       </thead>
       <tbody>
-        {capacity.map((c) => (
-          <tr key={c.userId} className="border-t">
-            <td className="py-1.5">{c.name}</td>
-            <td className="py-1.5 text-right">{c.openTaskCount}</td>
-            <td className="py-1.5 text-right">{Math.round(c.estimatedHours)}</td>
-            <td
-              className={`py-1.5 text-right font-medium ${
-                c.utilizationPct >= 100 ? "text-red-600" : c.utilizationPct >= 80 ? "text-amber-600" : "text-muted-foreground"
-              }`}
-              title="Assumes a flat 40h/week capacity per person"
-            >
-              {c.utilizationPct}%
-            </td>
-            <td className={`py-1.5 text-right ${c.overdueTaskCount > 0 ? "text-red-600" : ""}`}>{c.overdueTaskCount}</td>
-          </tr>
-        ))}
+        {capacity.map((c) => {
+          const totalOpen = c.openTaskCount + c.openQaItemCount + c.openFaItemCount;
+          const hasHours = c.openTaskCount > 0;
+          return (
+            <tr key={c.userId} className="border-t">
+              <td className="py-1.5">{c.name}</td>
+              <td className="py-1.5 text-right" title={openItemsBreakdown(c)}>{totalOpen}</td>
+              <td className="py-1.5 text-right">{hasHours ? Math.round(c.estimatedHours) : "–"}</td>
+              <td
+                className={`py-1.5 text-right font-medium ${
+                  !hasHours ? "text-muted-foreground" :
+                  c.utilizationPct >= 100 ? "text-red-600" : c.utilizationPct >= 80 ? "text-amber-600" : "text-muted-foreground"
+                }`}
+                title={hasHours ? "Assumes a flat 40h/week capacity per person" : "No hours estimate for QA/FA work today"}
+              >
+                {hasHours ? `${c.utilizationPct}%` : "–"}
+              </td>
+              <td className={`py-1.5 text-right ${c.overdueTaskCount > 0 ? "text-red-600" : ""}`}>{c.overdueTaskCount}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

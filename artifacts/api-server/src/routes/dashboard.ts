@@ -121,6 +121,35 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
   const isOpenTask = (t: typeof tasksTable.$inferSelect) => t.status !== "done" && t.status !== "released_to_production";
   const isOverdueTask = (t: typeof tasksTable.$inferSelect) => isOpenTask(t) && !!t.dueDate && new Date(t.dueDate) < now;
 
+  // CR055 — QA/FA have no task-based hours estimate (see the utilization %
+  // comment below), so instead of leaving them off the Capacity table
+  // entirely, count their still-open WORK ITEMS: test case rows a QA PIC
+  // hasn't executed yet, and requirements an FA author still needs to act
+  // on (draft, or rejected and needing revision — not "in_review", which is
+  // waiting on a reviewer, not the author). qaPic is a free-text name (same
+  // convention as resolveUserIdByName elsewhere), resolved case-insensitively.
+  const nameToUserId = new Map<string, number>(allUsers.map(u => [u.name.toLowerCase(), u.id]));
+  const projectExecFiles = projectIds.length
+    ? await db.select({ id: executionFilesTable.id, projectId: executionFilesTable.projectId })
+        .from(executionFilesTable).where(inArray(executionFilesTable.projectId, projectIds))
+    : [];
+  const execFileIds = projectExecFiles.map(f => f.id);
+  const pendingTcRows = execFileIds.length
+    ? await db.select({
+        executionFileId: executionTestCasesTable.executionFileId,
+        qaPic: executionTestCasesTable.qaPic,
+        result: executionTestCasesTable.result,
+        rowType: executionTestCasesTable.rowType,
+      }).from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, execFileIds))
+    : [];
+  const isPendingTc = (r: { result: string | null; rowType: string }) =>
+    r.rowType !== "group" && (!r.result?.trim() || r.result.trim().toLowerCase() === "not executed");
+  const pendingReqRows = projectIds.length
+    ? await db.select({ projectId: requirementsTable.projectId, createdBy: requirementsTable.createdBy, reviewStatus: requirementsTable.reviewStatus })
+        .from(requirementsTable)
+        .where(and(inArray(requirementsTable.projectId, projectIds), inArray(requirementsTable.reviewStatus, ["draft", "rejected"])))
+    : [];
+
   const resultProjects = projects.map(project => {
     const projectMilestones = milestones.filter(m => m.projectId === project.id);
 
@@ -152,29 +181,62 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
     });
 
     const projectTasks = allTasks.filter(t => t.projectId === project.id);
-    const capacityByUser = new Map<number, { userId: number; name: string; openTaskCount: number; estimatedHours: number; overdueTaskCount: number }>();
+    type CapacityEntry = {
+      userId: number; name: string; openTaskCount: number; estimatedHours: number;
+      overdueTaskCount: number; openQaItemCount: number; openFaItemCount: number;
+    };
+    const capacityByUser = new Map<number, CapacityEntry>();
+    const getOrInit = (uid: number): CapacityEntry => {
+      if (!capacityByUser.has(uid)) {
+        capacityByUser.set(uid, {
+          userId: uid, name: userNameById.get(uid) ?? `User #${uid}`,
+          openTaskCount: 0, estimatedHours: 0, overdueTaskCount: 0, openQaItemCount: 0, openFaItemCount: 0,
+        });
+      }
+      return capacityByUser.get(uid)!;
+    };
+
     for (const t of projectTasks) {
       if (!isOpenTask(t)) continue;
       for (const uid of t.assigneeIds ?? []) {
-        if (!capacityByUser.has(uid)) {
-          capacityByUser.set(uid, { userId: uid, name: userNameById.get(uid) ?? `User #${uid}`, openTaskCount: 0, estimatedHours: 0, overdueTaskCount: 0 });
-        }
-        const entry = capacityByUser.get(uid)!;
+        const entry = getOrInit(uid);
         entry.openTaskCount++;
         entry.estimatedHours += t.estimatedHours ?? 0;
         if (isOverdueTask(t)) entry.overdueTaskCount++;
       }
     }
 
+    // CR055 — QA: still-pending test case rows they're PIC on, in this
+    // project's execution files.
+    const execFileIdsForProject = new Set(
+      projectExecFiles.filter(f => f.projectId === project.id).map(f => f.id),
+    );
+    for (const row of pendingTcRows) {
+      if (!execFileIdsForProject.has(row.executionFileId) || !isPendingTc(row)) continue;
+      const uid = row.qaPic ? nameToUserId.get(row.qaPic.trim().toLowerCase()) : undefined;
+      if (uid === undefined) continue;
+      getOrInit(uid).openQaItemCount++;
+    }
+    // CR055 — FA: requirements they authored that still need their own
+    // action (draft or rejected), in this project.
+    for (const row of pendingReqRows) {
+      if (row.projectId !== project.id || row.createdBy == null) continue;
+      getOrInit(row.createdBy).openFaItemCount++;
+    }
+
     // CR038 — utilization %, parked since CR034/CR036/CR037 pending a
     // capacity-model decision. Resolved: flat 40h/week per person, no
     // per-user configurable capacity field. Only meaningful for Dev/PM
-    // (the only roles with task-based estimatedHours today) — not added to
-    // the Resources page (CR034), which has no hours signal at all for
-    // QA/FA (execution PIC / requirement authorship carry no estimate).
+    // (the only roles with task-based estimatedHours today) — CR055 added
+    // QA/FA open-item counts (execution PIC / requirement authorship) to
+    // this same table, but neither carries an hours estimate, so their
+    // estimatedHours/utilizationPct stay 0 unless they also hold a task.
     const capacity = Array.from(capacityByUser.values())
       .map(entry => ({ ...entry, utilizationPct: Math.round((entry.estimatedHours / WEEKLY_CAPACITY_HOURS) * 100) }))
-      .sort((a, b) => b.openTaskCount - a.openTaskCount);
+      .sort((a, b) =>
+        (b.openTaskCount + b.openQaItemCount + b.openFaItemCount) -
+        (a.openTaskCount + a.openQaItemCount + a.openFaItemCount),
+      );
 
     return {
       projectId: project.id,
