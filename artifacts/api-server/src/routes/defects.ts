@@ -678,7 +678,9 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           })
           .returning();
       } catch (err: any) {
-        if (err?.code === "23505") {
+        // drizzle-orm wraps driver errors in DrizzleQueryError — the real pg
+        // error (with .code) lives at err.cause, not on err itself.
+        if (err?.code === "23505" || err?.cause?.code === "23505") {
           const [winner] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
           defect = winner;
         } else {

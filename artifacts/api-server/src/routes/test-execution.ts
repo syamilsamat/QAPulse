@@ -358,8 +358,10 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       updatedAt: file.updatedAt,
     });
   } catch (err: any) {
-    // PostgreSQL unique_violation code 23505
-    if (err?.code === "23505" || err?.message?.includes("unique")) {
+    // PostgreSQL unique_violation code 23505 — drizzle-orm wraps driver
+    // errors in DrizzleQueryError, so both the code and the real message
+    // live at err.cause, not on err itself.
+    if (err?.code === "23505" || err?.cause?.code === "23505" || err?.message?.includes("unique") || err?.cause?.message?.includes("unique")) {
       res.status(409).json({ error: `An execution file for ticket #${req.body.redmineTicketId} already exists` });
       return;
     }
@@ -504,7 +506,9 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       updatedAt: updated.updatedAt,
     });
   } catch (err: any) {
-    if (err?.code === "23505" || err?.message?.includes("unique")) {
+    // drizzle-orm wraps driver errors in DrizzleQueryError — the real pg
+    // code/message live at err.cause, not on err itself.
+    if (err?.code === "23505" || err?.cause?.code === "23505" || err?.message?.includes("unique") || err?.cause?.message?.includes("unique")) {
       res.status(409).json({ error: "An execution file with that Redmine ticket ID already exists" });
       return;
     }
@@ -704,7 +708,9 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
       tcCount: sourceTcs.length,
     });
   } catch (err: any) {
-    if (err?.code === "23505" || err?.message?.includes("unique")) {
+    // drizzle-orm wraps driver errors in DrizzleQueryError — the real pg
+    // code/message live at err.cause, not on err itself.
+    if (err?.code === "23505" || err?.cause?.code === "23505" || err?.message?.includes("unique") || err?.cause?.message?.includes("unique")) {
       res.status(409).json({ error: `An execution file for ticket #${req.body.newTicketId} already exists` });
       return;
     }
