@@ -957,11 +957,13 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
       return;
     }
 
-    // CR031 — a requirement defect's current assignee can hand it off to dev
-    // or QA without a Lead gate (it was auto-routed to them, not discretionarily
-    // assigned; mirrors CR030's precedent of letting the dev assignee self-drive
-    // start/ready_for_qa). Everyone else falls back to the normal Lead-tier gate.
-    const isSelfHandoff = defect.source === "requirement" && defect.assigneeId === ctx.userId;
+    // CR031 (extended by CR054 follow-up) — a defect's CURRENT assignee can
+    // hand it off without a Lead gate, whatever the defect's source: the dev
+    // who fixed a QA-raised defect passes it back to the reporting tester to
+    // verify, exactly like a requirement defect's auto-routed assignee.
+    // Mirrors CR030's precedent of letting the dev assignee self-drive
+    // start/ready_for_qa. Everyone else needs the Lead-tier gate.
+    const isSelfHandoff = defect.assigneeId === ctx.userId;
     if (!isSelfHandoff && (await getRoleTierRank(ctx.role)) < 2) {
       res.status(403).json({ error: "Lead-tier role required to assign a defect" });
       return;
