@@ -13,7 +13,7 @@ export const SPARROW_MANIFEST_PATH = join(__dirname, "..", "sparrow-seed-manifes
 
 export type SparrowEntityType =
   | "task" | "defect" | "executionFile" | "testCase" | "requirement"
-  | "milestone" | "team" | "project" | "user" | "risk" | "attachment";
+  | "milestone" | "team" | "project" | "user" | "risk" | "attachment" | "uatSignoff";
 
 export interface SparrowManifestEntry {
   type: SparrowEntityType;

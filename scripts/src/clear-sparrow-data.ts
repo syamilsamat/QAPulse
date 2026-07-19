@@ -17,7 +17,7 @@ import { loginAdmin, api } from "./seed-client";
 import { loadSparrowManifest, deleteSparrowManifest, type SparrowManifestEntry, type SparrowEntityType } from "./sparrow-manifest";
 
 const DELETE_ORDER: SparrowEntityType[] = [
-  "task", "risk", "defect", "attachment", "executionFile", "testCase", "requirement",
+  "task", "risk", "defect", "attachment", "uatSignoff", "executionFile", "testCase", "requirement",
   "milestone", "team", "project", "user",
 ];
 
@@ -25,6 +25,7 @@ const DELETE_PATH: Partial<Record<SparrowEntityType, (id: number | string) => st
   task: (id) => `/tasks/${id}`,
   risk: (id) => `/risks/${id}`,
   attachment: (id) => `/requirements/attachments/${id}`,
+  uatSignoff: (id) => `/uat-signoffs/${id}`,
   executionFile: (id) => `/execution-files/${id}`,
   testCase: (id) => `/test-cases/${id}`,
   requirement: (id) => `/requirements/${id}`,
