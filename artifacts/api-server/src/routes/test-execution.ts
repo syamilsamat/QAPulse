@@ -44,6 +44,19 @@ async function canAccessFileProject(
   return canAccessProject(ctx.userId, ctx.role, projectId);
 }
 
+// An execution file can be created without a milestone (add/edit test cases
+// still works fine), but it may not RECORD a real result until one is
+// linked — otherwise a defect raised off that row (see defects.ts's
+// executionTcId → milestone resolution) would permanently have no
+// milestone, since a file's milestone can't be backfilled onto rows that
+// already recorded results before one existed. "Not Executed" and empty/
+// null are not real results — they're the unstarted state, not an outcome.
+function hasRealResult(result: unknown): boolean {
+  if (typeof result !== "string") return false;
+  const trimmed = result.trim();
+  return trimmed !== "" && trimmed.toLowerCase() !== "not executed";
+}
+
 // --- 1. SETUP SERVER-SENT EVENTS (SSE) CLIENTS ---
 const clients = new Set<any>();
 
@@ -199,6 +212,8 @@ router.get("/execution-files", async (req, res): Promise<void> => {
         tracker: f.tracker,
         projectId: f.projectId,
         requirementId: f.requirementId,
+        milestoneId: (f as any).milestoneId ?? null,
+        fileType: (f as any).fileType ?? "qa",
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
@@ -391,7 +406,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
-    const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId, qaPic } = req.body;
+    const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId, qaPic, milestoneId } = req.body;
     // Moving the file to another project also requires access to the target
     if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
       res.status(403).json({ error: "Access denied to the target project" });
@@ -406,6 +421,11 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
     if (projectId !== undefined) patch.projectId = projectId ? Number(projectId) : null;
     if (requirementId !== undefined) patch.requirementId = requirementId ? Number(requirementId) : null;
     if (qaPic !== undefined) patch.qaPic = qaPic || null;
+    // Milestone can only ever be set at creation today otherwise — this is
+    // the only way to link one onto a file created without one, which is
+    // required before any row on it can carry a real result (see the
+    // milestone guard in the test-cases upsert/clone handlers below).
+    if (milestoneId !== undefined) patch.milestoneId = milestoneId ? Number(milestoneId) : null;
 
     // Get previous qaPic to detect changes for notification
     const [prevFile] = await db.select({ qaPic: executionFilesTable.qaPic }).from(executionFilesTable).where(eq(executionFilesTable.id, id));
@@ -502,6 +522,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       tracker: updated.tracker,
       projectId: updated.projectId,
       requirementId: updated.requirementId,
+      milestoneId: (updated as any).milestoneId ?? null,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     });
@@ -546,6 +567,8 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
       selectedModules: file.selectedModules,
       projectId: file.projectId,
       requirementId: file.requirementId,
+      milestoneId: (file as any).milestoneId ?? null,
+      fileType: (file as any).fileType ?? "qa",
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
@@ -594,7 +617,7 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
   if (!ctx) return;
   try {
     const { ticketId } = req.params;
-    const { newTicketId, newTitle, resetResults = true, copyQaPic = true, module: targetModule, projectId: targetProjectId, trackerFilter } = req.body;
+    const { newTicketId, newTitle, resetResults = true, copyQaPic = true, module: targetModule, projectId: targetProjectId, trackerFilter, milestoneId: targetMilestoneId } = req.body;
 
     if (!newTicketId?.trim()) {
       res.status(400).json({ error: "New Ticket ID is required" });
@@ -613,6 +636,21 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
     }
     if (targetProjectId && !(await canAccessProject(ctx.userId, ctx.role, Number(targetProjectId)))) {
       res.status(403).json({ error: "Access denied to the target project" });
+      return;
+    }
+
+    // Falls back to the source file's own milestone (same pattern as
+    // tracker/module below) rather than always starting null — but if the
+    // caller explicitly clears it (or the source never had one), copying
+    // real results over would leave them permanently unable to trace back
+    // to a milestone (see the upsert handler's same guard).
+    const resolvedMilestoneId = targetMilestoneId !== undefined
+      ? (targetMilestoneId ? Number(targetMilestoneId) : null)
+      : ((sourceFile as any).milestoneId ?? null);
+    if (!resetResults && resolvedMilestoneId == null) {
+      res.status(409).json({
+        error: "Cannot copy existing results into a clone with no milestone — link a milestone (or clone with resetResults) first.",
+      });
       return;
     }
 
@@ -669,6 +707,7 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
       tracker: resolvedTracker,
       projectId: resolvedProjectId ?? null,
       requirementId: requirementId ?? null,
+      milestoneId: resolvedMilestoneId,
     }).returning();
 
     if (sourceTcs.length > 0) {
@@ -704,6 +743,7 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
       id: newFile.id,
       redmineTicketId: newFile.redmineTicketId,
       title: newFile.title,
+      milestoneId: (newFile as any).milestoneId ?? null,
       clonedFrom: ticketId,
       tcCount: sourceTcs.length,
     });
@@ -863,6 +903,17 @@ router.post(
       }
       if (!(await canAccessFileProject(ctx, file.projectId))) {
         res.status(403).json({ error: "Access denied to this project" });
+        return;
+      }
+
+      // A file with no milestone can still be built out (add/edit rows,
+      // steps, expected results) — it just can't record a real outcome yet.
+      // Structural fields never carry a "result", so this only blocks the
+      // rows that are genuinely trying to log Pass/Fail/Blocked/etc.
+      if ((file as any).milestoneId == null && testCases.some((t: any) => hasRealResult(t?.result))) {
+        res.status(409).json({
+          error: "This execution file has no milestone linked — link one before recording test results. You can still add or edit test cases.",
+        });
         return;
       }
 

@@ -1543,6 +1543,14 @@ export default function TestCasesExecutionProgressPage() {
   // requirement (via resolveRequirementByRedmine) can inherit it instead of
   // leaving the new requirement milestone-less.
   const [currentFileMilestoneId, setCurrentFileMilestoneId] = useState<number | null>(null);
+  const [currentFileId, setCurrentFileId] = useState<number | null>(null);
+  const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
+  // A file with no milestone can't record results — see the same guard on
+  // the backend. Lets a user link one right here instead of hitting a save
+  // error the first time they try to record a result.
+  const [milestoneOptions, setMilestoneOptions] = useState<{ id: number; name: string }[]>([]);
+  const [selectedMilestoneToLink, setSelectedMilestoneToLink] = useState<string>("");
+  const [linkingMilestone, setLinkingMilestone] = useState(false);
 
   // Dirty tracking — only changed rows go out on auto-save
   const [dirtyRowIds, setDirtyRowIds] = useState<Set<string | number>>(new Set());
@@ -1733,6 +1741,8 @@ export default function TestCasesExecutionProgressPage() {
         const testCases = result?.testCases || [];
         const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
         setCurrentFileMilestoneId(file?.milestoneId ?? null);
+        setCurrentFileId(file?.id ?? null);
+        setCurrentFileProjectId(file?.projectId ?? null);
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
@@ -1768,6 +1778,40 @@ export default function TestCasesExecutionProgressPage() {
       )
       .finally(() => setIsLoading(false));
   }, [ticketId, toast]);
+
+  // Only needed to populate the "link a milestone" picker for a file that
+  // doesn't have one yet — no point fetching this once it's already set.
+  useEffect(() => {
+    if (currentFileMilestoneId != null || !currentFileProjectId) return;
+    fetch(`/api/milestones?projectId=${currentFileProjectId}`, { headers: getHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((ms) => setMilestoneOptions(Array.isArray(ms) ? ms.map((m: any) => ({ id: m.id, name: m.name })) : []))
+      .catch(() => setMilestoneOptions([]));
+  }, [currentFileMilestoneId, currentFileProjectId]);
+
+  const linkMilestone = async () => {
+    if (!currentFileId || !selectedMilestoneToLink) return;
+    setLinkingMilestone(true);
+    try {
+      const res = await fetch(`/api/execution-files/${currentFileId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify({ milestoneId: Number(selectedMilestoneToLink) }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setCurrentFileMilestoneId(updated.milestoneId ?? Number(selectedMilestoneToLink));
+        toast({ title: "Milestone linked", description: "Test results can now be recorded on this execution file." });
+      } else {
+        const body = await res.json().catch(() => ({}));
+        toast({ variant: "destructive", title: "Failed to link milestone", description: body.error });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Failed to link milestone" });
+    } finally {
+      setLinkingMilestone(false);
+    }
+  };
 
   const createEmptyRow = (): AppExecutionTestCase => ({
     id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
@@ -3120,6 +3164,30 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
+      {/* No milestone linked yet — test cases can still be added/edited, but
+          Execute mode (recording a real result) is disabled until one is set. */}
+      {currentFileMilestoneId == null && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/10 shrink-0">
+          <p className="text-sm text-amber-700 dark:text-amber-400 flex-1">
+            No milestone linked — you can add and edit test cases, but results can't be recorded until one is set.
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="w-56">
+              <SearchableSelect
+                value={selectedMilestoneToLink}
+                onValueChange={setSelectedMilestoneToLink}
+                options={milestoneOptions.map((m) => ({ value: String(m.id), label: m.name }))}
+                placeholder="Select milestone..."
+                searchPlaceholder="Search milestones..."
+              />
+            </div>
+            <Button size="sm" onClick={linkMilestone} disabled={!selectedMilestoneToLink || linkingMilestone}>
+              {linkingMilestone ? <Loader2 className="w-4 h-4 animate-spin" /> : "Link"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* HEADER & ACTION BUTTONS */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
@@ -3182,11 +3250,14 @@ export default function TestCasesExecutionProgressPage() {
             </Button>
           )}
 
-          {/* Mode toggle */}
+          {/* Mode toggle — Execute is disabled until a milestone is linked,
+              since that's the only mode that can record a result. */}
           <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium">
             <button
-              onClick={() => setMode("execute")}
-              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"}`}
+              onClick={() => currentFileMilestoneId != null && setMode("execute")}
+              disabled={currentFileMilestoneId == null}
+              title={currentFileMilestoneId == null ? "Link a milestone to this execution file before you can record results" : undefined}
+              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"} ${currentFileMilestoneId == null ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               Execute
             </button>
