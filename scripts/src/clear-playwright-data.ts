@@ -69,19 +69,20 @@ async function main() {
     );
     const moduleIds = moduleRes.rows.map((r) => r.id);
 
-    const scoped = (table: string, titleCol: string, extra = "") => client.query<{ id: number }>(
-      `SELECT id FROM ${table} WHERE (project_id = $1 OR ${titleCol} LIKE $2 OR ${titleCol} LIKE $3)${extra}`,
+    // A single client runs one query at a time — concurrent calls on it are
+    // undefined behavior (pg only warns, doesn't reject), so these run
+    // sequentially rather than via Promise.all.
+    const scoped = (table: string, titleCol: string) => client.query<{ id: number }>(
+      `SELECT id FROM ${table} WHERE (project_id = $1 OR ${titleCol} LIKE $2 OR ${titleCol} LIKE $3)`,
       [projectId, PW_PREFIX, PW_HYPHEN_PREFIX],
     );
 
-    const [requirements, defects, testCases, milestones, risks, tasks] = await Promise.all([
-      scoped("requirements", "title"),
-      scoped("defects", "title"),
-      scoped("test_cases", "title"),
-      scoped("milestones", "name"),
-      scoped("risks", "title"),
-      scoped("tasks", "name"),
-    ]);
+    const requirements = await scoped("requirements", "title");
+    const defects = await scoped("defects", "title");
+    const testCases = await scoped("test_cases", "title");
+    const milestones = await scoped("milestones", "name");
+    const risks = await scoped("risks", "title");
+    const tasks = await scoped("tasks", "name");
     const executionFiles = await client.query<{ id: number; redmine_ticket_id: string }>(
       `SELECT id, redmine_ticket_id FROM execution_files WHERE project_id = $1 OR title LIKE $2 OR title LIKE $3 OR redmine_ticket_id LIKE $2 OR redmine_ticket_id LIKE $3`,
       [projectId, PW_PREFIX, PW_HYPHEN_PREFIX],
