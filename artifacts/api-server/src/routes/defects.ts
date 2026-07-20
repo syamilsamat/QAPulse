@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, inArray, desc, ilike } from "drizzle-orm";
+import { eq, and, inArray, desc, ilike } from "drizzle-orm";
 import {
   db,
   defectsTable,
@@ -1287,7 +1287,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     const patch: Record<string, any> = {};
-    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker"]) {
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker", "expectedResult", "actualResult", "foundIn", "milestoneId"]) {
       if (key in (req.body ?? {})) patch[key] = req.body[key];
     }
     if ("defectCategory" in patch) {
@@ -1297,10 +1297,14 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       }
       if (!(await canSetDefectCategory(ctx.role))) delete patch.defectCategory;
     }
-    // CR061 — title/description/tracker: reporter or qa_lead+ only, and if the
-    // defect is already synced to Redmine, push there first (fail-closed —
-    // same pattern as status write-through) before the local row changes.
-    const infoFields = ["title", "description", "tracker"].filter((k) => k in patch);
+    // CR061 — the defect's own "info" fields (everything the New Defect
+    // dialog collects, minus Redmine-creation-only bits like assignee/
+    // complexity/dates, which have their own flows or aren't stored at all):
+    // reporter or qa_lead+ only. If already synced to Redmine, push
+    // title/description/tracker there first (fail-closed, same pattern as
+    // status write-through) before the local row changes — severity/module/
+    // expectedResult/actualResult/foundIn/milestoneId are QAPulse-local only.
+    const infoFields = ["title", "description", "tracker", "severity", "module", "expectedResult", "actualResult", "foundIn", "milestoneId"].filter((k) => k in patch);
     if (infoFields.length > 0) {
       if (!(await canEditDefectInfo(ctx, before))) {
         res.status(403).json({ error: "Only the reporter or a qa_lead can edit defect info" });
@@ -1347,6 +1351,64 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Update failed" });
+  }
+});
+
+// ─── CR061: link an existing defect to an existing test case ────────────────
+// Both creation paths (fail-modal, POST /defects with executionTcId) create
+// this same found_by link automatically when the TC is already known — this
+// is the missing "do it after the fact" path: a defect raised without that
+// context (New Defect dialog, Redmine pull) previously had no way to attach
+// one later. Open to any qa-department user, not just the reporter/qa_lead —
+// linking is a shared QA workflow action, not "fixing what I wrote."
+router.post("/defects/:id/link", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    const executionTcId = Number(req.body?.executionTcId);
+    if (!Number.isInteger(executionTcId)) {
+      res.status(400).json({ error: "executionTcId is required" });
+      return;
+    }
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    if (ctx.role !== "admin" && ctx.role !== "cto") {
+      const department = await getRoleDepartment(ctx.role);
+      if (department !== "qa") {
+        res.status(403).json({ error: "Only QA-department users can link a defect to a test case" });
+        return;
+      }
+    }
+    const [execTc] = await db
+      .select({ id: executionTestCasesTable.id, caseId: executionTestCasesTable.caseId, executionFileId: executionTestCasesTable.executionFileId })
+      .from(executionTestCasesTable)
+      .where(eq(executionTestCasesTable.id, executionTcId));
+    if (!execTc) { res.status(404).json({ error: "Test case row not found" }); return; }
+
+    const [existing] = await db
+      .select()
+      .from(defectLinksTable)
+      .where(and(eq(defectLinksTable.defectId, id), eq(defectLinksTable.executionTcId, executionTcId)));
+    if (existing) { res.status(409).json({ error: "Already linked to this test case" }); return; }
+
+    const [link] = await db.insert(defectLinksTable).values({ defectId: id, executionTcId, linkType: "found_by" }).returning();
+    if (defect.redmineId) await backfillDefectNumber(executionTcId, defect.redmineId);
+
+    await logActivity({
+      type: "defect_updated",
+      description: `Defect ${defect.defectCode ?? `#${id}`} linked to test case ${execTc.caseId ?? `#${execTc.id}`}`,
+      userId: actorFromReq(req),
+      entityId: id,
+      entityType: "defect",
+    });
+    res.status(201).json(link);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to link" });
   }
 });
 

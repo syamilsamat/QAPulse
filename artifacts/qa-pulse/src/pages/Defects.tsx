@@ -53,10 +53,14 @@ import {
   fetchRedmineProjectMembers,
   fetchRedmineTrackers,
   searchRedmineIssues,
+  fetchExecutionFiles,
+  fetchTestCases,
   type RedmineProjectConfigItem,
   type RedmineMember,
   type RedmineTracker,
   type RedmineIssueMatch,
+  type ExecutionFile,
+  type ExecutionTestCase,
 } from "@/lib/execution-api";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
 import { defectCategoryLabel } from "@/lib/defect-categories";
@@ -168,6 +172,9 @@ const DEV_ROLES = new Set(["dev_member", "dev_lead", "hod_dev"]);
 export default function Defects() {
   const { token, user } = useAuth();
   const canAssign = ((user as any)?.tierRank ?? 1) >= 2;
+  // CR061 — linking is a shared QA workflow action, not restricted to the
+  // reporter/qa_lead like editing the defect's own info.
+  const canLinkTc = (user as any)?.department === "qa" || user?.role === "admin" || user?.role === "cto";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -186,6 +193,7 @@ export default function Defects() {
   const [newOpen, setNewOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [editingDefect, setEditingDefect] = useState<DefectRow | null>(null);
+  const [linkingDefect, setLinkingDefect] = useState<DefectRow | null>(null);
 
   // CR061 — title/description/tracker editing: the reporter (they know what
   // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
@@ -741,9 +749,20 @@ export default function Defects() {
                   })()}
 
                   {/* Linked TCs */}
-                  {d.links.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No linked test cases.</p>
-                  ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    {d.links.length === 0 && <p className="text-xs text-muted-foreground">No linked test cases.</p>}
+                    {canLinkTc && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs gap-1 ml-auto"
+                        onClick={(e) => { e.stopPropagation(); setLinkingDefect(d); }}
+                      >
+                        <Link2 className="w-3 h-3" /> Link Test Case
+                      </Button>
+                    )}
+                  </div>
+                  {d.links.length > 0 && (
                     <div className="space-y-1">
                       {d.links.map((l) => (
                         <div
@@ -838,8 +857,15 @@ export default function Defects() {
 
       <EditDefectDialog
         defect={editingDefect}
+        projects={projects}
         onClose={() => setEditingDefect(null)}
         onSaved={() => { setEditingDefect(null); invalidate(); }}
+      />
+
+      <LinkTestCaseDialog
+        defect={linkingDefect}
+        onClose={() => setLinkingDefect(null)}
+        onLinked={() => { setLinkingDefect(null); invalidate(); }}
       />
 
       <SyncRedmineDialog
@@ -1022,28 +1048,46 @@ function SyncRedmineDialog({
   );
 }
 
-// ─── CR061: Edit defect info (title/description/tracker) ────────────────────
-// Reporter or qa_lead+ only (server-enforced too) — a corrected title/desc/
-// tracker write-through to Redmine when the defect is already synced.
+// ─── CR061: Edit defect info — same field set/layout as the New Defect
+// dialog's QMPulse section, minus creation-only bits (Redmine project,
+// assignee, complexity, targeted dates, duplicate check, screenshots) that
+// either aren't stored post-creation or already have their own dedicated
+// flow (assignee). Reporter or qa_lead+ only (server-enforced too);
+// title/description/tracker write through to Redmine when already synced.
 function EditDefectDialog({
   defect,
+  projects,
   onClose,
   onSaved,
 }: {
   defect: DefectRow | null;
+  projects: { id: number; name: string }[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
   const { toast } = useToast();
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const [form, setForm] = useState({ title: "", description: "", tracker: "" });
+  const [form, setForm] = useState<Record<string, any>>({});
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!defect) return;
-    setForm({ title: defect.title, description: defect.description ?? "", tracker: defect.tracker ?? "" });
+    setForm({
+      title: defect.title,
+      description: defect.description ?? "",
+      tracker: defect.tracker ?? "",
+      severity: defect.severity,
+      foundIn: defect.foundIn,
+      module: defect.module ?? "",
+      projectId: defect.projectId ?? undefined,
+      milestoneId: (defect as any).milestoneId ?? undefined,
+      defectCategory: defect.defectCategory ?? "",
+      expectedResult: (defect as any).expectedResult ?? "",
+      actualResult: (defect as any).actualResult ?? "",
+    });
   }, [defect]);
 
   useEffect(() => {
@@ -1051,9 +1095,18 @@ function EditDefectDialog({
     fetchRedmineTrackers().then(setTrackers).catch(() => {});
   }, [defect]);
 
+  const { data: milestonesForEdit = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", form.projectId, "defect-edit"],
+    enabled: !!defect && !!form.projectId,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${form.projectId}`, { headers: authHeaders });
+      return res.ok ? res.json() : [];
+    },
+  });
+
   const handleSave = async () => {
     if (!defect) return;
-    if (!form.title.trim()) {
+    if (!form.title?.trim()) {
       toast({ variant: "destructive", title: "Title cannot be empty" });
       return;
     }
@@ -1064,8 +1117,16 @@ function EditDefectDialog({
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           title: form.title.trim(),
-          description: form.description.trim() || null,
+          description: form.description?.trim() || null,
           tracker: form.tracker || undefined,
+          severity: form.severity,
+          foundIn: form.foundIn,
+          module: form.module?.trim() || null,
+          projectId: form.projectId ?? null,
+          milestoneId: form.milestoneId ?? null,
+          defectCategory: form.defectCategory || null,
+          expectedResult: form.expectedResult?.trim() || null,
+          actualResult: form.actualResult?.trim() || null,
         }),
       });
       if (!res.ok) {
@@ -1083,22 +1144,94 @@ function EditDefectDialog({
 
   return (
     <Dialog open={!!defect} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[75vw] w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Defect Info</DialogTitle>
+          <DialogTitle className="text-base">Edit Defect</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-2">
+        <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Title</Label>
-            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+            <Label>Title <span className="text-destructive">*</span></Label>
+            <Input value={form.title ?? ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </div>
+
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Expected Result</Label>
+              <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Actual Result</Label>
+              <Textarea rows={2} value={form.actualResult ?? ""} onChange={(e) => setForm({ ...form, actualResult: e.target.value })} />
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QMPulse</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Severity</Label>
+                <Select value={form.severity ?? "medium"} onValueChange={(v) => setForm({ ...form, severity: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["critical", "high", "medium", "low"].map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Found in</Label>
+                <Select value={form.foundIn ?? "SIT"} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Module</Label>
+                <Input value={form.module ?? ""} onChange={(e) => setForm({ ...form, module: e.target.value })} placeholder="e.g. Authentication" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>QMPulse Project</Label>
+              <Select
+                value={form.projectId ? String(form.projectId) : ""}
+                onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, milestoneId: undefined })}
+              >
+                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Milestone</Label>
+              <SearchableSelect
+                value={form.milestoneId ? String(form.milestoneId) : ""}
+                onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : undefined })}
+                options={milestonesForEdit.map((m) => ({ value: String(m.id), label: m.name }))}
+                placeholder={form.projectId ? "Optional" : "Pick a project first"}
+                searchPlaceholder="Search milestones..."
+              />
+            </div>
+            <DefectCategoryField
+              value={form.defectCategory ?? ""}
+              onChange={(v) => setForm({ ...form, defectCategory: v })}
+              canSet={canSetCategory}
+            />
+          </div>
+
+          <Separator />
+
           <div className="space-y-1.5">
             <Label>Tracker</Label>
-            <Select value={form.tracker} onValueChange={(v) => setForm({ ...form, tracker: v })}>
+            <Select value={form.tracker ?? ""} onValueChange={(v) => setForm({ ...form, tracker: v })}>
               <SelectTrigger><SelectValue placeholder="Select tracker" /></SelectTrigger>
               <SelectContent>
                 {trackers.map((t) => (
@@ -1109,15 +1242,113 @@ function EditDefectDialog({
                 )}
               </SelectContent>
             </Select>
+            {defect?.redmineId && (
+              <p className="text-xs text-muted-foreground">Title/Description/Tracker changes sync to Redmine issue #{defect.redmineId}.</p>
+            )}
           </div>
-          {defect?.redmineId && (
-            <p className="text-xs text-muted-foreground">Changes will sync to Redmine issue #{defect.redmineId}.</p>
-          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CR061: Link an existing defect to an existing test case ────────────────
+// Fills the gap where a defect raised without TC context (New Defect dialog,
+// Redmine pull/sync) previously had no way to attach one afterward.
+function LinkTestCaseDialog({
+  defect,
+  onClose,
+  onLinked,
+}: {
+  defect: DefectRow | null;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const [ticketId, setTicketId] = useState("");
+  const [testCaseRowId, setTestCaseRowId] = useState("");
+  const [files, setFiles] = useState<ExecutionFile[]>([]);
+  const [testCases, setTestCases] = useState<ExecutionTestCase[]>([]);
+  const [loadingTcs, setLoadingTcs] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!defect) { setTicketId(""); setTestCaseRowId(""); setTestCases([]); return; }
+    fetchExecutionFiles().then(setFiles).catch(() => {});
+  }, [defect]);
+
+  useEffect(() => {
+    if (!ticketId) { setTestCases([]); setTestCaseRowId(""); return; }
+    setLoadingTcs(true);
+    fetchTestCases(ticketId)
+      .then((res) => setTestCases(res.testCases))
+      .catch(() => setTestCases([]))
+      .finally(() => setLoadingTcs(false));
+  }, [ticketId]);
+
+  const handleLink = async () => {
+    if (!defect || !testCaseRowId) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${defect.id}/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ executionTcId: Number(testCaseRowId) }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to link");
+      }
+      toast({ title: "Test case linked" });
+      onLinked();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!defect} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Link Test Case</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>Execution File</Label>
+            <SearchableSelect
+              value={ticketId}
+              onValueChange={(v) => setTicketId(v)}
+              options={files.map((f) => ({ value: f.redmineTicketId, label: `#${f.redmineTicketId} — ${f.title ?? "Untitled"}` }))}
+              placeholder="Search execution file..."
+              searchPlaceholder="Search by ticket ID or title..."
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Test Case</Label>
+            <SearchableSelect
+              value={testCaseRowId}
+              onValueChange={setTestCaseRowId}
+              options={testCases.map((tc) => ({ value: String(tc.id), label: `${tc.caseId ?? tc.testCaseId ?? `#${tc.id}`} — ${tc.caseName}` }))}
+              placeholder={!ticketId ? "Pick an execution file first" : loadingTcs ? "Loading..." : "Search test case..."}
+              searchPlaceholder="Search test case..."
+              disabled={!ticketId || loadingTcs}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
+          <Button onClick={handleLink} disabled={isSaving || !testCaseRowId}>
+            {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Linking...</> : "Link"}
           </Button>
         </DialogFooter>
       </DialogContent>
