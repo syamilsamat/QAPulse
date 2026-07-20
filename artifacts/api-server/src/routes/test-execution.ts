@@ -308,6 +308,10 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Redmine Ticket ID is required" });
       return;
     }
+    if (!milestoneId) {
+      res.status(400).json({ error: "Milestone is required" });
+      return;
+    }
     if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
       res.status(403).json({ error: "Access denied to this project" });
       return;

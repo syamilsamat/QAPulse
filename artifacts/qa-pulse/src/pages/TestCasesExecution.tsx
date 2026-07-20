@@ -48,6 +48,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { MilestonePicker } from "@/components/MilestonePicker";
 import {
   Plus,
   Search,
@@ -88,34 +89,6 @@ import {
   type ExecutionTestCase,
   type TrackerOption,
 } from "@/lib/execution-api";
-
-// ─── MilestonePicker local helper ────────────────────────────────────────────
-function MilestonePicker({ projectId, token, value, onChange }: { projectId: string; token: string | null; value: string; onChange: (v: string) => void }) {
-  const { data: milestones = [] } = useQuery<{ id: number; name: string }[]>({
-    queryKey: ["milestones", projectId],
-    queryFn: async () => {
-      if (!projectId) return [];
-      const res = await fetch(`${getApiUrl()}/milestones?projectId=${projectId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!projectId,
-  });
-  if (milestones.length === 0) return null;
-  return (
-    <div className="space-y-1">
-      <Label>Milestone <span className="text-xs text-muted-foreground">(optional)</span></Label>
-      <SearchableSelect
-        value={value}
-        onValueChange={onChange}
-        options={[{ value: "", label: "None" }, ...milestones.map(m => ({ value: String(m.id), label: m.name }))]}
-        placeholder="Select milestone…"
-        searchPlaceholder="Search milestones…"
-      />
-    </div>
-  );
-}
 
 // ─── Excel column mappings (same as progress page) ───────────────────────────
 const COLUMN_MAPPINGS: Record<string, string[]> = {
@@ -950,6 +923,10 @@ export default function TestCasesExecution() {
       toast({ variant: "destructive", title: "Project is required" });
       return;
     }
+    if (!fileForm.milestoneId) {
+      toast({ variant: "destructive", title: "Milestone is required" });
+      return;
+    }
     if (fileForm.selectedModules.length === 0) {
       toast({ variant: "destructive", title: "At least one module must be selected" });
       return;
@@ -1070,7 +1047,7 @@ export default function TestCasesExecution() {
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
   const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
-  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
+  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && !!fileForm.milestoneId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -1611,13 +1588,14 @@ export default function TestCasesExecution() {
               </div>
             </div>
 
-            {/* Milestone (optional) */}
+            {/* Milestone (required) */}
             {fileForm.projectId && (
               <MilestonePicker
                 projectId={fileForm.projectId}
                 token={token}
                 value={fileForm.milestoneId}
                 onChange={v => setFileForm({ ...fileForm, milestoneId: v })}
+                required
               />
             )}
 

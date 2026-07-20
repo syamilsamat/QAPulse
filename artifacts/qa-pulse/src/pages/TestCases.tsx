@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { MilestonePicker } from "@/components/MilestonePicker";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -754,9 +755,10 @@ export default function TestCases() {
     remarks: string;
     requirementId: string;
     projectId: string;
+    milestoneId: string;
     tracker: string;
     selectedModules: number[];
-  }>({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [] });
+  }>({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", milestoneId: "", tracker: "", selectedModules: [] });
   const [isCompiling, setIsCompiling] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -1227,12 +1229,16 @@ export default function TestCases() {
     const prefilledTicketId = (distinctRedmineIds[0] ?? "").replace(/\D/g, "");
     const distinctTrackers = [...new Set(selectedTCs.map((tc: any) => tc.tracker).filter(Boolean))] as string[];
     const prefilledTracker = distinctTrackers.length === 1 ? distinctTrackers[0] : (firstTC.tracker ?? "");
+    const matchedRequirement = firstTC.requirementId
+      ? (requirements as any[]).find((r: any) => r.id === firstTC.requirementId)
+      : null;
     setCompileNewForm({
       redmineTicketId: prefilledTicketId,
       title: "",
       remarks: "",
       requirementId: firstTC.requirementId ? String(firstTC.requirementId) : "",
       projectId: firstTC.projectId ? String(firstTC.projectId) : "",
+      milestoneId: matchedRequirement?.milestoneId ? String(matchedRequirement.milestoneId) : "",
       tracker: prefilledTracker,
       selectedModules: matchedModuleIds,
     });
@@ -1292,6 +1298,7 @@ export default function TestCases() {
             tracker: compileNewForm.tracker || undefined,
             projectId: compileNewForm.projectId ? Number(compileNewForm.projectId) : undefined,
             requirementId: compileNewForm.requirementId ? Number(compileNewForm.requirementId) : undefined,
+            milestoneId: compileNewForm.milestoneId ? Number(compileNewForm.milestoneId) : undefined,
           }),
         });
         if (!createRes.ok) {
@@ -2458,6 +2465,7 @@ export default function TestCases() {
               const canCompileNew =
                 !!compileNewForm.redmineTicketId.trim() &&
                 !!compileNewForm.projectId &&
+                !!compileNewForm.milestoneId &&
                 compileNewForm.selectedModules.length > 0;
               return (
                 <div className="space-y-4">
@@ -2481,12 +2489,13 @@ export default function TestCases() {
                     <SearchableSelect
                       value={compileNewForm.requirementId}
                       onValueChange={(v) => {
-                        const req = requirements.find((r: any) => r.id === Number(v));
+                        const req = requirements.find((r: any) => r.id === Number(v)) as any;
                         const matchedMod = req?.module ? modules.find((m: any) => m.name === req.module) : null;
                         setCompileNewForm({
                           ...compileNewForm,
                           requirementId: v,
                           projectId: req?.projectId ? String(req.projectId) : compileNewForm.projectId,
+                          milestoneId: req?.milestoneId ? String(req.milestoneId) : compileNewForm.milestoneId,
                           tracker: req?.tracker ?? compileNewForm.tracker,
                           selectedModules: matchedMod ? [matchedMod.id] : compileNewForm.selectedModules,
                         });
@@ -2502,7 +2511,7 @@ export default function TestCases() {
                     <Label>Project <span className="text-destructive">*</span></Label>
                     <SearchableSelect
                       value={compileNewForm.projectId}
-                      onValueChange={(v) => setCompileNewForm({ ...compileNewForm, projectId: v })}
+                      onValueChange={(v) => setCompileNewForm({ ...compileNewForm, projectId: v, milestoneId: "" })}
                       options={[
                         { value: "", label: "Select project..." },
                         ...projects.map((p) => ({ value: String(p.id), label: p.name })),
@@ -2510,6 +2519,15 @@ export default function TestCases() {
                       placeholder="Search project..."
                     />
                   </div>
+                  {compileNewForm.projectId && (
+                    <MilestonePicker
+                      projectId={compileNewForm.projectId}
+                      token={localStorage.getItem("qa_pulse_token")}
+                      value={compileNewForm.milestoneId}
+                      onChange={(v) => setCompileNewForm({ ...compileNewForm, milestoneId: v })}
+                      required
+                    />
+                  )}
                   <div className="space-y-1">
                     <Label>Module <span className="text-destructive">*</span></Label>
                     <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
