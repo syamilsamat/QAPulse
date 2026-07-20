@@ -242,16 +242,31 @@ const PRIORITY_COLORS: Record<string, string> = {
   Low: "bg-green-100 text-green-700 border-green-200",
 };
 
-// Mirrors Milestones.tsx's StatusBadge — same statuses, same colors, so the
-// same milestone reads the same way on both pages.
-const MILESTONE_STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  planned: { label: "Planned", color: "bg-slate-100 text-slate-700 border-slate-200" },
-  active: { label: "Active", color: "bg-blue-100 text-blue-700 border-blue-200" },
-  verified: { label: "Verified", color: "bg-teal-100 text-teal-700 border-teal-200" },
-  uat: { label: "UAT", color: "bg-violet-100 text-violet-700 border-violet-200" },
-  completed: { label: "Completed", color: "bg-green-100 text-green-700 border-green-200" },
-  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700 border-red-200" },
-};
+// A milestone doesn't have one phase the way a requirement does — its
+// requirements can each independently be at a different point — so this is a
+// breakdown count ("2 Testing · 1 Development"), not a single status badge.
+// Same bucket names/colors as Tasks.tsx's PHASE_CLASSES for consistency.
+const PHASE_BREAKDOWN_ORDER: { key: "requirement" | "development" | "testing" | "uat"; label: string; color: string }[] = [
+  { key: "requirement", label: "Requirement", color: "bg-slate-100 text-slate-700 border-slate-200" },
+  { key: "development", label: "Development", color: "bg-blue-100 text-blue-700 border-blue-200" },
+  { key: "testing", label: "Testing", color: "bg-purple-100 text-purple-700 border-purple-200" },
+  { key: "uat", label: "UAT", color: "bg-violet-100 text-violet-700 border-violet-200" },
+];
+
+function MilestonePhaseBreakdown({ breakdown }: { breakdown: ExecutionFile["milestonePhaseBreakdown"] }) {
+  if (!breakdown) return <span className="text-muted-foreground text-xs">—</span>;
+  const parts = PHASE_BREAKDOWN_ORDER.filter((p) => breakdown[p.key] > 0);
+  if (parts.length === 0) return <span className="text-muted-foreground text-xs italic">No requirements yet</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {parts.map((p) => (
+        <span key={p.key} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${p.color}`}>
+          {breakdown[p.key]} {p.label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   if (!data || data.total === 0) {
@@ -1080,9 +1095,7 @@ export default function TestCasesExecution() {
                 <TableHead className="border-r border-border px-4 py-3">Assignee</TableHead>
                 <TableHead className="border-r border-border px-4 py-3">Priority</TableHead>
                 <TableHead className="border-r border-border">Execution Progress</TableHead>
-                <TableHead className={thClass} onClick={() => handleSort("status")}>
-                  <div className="flex items-center gap-1">Milestone Status <SortIcon k="status" /></div>
-                </TableHead>
+                <TableHead className="border-r border-border px-4 py-3">Milestone Phase</TableHead>
                 <TableHead className={thClass} onClick={() => handleSort("updatedAt")}>
                   <div className="flex items-center gap-1">Last Modified <SortIcon k="updatedAt" /></div>
                 </TableHead>
@@ -1091,9 +1104,6 @@ export default function TestCasesExecution() {
             </TableHeader>
             <TableBody>
               {sortedFiles.map(f => {
-                const milestoneStatusInfo = f.milestoneStatus
-                  ? (MILESTONE_STATUS_LABELS[f.milestoneStatus] ?? { label: f.milestoneStatus, color: "bg-slate-100 text-slate-700" })
-                  : null;
                 const prog = progress[f.redmineTicketId];
                 return (
                   <TableRow key={f.id} className="border-b border-border hover:bg-muted/20 cursor-pointer" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
@@ -1116,10 +1126,8 @@ export default function TestCasesExecution() {
                       <MiniProgressBar data={prog} />
                     </TableCell>
                     <TableCell className="border-r border-border">
-                      {milestoneStatusInfo ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${milestoneStatusInfo.color}`}>
-                          {milestoneStatusInfo.label}
-                        </span>
+                      {f.milestoneId ? (
+                        <MilestonePhaseBreakdown breakdown={f.milestonePhaseBreakdown} />
                       ) : (
                         <button
                           className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"

@@ -27,6 +27,7 @@ export interface ExecutionFile {
   milestoneName?: string | null;
   milestonePriority?: string | null;
   milestoneStatus?: string | null;
+  milestonePhaseBreakdown?: { requirement: number; development: number; testing: number; uat: number } | null;
   updatedAt: string;
 }
 

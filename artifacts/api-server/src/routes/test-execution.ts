@@ -20,6 +20,7 @@ import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
+import { computeRequirementTimelines } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./pmo-report";
@@ -209,9 +210,32 @@ router.get("/execution-files", async (req, res): Promise<void> => {
         : [],
     );
 
+    // CR062 — a milestone doesn't have one phase (its requirements can each be
+    // at a different point: Requirement/Development/Testing/UAT), so this is
+    // a breakdown count, not a single badge. Reuses the same per-requirement
+    // phase engine CR032/CR060 already built (computeRequirementTimelines) —
+    // one call per distinct milestone represented in this file list, not per
+    // file, since several files can share a milestone.
+    const phaseBreakdownByMilestone = new Map<number, { requirement: number; development: number; testing: number; uat: number }>();
+    await Promise.all(milestoneIds.map(async (mid) => {
+      const milestone = milestoneById.get(mid);
+      const entries = await computeRequirementTimelines(mid, milestone?.completedAt ?? null);
+      const breakdown = { requirement: 0, development: 0, testing: 0, uat: 0 };
+      for (const entry of entries) {
+        const lastSeg = entry.timeline[entry.timeline.length - 1];
+        const phase = lastSeg?.key ?? "requirements";
+        if (phase === "develop") breakdown.development += 1;
+        else if (phase === "qa") breakdown.testing += 1;
+        else if (phase === "uat") breakdown.uat += 1;
+        else breakdown.requirement += 1; // "requirements" or "gap"
+      }
+      phaseBreakdownByMilestone.set(mid, breakdown);
+    }));
+
     res.json(
       files.map((f) => {
-        const milestone = (f as any).milestoneId != null ? milestoneById.get((f as any).milestoneId) : undefined;
+        const milestoneId = (f as any).milestoneId ?? null;
+        const milestone = milestoneId != null ? milestoneById.get(milestoneId) : undefined;
         return {
           id: f.id,
           redmineTicketId: f.redmineTicketId,
@@ -222,10 +246,11 @@ router.get("/execution-files", async (req, res): Promise<void> => {
           tracker: f.tracker,
           projectId: f.projectId,
           requirementId: f.requirementId,
-          milestoneId: (f as any).milestoneId ?? null,
+          milestoneId,
           milestoneName: milestone?.name ?? null,
           milestonePriority: (milestone as any)?.priority ?? null,
           milestoneStatus: milestone?.status ?? null,
+          milestonePhaseBreakdown: milestoneId != null ? phaseBreakdownByMilestone.get(milestoneId) ?? null : null,
           fileType: (f as any).fileType ?? "qa",
           createdAt: f.createdAt,
           updatedAt: f.updatedAt,
