@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx-js-style";
 import { listProjects, getListProjectsQueryKey, listUsers, getListUsersQueryKey } from "@workspace/api-client-react";
@@ -22,6 +22,15 @@ import { CheckSquare, Search, Download, Loader2, UserCheck, Users } from "lucide
 // server-side (GET /dashboard/task-board) — qa/fa/dev each only ever see
 // their own department's slice, pm/admin/cto see everything. See CR059 for
 // the same department-scoping principle applied earlier to ad-hoc tasks.
+interface PhaseTimelineEntry {
+  key: "requirements" | "development" | "qa" | "uat";
+  label: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+}
+
 interface TaskBoardRow {
   requirementId: number;
   title: string;
@@ -40,6 +49,7 @@ interface TaskBoardRow {
   goLiveDate: string | null;
   devAssigneeId: number | null;
   executionFileId: number | null;
+  phaseTimeline: PhaseTimelineEntry[];
 }
 
 interface Member {
@@ -86,6 +96,48 @@ function PriorityBadge({ priority }: { priority: string | null }) {
 
 function PhaseBadge({ phase, label }: { phase: string; label: string }) {
   return <Badge variant="outline" className={PHASE_CLASSES[phase] ?? ""}>{label}</Badge>;
+}
+
+function fmtDate(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString() : "—";
+}
+
+// Expanded per-row detail — planned (PM-set milestone target dates) vs actual
+// (derived from activity-log phase transitions) for all 4 phases, not just
+// the row's current one, so a PM can see the whole history at a glance.
+function PhaseTimelinePanel({ timeline }: { timeline: PhaseTimelineEntry[] }) {
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="h-8">Phase</TableHead>
+            <TableHead className="h-8">Planned Start</TableHead>
+            <TableHead className="h-8">Planned End</TableHead>
+            <TableHead className="h-8">Actual Start</TableHead>
+            <TableHead className="h-8">Actual End</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {timeline.map((p) => (
+            <TableRow key={p.key} className="hover:bg-transparent">
+              <TableCell className="py-1.5 font-medium">{p.label}</TableCell>
+              <TableCell className="py-1.5">{fmtDate(p.plannedStart)}</TableCell>
+              <TableCell className="py-1.5">{fmtDate(p.plannedEnd)}</TableCell>
+              <TableCell className="py-1.5">{fmtDate(p.actualStart)}</TableCell>
+              <TableCell className="py-1.5">
+                {p.actualStart && !p.actualEnd ? (
+                  <span className="text-muted-foreground text-xs">In progress</span>
+                ) : (
+                  fmtDate(p.actualEnd)
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
 }
 
 function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
@@ -237,6 +289,7 @@ export default function Tasks() {
   const [filterMilestone, setFilterMilestone] = useState("all");
   const [filterPhase, setFilterPhase] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 15;
 
@@ -418,31 +471,59 @@ export default function Tasks() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginated.map((r) => (
-                    <TableRow key={r.requirementId}>
-                      <TableCell className="font-medium">{r.milestoneName}</TableCell>
-                      <TableCell><PriorityBadge priority={r.milestonePriority} /></TableCell>
-                      <TableCell className="max-w-[280px] truncate" title={r.title}>{r.title}</TableCell>
-                      <TableCell><PhaseBadge phase={r.phase} label={r.phaseLabel} /></TableCell>
-                      <TableCell>
-                        {r.assignee ?? <span className="text-muted-foreground text-xs">Unassigned</span>}
-                      </TableCell>
-                      <TableCell>
-                        {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : <span className="text-muted-foreground text-xs">—</span>}
-                      </TableCell>
-                      <TableCell className="min-w-[120px]">
-                        <div className="flex items-center gap-2">
-                          <Progress value={r.progress} className="w-20" />
-                          <span className="text-xs text-muted-foreground">{r.progress}%</span>
-                        </div>
-                      </TableCell>
-                      {canAssign && (
-                        <TableCell>
-                          <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
+                  paginated.map((r) => {
+                    const isExpanded = expandedIds.has(r.requirementId);
+                    const toggleExpanded = () =>
+                      setExpandedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(r.requirementId)) next.delete(r.requirementId);
+                        else next.add(r.requirementId);
+                        return next;
+                      });
+                    return (
+                      <Fragment key={r.requirementId}>
+                        <TableRow>
+                          <TableCell className="font-medium">
+                            <button
+                              type="button"
+                              onClick={toggleExpanded}
+                              className="hover:underline text-left"
+                              title="Show planned vs actual phase dates"
+                            >
+                              {r.milestoneName}
+                            </button>
+                          </TableCell>
+                          <TableCell><PriorityBadge priority={r.milestonePriority} /></TableCell>
+                          <TableCell className="max-w-[280px] truncate" title={r.title}>{r.title}</TableCell>
+                          <TableCell><PhaseBadge phase={r.phase} label={r.phaseLabel} /></TableCell>
+                          <TableCell>
+                            {r.assignee ?? <span className="text-muted-foreground text-xs">Unassigned</span>}
+                          </TableCell>
+                          <TableCell>
+                            {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell className="min-w-[120px]">
+                            <div className="flex items-center gap-2">
+                              <Progress value={r.progress} className="w-20" />
+                              <span className="text-xs text-muted-foreground">{r.progress}%</span>
+                            </div>
+                          </TableCell>
+                          {canAssign && (
+                            <TableCell>
+                              <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
+                            </TableCell>
+                          )}
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell colSpan={canAssign ? 8 : 7} className="bg-muted/10 py-3">
+                              <PhaseTimelinePanel timeline={r.phaseTimeline} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

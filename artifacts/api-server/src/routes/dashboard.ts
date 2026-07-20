@@ -797,6 +797,43 @@ const PHASE_DUE_DATE_FIELD: Record<PhaseKey, "reqTargetDate" | "devTargetDate" |
   uat: "uatTargetDate",
 };
 
+interface PhaseTimelineEntry {
+  key: "requirements" | "development" | "qa" | "uat";
+  label: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+}
+
+// Groups the requirement's raw segments (which key "gap"/"develop" separately
+// — see computeTimelineFromEvents) into the 4 phases the Tasks page shows,
+// mirroring PHASE_DUE_DATE_FIELD's merge of gap+develop under one planned
+// window. actualStart/actualEnd span the group's first segment's start to its
+// last segment's end across every cycle (a resubmitted requirement's second
+// Requirements round still counts) — actualEnd stays null while that phase is
+// the requirement's current one (its last segment is still "ongoing").
+function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestonesTable.$inferSelect): PhaseTimelineEntry[] {
+  const groups: { key: PhaseTimelineEntry["key"]; label: string; segKeys: PhaseKey[]; plannedStart: Date | null; plannedEnd: Date | null }[] = [
+    { key: "requirements", label: "Requirements", segKeys: ["requirements"], plannedStart: m.startDate ?? null, plannedEnd: m.reqTargetDate ?? null },
+    { key: "development", label: "Development", segKeys: ["gap", "develop"], plannedStart: m.reqTargetDate ?? null, plannedEnd: m.devTargetDate ?? null },
+    { key: "qa", label: "Testing", segKeys: ["qa"], plannedStart: m.devTargetDate ?? null, plannedEnd: m.qaTargetDate ?? null },
+    { key: "uat", label: "UAT", segKeys: ["uat"], plannedStart: m.qaTargetDate ?? null, plannedEnd: m.uatTargetDate ?? null },
+  ];
+  return groups.map((g) => {
+    const segs = segments.filter((s) => g.segKeys.includes(s.key));
+    const lastSeg = segs[segs.length - 1];
+    return {
+      key: g.key,
+      label: g.label,
+      plannedStart: g.plannedStart?.toISOString() ?? null,
+      plannedEnd: g.plannedEnd?.toISOString() ?? null,
+      actualStart: segs.length > 0 ? segs[0].start : null,
+      actualEnd: lastSeg?.end ?? null,
+    };
+  });
+}
+
 function devStatusProgress(devStatus: string | null): number {
   if (devStatus === "ready_for_qa") return 100;
   if (devStatus === "in_progress") return 66;
@@ -955,6 +992,7 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
         goLiveDate: m.goLiveDate?.toISOString() ?? null,
         devAssigneeId,
         executionFileId: qaFileIdByReq.get(entry.id) ?? null,
+        phaseTimeline: buildPhaseTimeline(entry.timeline, m),
       });
     }
   }
