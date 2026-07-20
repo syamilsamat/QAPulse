@@ -46,6 +46,7 @@ interface Milestone {
   name: string;
   type: string;
   status: string;
+  priority: string | null;
   targetDate: string | null;
   startDate: string | null;
   reqTargetDate: string | null;
@@ -93,6 +94,27 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
+const PRIORITY_OPTIONS = [
+  { value: "Low", label: "Low" },
+  { value: "Medium", label: "Medium" },
+  { value: "High", label: "High" },
+  { value: "Critical", label: "Critical" },
+];
+
+function PriorityBadge({ priority }: { priority: string | null }) {
+  if (!priority) return null;
+  switch (priority) {
+    case "Critical":
+      return <Badge className="gap-1 bg-red-100 text-red-700 border-red-200">Critical</Badge>;
+    case "High":
+      return <Badge className="gap-1 bg-orange-100 text-orange-700 border-orange-200">High</Badge>;
+    case "Medium":
+      return <Badge className="gap-1 bg-amber-100 text-amber-700 border-amber-200">Medium</Badge>;
+    default:
+      return <Badge variant="outline">Low</Badge>;
+  }
+}
+
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case "completed":
@@ -119,7 +141,7 @@ export default function Milestones() {
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -181,7 +203,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
+    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
     setDialogOpen(true);
   };
 
@@ -191,6 +213,7 @@ export default function Milestones() {
       name: m.name,
       type: m.type,
       status: m.status,
+      priority: m.priority ?? "none",
       targetDate: m.targetDate ? m.targetDate.slice(0, 10) : "",
       startDate: m.startDate ? m.startDate.slice(0, 10) : "",
       reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
@@ -214,6 +237,7 @@ export default function Milestones() {
         name: form.name.trim(),
         type: form.type,
         status: form.status,
+        priority: form.priority === "none" ? null : form.priority,
         targetDate: form.targetDate || null,
         startDate: form.startDate || null,
         reqTargetDate: form.reqTargetDate || null,
@@ -313,7 +337,10 @@ export default function Milestones() {
                       {TYPE_OPTIONS.find(t => t.value === m.type)?.label ?? m.type}
                     </p>
                   </div>
-                  <StatusBadge status={m.status} />
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge status={m.status} />
+                    <PriorityBadge priority={m.priority} />
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -392,6 +419,20 @@ export default function Milestones() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Priority</Label>
+                <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not set</SelectItem>
+                    {PRIORITY_OPTIONS.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5">
                 <Label>Target Date</Label>
                 <Input

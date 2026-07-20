@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
-import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getRoleDepartment } from "../middleware/access";
 
 const router: IRouter = Router();
 
@@ -781,6 +781,185 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     },
     requirements: requirementTimelines,
   });
+});
+
+// ── CR060: Tasks page redesign — requirement/milestone rollup ────────────────
+// One row per requirement-with-a-milestone, across every project the caller
+// can access. Reuses computeRequirementTimelines (CR032) per milestone rather
+// than re-deriving phase state — "current phase" is just the last segment in
+// that requirement's own timeline. Department-scoped: qa/fa/dev only see rows
+// relevant to their own department; pm (any tier)/admin/cto see everything.
+const PHASE_DUE_DATE_FIELD: Record<PhaseKey, "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "uatTargetDate"> = {
+  requirements: "reqTargetDate",
+  gap: "devTargetDate",
+  develop: "devTargetDate",
+  qa: "qaTargetDate",
+  uat: "uatTargetDate",
+};
+
+function devStatusProgress(devStatus: string | null): number {
+  if (devStatus === "ready_for_qa") return 100;
+  if (devStatus === "in_progress") return 66;
+  if (devStatus === "assigned") return 33;
+  return 0;
+}
+
+function reviewStatusProgress(reviewStatus: string): number {
+  if (reviewStatus === "approved") return 100;
+  if (reviewStatus === "in_review") return 50;
+  return 0; // draft, rejected
+}
+
+router.get("/dashboard/task-board", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const milestones = accessible === null
+    ? await db.select().from(milestonesTable)
+    : accessible.length > 0
+      ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, accessible))
+      : [];
+  if (milestones.length === 0) { res.json([]); return; }
+
+  const tierRank = await getRoleTierRank(ctx.role);
+  const department = await getRoleDepartment(ctx.role);
+  const seesEverything = tierRank >= 5 || department === "pm";
+
+  // Department membership — used to resolve who's QA (qaPic name-match) and
+  // to confirm an FA "owner" is really in the fa department.
+  const allUsers = await db
+    .select({ id: usersTable.id, name: usersTable.name, department: rolesTable.department })
+    .from(usersTable)
+    .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role));
+  const usersById = new Map(allUsers.map((u) => [u.id, u]));
+  const qaUserNames = new Set(allUsers.filter((u) => u.department === "qa").map((u) => u.name.toLowerCase()));
+
+  const rows: any[] = [];
+
+  for (const m of milestones) {
+    const entries = await computeRequirementTimelines(m.id, m.completedAt);
+    if (entries.length === 0) continue;
+    const reqIds = entries.map((e) => e.id);
+
+    const extra = await db
+      .select({
+        id: requirementsTable.id,
+        createdBy: requirementsTable.createdBy,
+        devAssigneeId: requirementsTable.devAssigneeId,
+        reviewStatus: requirementsTable.reviewStatus,
+        devStatus: requirementsTable.devStatus,
+        projectId: requirementsTable.projectId,
+      })
+      .from(requirementsTable)
+      .where(inArray(requirementsTable.id, reqIds));
+    const extraById = new Map(extra.map((e) => [e.id, e]));
+
+    // QA "assignee" — resolved from linked execution file(s)' qaPic (file-level
+    // first, falling back to the per-row qaPic), not a dedicated column.
+    const qaPicRows = await db
+      .select({ requirementId: executionTestCasesTable.requirementId, executionFileId: executionTestCasesTable.executionFileId, filePic: executionFilesTable.qaPic, rowPic: executionTestCasesTable.qaPic })
+      .from(executionTestCasesTable)
+      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+      .where(inArray(executionTestCasesTable.requirementId, reqIds));
+    const qaPicNamesByReq = new Map<number, Set<string>>();
+    const qaFileIdByReq = new Map<number, number>();
+    for (const r of qaPicRows) {
+      if (r.requirementId == null) continue;
+      if (!qaFileIdByReq.has(r.requirementId)) qaFileIdByReq.set(r.requirementId, r.executionFileId);
+      const pic = r.filePic || r.rowPic;
+      if (!pic) continue;
+      if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
+      qaPicNamesByReq.get(r.requirementId)!.add(pic);
+    }
+
+    // QA/UAT execution pass-rate per requirement — same simplification
+    // rollupExecutionByMilestone already documents: counts whatever's
+    // currently saved on each row, not "latest result per TC identity."
+    const execResultRows = await db
+      .select({ requirementId: executionTestCasesTable.requirementId, result: executionTestCasesTable.result, fileType: executionFilesTable.fileType })
+      .from(executionTestCasesTable)
+      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+      .where(inArray(executionTestCasesTable.requirementId, reqIds));
+    const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
+    for (const r of execResultRows) {
+      if (r.requirementId == null) continue;
+      if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
+      const bucket = resultsByReq.get(r.requirementId)!;
+      (r.fileType === "uat" ? bucket.uat : bucket.qa).push(classifyResult(r.result));
+    }
+    const passPct = (results: string[]) => (results.length ? Math.round((results.filter((r) => r === "passed").length / results.length) * 100) : 0);
+
+    for (const entry of entries) {
+      const info = extraById.get(entry.id);
+      if (!info) continue;
+      const lastSeg = entry.timeline[entry.timeline.length - 1];
+      const phase: PhaseKey = lastSeg?.key ?? "requirements";
+
+      const faOwnerId = info.createdBy ?? null;
+      const faOwnerName = faOwnerId != null ? usersById.get(faOwnerId)?.name ?? null : null;
+      const faOwnerDept = faOwnerId != null ? usersById.get(faOwnerId)?.department ?? null : null;
+      const faProgress = reviewStatusProgress(info.reviewStatus ?? "draft");
+
+      const devAssigneeId = info.devAssigneeId ?? null;
+      const devAssigneeName = devAssigneeId != null ? usersById.get(devAssigneeId)?.name ?? null : null;
+      const devProgress = devStatusProgress(info.devStatus);
+
+      const qaNames = qaPicNamesByReq.get(entry.id) ?? new Set<string>();
+      const qaAssigneeName = qaNames.size > 0 ? [...qaNames].join(" · ") : null;
+      const qaIsQaDept = [...qaNames].some((n) => qaUserNames.has(n.toLowerCase()));
+      const results = resultsByReq.get(entry.id) ?? { qa: [], uat: [] };
+      const qaProgress = passPct(results.qa);
+      const uatProgress = passPct(results.uat);
+
+      // Department-scoped visibility (CR059's principle, applied to requirements).
+      // Positive allowlist, not a series of exclusions — a department value
+      // outside dev/qa/fa (e.g. a reserved-but-unused one like "bi") hides
+      // everything rather than silently falling through unfiltered.
+      if (!seesEverything) {
+        if (department === "dev") { if (devAssigneeId == null) continue; }
+        else if (department === "qa") { if (!qaIsQaDept) continue; }
+        else if (department === "fa") { if (faOwnerDept !== "fa") continue; }
+        else continue;
+      }
+
+      let assignee: string | null;
+      let progress: number;
+      if (seesEverything) {
+        // PM/admin/cto — show whoever owns the row's *current* phase.
+        if (phase === "develop") { assignee = devAssigneeName; progress = devProgress; }
+        else if (phase === "qa") { assignee = qaAssigneeName; progress = qaProgress; }
+        else if (phase === "uat") { assignee = qaAssigneeName; progress = uatProgress; }
+        else { assignee = faOwnerName; progress = faProgress; }
+      } else if (department === "dev") { assignee = devAssigneeName; progress = devProgress; }
+      else if (department === "qa") { assignee = qaAssigneeName; progress = phase === "uat" ? uatProgress : qaProgress; }
+      else { assignee = faOwnerName; progress = faProgress; }
+
+      const dueDate = (m as any)[PHASE_DUE_DATE_FIELD[phase]]?.toISOString?.() ?? null;
+
+      rows.push({
+        requirementId: entry.id,
+        title: entry.title,
+        parentId: entry.parentId,
+        projectId: info.projectId,
+        milestoneId: m.id,
+        milestoneName: m.name,
+        milestonePriority: (m as any).priority ?? null,
+        milestoneStatus: m.status,
+        phase,
+        phaseLabel: PHASE_LABELS[phase],
+        statusLabel: entry.status,
+        assignee,
+        progress,
+        dueDate,
+        goLiveDate: m.goLiveDate?.toISOString() ?? null,
+        devAssigneeId,
+        executionFileId: qaFileIdByReq.get(entry.id) ?? null,
+      });
+    }
+  }
+
+  res.json(rows);
 });
 
 // ── CR033p1: Closed Milestones (PMBOK Closing) ───────────────────────────────

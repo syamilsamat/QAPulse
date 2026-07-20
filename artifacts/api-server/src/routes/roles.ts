@@ -169,6 +169,9 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`);
   // Test environment (ENV1…ENV6) the milestone runs in, set by the PM.
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS environment TEXT`);
+  // CR060 — PM-set milestone urgency (Low/Medium/High/Critical), shown on the
+  // redesigned Tasks page alongside per-requirement phase status.
+  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS priority TEXT`);
 
   // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
   await pool.query(`

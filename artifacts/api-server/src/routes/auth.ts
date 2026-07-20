@@ -74,12 +74,14 @@ export async function getAuthUser(req: Request): Promise<typeof usersTable.$infe
 
 async function formatUser(user: typeof usersTable.$inferSelect) {
   let tierRank: number | null = null;
+  let department: string | null = null;
   if (user.role === "admin") {
     tierRank = 99; // unrestricted — kept finite so it round-trips through JSON
   } else {
     try {
       const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, user.role));
       tierRank = roleRow?.tierRank ?? 1;
+      department = roleRow?.department ?? null;
     } catch {
       tierRank = 1;
     }
@@ -90,6 +92,7 @@ async function formatUser(user: typeof usersTable.$inferSelect) {
     email: user.email,
     role: user.role,
     tierRank,
+    department,
     team: user.team,
     avatarUrl: user.avatarUrl,
     mustChangePassword: user.mustChangePassword,

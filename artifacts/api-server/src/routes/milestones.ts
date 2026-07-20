@@ -27,6 +27,7 @@ function canWrite(role: string) {
 
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
 const VALID_STATUSES = ["planned", "active", "verified", "uat", "completed", "cancelled"];
+const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
 
 function fmt(m: typeof milestonesTable.$inferSelect) {
   return {
@@ -35,6 +36,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     name: m.name,
     type: m.type,
     status: m.status,
+    priority: m.priority ?? null,
     targetDate: m.targetDate?.toISOString() ?? null,
     startDate: m.startDate?.toISOString() ?? null,
     reqTargetDate: m.reqTargetDate?.toISOString() ?? null,
@@ -96,13 +98,16 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment } = req.body;
+  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
   }
   if (!VALID_STATUSES.includes(status)) {
     res.status(400).json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }); return;
+  }
+  if (priority != null && !VALID_PRIORITIES.includes(priority)) {
+    res.status(400).json({ error: `priority must be one of ${VALID_PRIORITIES.join(", ")}` }); return;
   }
 
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
@@ -113,6 +118,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     name: name.trim(),
     type,
     status,
+    priority: priority ?? null,
     targetDate: targetDate ? new Date(targetDate) : null,
     startDate: startDate ? new Date(startDate) : null,
     reqTargetDate: reqTargetDate ? new Date(reqTargetDate) : null,
@@ -199,6 +205,12 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     update.environment = req.body.environment ?? null;
   }
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
+  if (req.body.priority !== undefined) {
+    if (req.body.priority != null && !VALID_PRIORITIES.includes(req.body.priority)) {
+      res.status(400).json({ error: `priority must be one of ${VALID_PRIORITIES.join(", ")}` }); return;
+    }
+    update.priority = req.body.priority ?? null;
+  }
   if (req.body.status !== undefined) {
     // CR054p1 — lifecycle: planned → active → verified (QA passed) → uat
     // (business testing) → completed, or cancelled at any point.

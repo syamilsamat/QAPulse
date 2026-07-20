@@ -6,6 +6,9 @@ export const milestonesTable = pgTable("milestones", {
   name: text("name").notNull(),
   type: text("type").notNull().default("cr"), // 'cr' | 'phase' | 'sprint' | 'release'
   status: text("status").notNull().default("planned"), // 'planned' | 'active' | 'completed' | 'cancelled'
+  // CR060 — PM-set urgency for the whole milestone (Low/Medium/High/Critical),
+  // distinct from an individual requirement's own priority field.
+  priority: text("priority"),
   targetDate: timestamp("target_date", { withTimezone: true }),
   startDate: timestamp("start_date", { withTimezone: true }),
   reqTargetDate: timestamp("req_target_date", { withTimezone: true }),
