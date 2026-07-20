@@ -237,34 +237,47 @@ router.get("/execution-files", async (req, res): Promise<void> => {
   }
 });
 
-// Returns aggregated execution progress per redmine ticket ID (full breakdown)
+// Returns aggregated execution progress per redmine ticket ID (full breakdown).
+// Computed live from execution_test_cases, NOT executionSummariesTable — that
+// table is only ever refreshed as a side effect of the test-cases save
+// endpoint (below), so anything that lands in the DB another way (a seed
+// script's timing, a restore, a manual fix) leaves it stale/empty while the
+// real results already exist. Recomputing here removes that whole class of
+// drift instead of requiring another one-off repair script.
 router.get("/execution-progress", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
     const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
-    let rows = await db.select().from(executionSummariesTable);
-    if (accessible !== null) {
-      const files = await db
-        .select({ redmineTicketId: executionFilesTable.redmineTicketId, projectId: executionFilesTable.projectId })
-        .from(executionFilesTable);
-      const projectByTicket = new Map<string, number | null>(
-        files.map((f: { redmineTicketId: string; projectId: number | null }) => [f.redmineTicketId, f.projectId]),
-      );
-      rows = rows.filter((r: { redmineTicketId: string }) => {
-        const pid = projectByTicket.get(r.redmineTicketId);
-        return pid == null || accessible.includes(pid);
-      });
-    }
+    const files = await db
+      .select({ id: executionFilesTable.id, redmineTicketId: executionFilesTable.redmineTicketId, projectId: executionFilesTable.projectId })
+      .from(executionFilesTable);
+    const visibleFiles = accessible === null
+      ? files
+      : files.filter((f) => f.projectId == null || accessible.includes(f.projectId));
+    if (visibleFiles.length === 0) { res.json({}); return; }
+
+    const fileIds = visibleFiles.map((f) => f.id);
+    const ticketByFileId = new Map(visibleFiles.map((f) => [f.id, f.redmineTicketId]));
+
+    const tcRows = await db
+      .select({ executionFileId: executionTestCasesTable.executionFileId, result: executionTestCasesTable.result })
+      .from(executionTestCasesTable)
+      .where(inArray(executionTestCasesTable.executionFileId, fileIds));
+
     const agg: Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }> = {};
-    for (const row of rows) {
-      if (!agg[row.redmineTicketId]) agg[row.redmineTicketId] = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
-      agg[row.redmineTicketId].total += row.total;
-      agg[row.redmineTicketId].passed += row.passed;
-      agg[row.redmineTicketId].failed += row.failed;
-      agg[row.redmineTicketId].blocked += row.blocked;
-      agg[row.redmineTicketId].inProgress += row.inProgress;
-      agg[row.redmineTicketId].notExecuted += row.notExecuted;
+    for (const row of tcRows) {
+      const ticketId = ticketByFileId.get(row.executionFileId);
+      if (!ticketId) continue;
+      if (!agg[ticketId]) agg[ticketId] = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
+      const bucket = agg[ticketId];
+      bucket.total += 1;
+      const result = (row.result?.trim() || "").toLowerCase();
+      if (result === "passed") bucket.passed += 1;
+      else if (result === "failed") bucket.failed += 1;
+      else if (result === "blocked") bucket.blocked += 1;
+      else if (result === "in progress") bucket.inProgress += 1;
+      else bucket.notExecuted += 1;
     }
     res.json(agg);
   } catch {
