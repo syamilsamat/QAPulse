@@ -697,6 +697,19 @@ export default function Requirements() {
     );
   };
 
+  // CR063 — blocked flag (FA/PM), reason shown on hover
+  const blockedBadge = (isBlocked?: boolean, blockedReason?: string | null) => {
+    if (!isBlocked) return null;
+    return (
+      <span
+        className="text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800"
+        title={blockedReason ?? undefined}
+      >
+        Blocked
+      </span>
+    );
+  };
+
   // CR031 — open requirement-defect count badge
   const reqDefectBadge = (requirementId: number) => {
     const count = reqDefectCounts[requirementId] ?? 0;
@@ -1097,6 +1110,7 @@ export default function Requirements() {
                                 )}
                                 {trackerBadge(r.tracker)}
                                 {devStatusBadge(r.devStatus)}
+                                {blockedBadge(r.isBlocked, r.blockedReason)}
                                 {reqDefectBadge(r.id)}
                                 {(r.tcCount ?? 0) > 0 && (
                                   <button
@@ -1131,6 +1145,7 @@ export default function Requirements() {
                                   )}
                                   {trackerBadge(r.tracker)}
                                 {devStatusBadge(r.devStatus)}
+                                {blockedBadge(r.isBlocked, r.blockedReason)}
                                 {reqDefectBadge(r.id)}
                                   {(r.tcCount ?? 0) > 0 && (
                                     <button

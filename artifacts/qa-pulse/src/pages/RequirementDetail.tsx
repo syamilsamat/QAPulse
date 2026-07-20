@@ -122,6 +122,12 @@ export default function RequirementDetail() {
   const [defectDescription, setDefectDescription] = useState("");
   const [defectSeverity, setDefectSeverity] = useState("medium");
   const [defectLoading, setDefectLoading] = useState(false);
+  // CR063 — FA/PM can flag a requirement as blocked (e.g. needs more time,
+  // exclude from this release) with a mandatory reason
+  const canManageBlock = ["fa", "pm"].includes((user as any)?.department ?? "") || ["admin", "cto"].includes(user?.role ?? "");
+  const [blockMode, setBlockMode] = useState(false);
+  const [blockReason, setBlockReason] = useState("");
+  const [blockLoading, setBlockLoading] = useState(false);
 
   const { data: req, isLoading } = useQuery<any>({
     queryKey: ["requirement", reqId],
@@ -371,6 +377,29 @@ export default function RequirementDetail() {
       toast({ variant: "destructive", title: "Action failed" });
     } finally {
       setDevLoading(false);
+    }
+  };
+
+  // CR063 — mark/clear the blocked flag
+  const doBlockAction = async (action: "block" | "unblock", reason?: string) => {
+    if (!reqId) return;
+    setBlockLoading(true);
+    try {
+      const res = await api(`/requirements/${reqId}/block`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ action, ...(reason?.trim() ? { reason: reason.trim() } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Action failed" }); return; }
+      toast({ title: action === "block" ? "Requirement blocked" : "Requirement unblocked" });
+      setBlockMode(false);
+      setBlockReason("");
+      queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Action failed" });
+    } finally {
+      setBlockLoading(false);
     }
   };
 
@@ -1028,6 +1057,60 @@ export default function RequirementDetail() {
                     )
                   )}
                 </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Blocked flag (CR063) — FA/PM can flag "needs more time, exclude
+              this release, transfer to a new milestone" with a reason; while
+              blocked, dev-handoff actions above are frozen server-side. */}
+          <Card className={req.isBlocked ? "border-red-300" : ""}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                Blocked
+                {req.isBlocked && (
+                  <Badge className="gap-1 bg-red-100 text-red-700 border-red-200"><AlertTriangle className="w-3 h-3" /> Blocked</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {req.isBlocked ? (
+                <>
+                  <p className="text-xs whitespace-pre-wrap">{req.blockedReason}</p>
+                  <p className="text-xs text-muted-foreground">
+                    By {req.blockedByName ?? "—"}{req.blockedAt ? ` · ${format(new Date(req.blockedAt), "dd MMM yyyy")}` : ""}
+                  </p>
+                  {canManageBlock && (
+                    <Button size="sm" variant="outline" disabled={blockLoading} onClick={() => doBlockAction("unblock")}>
+                      Unblock
+                    </Button>
+                  )}
+                </>
+              ) : canManageBlock ? (
+                blockMode ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={blockReason}
+                      onChange={(e) => setBlockReason(e.target.value)}
+                      placeholder="Why is this blocked? (e.g. needs more time — exclude from this release, transfer to a new milestone)"
+                      className="text-xs min-h-[60px]"
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="destructive" disabled={blockLoading || !blockReason.trim()} onClick={() => doBlockAction("block", blockReason)}>
+                        Confirm Block
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={blockLoading} onClick={() => { setBlockMode(false); setBlockReason(""); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10" onClick={() => setBlockMode(true)}>
+                    Mark Blocked
+                  </Button>
+                )
+              ) : (
+                <p className="text-xs text-muted-foreground">Not blocked.</p>
               )}
             </CardContent>
           </Card>

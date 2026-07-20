@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -36,6 +36,17 @@ export const requirementsTable = pgTable("requirements", {
   devAssignedAt: timestamp("dev_assigned_at", { withTimezone: true }),
   devAssignedBy: integer("dev_assigned_by"),
   readyForQaAt: timestamp("ready_for_qa_at", { withTimezone: true }),
+  // CR063 — FA/PM can flag a requirement as blocked (e.g. needs more time,
+  // should be excluded from the current release) with a mandatory reason.
+  // While blocked, dev-handoff actions (PATCH /requirements/:id/dev) are
+  // frozen — this is deliberately a separate overlay flag, not a devStatus/
+  // reviewStatus value, so unblocking resumes exactly wherever the
+  // requirement already was (in development, in testing, etc.) with no
+  // extra step to "restore" a phase.
+  isBlocked: boolean("is_blocked").notNull().default(false),
+  blockedReason: text("blocked_reason"),
+  blockedAt: timestamp("blocked_at", { withTimezone: true }),
+  blockedBy: integer("blocked_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

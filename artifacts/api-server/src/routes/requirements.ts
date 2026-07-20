@@ -3,7 +3,7 @@ import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
-import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getModuleScope } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import {
   db,
   requirementsTable,
@@ -34,6 +34,7 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
   let projectName: string | null = null;
   let milestoneName: string | null = null;
   let devAssigneeName: string | null = null;
+  let blockedByName: string | null = null;
 
   if (req.assigneeId) {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.assigneeId));
@@ -42,6 +43,10 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
   if ((req as any).devAssigneeId) {
     const [devUser] = await db.select().from(usersTable).where(eq(usersTable.id, (req as any).devAssigneeId));
     devAssigneeName = devUser?.name ?? null;
+  }
+  if ((req as any).blockedBy) {
+    const [blockedByUser] = await db.select().from(usersTable).where(eq(usersTable.id, (req as any).blockedBy));
+    blockedByName = blockedByUser?.name ?? null;
   }
   if (req.projectId) {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, req.projectId));
@@ -87,6 +92,12 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     devAssignedAt: (req as any).devAssignedAt ? new Date((req as any).devAssignedAt).toISOString() : null,
     devAssignedBy: (req as any).devAssignedBy ?? null,
     readyForQaAt: (req as any).readyForQaAt ? new Date((req as any).readyForQaAt).toISOString() : null,
+    // CR063 — blocked flag
+    isBlocked: (req as any).isBlocked ?? false,
+    blockedReason: (req as any).blockedReason ?? null,
+    blockedAt: (req as any).blockedAt ? new Date((req as any).blockedAt).toISOString() : null,
+    blockedBy: (req as any).blockedBy ?? null,
+    blockedByName,
     createdAt: req.createdAt.toISOString(),
     updatedAt: req.updatedAt.toISOString(),
   };
@@ -747,6 +758,13 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
     }
   }
 
+  // CR063 — FA/PM flagged this requirement as blocked; freeze dev-handoff
+  // until it's unblocked rather than let work silently keep progressing on
+  // something that was deliberately called out as stalled.
+  if ((requirement as any).isBlocked) {
+    res.status(409).json({ error: "Requirement is blocked — unblock it first (FA/PM) before continuing dev work" }); return;
+  }
+
   const { action, devAssigneeId, reason } = req.body ?? {};
   if (!["assign", "start", "ready_for_qa", "return_to_dev"].includes(action)) {
     res.status(400).json({ error: "action must be assign, start, ready_for_qa, or return_to_dev" }); return;
@@ -884,6 +902,99 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
       actorId: ctx.userId,
       excludeUserIds: currentDevAssigneeId != null ? [currentDevAssigneeId] : [],
     }).catch(() => {});
+  }
+
+  res.json(await formatRequirement(updated));
+});
+
+// ─── Blocked flag (CR063) ────────────────────────────────────────────────────
+// FA/PM-only, project/module-scoped like the dev-handoff actions above — not
+// tier-gated, since the ask was "any FA or PM with access to this
+// requirement," not "Lead+ only." A mandatory reason on block (e.g. "needs
+// more time, exclude from this release, transfer to a new milestone" — the
+// milestone move itself is just the existing generic PATCH /requirements/:id,
+// no restriction added there). Freezing dev-handoff actions while blocked is
+// enforced in the /dev route above, not here.
+router.patch("/requirements/:id/block", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+
+  if (requirement.projectId != null) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+    if (!(await canAccessModule(ctx.userId, ctx.role, requirement.projectId, requirement.module))) {
+      res.status(403).json({ error: "Access denied to this module" }); return;
+    }
+  }
+
+  if (ctx.role !== "admin" && ctx.role !== "cto") {
+    const department = await getRoleDepartment(ctx.role);
+    if (department !== "fa" && department !== "pm") {
+      res.status(403).json({ error: "Only FA or PM can change the blocked status" }); return;
+    }
+  }
+
+  const { action, reason } = req.body ?? {};
+  if (!["block", "unblock"].includes(action)) {
+    res.status(400).json({ error: "action must be block or unblock" }); return;
+  }
+
+  const update: Record<string, any> = {};
+  const now = new Date();
+
+  if (action === "block") {
+    if (requirement.isBlocked) { res.status(409).json({ error: "Already blocked" }); return; }
+    if (typeof reason !== "string" || !reason.trim()) {
+      res.status(400).json({ error: "A reason is required to block a requirement" }); return;
+    }
+    update.isBlocked = true;
+    update.blockedReason = reason.trim();
+    update.blockedAt = now;
+    update.blockedBy = ctx.userId;
+  } else {
+    if (!requirement.isBlocked) { res.status(409).json({ error: "Not currently blocked" }); return; }
+    update.isBlocked = false;
+    update.blockedReason = null;
+    update.blockedAt = null;
+    update.blockedBy = null;
+  }
+
+  const [updated] = await db.update(requirementsTable).set(update).where(eq(requirementsTable.id, id)).returning();
+
+  await logActivity({
+    type: action === "block" ? "requirement_blocked" : "requirement_unblocked",
+    description: action === "block"
+      ? `Requirement "${requirement.title}" blocked: ${update.blockedReason}`
+      : `Requirement "${requirement.title}" unblocked`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "requirement",
+    oldValue: { isBlocked: requirement.isBlocked, blockedReason: requirement.blockedReason },
+    newValue: { isBlocked: update.isBlocked, blockedReason: update.blockedReason },
+  });
+
+  // Whoever's actively working it (dev assignee, or the FA author if it
+  // hasn't reached dev yet) should hear about it either direction.
+  const recipientId = requirement.devAssigneeId ?? requirement.createdBy;
+  if (recipientId) {
+    await notifyUser(
+      recipientId,
+      action === "block" ? "Requirement blocked" : "Requirement unblocked",
+      action === "block"
+        ? `"${requirement.title}" was marked blocked: ${update.blockedReason}`
+        : `"${requirement.title}" is no longer blocked.`,
+      action === "block" ? "requirement_blocked" : "requirement_unblocked",
+      "requirement",
+      id,
+      ctx.userId,
+    ).catch(() => {});
   }
 
   res.json(await formatRequirement(updated));

@@ -233,6 +233,13 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS ready_for_qa_at TIMESTAMPTZ`);
 
+  // CR063 — FA/PM blocked flag (e.g. "needs more time, exclude from this
+  // release, transfer to a new milestone"), freezes dev-handoff actions.
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_reason TEXT`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+
   // CR022 Part 2 — discussion thread
   await pool.query(`
     CREATE TABLE IF NOT EXISTS requirement_comments (
