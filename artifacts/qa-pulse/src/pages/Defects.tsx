@@ -24,6 +24,7 @@ import {
   Upload,
   X,
   Link2,
+  Pencil,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Button } from "@/components/ui/button";
@@ -89,6 +90,7 @@ interface DefectRow {
   projectName: string | null;
   assigneeName: string | null;
   assigneeId: number | null;
+  reporterId: number | null;
   redmineId: string | null;
   syncStatus: string;
   syncError: string | null;
@@ -183,6 +185,14 @@ export default function Defects() {
   const [pullMilestone, setPullMilestone] = useState<string>("");
   const [newOpen, setNewOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [editingDefect, setEditingDefect] = useState<DefectRow | null>(null);
+
+  // CR061 — title/description/tracker editing: the reporter (they know what
+  // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
+  // server-side canEditDefectInfo gate in defects.ts.
+  const canEditDefectInfo = (d: DefectRow) =>
+    d.reporterId === (user as any)?.id ||
+    (((user as any)?.tierRank ?? 1) >= 2 && (user as any)?.department === "qa");
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -636,6 +646,17 @@ export default function Defects() {
                       </Badge>
                     )}
                     <span className="font-medium text-sm truncate">{d.title}</span>
+                    {canEditDefectInfo(d) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0"
+                        title="Edit defect info"
+                        onClick={(e) => { e.stopPropagation(); setEditingDefect(d); }}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                    )}
                     {d.retestNeeded && (
                       <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] gap-1">
                         <RotateCw className="w-2.5 h-2.5" /> Retest needed
@@ -815,6 +836,12 @@ export default function Defects() {
         onCreated={() => { setNewOpen(false); invalidate(); }}
       />
 
+      <EditDefectDialog
+        defect={editingDefect}
+        onClose={() => setEditingDefect(null)}
+        onSaved={() => { setEditingDefect(null); invalidate(); }}
+      />
+
       <SyncRedmineDialog
         open={syncOpen}
         onClose={() => setSyncOpen(false)}
@@ -988,6 +1015,109 @@ function SyncRedmineDialog({
           <Button variant="ghost" onClick={onClose} disabled={isSyncing}>Cancel</Button>
           <Button onClick={handleSync} disabled={isSyncing} className="gap-2">
             {isSyncing ? <><Loader2 className="w-4 h-4 animate-spin" /> Syncing...</> : <><CloudDownload className="w-4 h-4" /> Sync</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CR061: Edit defect info (title/description/tracker) ────────────────────
+// Reporter or qa_lead+ only (server-enforced too) — a corrected title/desc/
+// tracker write-through to Redmine when the defect is already synced.
+function EditDefectDialog({
+  defect,
+  onClose,
+  onSaved,
+}: {
+  defect: DefectRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const [form, setForm] = useState({ title: "", description: "", tracker: "" });
+  const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!defect) return;
+    setForm({ title: defect.title, description: defect.description ?? "", tracker: defect.tracker ?? "" });
+  }, [defect]);
+
+  useEffect(() => {
+    if (!defect) return;
+    fetchRedmineTrackers().then(setTrackers).catch(() => {});
+  }, [defect]);
+
+  const handleSave = async () => {
+    if (!defect) return;
+    if (!form.title.trim()) {
+      toast({ variant: "destructive", title: "Title cannot be empty" });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${defect.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          tracker: form.tracker || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to save");
+      }
+      toast({ title: "Defect updated" });
+      onSaved();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!defect} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Edit Defect Info</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>Title</Label>
+            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tracker</Label>
+            <Select value={form.tracker} onValueChange={(v) => setForm({ ...form, tracker: v })}>
+              <SelectTrigger><SelectValue placeholder="Select tracker" /></SelectTrigger>
+              <SelectContent>
+                {trackers.map((t) => (
+                  <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                ))}
+                {form.tracker && !trackers.some((t) => t.name === form.tracker) && (
+                  <SelectItem value={form.tracker}>{form.tracker}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          {defect?.redmineId && (
+            <p className="text-xs text-muted-foreground">Changes will sync to Redmine issue #{defect.redmineId}.</p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

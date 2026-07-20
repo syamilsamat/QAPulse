@@ -218,6 +218,40 @@ export async function pushStatusToRedmine(
   }
 }
 
+// CR061 — edit write-through: push corrected title/description/tracker made
+// in QAPulse (by the reporter or a qa_lead+) to Redmine. Same fail-closed
+// pattern as pushStatusToRedmine — the caller only updates the local row once
+// this succeeds. Tracker is resolved by name through the same trackersTable
+// cache pushDefectToRedmine already uses for creation.
+export async function pushDefectFieldsToRedmine(
+  redmineIssueId: string,
+  fields: { title?: string; description?: string; tracker?: string },
+  apiKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const issue: Record<string, any> = {};
+  if (fields.title !== undefined) issue.subject = fields.title;
+  if (fields.description !== undefined) issue.description = fields.description;
+  if (fields.tracker !== undefined) {
+    const trackerId = await findDefectTrackerId(fields.tracker);
+    if (trackerId == null) return { ok: false, error: "Unknown tracker — sync trackers first" };
+    issue.tracker_id = trackerId;
+  }
+  if (Object.keys(issue).length === 0) return { ok: true };
+  try {
+    const res = await redmineFetch(`/issues/${encodeURIComponent(redmineIssueId)}.json`, apiKey, {
+      method: "PUT",
+      body: JSON.stringify({ issue }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Redmine ${res.status}: ${body.slice(0, 300) || "update rejected (check workflow permissions)"}` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
 // CR030 — QAPulse doesn't store a Redmine user id for its own accounts, so
 // pushing a native assignment out requires a best-effort name search against
 // Redmine's own user list. Silent miss (no match / Redmine down) just means

@@ -13,7 +13,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getModuleScope } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 import { resolveApiKeyFromToken } from "./requirements";
@@ -25,6 +25,7 @@ import {
   severityFromPriority,
   syncIssueStatuses,
   pushStatusToRedmine,
+  pushDefectFieldsToRedmine,
   pushAssigneeToRedmine,
   routeForTracker,
   defectCodePrefix,
@@ -121,6 +122,17 @@ const DEFECT_CATEGORIES = [
 // Only Lead-tier and above may set a defect's category.
 async function canSetDefectCategory(role: string): Promise<boolean> {
   return (await getRoleTierRank(role)) >= 2;
+}
+
+// CR061 — title/description/tracker can be wrong at creation and Redmine
+// won't let just anyone edit them once synced, so this is deliberately
+// narrower than the general project-access gate: the original reporter (they
+// know what they meant to type) or a qa_lead+ (tier ≥2, qa department).
+async function canEditDefectInfo(ctx: { userId: number; role: string }, defect: { reporterId: number | null }): Promise<boolean> {
+  if (ctx.role === "admin") return true;
+  if (defect.reporterId != null && defect.reporterId === ctx.userId) return true;
+  const [tierRank, department] = await Promise.all([getRoleTierRank(ctx.role), getRoleDepartment(ctx.role)]);
+  return tierRank >= 2 && department === "qa";
 }
 
 // Append the Redmine id to the execution row's defect_number exactly as if the
@@ -1275,7 +1287,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     const patch: Record<string, any> = {};
-    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory"]) {
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker"]) {
       if (key in (req.body ?? {})) patch[key] = req.body[key];
     }
     if ("defectCategory" in patch) {
@@ -1284,6 +1296,32 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
         return;
       }
       if (!(await canSetDefectCategory(ctx.role))) delete patch.defectCategory;
+    }
+    // CR061 — title/description/tracker: reporter or qa_lead+ only, and if the
+    // defect is already synced to Redmine, push there first (fail-closed —
+    // same pattern as status write-through) before the local row changes.
+    const infoFields = ["title", "description", "tracker"].filter((k) => k in patch);
+    if (infoFields.length > 0) {
+      if (!(await canEditDefectInfo(ctx, before))) {
+        res.status(403).json({ error: "Only the reporter or a qa_lead can edit defect info" });
+        return;
+      }
+      if (patch.title !== undefined && !String(patch.title).trim()) {
+        res.status(400).json({ error: "Title cannot be empty" });
+        return;
+      }
+      if (before.redmineId) {
+        const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+        const push = await pushDefectFieldsToRedmine(before.redmineId, {
+          title: patch.title,
+          description: patch.description,
+          tracker: patch.tracker,
+        }, apiKey);
+        if (!push.ok) {
+          res.status(502).json({ error: push.error ?? "Redmine rejected the update" });
+          return;
+        }
+      }
     }
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "Nothing to update" });
