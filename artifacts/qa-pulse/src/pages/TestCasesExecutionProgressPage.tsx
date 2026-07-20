@@ -1220,6 +1220,7 @@ interface SortableTreeRowProps {
   mode: "execute" | "edit";
   updateCell: (id: string | number, field: keyof AppExecutionTestCase, value: string) => void;
   availableModules: ExecutionModule[];
+  requirementsList: RequirementOption[];
   qaUsers: ExecutionUser[];
   currentUser: { id: number; name: string; role: string } | null;
   dragDisabled?: boolean;
@@ -1242,6 +1243,7 @@ const SortableTreeRow = React.memo(
     mode,
     updateCell,
     availableModules,
+    requirementsList,
     qaUsers,
     currentUser,
     dragDisabled,
@@ -1360,6 +1362,40 @@ const SortableTreeRow = React.memo(
                     ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.caseName || ""} fieldName="Case Name" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "caseName", val)} />
                     : <p className="text-sm">{row.caseName || "—"}</p>
                   }
+                </div>
+
+                {/* Requirement */}
+                <div>
+                  <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1 flex items-center gap-2">
+                    Requirement
+                    {row.requirementId ? (
+                      <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">linked</span>
+                    ) : (
+                      <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">not linked</span>
+                    )}
+                  </div>
+                  {mode === "edit" ? (
+                    <SearchableSelect
+                      value={row.requirementId != null ? String(row.requirementId) : ""}
+                      onValueChange={(v) => updateCell(row.id as string | number, "requirementId", v)}
+                      options={requirementsList.map((r) => ({
+                        value: String(r.id),
+                        label: r.redmineTicketId ? `#${r.redmineTicketId} — ${r.title}` : r.title,
+                      }))}
+                      placeholder="Search requirement by Redmine ID or title..."
+                      searchPlaceholder="Search requirements..."
+                      emptyText="No requirements found."
+                    />
+                  ) : (() => {
+                    const linked = row.requirementId
+                      ? requirementsList.find((r) => r.id === Number(row.requirementId))
+                      : null;
+                    return (
+                      <p className="text-sm">
+                        {linked ? (linked.redmineTicketId ? `#${linked.redmineTicketId} — ${linked.title}` : linked.title) : "—"}
+                      </p>
+                    );
+                  })()}
                 </div>
 
                 {/* Row 1: Module | Scenario */}
@@ -1545,6 +1581,8 @@ export default function TestCasesExecutionProgressPage() {
   const [currentFileMilestoneId, setCurrentFileMilestoneId] = useState<number | null>(null);
   const [currentFileId, setCurrentFileId] = useState<number | null>(null);
   const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
+  const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
+  const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
   // A file with no milestone can't record results — see the same guard on
   // the backend. Lets a user link one right here instead of hitting a save
   // error the first time they try to record a result.
@@ -1648,11 +1686,7 @@ export default function TestCasesExecutionProgressPage() {
   const [pendingFailRowId, setPendingFailRowId] = useState<string | number | null>(null);
   const pendingFailRowIdRef = useRef<string | number | null>(null);
 
-  // Linked task warning
-  const [linkedTask, setLinkedTask] = useState<{ name: string; status: string; type?: string; projectName?: string | null } | null | undefined>(undefined);
-
   // Dismissible warning banners
-  const [taskWarningDismissed, setTaskWarningDismissed] = useState(false);
   const [editWarningDismissed, setEditWarningDismissed] = useState(false);
 
   // Execute / Edit mode — always defaults to "execute" on file open
@@ -1731,10 +1765,9 @@ export default function TestCasesExecutionProgressPage() {
       fetchExecutionFiles(),
       fetchTrackers(),
       fetchRequirements(),
-      fetch("/api/tasks", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
       fetch("/api/test-cases", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
     ])
-      .then(([result, allModules, users, files, trackersData, requirementsData, allTasks, libraryTcs]) => {
+      .then(([result, allModules, users, files, trackersData, requirementsData, libraryTcs]) => {
         setAvailableTrackers(trackersData || []);
         setRequirementsList(requirementsData || []);
         setLibraryTestCases(libraryTcs || []);
@@ -1743,6 +1776,8 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileMilestoneId(file?.milestoneId ?? null);
         setCurrentFileId(file?.id ?? null);
         setCurrentFileProjectId(file?.projectId ?? null);
+        setCurrentFileTitle(file?.title ?? null);
+        setCurrentFileTracker(file?.tracker ?? null);
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
@@ -1766,9 +1801,6 @@ export default function TestCasesExecutionProgressPage() {
         }
         setAvailableModules(filteredModules);
         setQaUsers(users);
-
-        const matched = (allTasks || []).find((t: any) => String(t.redmineId) === ticketId);
-        setLinkedTask(matched ? { name: matched.name, status: matched.status, type: matched.type, projectName: matched.projectName } : null);
       })
       .catch(() =>
         toast({
@@ -2381,9 +2413,8 @@ export default function TestCasesExecutionProgressPage() {
     setIsDownloading(true);
     try {
       const params = new URLSearchParams();
-      if (linkedTask?.name) params.set("issueSubject", linkedTask.name);
-      if (linkedTask?.type) params.set("issueType", linkedTask.type);
-      if (linkedTask?.projectName) params.set("projectName", linkedTask.projectName);
+      if (currentFileTitle) params.set("issueSubject", currentFileTitle);
+      if (currentFileTracker) params.set("issueType", currentFileTracker);
       if (currentUser?.name) params.set("senderName", currentUser.name);
 
       const token = localStorage.getItem("qa_pulse_token");
@@ -3201,8 +3232,8 @@ export default function TestCasesExecutionProgressPage() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2 flex-wrap">
               <FileSpreadsheet className="w-5 h-5 text-primary shrink-0" /> Ticket #{ticketId}
-              {linkedTask?.name && (
-                <span className="text-muted-foreground font-normal">— {linkedTask.name}</span>
+              {currentFileTitle && (
+                <span className="text-muted-foreground font-normal">— {currentFileTitle}</span>
               )}
             </h1>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -3355,22 +3386,6 @@ export default function TestCasesExecutionProgressPage() {
           </div>
         ))}
       </div>
-
-      {/* LINKED TASK WARNING BANNER */}
-      {linkedTask === null && !taskWarningDismissed && (
-        <div className="shrink-0 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span className="flex-1">No linked task found for Ticket #{ticketId}. Create a task in the Tasks page first to track this execution properly.</span>
-          <button
-            type="button"
-            onClick={() => setTaskWarningDismissed(true)}
-            aria-label="Dismiss"
-            className="shrink-0 text-amber-600 hover:text-amber-900"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
 
       {/* EDIT MODE WARNING BANNER */}
       {mode === "edit" && !editWarningDismissed && (
@@ -3609,6 +3624,7 @@ export default function TestCasesExecutionProgressPage() {
                               mode={mode}
                               updateCell={updateCell}
                               availableModules={availableModules}
+                              requirementsList={requirementsList}
                               qaUsers={qaUsers}
                               currentUser={currentUser}
                               dragDisabled={mode !== "edit"}
@@ -4010,6 +4026,17 @@ export default function TestCasesExecutionProgressPage() {
                                     <div>
                                       <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
                                       <p className="text-xs">{row.caseName || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Requirement</div>
+                                      <p className="text-xs">
+                                        {(() => {
+                                          const linked = row.requirementId
+                                            ? requirementsList.find((r) => r.id === Number(row.requirementId))
+                                            : null;
+                                          return linked ? (linked.redmineTicketId ? `#${linked.redmineTicketId} — ${linked.title}` : linked.title) : "—";
+                                        })()}
+                                      </p>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
