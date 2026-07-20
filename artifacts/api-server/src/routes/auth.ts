@@ -15,7 +15,7 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV === "production") {
   throw new Error("JWT_SECRET env var is required in production — server will not start without it");
 }
 const JWT_SECRET = process.env.JWT_SECRET ?? "qa-pulse-dev-secret-change-in-production-2024";
-const JWT_EXPIRES_IN = "15m";
+const JWT_EXPIRES_IN = "1h";
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // CR007-4: In-memory access token blacklist (invalidated on logout)

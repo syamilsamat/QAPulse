@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { useLocation } from "wouter";
 import type { User } from "@workspace/api-client-react";
-import { setAuthTokenGetter, setUnauthorizedHandler } from "@workspace/api-client-react";
+import { setAuthTokenGetter, setUnauthorizedHandler, setRefreshHandler } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface AuthContextType {
@@ -43,7 +43,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const refreshInFlight = useRef<Promise<void> | null>(null);
+  const refreshInFlight = useRef<Promise<boolean> | null>(null);
+
+  // Reads the refresh token straight from storage (not React state) so this
+  // stays correct even when called from outside React — e.g. as the
+  // api-client-react refresh handler, registered once on mount.
+  const doTokenRefresh = (): Promise<boolean> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    const rt = readStoredValue(STORAGE_KEY_REFRESH);
+    if (!rt) return Promise.resolve(false);
+    const p = fetch("/api/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: rt }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return false;
+        const data = await res.json();
+        const storage = getStorage();
+        storage.setItem(STORAGE_KEY_TOKEN, data.token);
+        storage.setItem(STORAGE_KEY_REFRESH, data.refreshToken);
+        setToken(data.token);
+        setRefreshToken(data.refreshToken);
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => { refreshInFlight.current = null; });
+    refreshInFlight.current = p;
+    return p;
+  };
 
   const performLogout = (currentToken?: string | null, currentRefresh?: string | null) => {
     const accessToken = currentToken ?? token;
@@ -101,6 +129,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Reactive refresh-and-retry: lets api-client-react recover from a 401
+  // (access token expired before the proactive timer below got to it — e.g.
+  // a backgrounded tab throttling setTimeout) with one silent refresh instead
+  // of an immediate hard logout. doTokenRefresh reads storage live, so this
+  // is safe to register once and never needs to be re-registered on change.
+  useEffect(() => {
+    setRefreshHandler(doTokenRefresh);
+    return () => setRefreshHandler(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // CR007-3 & CR007-7: Silent refresh loop + expiry warning toast
   useEffect(() => {
     if (!token || !refreshToken) return;
@@ -117,24 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const warnAt     = expiresAt - 5 * 60 * 1000;  // 5 min before expiry
 
     const doSilentRefresh = () => {
-      if (refreshInFlight.current) return;
-      refreshInFlight.current = fetch("/api/auth/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      })
-        .then(async (res) => {
-          if (!res.ok) throw new Error("refresh failed");
-          const data = await res.json();
-          const storage = getStorage();
-          storage.setItem(STORAGE_KEY_TOKEN, data.token);
-          storage.setItem(STORAGE_KEY_REFRESH, data.refreshToken);
-          setToken(data.token);
-          setRefreshToken(data.refreshToken);
-          setAuthTokenGetter(() => readStoredValue(STORAGE_KEY_TOKEN));
-        })
-        .catch(() => performLogout())
-        .finally(() => { refreshInFlight.current = null; });
+      doTokenRefresh().then((ok) => { if (!ok) performLogout(); });
     };
 
     const timers: ReturnType<typeof setTimeout>[] = [];
