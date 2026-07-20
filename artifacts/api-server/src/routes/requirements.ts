@@ -15,6 +15,11 @@ import {
   insertRequirementSchema,
   testCasesTable,
   executionTestCasesTable,
+  executionFilesTable,
+  executionSummariesTable,
+  executionTcHistoryTable,
+  defectsTable,
+  defectLinksTable,
   tasksTable,
 } from "@workspace/db";
 import path from "path";
@@ -368,6 +373,96 @@ router.get("/requirements/:id/history", async (req, res): Promise<void> => {
   })));
 });
 
+// CR065 — a requirement's milestone is the source of truth for where its
+// work lives: when it changes, the requirement's own test cases (and any
+// defects raised against them) follow it, rather than being left behind
+// pointing at a milestone the requirement no longer belongs to.
+//
+// Test cases move by fileType (qa/uat) into the matching execution file
+// already under the new milestone, or a freshly-created one if none exists
+// yet (synthetic, collision-free ticket id — redmineTicketId is globally
+// unique, so this can't be derived from the milestone's own free-text name).
+// Execution history follows the TC to its new file. Defects don't move
+// files — they just get re-tagged to the new milestone directly (defects
+// have their own milestoneId column, no execution-file concept). If moving
+// TCs out of an old file empties it completely, the file is deleted
+// (mirrors DELETE /execution-files/:id's own cleanup — file row + the
+// execution_summaries rows that aren't FK-cascaded).
+async function cascadeRequirementMilestoneMove(
+  requirementId: number,
+  newMilestoneId: number | null,
+  fallbackProjectId: number | null,
+): Promise<void> {
+  if (newMilestoneId == null) return; // cleared to no milestone — leave TCs/defects where they are
+
+  const tcRows = await db.select().from(executionTestCasesTable).where(eq(executionTestCasesTable.requirementId, requirementId));
+  if (tcRows.length === 0) return;
+
+  const [newMilestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, newMilestoneId));
+  if (!newMilestone) return;
+
+  const sourceFileIds = [...new Set(tcRows.map((t) => t.executionFileId))];
+  const sourceFiles = await db.select().from(executionFilesTable).where(inArray(executionFilesTable.id, sourceFileIds));
+  const sourceFileById = new Map(sourceFiles.map((f) => [f.id, f]));
+
+  const byFileType = new Map<string, typeof tcRows>();
+  for (const tc of tcRows) {
+    const fileType = sourceFileById.get(tc.executionFileId)?.fileType ?? "qa";
+    if (!byFileType.has(fileType)) byFileType.set(fileType, []);
+    byFileType.get(fileType)!.push(tc);
+  }
+
+  const touchedOldFileIds = new Set<number>();
+
+  for (const [fileType, rows] of byFileType) {
+    let [targetFile] = await db.select().from(executionFilesTable)
+      .where(and(eq(executionFilesTable.milestoneId, newMilestoneId), eq(executionFilesTable.fileType, fileType)));
+
+    if (!targetFile) {
+      const sourceFile = sourceFileById.get(rows[0].executionFileId);
+      const [created] = await db.insert(executionFilesTable).values({
+        redmineTicketId: `MS${newMilestoneId}-${fileType.toUpperCase()}`,
+        title: fileType === "uat" ? `UAT — ${newMilestone.name}` : newMilestone.name,
+        projectId: fallbackProjectId ?? sourceFile?.projectId ?? null,
+        milestoneId: newMilestoneId,
+        fileType,
+        tracker: sourceFile?.tracker ?? null,
+      } as any).returning();
+      targetFile = created;
+    }
+
+    for (const tc of rows) {
+      const oldFileId = tc.executionFileId;
+      touchedOldFileIds.add(oldFileId);
+
+      await db.update(executionTestCasesTable).set({ executionFileId: targetFile.id }).where(eq(executionTestCasesTable.id, tc.id));
+
+      if (tc.testCaseId) {
+        await db.update(executionTcHistoryTable)
+          .set({ executionFileId: targetFile.id })
+          .where(and(eq(executionTcHistoryTable.executionFileId, oldFileId), eq(executionTcHistoryTable.testCaseId, tc.testCaseId)));
+      }
+
+      const links = await db.select().from(defectLinksTable).where(eq(defectLinksTable.executionTcId, tc.id));
+      const defectIds = [...new Set(links.map((l) => l.defectId))];
+      if (defectIds.length > 0) {
+        await db.update(defectsTable).set({ milestoneId: newMilestoneId }).where(inArray(defectsTable.id, defectIds));
+      }
+    }
+  }
+
+  for (const oldFileId of touchedOldFileIds) {
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(executionTestCasesTable).where(eq(executionTestCasesTable.executionFileId, oldFileId));
+    if (count === 0) {
+      const [oldFile] = await db.select({ redmineTicketId: executionFilesTable.redmineTicketId }).from(executionFilesTable).where(eq(executionFilesTable.id, oldFileId));
+      await db.delete(executionFilesTable).where(eq(executionFilesTable.id, oldFileId));
+      if (oldFile?.redmineTicketId) {
+        await db.delete(executionSummariesTable).where(eq(executionSummariesTable.redmineTicketId, oldFile.redmineTicketId));
+      }
+    }
+  }
+}
+
 router.patch("/requirements/:id", async (req, res): Promise<void> => {
   const params = UpdateRequirementParams.safeParse(req.params);
   if (!params.success) {
@@ -380,6 +475,19 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+
+  // CR063/CR065 — isBlocked/blockedReason/blockedAt/blockedBy are only
+  // settable through PATCH /requirements/:id/block (FA/PM-only, mandatory
+  // reason on block). insertRequirementSchema is derived from the full table
+  // so these ride along in any generic partial() PATCH unless stripped here
+  // — this endpoint's own permission gate below is author/assignee/FA-on-
+  // Redmine, deliberately looser than the block endpoint's, so silently
+  // dropping them (rather than erroring the whole request) keeps a client
+  // that also happens to send other legitimate field changes working.
+  delete (parsed.data as any).isBlocked;
+  delete (parsed.data as any).blockedReason;
+  delete (parsed.data as any).blockedAt;
+  delete (parsed.data as any).blockedBy;
 
   const [before] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
 
@@ -423,6 +531,13 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     let actorId: number | null = null;
     try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
     await notifyUser(requirement.assigneeId, "Requirement assigned", `"${requirement.title}" has been assigned to you.`, "requirement", "requirement", requirement.id, actorId);
+  }
+
+  // CR065 — milestone changed: linked test cases + their defects follow it
+  if (parsed.data.milestoneId !== undefined && requirement.milestoneId !== (before as any)?.milestoneId) {
+    await cascadeRequirementMilestoneMove(requirement.id, requirement.milestoneId, requirement.projectId).catch((err) => {
+      console.error("[cascadeRequirementMilestoneMove]", err);
+    });
   }
 
   // CR023p4 — a description change re-opens review on every linked test case
