@@ -377,6 +377,7 @@ export default function TestCasesExecution() {
     remarks: "",
     requirementId: "",
     projectId: "",
+    milestoneId: "",
     tracker: "",
     selectedModules: [] as number[],
   });
@@ -394,6 +395,7 @@ export default function TestCasesExecution() {
       remarks: f.remarks || "",
       requirementId: f.requirementId ? String(f.requirementId) : "",
       projectId: f.projectId ? String(f.projectId) : "",
+      milestoneId: f.milestoneId ? String(f.milestoneId) : "",
       tracker: f.tracker || "",
       selectedModules: [],
     });
@@ -432,6 +434,7 @@ export default function TestCasesExecution() {
           remarks: editFileForm.remarks.trim() || null,
           projectId: editFileForm.projectId ? Number(editFileForm.projectId) : null,
           requirementId: editFileForm.requirementId ? Number(editFileForm.requirementId) : null,
+          milestoneId: editFileForm.milestoneId ? Number(editFileForm.milestoneId) : null,
           selectedModules: selectedModuleNames || null,
           tracker: editFileForm.tracker || null,
         }),
@@ -477,7 +480,7 @@ export default function TestCasesExecution() {
   // Clone state
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneSourceFile, setCloneSourceFile] = useState<ExecutionFile | null>(null);
-  const [cloneForm, setCloneForm] = useState({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+  const [cloneForm, setCloneForm] = useState({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", milestoneId: "", module: "", trackerFilter: "" });
   const [cloneTicketMsg, setCloneTicketMsg] = useState<{ type: "info" | "warn" | "error"; text: string } | null>(null);
   const [cloneTicketLoading, setCloneTicketLoading] = useState(false);
   const cloneTicketTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -548,6 +551,7 @@ export default function TestCasesExecution() {
             ...f,
             newTitle: f.newTitle || req.title || "",
             projectId: req.projectId ? String(req.projectId) : f.projectId,
+            milestoneId: req.projectId && String(req.projectId) !== f.projectId ? "" : f.milestoneId,
             module: req.module || f.module,
             trackerFilter: req.tracker || f.trackerFilter,
           }));
@@ -594,6 +598,7 @@ export default function TestCasesExecution() {
           copyQaPic: cloneForm.copyQaPic,
           module: cloneForm.module || undefined,
           projectId: cloneForm.projectId ? Number(cloneForm.projectId) : undefined,
+          milestoneId: cloneForm.milestoneId ? Number(cloneForm.milestoneId) : null,
           trackerFilter: cloneForm.trackerFilter || undefined,
         }),
       });
@@ -606,7 +611,7 @@ export default function TestCasesExecution() {
       toast({ title: `Cloned successfully — ${newFile.tcCount} test cases copied` });
       setCloneOpen(false);
       setCloneSourceFile(null);
-      setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+      setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", milestoneId: "", module: "", trackerFilter: "" });
       setCloneTicketMsg(null);
       const refreshed = await fetchExecutionFiles();
       setFiles(refreshed);
@@ -1244,7 +1249,7 @@ export default function TestCasesExecution() {
                               onClick={e => {
                                 e.stopPropagation();
                                 setCloneSourceFile(f);
-                                setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: "", module: "", trackerFilter: "" });
+                                setCloneForm({ newTicketId: "", newTitle: "", resetResults: true, copyQaPic: true, projectId: f.projectId ? String(f.projectId) : "", milestoneId: f.milestoneId ? String(f.milestoneId) : "", module: "", trackerFilter: "" });
                                 setCloneTicketMsg(null);
                                 setCloneOpen(true);
                               }}
@@ -1751,7 +1756,7 @@ export default function TestCasesExecution() {
               <Label>Project</Label>
               <SearchableSelect
                 value={editFileForm.projectId}
-                onValueChange={v => setEditFileForm(f => ({ ...f, projectId: v }))}
+                onValueChange={v => setEditFileForm(f => ({ ...f, projectId: v, milestoneId: v === f.projectId ? f.milestoneId : "" }))}
                 options={[
                   { value: "", label: "Select project..." },
                   ...projects.map(p => ({ value: String(p.id), label: p.name })),
@@ -1759,6 +1764,14 @@ export default function TestCasesExecution() {
                 placeholder="Search project..."
               />
             </div>
+            {editFileForm.projectId && (
+              <MilestonePicker
+                projectId={editFileForm.projectId}
+                token={token}
+                value={editFileForm.milestoneId}
+                onChange={v => setEditFileForm(f => ({ ...f, milestoneId: v }))}
+              />
+            )}
             <div className="space-y-1">
               <Label>Module</Label>
               <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
@@ -1898,7 +1911,7 @@ export default function TestCasesExecution() {
                 <Label>Project <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={cloneForm.projectId}
-                  onValueChange={v => setCloneForm(f => ({ ...f, projectId: v }))}
+                  onValueChange={v => setCloneForm(f => ({ ...f, projectId: v, milestoneId: v === f.projectId ? f.milestoneId : "" }))}
                   placeholder="Select project..."
                   options={projects.map(p => ({ value: String(p.id), label: p.name }))}
                 />
@@ -1918,6 +1931,14 @@ export default function TestCasesExecution() {
                 />
               </div>
             </div>
+            {cloneForm.projectId && (
+              <MilestonePicker
+                projectId={cloneForm.projectId}
+                token={token}
+                value={cloneForm.milestoneId}
+                onChange={v => setCloneForm(f => ({ ...f, milestoneId: v }))}
+              />
+            )}
             <div className="space-y-1.5">
               <Label>Module</Label>
               <SearchableSelect
