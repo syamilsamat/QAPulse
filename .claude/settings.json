@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n 'setForm\\({ name: \"\", type: \"cr\"' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/Milestones.tsx)",
+      "Bash(awk 'NR==580,0 {print NR\": \"$0; if \\(NR>580 && /^router\\\\.\\(get|post|patch|delete\\)/\\) {print \"STOP\"; exit}}' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/api-server/src/routes/dashboard.ts)",
+      "Bash(awk -F'[\\(:]' '{print $2}')",
+      "Bash(awk '$1 < 960')",
+      "Bash(awk '$1 < 970')",
+      "Bash(grep -rn '\"/tasks\\\\?\\\\|`/tasks?\\\\|navigate\\(.*\"/tasks\\\\|setLocation\\(.*\"/tasks\\\\|href.*\"/tasks' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
