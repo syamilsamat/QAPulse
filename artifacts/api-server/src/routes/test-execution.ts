@@ -280,7 +280,8 @@ router.get("/execution-progress", async (req, res): Promise<void> => {
       else bucket.notExecuted += 1;
     }
     res.json(agg);
-  } catch {
+  } catch (err: any) {
+    console.error("[GET /execution-progress]", err);
     res.status(500).json({ error: "Failed to fetch execution progress" });
   }
 });
