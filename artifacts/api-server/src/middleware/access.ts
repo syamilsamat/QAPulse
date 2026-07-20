@@ -146,3 +146,18 @@ export async function getRoleTierRank(role: string): Promise<number> {
     return 1;
   }
 }
+
+/**
+ * A role's department (qa/fa/dev/pm), or null for admin/cto (unrestricted)
+ * or a role with no department set. Used for department-scoped visibility
+ * (e.g. tasks — CR059) as distinct from project/module scoping above.
+ */
+export async function getRoleDepartment(role: string): Promise<string | null> {
+  if (role === "admin" || role === "cto") return null;
+  try {
+    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+    return roleRow?.department ?? null;
+  } catch {
+    return null;
+  }
+}

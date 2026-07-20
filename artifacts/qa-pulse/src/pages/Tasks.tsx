@@ -18,6 +18,7 @@ import {
   type TaskInput,
 } from "@workspace/api-client-react";
 import { fetchModules, fetchExecutionFiles, fetchTrackers, type TrackerOption } from "@/lib/execution-api";
+import { getApiUrl, authHeaders } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -391,6 +392,7 @@ export default function Tasks() {
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [filterProject, setFilterProject] = useState("all");
+  const [filterMilestone, setFilterMilestone] = useState("all");
   const [filterModule, setFilterModule] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
 
@@ -477,6 +479,18 @@ export default function Tasks() {
       return res.ok ? res.json() : [];
     },
     enabled: !!formProjectId && dialogOpen,
+  });
+
+  const { data: filterMilestones = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject, "task-filter"],
+    queryFn: async () => {
+      if (filterProject === "all") return [];
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${filterProject}`, {
+        headers: authHeaders(),
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
   });
 
   const { data: executionProgress = {} } = useQuery<Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }>>({
@@ -621,9 +635,11 @@ export default function Tasks() {
 
   const filtered = useMemo(() => {
     // 1. Filter the dataset
+    // Note: department-scoped visibility (QA only sees QA-assigned tasks,
+    // FA only FA, Dev only Dev; PM/admin/cto see everything) is enforced
+    // server-side (CR059) — `tasks` here is already the right set, so no
+    // client-side self/department filter is needed on top of it.
     let result = tasks.filter((t: any) => {
-      if (!isAdminOrLead && !t.assigneeIds?.includes(user?.id)) return false;
-
       // Status filters
       if (filterStatus === "overdue") {
         if (!t.isOverdue || t.status === "released_to_production") return false;
@@ -640,6 +656,8 @@ export default function Tasks() {
       )
         return false;
       if (filterProject !== "all" && String(t.projectId) !== filterProject)
+        return false;
+      if (filterMilestone !== "all" && String(t.milestoneId) !== filterMilestone)
         return false;
       if (filterModule !== "all" && String(t.moduleId) !== filterModule)
         return false;
@@ -706,10 +724,9 @@ export default function Tasks() {
     filterPriority,
     filterAssignee,
     filterProject,
+    filterMilestone,
     filterModule,
     sortBy,
-    user,
-    isAdminOrLead,
   ]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
@@ -1127,7 +1144,7 @@ export default function Tasks() {
 
             <SearchableSelect
               value={filterProject}
-              onValueChange={setFilterProject}
+              onValueChange={(v) => { setFilterProject(v); setFilterMilestone("all"); }}
               options={[
                 { value: "all", label: "All Projects" },
                 ...projects.map((p) => ({ value: String(p.id), label: p.name })),
@@ -1136,6 +1153,20 @@ export default function Tasks() {
               searchPlaceholder="Search project..."
               className="flex-1 min-w-[130px]"
             />
+
+            {filterProject !== "all" && (
+              <SearchableSelect
+                value={filterMilestone}
+                onValueChange={setFilterMilestone}
+                options={[
+                  { value: "all", label: "All Milestones" },
+                  ...filterMilestones.map((m) => ({ value: String(m.id), label: m.name })),
+                ]}
+                placeholder="Milestone"
+                searchPlaceholder="Search milestone..."
+                className="flex-1 min-w-[130px]"
+              />
+            )}
 
             <SearchableSelect
               value={filterStatus}
@@ -1157,19 +1188,17 @@ export default function Tasks() {
               className="flex-1 min-w-[120px]"
             />
 
-            {isAdminOrLead && (
-              <SearchableSelect
-                value={filterAssignee}
-                onValueChange={setFilterAssignee}
-                options={[
-                  { value: "all", label: "All Assignees" },
-                  ...users.map((u) => ({ value: String(u.id), label: u.name })),
-                ]}
-                placeholder="Assignee"
-                searchPlaceholder="Search assignee..."
-                className="flex-1 min-w-[130px]"
-              />
-            )}
+            <SearchableSelect
+              value={filterAssignee}
+              onValueChange={setFilterAssignee}
+              options={[
+                { value: "all", label: "All Assignees" },
+                ...users.map((u) => ({ value: String(u.id), label: u.name })),
+              ]}
+              placeholder="Assignee"
+              searchPlaceholder="Search assignee..."
+              className="flex-1 min-w-[130px]"
+            />
           </div>
           {filterStatus === "overdue" && (
             <div className="flex items-center gap-2 mt-1 px-1">

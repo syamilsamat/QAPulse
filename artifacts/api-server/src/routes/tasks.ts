@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable, milestonesTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable, milestonesTable, rolesTable } from "@workspace/db";
 import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope, getRoleTierRank, getRoleDepartment } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
@@ -18,6 +18,18 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+// CR059 — department-scoped task visibility: qa/fa/dev each only see tasks
+// with at least one assignee in their own department; pm (any tier) and
+// admin/cto see everything, since PM owns cross-department milestone delivery.
+async function getUserIdsInDepartment(department: string): Promise<number[]> {
+  const rows = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role))
+    .where(eq(rolesTable.department, department));
+  return rows.map(r => r.id);
+}
 
 function isOverdue(task: typeof tasksTable.$inferSelect): boolean {
   if (task.status === "done" || task.status === "released_to_production") return false;
@@ -166,6 +178,16 @@ router.get("/tasks", async (req, res): Promise<void> => {
     if (!scope || !scope.restricted) return true;
     return t.moduleNames.some((n) => scope.moduleNames.includes(n));
   });
+
+  // CR059 — department-scoped visibility. pm (any tier) and admin/cto (tier
+  // >=5) see every task in their project/module scope above; qa/fa/dev only
+  // see tasks with at least one assignee in their own department.
+  const tierRank = await getRoleTierRank(ctx.role);
+  const department = await getRoleDepartment(ctx.role);
+  if (tierRank < 5 && department && department !== "pm") {
+    const deptUserIds = new Set(await getUserIdsInDepartment(department));
+    formatted = formatted.filter((t) => t.assigneeIds?.some((id) => deptUserIds.has(id)));
+  }
 
   res.json(formatted);
 });
