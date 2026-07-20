@@ -201,22 +201,36 @@ router.get("/execution-files", async (req, res): Promise<void> => {
     if (accessible !== null) {
       files = files.filter((f) => f.projectId == null || accessible.includes(f.projectId));
     }
+
+    const milestoneIds = [...new Set(files.map((f) => (f as any).milestoneId).filter((id): id is number => id != null))];
+    const milestoneById = new Map(
+      milestoneIds.length
+        ? (await db.select().from(milestonesTable).where(inArray(milestonesTable.id, milestoneIds))).map((m) => [m.id, m])
+        : [],
+    );
+
     res.json(
-      files.map((f) => ({
-        id: f.id,
-        redmineTicketId: f.redmineTicketId,
-        title: f.title,
-        qaPic: f.qaPic,
-        remarks: f.remarks,
-        selectedModules: f.selectedModules,
-        tracker: f.tracker,
-        projectId: f.projectId,
-        requirementId: f.requirementId,
-        milestoneId: (f as any).milestoneId ?? null,
-        fileType: (f as any).fileType ?? "qa",
-        createdAt: f.createdAt,
-        updatedAt: f.updatedAt,
-      })),
+      files.map((f) => {
+        const milestone = (f as any).milestoneId != null ? milestoneById.get((f as any).milestoneId) : undefined;
+        return {
+          id: f.id,
+          redmineTicketId: f.redmineTicketId,
+          title: f.title,
+          qaPic: f.qaPic,
+          remarks: f.remarks,
+          selectedModules: f.selectedModules,
+          tracker: f.tracker,
+          projectId: f.projectId,
+          requirementId: f.requirementId,
+          milestoneId: (f as any).milestoneId ?? null,
+          milestoneName: milestone?.name ?? null,
+          milestonePriority: (milestone as any)?.priority ?? null,
+          milestoneStatus: milestone?.status ?? null,
+          fileType: (f as any).fileType ?? "qa",
+          createdAt: f.createdAt,
+          updatedAt: f.updatedAt,
+        };
+      }),
     );
   } catch {
     res.status(500).json({ error: "Failed to fetch execution files" });

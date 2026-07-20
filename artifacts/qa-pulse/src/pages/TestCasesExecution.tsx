@@ -218,16 +218,6 @@ async function parseExcelToRows(file: File): Promise<ExecutionTestCase[]> {
 }
 
 // ─── Task / progress types ────────────────────────────────────────────────────
-const TASK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  new: { label: "New", color: "bg-slate-100 text-slate-700 border-slate-200" },
-  in_progress: { label: "In Progress", color: "bg-blue-100 text-blue-700 border-blue-200" },
-  uat: { label: "UAT", color: "bg-purple-100 text-purple-700 border-purple-200" },
-  done: { label: "Done", color: "bg-green-100 text-green-700 border-green-200" },
-  released_to_production: { label: "Released", color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  blocked: { label: "Blocked", color: "bg-red-100 text-red-700 border-red-200" },
-  on_hold: { label: "On Hold", color: "bg-amber-100 text-amber-700 border-amber-200" },
-};
-
 type SortKey = "redmineTicketId" | "title" | "updatedAt" | "status";
 type SortDir = "asc" | "desc";
 
@@ -252,6 +242,17 @@ const PRIORITY_COLORS: Record<string, string> = {
   Low: "bg-green-100 text-green-700 border-green-200",
 };
 
+// Mirrors Milestones.tsx's StatusBadge — same statuses, same colors, so the
+// same milestone reads the same way on both pages.
+const MILESTONE_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  planned: { label: "Planned", color: "bg-slate-100 text-slate-700 border-slate-200" },
+  active: { label: "Active", color: "bg-blue-100 text-blue-700 border-blue-200" },
+  verified: { label: "Verified", color: "bg-teal-100 text-teal-700 border-teal-200" },
+  uat: { label: "UAT", color: "bg-violet-100 text-violet-700 border-violet-200" },
+  completed: { label: "Completed", color: "bg-green-100 text-green-700 border-green-200" },
+  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700 border-red-200" },
+};
+
 function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   if (!data || data.total === 0) {
     return <span className="text-xs text-muted-foreground italic">No data</span>;
@@ -259,10 +260,16 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   const { total, passed, failed, blocked, inProgress, notExecuted } = data;
   const pct = (n: number) => Math.round((n / total) * 100);
   const executedPct = pct(passed + failed + blocked);
+  // Headline figure is pass rate (passed/total), not "how much has run" —
+  // the bar below still shows the full pass/fail/blocked/in-progress/not-run
+  // breakdown, this is just what's most useful to scan at a glance.
+  const passPct = pct(passed);
   const pctStr = (n: number) => `${pct(n)}%`;
-  const pctColor = executedPct === 100
-    ? (failed === 0 && blocked === 0 ? "text-green-600" : "text-orange-600")
-    : executedPct > 0 ? "text-blue-600" : "text-muted-foreground";
+  const pctColor = executedPct === 0
+    ? "text-muted-foreground"
+    : failed === 0 && blocked === 0 ? "text-green-600"
+    : passPct > 0 ? "text-orange-600"
+    : "text-red-600";
   return (
     <div className="space-y-1 min-w-[160px]">
       <div className="flex items-center gap-2">
@@ -273,7 +280,7 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
           {inProgress > 0 && <div className="bg-blue-400" style={{ width: pctStr(inProgress) }} title={`In Progress: ${inProgress}`} />}
           {notExecuted > 0 && <div className="bg-muted-foreground/20" style={{ width: pctStr(notExecuted) }} title={`Not Executed: ${notExecuted}`} />}
         </div>
-        <span className={`text-xs font-bold w-9 text-right ${pctColor}`}>{executedPct}%</span>
+        <span className={`text-xs font-bold w-9 text-right ${pctColor}`} title="Pass %">{passPct}%</span>
       </div>
       <div className="flex gap-2 flex-wrap text-[10px]">
         {passed > 0 && <span className="text-green-700 font-medium">{passed} Pass</span>}
@@ -312,26 +319,6 @@ export default function TestCasesExecution() {
     { id: 4, name: "Env 4" }, { id: 5, name: "Env 5" }, { id: 6, name: "Env 6" },
     { id: 7, name: "Env 7" },
   ];
-
-  const DEFAULT_QUICK_FORM = {
-    name: "", redmineId: "", status: "new", priority: "Medium",
-    projectId: "", tracker: "",
-    assigneeIds: [] as number[], environmentIds: [] as number[],
-    startDate: "", dueDate: "", actualStartDate: "", actualEndDate: "",
-    estimatedHours: "", actualHours: "", completionPercentage: "", notes: "",
-  };
-
-  const [quickTaskOpen, setQuickTaskOpen] = useState(false);
-  const [quickTaskForm, setQuickTaskForm] = useState(DEFAULT_QUICK_FORM);
-  const [quickTaskModules, setQuickTaskModules] = useState<number[]>([]);
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
-
-  const toggleQuickTaskArrayItem = (key: "assigneeIds" | "environmentIds", id: number) => {
-    setQuickTaskForm(prev => {
-      const arr = prev[key] || [];
-      return { ...prev, [key]: arr.includes(id) ? arr.filter(i => i !== id) : [...arr, id] };
-    });
-  };
 
   const [trackers, setTrackers] = useState<TrackerOption[]>([]);
 
@@ -706,15 +693,15 @@ export default function TestCasesExecution() {
     return [...filteredFiles].sort((a, b) => {
       let av: string, bv: string;
       if (sortKey === "status") {
-        av = getTaskForFile(a)?.status ?? "";
-        bv = getTaskForFile(b)?.status ?? "";
+        av = a.milestoneStatus ?? "";
+        bv = b.milestoneStatus ?? "";
       } else {
         av = String((a as any)[sortKey] ?? "");
         bv = String((b as any)[sortKey] ?? "");
       }
       return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
     });
-  }, [filteredFiles, sortKey, sortDir, tasks]);
+  }, [filteredFiles, sortKey, sortDir]);
 
   // ─── Requirement auto-fill ─────────────────────────────────────────────────
   const handleRequirementChange = (reqId: string) => {
@@ -957,60 +944,6 @@ export default function TestCasesExecution() {
     await doCreateFile(null);
   };
 
-  const handleCreateQuickTask = async () => {
-    if (!quickTaskForm.name.trim() || !quickTaskForm.projectId || quickTaskModules.length === 0) {
-      toast({ variant: "destructive", title: "Task name, project, and module are required" });
-      return;
-    }
-    setIsCreatingTask(true);
-    try {
-      const token = localStorage.getItem("qa_pulse_token");
-      const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          name: quickTaskForm.name.trim(),
-          redmineId: quickTaskForm.redmineId || undefined,
-          status: quickTaskForm.status,
-          priority: quickTaskForm.priority,
-          projectId: quickTaskForm.projectId ? Number(quickTaskForm.projectId) : undefined,
-          moduleId: quickTaskModules[0],
-          moduleIds: quickTaskModules.join(","),
-          assigneeIds: quickTaskForm.assigneeIds.length ? quickTaskForm.assigneeIds : undefined,
-          environmentIds: quickTaskForm.environmentIds.length ? quickTaskForm.environmentIds : undefined,
-          startDate: quickTaskForm.startDate || undefined,
-          dueDate: quickTaskForm.dueDate || undefined,
-          actualStartDate: quickTaskForm.actualStartDate || undefined,
-          actualEndDate: quickTaskForm.actualEndDate || undefined,
-          estimatedHours: quickTaskForm.estimatedHours ? Number(quickTaskForm.estimatedHours) : undefined,
-          actualHours: quickTaskForm.actualHours ? Number(quickTaskForm.actualHours) : undefined,
-          completionPercentage: quickTaskForm.completionPercentage ? Number(quickTaskForm.completionPercentage) : undefined,
-          tracker: quickTaskForm.tracker || undefined,
-          notes: quickTaskForm.notes || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      const tasksData = await fetch("/api/tasks", { headers }).then(r => r.ok ? r.json() : []);
-      setTasks((tasksData || []).filter((t: any) => t.redmineId).map((t: any) => ({
-        id: t.id,
-        redmineId: String(t.redmineId),
-        status: t.status,
-        name: t.name,
-        assigneeNames: t.assigneeNames || [],
-        priority: t.priority || "",
-      })));
-      toast({ title: "Task created successfully" });
-      setQuickTaskOpen(false);
-      setQuickTaskForm(DEFAULT_QUICK_FORM);
-      setQuickTaskModules([]);
-    } catch {
-      toast({ variant: "destructive", title: "Failed to create task" });
-    } finally {
-      setIsCreatingTask(false);
-    }
-  };
-
   const handleSelectAll = (checked: boolean) => {
     setSelectedFiles(checked ? filteredFiles.map(f => f.id) : []);
   };
@@ -1143,7 +1076,7 @@ export default function TestCasesExecution() {
                 <TableHead className="border-r border-border px-4 py-3">Priority</TableHead>
                 <TableHead className="border-r border-border">Execution Progress</TableHead>
                 <TableHead className={thClass} onClick={() => handleSort("status")}>
-                  <div className="flex items-center gap-1">Task Status <SortIcon k="status" /></div>
+                  <div className="flex items-center gap-1">Milestone Status <SortIcon k="status" /></div>
                 </TableHead>
                 <TableHead className={thClass} onClick={() => handleSort("updatedAt")}>
                   <div className="flex items-center gap-1">Last Modified <SortIcon k="updatedAt" /></div>
@@ -1153,8 +1086,9 @@ export default function TestCasesExecution() {
             </TableHeader>
             <TableBody>
               {sortedFiles.map(f => {
-                const task = getTaskForFile(f);
-                const statusInfo = task ? (TASK_STATUS_LABELS[task.status] ?? { label: task.status, color: "bg-slate-100 text-slate-700" }) : null;
+                const milestoneStatusInfo = f.milestoneStatus
+                  ? (MILESTONE_STATUS_LABELS[f.milestoneStatus] ?? { label: f.milestoneStatus, color: "bg-slate-100 text-slate-700" })
+                  : null;
                 const prog = progress[f.redmineTicketId];
                 return (
                   <TableRow key={f.id} className="border-b border-border hover:bg-muted/20 cursor-pointer" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
@@ -1165,11 +1099,11 @@ export default function TestCasesExecution() {
                     </TableCell>
                     <TableCell className="border-r border-border font-bold text-primary">#{f.redmineTicketId}</TableCell>
                     <TableCell className="border-r border-border">{getTaskForFile(f)?.name || f.title || "—"}</TableCell>
-                    <TableCell className="border-r border-border">{task?.assigneeNames?.join(", ") || "—"}</TableCell>
+                    <TableCell className="border-r border-border">{f.qaPic || "—"}</TableCell>
                     <TableCell className="border-r border-border">
-                      {task?.priority ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${PRIORITY_COLORS[task.priority] ?? "bg-slate-100 text-slate-700 border-slate-200"}`}>
-                          {task.priority}
+                      {f.milestonePriority ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${PRIORITY_COLORS[f.milestonePriority] ?? "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                          {f.milestonePriority}
                         </span>
                       ) : "—"}
                     </TableCell>
@@ -1177,25 +1111,16 @@ export default function TestCasesExecution() {
                       <MiniProgressBar data={prog} />
                     </TableCell>
                     <TableCell className="border-r border-border">
-                      {statusInfo ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusInfo.color}`}>
-                          {statusInfo.label}
+                      {milestoneStatusInfo ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${milestoneStatusInfo.color}`}>
+                          {milestoneStatusInfo.label}
                         </span>
                       ) : (
                         <button
                           className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
-                          onClick={e => {
-                            e.stopPropagation();
-                            setQuickTaskForm({ ...DEFAULT_QUICK_FORM, redmineId: f.redmineTicketId, name: f.title || "", projectId: f.projectId ? String(f.projectId) : "", tracker: f.tracker || "" });
-                            const preSelectedIds = f.selectedModules
-                              ? f.selectedModules.split(",").map((s: string) => s.trim().toLowerCase())
-                                  .flatMap((name: string) => modules.filter(m => m.name.trim().toLowerCase() === name).map(m => m.id))
-                              : [];
-                            setQuickTaskModules(preSelectedIds);
-                            setQuickTaskOpen(true);
-                          }}
+                          onClick={e => { e.stopPropagation(); openEditFile(f); }}
                         >
-                          <AlertCircle className="w-3 h-3" /> No task
+                          <AlertCircle className="w-3 h-3" /> No milestone
                         </button>
                       )}
                     </TableCell>
@@ -1216,7 +1141,7 @@ export default function TestCasesExecution() {
                           onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
                           <Edit className="w-4 h-4" />
                         </Button>
-                        {task && isFullyExecuted(prog) && (
+                        {isFullyExecuted(prog) && (
                           <Button variant="ghost" size="sm" title="Send Verdict Now"
                             className="text-green-600 hover:text-green-800 hover:bg-green-50"
                             onClick={e => {
@@ -1296,223 +1221,6 @@ export default function TestCasesExecution() {
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)} disabled={isDeleting}>Cancel</Button>
             <Button variant="destructive" onClick={executeDelete} disabled={isDeleting}>
               {isDeleting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting...</> : "Confirm Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* New Task dialog */}
-      <Dialog open={quickTaskOpen} onOpenChange={open => { setQuickTaskOpen(open); if (!open) { setQuickTaskForm(DEFAULT_QUICK_FORM); setQuickTaskModules([]); } }}>
-        <DialogContent className="max-w-3xl w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>New Task</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-6 py-2">
-            {/* GROUP 1: Core Identifiers */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Task Name *</Label>
-                <Input placeholder="Task name" value={quickTaskForm.name} onChange={e => setQuickTaskForm({ ...quickTaskForm, name: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Redmine ID</Label>
-                <Input placeholder="e.g. 29303" value={quickTaskForm.redmineId} onChange={e => setQuickTaskForm({ ...quickTaskForm, redmineId: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <SearchableSelect value={quickTaskForm.status} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, status: v })}
-                  options={[
-                    { value: "new", label: "New" },
-                    { value: "pending", label: "Pending" },
-                    { value: "in_progress", label: "In Progress" },
-                    { value: "blocked", label: "Blocked" },
-                    { value: "uat", label: "UAT" },
-                    { value: "sit", label: "SIT" },
-                    { value: "done", label: "Done" },
-                    { value: "released_to_production", label: "Released" },
-                  ]}
-                  searchPlaceholder="Search status..."
-                />
-              </div>
-            </div>
-
-            {/* GROUP 2: Classification */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border p-4 rounded-lg bg-muted/5">
-              <div className="space-y-1.5">
-                <Label>Project <span className="text-destructive">*</span></Label>
-                <SearchableSelect value={quickTaskForm.projectId} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, projectId: v })}
-                  options={projects.map(p => ({ value: String(p.id), label: p.name }))}
-                  placeholder="Select Project..."
-                  searchPlaceholder="Search project..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Priority</Label>
-                <SearchableSelect value={quickTaskForm.priority} onValueChange={v => setQuickTaskForm({ ...quickTaskForm, priority: v })}
-                  options={[
-                    { value: "Critical", label: "Critical" },
-                    { value: "High", label: "High" },
-                    { value: "Medium", label: "Medium" },
-                    { value: "Low", label: "Low" },
-                  ]}
-                  searchPlaceholder="Search..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tracker</Label>
-                <SearchableSelect
-                  value={quickTaskForm.tracker}
-                  onValueChange={v => setQuickTaskForm({ ...quickTaskForm, tracker: v })}
-                  options={[
-                    { value: "", label: "None" },
-                    ...trackers.map(t => ({ value: t.name, label: t.name })),
-                    ...(quickTaskForm.tracker && !trackers.some(t => t.name === quickTaskForm.tracker)
-                      ? [{ value: quickTaskForm.tracker, label: quickTaskForm.tracker }]
-                      : []),
-                  ]}
-                  placeholder="Select tracker..."
-                  searchPlaceholder="Search tracker..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Module <span className="text-destructive">*</span></Label>
-                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
-                  {modules.map(m => (
-                    <label key={m.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
-                      <Checkbox
-                        checked={quickTaskModules.includes(m.id)}
-                        onCheckedChange={(checked) => setQuickTaskModules(prev => checked ? [...prev, m.id] : prev.filter(id => id !== m.id))}
-                      />
-                      <span className="text-sm">{m.name}</span>
-                    </label>
-                  ))}
-                </div>
-                {quickTaskModules.length > 0 && <p className="text-xs text-muted-foreground">{quickTaskModules.length} selected</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Environment(s)</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal overflow-hidden min-h-9 h-auto py-1.5 px-3">
-                      {quickTaskForm.environmentIds.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {quickTaskForm.environmentIds.map(id => {
-                            const env = environments.find(e => e.id === id);
-                            return <Badge key={id} variant="secondary" className="font-normal text-xs py-0 h-5">{env?.name || `ID: ${id}`}</Badge>;
-                          })}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">Select Environments...</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[280px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search environments..." />
-                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden" onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}><CommandList className="max-h-none overflow-visible">
-                        <CommandEmpty>No environment found.</CommandEmpty>
-                        <CommandGroup>
-                          {environments.map(env => (
-                            <CommandItem key={env.id} onSelect={() => toggleQuickTaskArrayItem("environmentIds", env.id)} className="flex items-center gap-2 cursor-pointer">
-                              <Checkbox checked={quickTaskForm.environmentIds.includes(env.id)} className="pointer-events-none" />
-                              {env.name}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList></div>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Assignee(s) (QA PIC)</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal overflow-hidden min-h-9 h-auto py-1.5 px-3">
-                      {quickTaskForm.assigneeIds.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {quickTaskForm.assigneeIds.map(id => {
-                            const u = users.find((u: any) => u.id === id);
-                            return <Badge key={id} variant="secondary" className="font-normal text-xs py-0 h-5">{u?.name || `ID: ${id}`}</Badge>;
-                          })}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">Select QA PICs...</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search QA..." />
-                      <div className="max-h-[250px] overflow-y-auto overflow-x-hidden" onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}><CommandList className="max-h-none overflow-visible">
-                        <CommandEmpty>No QA found.</CommandEmpty>
-                        <CommandGroup>
-                          {users.filter((u: any) => u.role === "qa_member" || u.role === "qa_lead").map((u: any) => (
-                            <CommandItem key={u.id} onSelect={() => toggleQuickTaskArrayItem("assigneeIds", u.id)} className="flex items-center gap-2 cursor-pointer">
-                              <Checkbox checked={quickTaskForm.assigneeIds.includes(u.id)} className="pointer-events-none" />
-                              <Avatar className="w-5 h-5">
-                                <AvatarFallback className="text-[9px] bg-primary/10 text-primary">{u.name.substring(0, 2)}</AvatarFallback>
-                              </Avatar>
-                              {u.name}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList></div>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-
-            {/* GROUP 3: Scheduling */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Planned Start Date</Label>
-                <Input type="date" value={quickTaskForm.startDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, startDate: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Planned End Date</Label>
-                <Input type="date" value={quickTaskForm.dueDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, dueDate: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Actual Start Date</Label>
-                <Input type="date" value={quickTaskForm.actualStartDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, actualStartDate: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Actual End Date</Label>
-                <Input type="date" value={quickTaskForm.actualEndDate} onChange={e => setQuickTaskForm({ ...quickTaskForm, actualEndDate: e.target.value })} />
-              </div>
-            </div>
-
-            {/* GROUP 4: Metrics & Notes */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-4">
-              <div className="space-y-1.5">
-                <Label>Est. Hours</Label>
-                <Input type="number" step="0.5" min="0" value={quickTaskForm.estimatedHours} onChange={e => setQuickTaskForm({ ...quickTaskForm, estimatedHours: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Actual Hours</Label>
-                <Input type="number" step="0.5" min="0" value={quickTaskForm.actualHours} onChange={e => setQuickTaskForm({ ...quickTaskForm, actualHours: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Completion %</Label>
-                <Input type="number" min="0" max="100" value={quickTaskForm.completionPercentage} onChange={e => setQuickTaskForm({ ...quickTaskForm, completionPercentage: e.target.value })} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea placeholder="Additional context..." rows={3} value={quickTaskForm.notes} onChange={e => setQuickTaskForm({ ...quickTaskForm, notes: e.target.value })} />
-            </div>
-          </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setQuickTaskOpen(false)} disabled={isCreatingTask}>Cancel</Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={handleCreateQuickTask}
-              disabled={!quickTaskForm.name.trim() || !quickTaskForm.projectId || quickTaskModules.length === 0 || isCreatingTask}
-            >
-              {isCreatingTask ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : "Create Task"}
             </Button>
           </DialogFooter>
         </DialogContent>

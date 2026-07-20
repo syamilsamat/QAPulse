@@ -24,6 +24,9 @@ export interface ExecutionFile {
   projectId?: number | null;
   requirementId?: number | null;
   milestoneId?: number | null;
+  milestoneName?: string | null;
+  milestonePriority?: string | null;
+  milestoneStatus?: string | null;
   updatedAt: string;
 }
 
