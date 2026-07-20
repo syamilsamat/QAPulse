@@ -12,7 +12,8 @@
       "Bash(git commit *)",
       "Bash(awk -F: '$1 > 1235 && $1 < 1650')",
       "Bash(grep -n \"setViewLayout\\\\|localStorage.setItem\\(\\\\`qa_pulse_exec_view\" /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx)",
-      "Bash(awk 'NR==1236,NR==1650 {print NR\": \"$0}' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx)"
+      "Bash(awk 'NR==1236,NR==1650 {print NR\": \"$0}' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx)",
+      "Bash(env)"
     ]
   }
 }
