@@ -1896,6 +1896,13 @@ export default function TestCasesExecutionProgressPage() {
       }));
       const result = await saveTestCases(ticketId, allRows as any, Array.from(deletedDbIds), true);
       if (result?.testCases) applyReturnedRows(result.testCases);
+      if ((result as any)?.blockedResultRows?.length) {
+        toast({
+          variant: "destructive",
+          title: "Some results weren't saved",
+          description: `Linked requirement is blocked: ${(result as any).blockedResultRows.join(", ")}`,
+        });
+      }
       toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
       setHasUnsavedChanges(false);
       setSaveStatus("saved");
@@ -3344,6 +3351,14 @@ export default function TestCasesExecutionProgressPage() {
                           ) : (
                             <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">not linked</span>
                           )}
+                          {(() => {
+                            const linked = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                            return linked?.isBlocked ? (
+                              <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={linked.blockedReason ?? undefined}>
+                                requirement blocked
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                         {mode === "edit" ? (
                           <SearchableSelect
@@ -3433,20 +3448,33 @@ export default function TestCasesExecutionProgressPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
-                          {canEdit ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
-                                <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
-                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
-                                  {status}
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                              {normalizeResultValue(row.result) || "Not Executed"}
-                            </span>
-                          )}
+                          {(() => {
+                            const linkedReq = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                            if (linkedReq?.isBlocked) {
+                              return (
+                                <div className="space-y-1 max-w-[220px]">
+                                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-700 border-red-200">
+                                    <AlertTriangle className="w-3 h-3" /> Requirement blocked
+                                  </span>
+                                  <p className="text-[11px] text-muted-foreground">Cannot execute — {linkedReq.blockedReason}</p>
+                                </div>
+                              );
+                            }
+                            return canEdit ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                  <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                    {status}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                {normalizeResultValue(row.result) || "Not Executed"}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
@@ -3604,6 +3632,14 @@ export default function TestCasesExecutionProgressPage() {
                                           return linked ? (linked.redmineTicketId ? `#${linked.redmineTicketId} — ${linked.title}` : linked.title) : "—";
                                         })()}
                                       </p>
+                                      {(() => {
+                                        const linked = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                                        return linked?.isBlocked ? (
+                                          <span className="inline-block mt-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={linked.blockedReason ?? undefined}>
+                                            requirement blocked
+                                          </span>
+                                        ) : null;
+                                      })()}
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
@@ -3629,20 +3665,30 @@ export default function TestCasesExecutionProgressPage() {
                                     <div className="grid grid-cols-2 gap-3">
                                       <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Result</div>
-                                        {canEdit ? (
-                                          <div className="flex flex-wrap gap-1">
-                                            {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
-                                              <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
-                                                {status}
-                                              </button>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                            {normalizeResultValue(row.result) || "Not Executed"}
-                                          </span>
-                                        )}
+                                        {(() => {
+                                          const linkedReq = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                                          if (linkedReq?.isBlocked) {
+                                            return (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-red-50 text-red-700 border-red-200">
+                                                <AlertTriangle className="w-2.5 h-2.5" /> Blocked
+                                              </span>
+                                            );
+                                          }
+                                          return canEdit ? (
+                                            <div className="flex flex-wrap gap-1">
+                                              {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                                <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                                  {status}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                              {normalizeResultValue(row.result) || "Not Executed"}
+                                            </span>
+                                          );
+                                        })()}
                                       </div>
                                       <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA PIC</div>

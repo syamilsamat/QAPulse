@@ -1055,6 +1055,24 @@ router.post(
         }
       }
 
+      // CR064 — a TC linked to a blocked requirement can't record a new
+      // result until FA/PM unblocks it (same freeze principle as CR063's
+      // dev-handoff freeze). Per-row, not a whole-request reject: a bulk
+      // save that happens to include an already-unchanged blocked row
+      // shouldn't lose everyone else's edits over it — the attempted
+      // change is just silently reverted to whatever was already stored.
+      const incomingReqIds = [...new Set(
+        testCases.map((t: any) => (t.requirementId ? Number(t.requirementId) : null)).filter((id): id is number => id != null),
+      )];
+      const blockedReqIds = new Set<number>(
+        incomingReqIds.length
+          ? (await db.select({ id: requirementsTable.id }).from(requirementsTable)
+              .where(and(inArray(requirementsTable.id, incomingReqIds), eq(requirementsTable.isBlocked, true))))
+              .map((r) => r.id)
+          : [],
+      );
+      const blockedResultRows: string[] = [];
+
       // 3. Upsert incoming rows — UPDATE if DB id exists, INSERT if new
       const insertedRows: any[] = [];
       const processedCases: any[] = [];
@@ -1072,7 +1090,11 @@ router.post(
         }
 
         const existing = existingMap.get(tcId);
-        const newResult = (t.result?.trim() || null) as string | null;
+        let newResult = (t.result?.trim() || null) as string | null;
+        if (t.requirementId && blockedReqIds.has(Number(t.requirementId)) && newResult !== (existing?.result ?? null)) {
+          blockedResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
+          newResult = existing?.result ?? null;
+        }
         const computedExecutedAt =
           newResult && existing?.result !== newResult
             ? now
@@ -1337,6 +1359,10 @@ router.post(
           rowOrder: t.rowOrder,
           _tempId: t._tempId,
         })),
+        // CR064 — any attempted result change reverted because its linked
+        // requirement is blocked (the UI already prevents this, but a stale
+        // page or direct API call could still try).
+        ...(blockedResultRows.length > 0 ? { blockedResultRows } : {}),
       });
     } catch {
       res.status(500).json({ error: "Failed to save test cases" });

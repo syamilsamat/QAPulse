@@ -121,6 +121,8 @@ export interface RequirementOption {
   id: number;
   title: string;
   redmineTicketId?: string | null;
+  isBlocked?: boolean;
+  blockedReason?: string | null;
 }
 
 export const fetchRequirements = async (): Promise<RequirementOption[]> => {
