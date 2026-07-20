@@ -16,7 +16,8 @@
       "Bash(env)",
       "Bash(awk -F: '$1 > 1000 && $1 < 1250')",
       "Bash(awk 'NR>=1290 && NR<=1420 && /res\\\\.json/' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/api-server/src/routes/test-execution.ts)",
-      "Bash(awk -F: '$1>1290 && $1<1450')"
+      "Bash(awk -F: '$1>1290 && $1<1450')",
+      "Bash(grep -rn \"redmineTicketId.*milestone\\\\|milestone.*redmineTicketId\\\\|MS-\\\\${\" /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/api-server/src -i)"
     ]
   }
 }
