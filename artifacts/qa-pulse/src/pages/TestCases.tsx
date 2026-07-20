@@ -1161,7 +1161,7 @@ export default function TestCases() {
     if (!tcToClone || !cloneForm.projectId || !cloneForm.module) return;
     setIsCloning(true);
     try {
-      const token = localStorage.getItem("qa_pulse_token");
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
       const res = await fetch(`${getApiUrl()}/test-cases/${tcToClone.id}/clone`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -1189,7 +1189,7 @@ export default function TestCases() {
     const ids = Array.from(selectedIds);
     let successCount = 0;
     try {
-      const token = localStorage.getItem("qa_pulse_token");
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
       await Promise.all(
         ids.map(async (id) => {
           const res = await fetch(`${getApiUrl()}/test-cases/${id}/clone`, {
@@ -1251,7 +1251,7 @@ export default function TestCases() {
 
   const handleCompileChooseExisting = async () => {
     try {
-      const token = localStorage.getItem("qa_pulse_token");
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
       const res = await fetch(`${getApiUrl()}/execution-files`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -1277,7 +1277,7 @@ export default function TestCases() {
       libraryTcId: tc.id,
       result: "Not Executed",
     }));
-    const token = localStorage.getItem("qa_pulse_token");
+    const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers.Authorization = `Bearer ${token}`;
     setIsCompiling(true);
@@ -2522,7 +2522,7 @@ export default function TestCases() {
                   {compileNewForm.projectId && (
                     <MilestonePicker
                       projectId={compileNewForm.projectId}
-                      token={localStorage.getItem("qa_pulse_token")}
+                      token={localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token")}
                       value={compileNewForm.milestoneId}
                       onChange={(v) => setCompileNewForm({ ...compileNewForm, milestoneId: v })}
                       required

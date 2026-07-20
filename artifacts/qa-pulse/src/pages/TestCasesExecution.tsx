@@ -478,7 +478,12 @@ export default function TestCasesExecution() {
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
 
   const getHeaders = () => {
-    const token = localStorage.getItem("qa_pulse_token");
+    // The JWT lives in localStorage only when "Remember Me" was checked at
+    // login — otherwise it's sessionStorage (see AuthContext). Missing this
+    // fallback meant every fetch using this helper 401'd for any user who
+    // didn't check that box, including the execution-progress/tasks/
+    // requirements/users calls this page's initial load depends on.
+    const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
     return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   };
 

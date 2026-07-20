@@ -1401,7 +1401,8 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   const getHeaders = () => {
-    const token = localStorage.getItem("qa_pulse_token");
+    // Token lives in sessionStorage unless "Remember Me" was checked — see AuthContext.
+    const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
     return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   };
 
@@ -2048,7 +2049,7 @@ export default function TestCasesExecutionProgressPage() {
       if (currentFileTracker) params.set("issueType", currentFileTracker);
       if (currentUser?.name) params.set("senderName", currentUser.name);
 
-      const token = localStorage.getItem("qa_pulse_token");
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
       const res = await fetch(
         `/api/execution-files/${ticketId}/download-excel?${params.toString()}`,
         { headers: token ? { Authorization: `Bearer ${token}` } : {} },
@@ -2104,7 +2105,7 @@ export default function TestCasesExecutionProgressPage() {
     if (!promoteRow || !promoteForm.projectId || !promoteForm.module) return;
     setIsPromoting(true);
     try {
-      const token = localStorage.getItem("qa_pulse_token");
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
       const headers = {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

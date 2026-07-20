@@ -42,7 +42,8 @@ type ExecutionRow = {
 };
 
 const getHeaders = () => {
-  const token = localStorage.getItem("qa_pulse_token");
+  // Token lives in sessionStorage unless "Remember Me" was checked — see AuthContext.
+  const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
   return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 };
 
