@@ -1507,3 +1507,21 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Verified:** built a 4-risk sample export end-to-end outside the running app, rendered to PDF — data lands in the right cells, the live formula computes the correct Red/Yellow/Green/Closed per row, Doc Info project name populates correctly, letterhead intact.
 
 **Scope:** new `risk-log-excel.ts`, `risk-log-template-data.ts`, `assets/risk-log-template.xlsx`; `risks.ts` (+1 route); `RiskRegisterCard.tsx` (export button). No schema changes, no db push.
+
+### CR056 — Risk Register: owner picker + response strategy
+
+**Status: DEPLOYED (2026-07-21)**
+
+**Origin:** studying the Bestinet Risk Log template for CR055 surfaced two real gaps in the live Risk Register, not just the export mapping — investigated by reading the actual form code, not just the schema.
+
+**Bug fix, not a new feature:** `ownerId` already existed in the `risks` table and flowed correctly through `POST`/`PATCH /risks` — but had **zero UI**. No picker in the create/edit dialog, no display in the list. Every risk in the system had `ownerId = null` because there was never a way to set one. Confirmed by grepping the component for "owner" — it appeared exactly once, in the TypeScript interface.
+
+**New field:** `responseStrategy` (avoid | transfer | mitigate | accept) — PMBOK's standard risk-response taxonomy, distinct from the free-text `mitigationPlan` (the "what" vs. mitigationPlan's "how"). The template has a dedicated column (`K`) for this that CR055 always left blank; it's now wired end to end.
+
+**Backend:** `risks` schema +`response_strategy` column (bootstrap `ALTER`, no manual db push). `GET /risks/assignable-users?projectId=X` — lead-tier-gated owner-picker candidates sourced from `project_members` (mirrors CR054's milestone-assignable-users; `/projects/:id/members` is manager-tier, too high for a lead raising a risk on their own project). `GET/POST/PATCH /risks` now resolve and return `ownerName` (batched lookup, available to any project viewer — not gated behind the lead-tier picker endpoint) and accept/validate `responseStrategy`. `GET /risks/export` now writes the response strategy into the template's K column instead of always leaving it blank.
+
+**Frontend:** Owner + Response Strategy selects added to the risk dialog (owner sourced from the new assignable-users endpoint); list row now shows the owner name — or an amber **"No owner"** flag when unset, making the previously-invisible gap visible and actionable.
+
+**Demo data:** `responseStrategy` added to the 5 seeded risks that already had an owner + mitigation plan, mapped to the PMBOK category their actual mitigation narrative implies (e.g. the rewards-tier deferral reads as Avoid, the vendor-engagement risks read as Mitigate, the materialized regulatory-approval risk reads as Accept).
+
+**Scope:** `lib/db` risks schema, `roles.ts` (bootstrap ALTER), `risks.ts` (+1 route, owner-name resolution), `risk-log-excel.ts` (K column), `RiskRegisterCard.tsx`, demo `demo-data.ts`/`seed-demo-data.ts`. No manual db push.

@@ -905,6 +905,7 @@ export interface DemoRisk {
   impact: "low" | "medium" | "high";
   status: "open" | "mitigating" | "closed" | "realized";
   mitigationPlan?: string;
+  responseStrategy?: "avoid" | "transfer" | "mitigate" | "accept";
   ownerKey?: string;
   raisedByKey: string;
 }
@@ -919,7 +920,7 @@ export const RISKS: DemoRisk[] = [
   // low x medium = Low
   {
     key: "risk-scope-rewards-tiers", projectKey: "banking", milestoneKey: "release20", category: "scope", probability: "low", impact: "medium", status: "mitigating",
-    raisedByKey: "siti", ownerKey: "siti", title: "Rewards team may add tiered redemption mid-release",
+    raisedByKey: "siti", ownerKey: "siti", responseStrategy: "avoid", title: "Rewards team may add tiered redemption mid-release",
     mitigationPlan: "FA lead confirmed scope is locked for 2.0; tiered redemption deferred to the 2.1 backlog.",
   },
   // low x high = Medium
@@ -931,7 +932,7 @@ export const RISKS: DemoRisk[] = [
   // medium x low = Low
   {
     key: "risk-cart-merge-ambiguity", projectKey: "portal", milestoneKey: "sprint13", category: "technical", probability: "medium", impact: "low", status: "mitigating",
-    raisedByKey: "devan", ownerKey: "devan", title: "Cart-merge quantity rule still ambiguous for edge cases (out-of-stock mid-merge)",
+    raisedByKey: "devan", ownerKey: "devan", responseStrategy: "mitigate", title: "Cart-merge quantity rule still ambiguous for edge cases (out-of-stock mid-merge)",
     mitigationPlan: "Dev lead scheduled a clarification session with FA this week; interim rule (cap at stock) already implemented as a placeholder.",
   },
   // medium x medium = Medium
@@ -943,13 +944,13 @@ export const RISKS: DemoRisk[] = [
   // medium x high = High
   {
     key: "risk-biometric-license", projectKey: "banking", milestoneKey: "release20", category: "other", probability: "medium", impact: "high", status: "mitigating",
-    raisedByKey: "devan", ownerKey: "devan", title: "Biometric SDK license renewal falls mid-release",
+    raisedByKey: "devan", ownerKey: "devan", responseStrategy: "mitigate", title: "Biometric SDK license renewal falls mid-release",
     mitigationPlan: "Procurement notified six weeks ahead; renewal PO raised and being tracked with the vendor account manager.",
   },
   // high x low = Medium
   {
     key: "risk-legacy-payment-sunset", projectKey: "portal", category: "schedule", probability: "high", impact: "low", status: "closed",
-    raisedByKey: "amir", ownerKey: "amir", title: "Legacy payment gateway sunset date could force emergency rework",
+    raisedByKey: "amir", ownerKey: "amir", responseStrategy: "mitigate", title: "Legacy payment gateway sunset date could force emergency rework",
     mitigationPlan: "Vendor confirmed the sunset date was pushed to Q1 2027 — no longer a near-term risk for Sprint 12/13.",
   },
   // high x medium = High
@@ -961,7 +962,7 @@ export const RISKS: DemoRisk[] = [
   // high x high = Critical
   {
     key: "risk-regulatory-approval", projectKey: "banking", category: "external", probability: "high", impact: "high", status: "realized",
-    raisedByKey: "amir", ownerKey: "amir", title: "Regulatory approval for new fund-transfer limits delayed by central bank",
+    raisedByKey: "amir", ownerKey: "amir", responseStrategy: "accept", title: "Regulatory approval for new fund-transfer limits delayed by central bank",
     description: "Central bank review queue backed up; this risk has materialized and is now the root cause behind Release 2.0's schedule risk.",
     mitigationPlan: "Escalated to the compliance team; approval is now expected to slip Release 2.0 by roughly three weeks.",
   },

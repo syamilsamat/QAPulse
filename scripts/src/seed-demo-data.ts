@@ -441,6 +441,7 @@ async function main() {
         impact: r.impact,
         status: r.status,
         mitigationPlan: r.mitigationPlan ?? null,
+        responseStrategy: r.responseStrategy ?? null,
         ownerId: r.ownerKey ? userIdByKey.get(r.ownerKey) : null,
       },
     });

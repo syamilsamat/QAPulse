@@ -278,6 +278,8 @@ export async function bootstrap() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS risks_project_idx ON risks (project_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS risks_milestone_idx ON risks (milestone_id)`);
+  // CR056 — PMBOK response-strategy category, distinct from the free-text mitigationPlan.
+  await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS response_strategy TEXT`);
 
   // CR037 — stored AI milestone risk assessments (append-only history)
   await pool.query(`

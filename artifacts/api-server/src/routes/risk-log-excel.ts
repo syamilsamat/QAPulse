@@ -9,9 +9,10 @@
  * Column mapping is deliberately honest: QMPulse's risk model doesn't
  * collect every field the template has a slot for (no separate residual
  * post-treatment impact/likelihood assessment, no contingency plan, no
- * discrete "response strategy" enum). Those columns are left blank rather
- * than fabricated — see the per-field comments below for what's inferred
- * vs. what's genuinely absent.
+ * progress-update log). Those columns are left blank rather than
+ * fabricated — see the per-field comments below for what's inferred vs.
+ * what's genuinely absent. CR056 added the response-strategy enum
+ * (Avoid/Transfer/Mitigate/Accept), which now maps to column K.
  */
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -51,6 +52,7 @@ export interface RiskLogRow {
   probability: "Low" | "Medium" | "High"; // -> H
   status: "open" | "mitigating" | "closed" | "realized";
   ownerName: string | null; // -> L: Risk owner
+  responseStrategy: string | null; // -> K: Risk Response Strategy (Avoid/Transfer/Mitigate/Accept)
   mitigationPlan: string | null; // -> M: Describe Response Strategy
   mitigatedDate: string | null;  // -> P: Risk Mitigated date (from closedAt)
 }
@@ -116,15 +118,16 @@ export async function buildRiskLogExcel(
       const status = statusToTemplate(r.status);
       rlSheet.cell(`I${row}`).value(status);
       rlSheet.cell(`J${row}`).formula(riskMapFormula(`G${row}`, `H${row}`, `I${row}`));
+      if (r.responseStrategy) rlSheet.cell(`K${row}`).value(r.responseStrategy);
       if (r.ownerName) rlSheet.cell(`L${row}`).value(r.ownerName);
       if (r.mitigationPlan) rlSheet.cell(`M${row}`).value(r.mitigationPlan);
       const mitigatedDate = fmtDate(r.mitigatedDate);
       if (mitigatedDate) rlSheet.cell(`P${row}`).value(mitigatedDate);
       // Q/R/S/T (post-treatment residual impact/likelihood/status/map),
-      // K (response strategy), N (contingency plan), O (progress update):
-      // QMPulse doesn't collect a separate residual risk assessment or a
-      // discrete response-strategy taxonomy — left blank rather than
-      // inferring values the data doesn't actually support.
+      // N (contingency plan), O (progress update): QMPulse doesn't collect
+      // a separate residual risk assessment or a contingency/progress-log
+      // field — left blank rather than inferring values the data doesn't
+      // actually support.
     });
 
     const out = await wb.outputAsync();
@@ -144,11 +147,11 @@ function buildRiskLogExcelFallback(rows: RiskLogRow[], options: RiskLogBuildOpti
   }
   const header = [
     "Risk ID", "Risk Entry Date", "Risk Description", "Risk Impact on Project", "Risk Area/Category",
-    "Risk Impact", "Risk Likelihood", "Risk Status", "Risk Owner", "Describe Response Strategy", "Risk Mitigated Date",
+    "Risk Impact", "Risk Likelihood", "Risk Status", "Risk Response Strategy", "Risk Owner", "Describe Response Strategy", "Risk Mitigated Date",
   ];
   const data = rows.map((r) => [
     r.riskNumber, r.entryDate ?? "", r.title, r.description ?? "", r.category,
-    r.impact, r.probability, statusToTemplate(r.status), r.ownerName ?? "", r.mitigationPlan ?? "", r.mitigatedDate ?? "",
+    r.impact, r.probability, statusToTemplate(r.status), r.responseStrategy ?? "", r.ownerName ?? "", r.mitigationPlan ?? "", r.mitigatedDate ?? "",
   ]);
   const ws = XlsxSheetJS.utils.aoa_to_sheet([[`Risk Log — ${options.projectName}`], [], header, ...data]);
   const wb = XlsxSheetJS.utils.book_new();

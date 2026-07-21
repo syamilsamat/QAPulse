@@ -48,6 +48,8 @@ export type RiskLevel = "low" | "medium" | "high";
 export type RiskStatus = "open" | "mitigating" | "closed" | "realized";
 export type ScoreBand = "low" | "medium" | "high" | "critical";
 
+export type ResponseStrategy = "avoid" | "transfer" | "mitigate" | "accept";
+
 export interface Risk {
   id: number;
   projectId: number;
@@ -59,7 +61,9 @@ export interface Risk {
   impact: RiskLevel;
   status: RiskStatus;
   mitigationPlan: string | null;
+  responseStrategy: ResponseStrategy | null;
   ownerId: number | null;
+  ownerName: string | null;
   raisedBy: number | null;
   closedAt: string | null;
   createdAt: string;
@@ -82,6 +86,13 @@ const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
   mitigating: "Mitigating",
   closed: "Closed",
   realized: "Realized",
+};
+
+export const RESPONSE_STRATEGY_LABELS: Record<ResponseStrategy, string> = {
+  avoid: "Avoid",
+  transfer: "Transfer",
+  mitigate: "Mitigate",
+  accept: "Accept",
 };
 
 const RISK_STATUS_CLASS: Record<RiskStatus, string> = {
@@ -117,6 +128,7 @@ export const CAN_WRITE_ROLES = ["admin", "qa_lead", "fa_lead", "dev_lead", "pm_l
 const EMPTY_RISK_FORM = {
   title: "", description: "", category: "other", probability: "medium" as RiskLevel,
   impact: "medium" as RiskLevel, status: "open" as RiskStatus, mitigationPlan: "", milestoneId: "none",
+  responseStrategy: "none", ownerId: "none",
 };
 
 function RiskDialog({
@@ -137,10 +149,19 @@ function RiskDialog({
           title: editing.title, description: editing.description ?? "", category: editing.category,
           probability: editing.probability, impact: editing.impact, status: editing.status,
           mitigationPlan: editing.mitigationPlan ?? "", milestoneId: editing.milestoneId ? String(editing.milestoneId) : "none",
+          responseStrategy: editing.responseStrategy ?? "none", ownerId: editing.ownerId ? String(editing.ownerId) : "none",
         }
       : EMPTY_RISK_FORM,
   );
   const [saving, setSaving] = useState(false);
+
+  const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["risks-assignable-users", projectId],
+    queryFn: async () => {
+      const res = await api(`/risks/assignable-users?projectId=${projectId}`, token);
+      return res.ok ? res.json() : [];
+    },
+  });
 
   const handleSave = async () => {
     if (!form.title.trim()) { toast({ variant: "destructive", title: "Title is required" }); return; }
@@ -156,6 +177,8 @@ function RiskDialog({
         impact: form.impact,
         status: form.status,
         mitigationPlan: form.mitigationPlan.trim() || null,
+        responseStrategy: form.responseStrategy === "none" ? null : form.responseStrategy,
+        ownerId: form.ownerId === "none" ? null : Number(form.ownerId),
       };
       const res = editing
         ? await apiWrite(`/risks/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })
@@ -241,6 +264,30 @@ function RiskDialog({
             <Badge variant="outline" className={`text-[10px] font-semibold ${SCORE_BAND_CLASS[riskScoreBand(form.probability, form.impact)]}`}>
               {SCORE_BAND_LABEL[riskScoreBand(form.probability, form.impact)]}
             </Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Response strategy</Label>
+              <Select value={form.responseStrategy} onValueChange={(v) => setForm({ ...form, responseStrategy: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not decided</SelectItem>
+                  {(Object.keys(RESPONSE_STRATEGY_LABELS) as ResponseStrategy[]).map((v) => (
+                    <SelectItem key={v} value={v}>{RESPONSE_STRATEGY_LABELS[v]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Owner</Label>
+              <Select value={form.ownerId} onValueChange={(v) => setForm({ ...form, ownerId: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {assignableUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Mitigation plan</Label>
@@ -360,6 +407,9 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
                     <p className="font-medium truncate">{r.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {RISK_CATEGORY_LABELS[r.category] ?? r.category} · P:{RISK_LEVEL_LABELS[r.probability]} I:{RISK_LEVEL_LABELS[r.impact]} · {milestoneName(r.milestoneId)}
+                      {r.responseStrategy && <> · {RESPONSE_STRATEGY_LABELS[r.responseStrategy]}</>}
+                      {" · "}
+                      {r.ownerName ? <>Owner: {r.ownerName}</> : <span className="text-amber-600 dark:text-amber-500">No owner</span>}
                     </p>
                     {r.mitigationPlan && <p className="text-xs text-muted-foreground italic mt-0.5 truncate">Mitigation: {r.mitigationPlan}</p>}
                   </div>

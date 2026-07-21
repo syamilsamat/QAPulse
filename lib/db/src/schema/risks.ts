@@ -19,6 +19,9 @@ export const risksTable = pgTable(
     impact: text("impact").notNull().default("medium"), // low | medium | high
     status: text("status").notNull().default("open"), // open | mitigating | closed | realized
     mitigationPlan: text("mitigation_plan"),
+    // CR056 — PMBOK's four standard risk response categories, distinct from
+    // the free-text mitigationPlan (the "what" vs. mitigationPlan's "how").
+    responseStrategy: text("response_strategy"), // avoid | transfer | mitigate | accept | null (not yet decided)
     ownerId: integer("owner_id"),
     raisedBy: integer("raised_by"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
