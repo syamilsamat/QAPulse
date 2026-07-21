@@ -11,7 +11,8 @@
  *
  * Optional env vars:
  *   SEED_ADMIN_EMAIL    (default: admin@qapulse.com)
- *   SEED_ADMIN_PASSWORD (default: admin123)
+ *   SEED_ADMIN_PASSWORD (default: password123 — matches the actual code
+ *   default below; this comment previously said "admin123" and didn't)
  */
 
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from "fs";
