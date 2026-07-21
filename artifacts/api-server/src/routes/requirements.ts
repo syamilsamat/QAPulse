@@ -21,6 +21,7 @@ import {
   defectsTable,
   defectLinksTable,
   tasksTable,
+  requirementEventsTable,
 } from "@workspace/db";
 import path from "path";
 import fs from "fs";
@@ -1113,6 +1114,181 @@ router.patch("/requirements/:id/block", async (req, res): Promise<void> => {
   }
 
   res.json(await formatRequirement(updated));
+});
+
+// ─── Requirement Events (CR068) ──────────────────────────────────────────────
+// A lightweight, editable, date-ranged event log (Blocker/Server down/
+// Automation unavailable/custom) — distinct from the CR063 isBlocked flag,
+// which freezes dev/QA actions. This is purely informational and open to any
+// user with access to the requirement, not gated to FA/PM like /block.
+async function requireRequirementAccess(req: any, res: any, id: number) {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return null; }
+  if (requirement.projectId != null) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return null;
+    }
+    if (!(await canAccessModule(ctx.userId, ctx.role, requirement.projectId, requirement.module))) {
+      res.status(403).json({ error: "Access denied to this module" }); return null;
+    }
+  }
+  return { ctx, requirement };
+}
+
+async function formatRequirementEvent(e: typeof requirementEventsTable.$inferSelect) {
+  let createdByName: string | null = null;
+  let updatedByName: string | null = null;
+  if (e.createdBy) {
+    const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, e.createdBy));
+    createdByName = u?.name ?? null;
+  }
+  if (e.updatedBy) {
+    const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, e.updatedBy));
+    updatedByName = u?.name ?? null;
+  }
+  return { ...e, createdByName, updatedByName };
+}
+
+router.get("/requirements/:id/events", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const gate = await requireRequirementAccess(req, res, id);
+  if (!gate) return;
+
+  const events = await db.select().from(requirementEventsTable)
+    .where(eq(requirementEventsTable.requirementId, id))
+    .orderBy(desc(requirementEventsTable.startDate));
+  res.json(await Promise.all(events.map(formatRequirementEvent)));
+});
+
+router.post("/requirements/:id/events", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const gate = await requireRequirementAccess(req, res, id);
+  if (!gate) return;
+  const { ctx, requirement } = gate;
+
+  const { type, description, startDate, endDate } = req.body ?? {};
+  if (typeof type !== "string" || !type.trim()) {
+    res.status(400).json({ error: "type is required" }); return;
+  }
+  const parsedStart = startDate ? new Date(startDate) : null;
+  if (!parsedStart || isNaN(parsedStart.getTime())) {
+    res.status(400).json({ error: "A valid startDate is required" }); return;
+  }
+  const parsedEnd = endDate ? new Date(endDate) : null;
+  if (endDate && (!parsedEnd || isNaN(parsedEnd.getTime()))) {
+    res.status(400).json({ error: "endDate is not a valid date" }); return;
+  }
+
+  const [created] = await db.insert(requirementEventsTable).values({
+    requirementId: id,
+    type: type.trim(),
+    description: description ? String(description).trim() : null,
+    startDate: parsedStart,
+    endDate: parsedEnd,
+    createdBy: ctx.userId,
+  }).returning();
+
+  await logActivity({
+    type: "requirement_event_logged",
+    description: `"${type.trim()}" event logged on "${requirement.title}"`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "requirement",
+    oldValue: null,
+    newValue: { type: created.type, startDate: created.startDate, endDate: created.endDate },
+  });
+
+  res.status(201).json(await formatRequirementEvent(created));
+});
+
+router.patch("/requirements/events/:eventId", async (req, res): Promise<void> => {
+  const eventId = parseInt(req.params.eventId);
+  if (isNaN(eventId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [event] = await db.select().from(requirementEventsTable).where(eq(requirementEventsTable.id, eventId));
+  if (!event) { res.status(404).json({ error: "Event not found" }); return; }
+  const gate = await requireRequirementAccess(req, res, event.requirementId);
+  if (!gate) return;
+  const { ctx, requirement } = gate;
+
+  const { type, description, startDate, endDate } = req.body ?? {};
+  const update: Record<string, any> = { updatedBy: ctx.userId };
+  if (type !== undefined) {
+    if (typeof type !== "string" || !type.trim()) { res.status(400).json({ error: "type cannot be empty" }); return; }
+    update.type = type.trim();
+  }
+  if (description !== undefined) update.description = description ? String(description).trim() : null;
+  if (startDate !== undefined) {
+    const parsed = new Date(startDate);
+    if (isNaN(parsed.getTime())) { res.status(400).json({ error: "startDate is not a valid date" }); return; }
+    update.startDate = parsed;
+  }
+  if (endDate !== undefined) {
+    if (endDate === null || endDate === "") {
+      update.endDate = null;
+    } else {
+      const parsed = new Date(endDate);
+      if (isNaN(parsed.getTime())) { res.status(400).json({ error: "endDate is not a valid date" }); return; }
+      update.endDate = parsed;
+    }
+  }
+
+  const [updated] = await db.update(requirementEventsTable).set(update).where(eq(requirementEventsTable.id, eventId)).returning();
+
+  await logActivity({
+    type: "requirement_event_updated",
+    description: `Event on "${requirement.title}" updated`,
+    userId: ctx.userId,
+    entityId: event.requirementId,
+    entityType: "requirement",
+    oldValue: { type: event.type, startDate: event.startDate, endDate: event.endDate },
+    newValue: { type: updated.type, startDate: updated.startDate, endDate: updated.endDate },
+  });
+
+  res.json(await formatRequirementEvent(updated));
+});
+
+// History Trail — every event across every project the caller can access,
+// joined with its requirement/milestone/project for display without a
+// second round-trip per row.
+router.get("/requirements/events/all", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
+  const rows = await db
+    .select({
+      event: requirementEventsTable,
+      requirementId: requirementsTable.id,
+      requirementTitle: requirementsTable.title,
+      projectId: requirementsTable.projectId,
+      projectName: projectsTable.name,
+      milestoneId: requirementsTable.milestoneId,
+      milestoneName: milestonesTable.name,
+    })
+    .from(requirementEventsTable)
+    .innerJoin(requirementsTable, eq(requirementsTable.id, requirementEventsTable.requirementId))
+    .leftJoin(projectsTable, eq(projectsTable.id, requirementsTable.projectId))
+    .leftJoin(milestonesTable, eq(milestonesTable.id, requirementsTable.milestoneId))
+    .where(accessible === null ? undefined : accessible.length > 0 ? inArray(requirementsTable.projectId, accessible) : sql`false`)
+    .orderBy(desc(requirementEventsTable.startDate));
+
+  const formatted = await Promise.all(rows.map(async (r) => ({
+    ...(await formatRequirementEvent(r.event)),
+    requirementId: r.requirementId,
+    requirementTitle: r.requirementTitle,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    milestoneId: r.milestoneId,
+    milestoneName: r.milestoneName,
+  })));
+
+  res.json(formatted);
 });
 
 // ─── Return to FA (CR053) ────────────────────────────────────────────────────

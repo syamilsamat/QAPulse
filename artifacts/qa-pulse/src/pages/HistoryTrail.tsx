@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getApiUrl, authHeaders } from "@/lib/api";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -13,156 +12,80 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import {
-  History,
-  Search,
-  CalendarRange,
-  Clock,
-  AlertTriangle,
-} from "lucide-react";
-import { format } from "date-fns";
-import type { Task } from "@workspace/api-client-react";
+import { History, Search, CalendarClock } from "lucide-react";
 
-interface TaskEvent {
+// CR068 — History Trail now shows the requirement event log (Blocker/Server
+// down/Automation unavailable/custom), replacing the old ad-hoc task events
+// view. tasksTable stopped growing after CR060's Tasks redesign, so that
+// view would have slowly gone stale; requirement events are the thing users
+// actually log going forward (see RequirementEventsDialog on Tasks.tsx).
+interface RequirementEventRow {
   id: number;
-  taskId: number;
-  title: string;
+  requirementId: number;
+  requirementTitle: string;
+  projectId: number | null;
+  projectName: string | null;
+  milestoneId: number | null;
+  milestoneName: string | null;
+  type: string;
   description: string | null;
-  startDate: string | null;
+  startDate: string;
   endDate: string | null;
-  severity: string;
-  createdBy: number | null;
-  createdAt: string;
+  createdByName: string | null;
 }
 
-// Added the unified color map
-const STATUS_COLORS: Record<string, string> = {
-  uat: "bg-purple-100 text-purple-700",
-  sit: "bg-blue-100 text-blue-700",
-  released_to_production: "bg-green-100 text-green-700",
-  new: "bg-slate-100 text-slate-700",
-  pending: "bg-yellow-100 text-yellow-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  blocked: "bg-red-100 text-red-700",
-  done: "bg-green-100 text-green-700",
+const EVENT_TYPE_CLASSES: Record<string, string> = {
+  Blocker: "bg-red-100 text-red-700 border-red-200",
+  "Server down": "bg-orange-100 text-orange-700 border-orange-200",
+  "Automation unavailable": "bg-amber-100 text-amber-700 border-amber-200",
 };
 
-// Added helper function to format status text beautifully
-function capitalize(s: string) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
-}
-
 export default function HistoryTrail() {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const isAdminOrLead = user?.role === "admin" || user?.role === "qa_lead";
-
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [events, setEvents] = useState<TaskEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [filterAssignee, setFilterAssignee] = useState("all");
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
-  const [eventDialogOpen, setEventDialogOpen] = useState(false);
-  const [eventsLoading, setEventsLoading] = useState(false);
-
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
+  const ITEMS_PER_PAGE = 15;
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [tasksRes, eventsRes] = await Promise.all([
-          fetch("/api/tasks"),
-          fetch("/api/tasks/events/all"),
-        ]);
-        const tasksData = tasksRes.ok ? await tasksRes.json() : [];
-        const eventsData = eventsRes.ok ? await eventsRes.json() : [];
+  const { data: events = [], isLoading } = useQuery<RequirementEventRow[]>({
+    queryKey: ["requirement-events-all"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/requirements/events/all`, { headers: authHeaders() });
+      return res.ok ? res.json() : [];
+    },
+  });
 
-        // Role-based filtering
-        const visibleTasks = isAdminOrLead
-          ? tasksData
-          : tasksData.filter((t: any) => t.assigneeIds?.includes(user?.id));
+  const typeOptions = Array.from(new Set(events.map((e) => e.type))).sort();
 
-        setTasks(visibleTasks);
-        setEvents(eventsData);
-      } catch {
-        toast({ variant: "destructive", title: "Failed to load data" });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadData();
-  }, [user?.id, user?.role, isAdminOrLead, toast]);
-
-  const filtered = (tasks as any[]).filter((t) => {
-    if (filterStatus !== "all" && t.status !== filterStatus) return false;
-    if (filterAssignee !== "all" && !t.assigneeIds?.includes(Number(filterAssignee)))
-      return false;
+  const filtered = events.filter((e) => {
+    if (filterType !== "all" && e.type !== filterType) return false;
+    if (filterStatus === "open" && e.endDate) return false;
+    if (filterStatus === "closed" && !e.endDate) return false;
     if (search) {
       const q = search.toLowerCase();
       const matches =
-        t.name.toLowerCase().includes(q) ||
-        (t.redmineId && t.redmineId.toLowerCase().includes(q)) ||
-        t.assigneeNames?.some((n: string) => n.toLowerCase().includes(q));
+        e.requirementTitle.toLowerCase().includes(q) ||
+        e.type.toLowerCase().includes(q) ||
+        (e.description ?? "").toLowerCase().includes(q) ||
+        (e.milestoneName ?? "").toLowerCase().includes(q);
       if (!matches) return false;
     }
     return true;
   });
 
-  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
-  const paginatedTasks = filtered.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE,
-  );
-
-  const getTaskEvents = (taskId: number) =>
-    events.filter((e) => e.taskId === taskId);
-
-  const openEvents = async (task: Task) => {
-    setSelectedTask(task);
-    setEventDialogOpen(true);
-    setEventsLoading(true);
-    try {
-      const res = await fetch(`/api/tasks/${task.id}/events`);
-      if (res.ok) setTaskEvents(await res.json());
-    } catch {
-      setTaskEvents([]);
-    } finally {
-      setEventsLoading(false);
-    }
-  };
-
-  const uniqueAssignees = Array.from(
-    new Map(
-      (tasks as any[])
-        .flatMap((t) =>
-          (t.assigneeIds ?? []).map((id: number, i: number) => [id, (t.assigneeNames ?? [])[i] ?? ""])
-        )
-        .filter(([id]) => id),
-    ).entries(),
-  );
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
+  const paginated = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <History className="w-7 h-7 text-primary" /> History Trail
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Track task events and activity history
-          </p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <History className="w-7 h-7 text-primary" /> History Trail
+        </h1>
+        <p className="text-muted-foreground mt-1">
+          Blocker, server-down, and other events logged against requirements
+        </p>
       </div>
 
       <Card>
@@ -172,7 +95,7 @@ export default function HistoryTrail() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 className="pl-9"
-                placeholder="Search by task name, redmine ID, or team member..."
+                placeholder="Search by requirement, milestone, type, or description..."
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -181,245 +104,99 @@ export default function HistoryTrail() {
               />
             </div>
             <SearchableSelect
+              value={filterType}
+              onValueChange={(v) => { setFilterType(v); setCurrentPage(1); }}
+              options={[{ value: "all", label: "All Types" }, ...typeOptions.map((t) => ({ value: t, label: t }))]}
+              placeholder="Type"
+              searchPlaceholder="Search type..."
+              className="w-full sm:w-48"
+            />
+            <SearchableSelect
               value={filterStatus}
-              onValueChange={setFilterStatus}
+              onValueChange={(v) => { setFilterStatus(v); setCurrentPage(1); }}
               options={[
-                { value: "all", label: "All Status" },
-                { value: "new", label: "New" },
-                { value: "pending", label: "Pending" },
-                { value: "in_progress", label: "In Progress" },
-                { value: "blocked", label: "Blocked" },
-                { value: "uat", label: "UAT" },
-                { value: "sit", label: "SIT" },
-                { value: "done", label: "Done" },
-                { value: "released_to_production", label: "Released to Production" },
+                { value: "all", label: "All" },
+                { value: "open", label: "Ongoing" },
+                { value: "closed", label: "Ended" },
               ]}
               placeholder="Status"
               searchPlaceholder="Search status..."
               className="w-full sm:w-36"
             />
-            {isAdminOrLead && (
-              <SearchableSelect
-                value={filterAssignee}
-                onValueChange={setFilterAssignee}
-                options={[
-                  { value: "all", label: "All Members" },
-                  ...uniqueAssignees.map(([id, name]) => ({ value: String(id), label: name as string })),
-                ]}
-                placeholder="Assignee"
-                searchPlaceholder="Search assignee..."
-                className="w-full sm:w-40"
-              />
-            )}
           </div>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">
-              Loading...
-            </div>
+            <div className="p-8 text-center text-muted-foreground">Loading...</div>
           ) : filtered.length === 0 ? (
             <div className="p-12 text-center">
               <History className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
-              <p className="text-muted-foreground">No tasks found</p>
+              <p className="text-muted-foreground">No events found</p>
             </div>
           ) : (
-            <div className="flex flex-col w-full">
-              <div className="overflow-x-auto w-full pb-2">
-                <Table className="min-w-[800px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="min-w-[200px]">Task</TableHead>
-                      <TableHead className="whitespace-nowrap">
-                        Status
-                      </TableHead>
-                      <TableHead className="whitespace-nowrap">
-                        Assignee
-                      </TableHead>
-                      <TableHead className="whitespace-nowrap">
-                        Redmine ID
-                      </TableHead>
-                      <TableHead className="whitespace-nowrap">
-                        Events
-                      </TableHead>
-                      <TableHead className="w-10"></TableHead>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[220px]">Requirement</TableHead>
+                    <TableHead>Milestone</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Start</TableHead>
+                    <TableHead>End</TableHead>
+                    <TableHead>Logged By</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginated.map((e) => (
+                    <TableRow key={e.id}>
+                      <TableCell className="max-w-[280px] truncate" title={e.requirementTitle}>{e.requirementTitle}</TableCell>
+                      <TableCell>{e.milestoneName ?? <span className="text-muted-foreground text-xs">—</span>}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={EVENT_TYPE_CLASSES[e.type] ?? "bg-slate-100 text-slate-700 border-slate-200"}>{e.type}</Badge>
+                      </TableCell>
+                      <TableCell>{new Date(e.startDate).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        {e.endDate ? (
+                          new Date(e.endDate).toLocaleDateString()
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-amber-600">
+                            <CalendarClock className="w-3 h-3" /> Ongoing
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>{e.createdByName ?? <span className="text-muted-foreground text-xs">—</span>}</TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedTasks.map((t) => {
-                      const evCount = getTaskEvents(t.id).length;
-                      const hasHighSeverity = getTaskEvents(t.id).some(
-                        (e) => e.severity === "high",
-                      );
-                      return (
-                        <TableRow
-                          key={t.id}
-                          className="hover:bg-muted/40 cursor-pointer"
-                          onClick={() => openEvents(t)}
-                        >
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{t.name}</p>
-                              {t.projectName && (
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {t.projectName}
-                                </p>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {/* Updated to use dynamic STATUS_COLORS mapping */}
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                STATUS_COLORS[t.status] ||
-                                "bg-slate-100 text-slate-700"
-                              }`}
-                            >
-                              {capitalize(t.status)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {(t as any).assigneeNames?.length > 0 ? (
-                              <span className="text-sm">{(t as any).assigneeNames.join(", ")}</span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground italic">
-                                Unassigned
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {t.redmineId ? (
-                              <span className="text-sm font-medium text-primary">
-                                #{t.redmineId}
-                              </span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">
-                                -
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5">
-                              <Badge
-                                variant={evCount > 0 ? "default" : "secondary"}
-                                className="text-xs"
-                              >
-                                {evCount}
-                              </Badge>
-                              {hasHighSeverity && (
-                                <AlertTriangle className="w-3.5 h-3.5 text-destructive" />
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 text-xs"
-                            >
-                              <CalendarRange className="w-3.5 h-3.5 mr-1" />
-                              View
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-t">
-                <div className="text-xs text-muted-foreground">
-                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{" "}
-                  {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of{" "}
-                  {filtered.length} tasks
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() =>
-                      setCurrentPage((p) => Math.min(totalPages, p + 1))
-                    }
-                    disabled={currentPage >= totalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Dialog
-        open={eventDialogOpen}
-        onOpenChange={(o) => !o && setEventDialogOpen(false)}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CalendarRange className="w-4 h-4 text-primary" />
-              Events for {selectedTask?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            {eventsLoading ? (
-              <div className="text-sm text-muted-foreground py-2">
-                Loading events...
-              </div>
-            ) : taskEvents.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-2">
-                No events recorded
-              </div>
-            ) : (
-              taskEvents.map((ev) => (
-                <div key={ev.id} className="border rounded-md p-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{ev.title}</span>
-                    <span
-                      className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        ev.severity === "high"
-                          ? "bg-red-100 text-red-700"
-                          : ev.severity === "medium"
-                            ? "bg-orange-100 text-orange-700"
-                            : "bg-yellow-100 text-yellow-700"
-                      }`}
-                    >
-                      {ev.severity}
-                    </span>
-                  </div>
-                  {ev.description && (
-                    <p className="text-muted-foreground text-xs mt-1">
-                      {ev.description}
-                    </p>
-                  )}
-                  {(ev.startDate || ev.endDate) && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                      <Clock className="w-3 h-3" />
-                      {ev.startDate && format(new Date(ev.startDate), "MMM d")}
-                      {ev.startDate && ev.endDate && " - "}
-                      {ev.endDate && format(new Date(ev.endDate), "MMM d")}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Added {format(new Date(ev.createdAt), "MMM d, yyyy h:mm a")}
-                  </p>
-                </div>
-              ))
-            )}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-1">
+          <div className="text-xs text-muted-foreground">
+            Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} events
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="flex gap-2">
+            <button
+              className="text-xs border rounded-md px-3 py-1.5 disabled:opacity-50"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </button>
+            <button
+              className="text-xs border rounded-md px-3 py-1.5 disabled:opacity-50"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

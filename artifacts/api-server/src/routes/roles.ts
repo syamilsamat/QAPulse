@@ -296,6 +296,25 @@ export async function bootstrap() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`);
 
+  // CR068 — editable event log on a requirement (Blocker/Server down/
+  // Automation unavailable/custom), date-ranged and closeable via endDate.
+  // Replaces the frozen ad-hoc taskEventsTable as what History Trail shows.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS requirement_events (
+      id SERIAL PRIMARY KEY,
+      requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      description TEXT,
+      start_date TIMESTAMPTZ NOT NULL,
+      end_date TIMESTAMPTZ,
+      created_by INTEGER,
+      updated_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS requirement_events_requirement_idx ON requirement_events (requirement_id)`);
+
   // CR039 — Requirement Q&A Chat. conversations/messages predate bootstrap
   // coverage entirely (existed only via an early ad-hoc drizzle-kit push,
   // same class of gap CR037 found for `risks` above) — first bootstrap-owned

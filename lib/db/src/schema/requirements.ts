@@ -54,3 +54,27 @@ export const requirementsTable = pgTable("requirements", {
 export const insertRequirementSchema = createInsertSchema(requirementsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRequirement = z.infer<typeof insertRequirementSchema>;
 export type Requirement = typeof requirementsTable.$inferSelect;
+
+// CR068 — a lightweight, editable event log on a requirement (Blocker, Server
+// down, Automation unavailable, or a custom label), distinct from the CR063
+// isBlocked/blockedReason flag: that's a single current-state gate that
+// freezes dev/QA actions, this is just an informational, date-ranged record
+// (open-ended until endDate is set) any user with access to the requirement
+// can log and later close out. Replaces the old ad-hoc taskEventsTable
+// (lib/db/src/schema/tasks.ts) as what the Tasks/History Trail pages surface,
+// since that table is hard-FK'd to the now-frozen ad-hoc tasksTable and can't
+// attach to a requirement.
+export const requirementEventsTable = pgTable("requirement_events", {
+  id: serial("id").primaryKey(),
+  requirementId: integer("requirement_id").notNull(),
+  type: text("type").notNull(), // e.g. "Blocker" | "Server down" | "Automation unavailable" | custom text
+  description: text("description"),
+  startDate: timestamp("start_date", { withTimezone: true }).notNull(),
+  endDate: timestamp("end_date", { withTimezone: true }),
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type RequirementEvent = typeof requirementEventsTable.$inferSelect;

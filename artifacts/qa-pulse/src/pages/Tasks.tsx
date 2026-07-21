@@ -14,7 +14,10 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { CheckSquare, Search, Download, Loader2, UserCheck, Users } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus } from "lucide-react";
 
 // CR060 — Tasks is now a read-only, auto-populated rollup of requirements
 // within their milestones (no manual creation). One row per requirement that
@@ -137,6 +140,260 @@ function PhaseTimelinePanel({ timeline }: { timeline: PhaseTimelineEntry[] }) {
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+// CR068 — event log per requirement (Blocker/Server down/Automation
+// unavailable/custom). Open to any user with access to the requirement, not
+// gated to lead-tier like AssignPopover — this is informational logging, not
+// a workflow action.
+interface RequirementEvent {
+  id: number;
+  requirementId: number;
+  type: string;
+  description: string | null;
+  startDate: string;
+  endDate: string | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+}
+
+const EVENT_TYPE_PRESETS = ["Blocker", "Server down", "Automation unavailable", "Other"];
+
+const EVENT_TYPE_CLASSES: Record<string, string> = {
+  Blocker: "bg-red-100 text-red-700 border-red-200",
+  "Server down": "bg-orange-100 text-orange-700 border-orange-200",
+  "Automation unavailable": "bg-amber-100 text-amber-700 border-amber-200",
+};
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+interface EventFormState {
+  type: string;
+  customType: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+}
+
+const emptyEventForm = (): EventFormState => ({ type: EVENT_TYPE_PRESETS[0], customType: "", description: "", startDate: todayStr(), endDate: "" });
+const resolveEventType = (f: EventFormState) => (f.type === "Other" ? f.customType.trim() : f.type);
+
+function RequirementEventsDialog({ requirementId, requirementTitle }: { requirementId: number; requirementTitle: string }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [events, setEvents] = useState<RequirementEvent[]>([]);
+  const [form, setForm] = useState<EventFormState>(emptyEventForm());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<EventFormState>(emptyEventForm());
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/requirements/${requirementId}/events`, { headers: authHeaders() });
+      setEvents(res.ok ? await res.json() : []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenChange = (o: boolean) => {
+    setOpen(o);
+    if (o) {
+      setForm(emptyEventForm());
+      setEditingId(null);
+      load();
+    }
+  };
+
+  const handleAdd = async () => {
+    const type = resolveEventType(form);
+    if (!type) { toast({ variant: "destructive", title: "Type is required" }); return; }
+    if (!form.startDate) { toast({ variant: "destructive", title: "Start date is required" }); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/requirements/${requirementId}/events`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ type, description: form.description || undefined, startDate: form.startDate, endDate: form.endDate || undefined }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to log event");
+      toast({ title: "Event logged" });
+      setForm(emptyEventForm());
+      await load();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (ev: RequirementEvent) => {
+    setEditingId(ev.id);
+    const isPreset = EVENT_TYPE_PRESETS.slice(0, -1).includes(ev.type);
+    setEditForm({
+      type: isPreset ? ev.type : "Other",
+      customType: isPreset ? "" : ev.type,
+      description: ev.description ?? "",
+      startDate: ev.startDate.slice(0, 10),
+      endDate: ev.endDate ? ev.endDate.slice(0, 10) : "",
+    });
+  };
+
+  const handleSaveEdit = async (eventId: number) => {
+    const type = resolveEventType(editForm);
+    if (!type) { toast({ variant: "destructive", title: "Type is required" }); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/requirements/events/${eventId}`, {
+        method: "PATCH",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ type, description: editForm.description || null, startDate: editForm.startDate, endDate: editForm.endDate || null }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to update event");
+      toast({ title: "Event updated" });
+      setEditingId(null);
+      await load();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEndNow = async (ev: RequirementEvent) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/requirements/events/${ev.id}`, {
+        method: "PATCH",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ endDate: todayStr() }),
+      });
+      if (!res.ok) throw new Error("Failed to close out event");
+      await load();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const hasOpenEvent = events.some((e) => !e.endDate);
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7" title="Log / view events">
+          <AlertTriangle className={`w-3.5 h-3.5 ${hasOpenEvent ? "text-destructive" : ""}`} />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-base">Events — {requirementTitle}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 py-1">
+          {loading ? (
+            <div className="text-sm text-muted-foreground py-4 text-center">Loading...</div>
+          ) : events.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-2">No events logged yet.</div>
+          ) : (
+            events.map((ev) => (
+              <div key={ev.id} className="border rounded-md p-3 text-sm space-y-2">
+                {editingId === ev.id ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        className="border rounded-md h-9 px-2 text-sm bg-background"
+                        value={editForm.type}
+                        onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+                      >
+                        {EVENT_TYPE_PRESETS.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      {editForm.type === "Other" && (
+                        <Input placeholder="Custom type" value={editForm.customType} onChange={(e) => setEditForm({ ...editForm, customType: e.target.value })} />
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Start Date</Label>
+                        <Input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">End Date (optional)</Label>
+                        <Input type="date" value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} />
+                      </div>
+                    </div>
+                    <Textarea placeholder="Description (optional)" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={2} />
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                      <Button size="sm" onClick={() => handleSaveEdit(ev.id)} disabled={saving}>Save</Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className={EVENT_TYPE_CLASSES[ev.type] ?? "bg-slate-100 text-slate-700 border-slate-200"}>{ev.type}</Badge>
+                      {!ev.endDate && (
+                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => handleEndNow(ev)} disabled={saving}>End now</Button>
+                      )}
+                    </div>
+                    {ev.description && <p className="text-muted-foreground text-xs">{ev.description}</p>}
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <CalendarClock className="w-3 h-3" />
+                      {new Date(ev.startDate).toLocaleDateString()}
+                      {" – "}
+                      {ev.endDate ? new Date(ev.endDate).toLocaleDateString() : <span className="italic">ongoing</span>}
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Logged by {ev.createdByName ?? "—"}</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => startEdit(ev)}>Edit</Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Log new event</p>
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              className="border rounded-md h-9 px-2 text-sm bg-background"
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+            >
+              {EVENT_TYPE_PRESETS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {form.type === "Other" && (
+              <Input placeholder="Custom type" value={form.customType} onChange={(e) => setForm({ ...form, customType: e.target.value })} />
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Start Date</Label>
+              <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">End Date (optional)</Label>
+              <Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+            </div>
+          </div>
+          <Textarea placeholder="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} />
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleAdd} disabled={saving}>
+              {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
+              Add Event
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -460,13 +717,14 @@ export default function Tasks() {
                   <TableHead>Assignee</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Progress</TableHead>
+                  <TableHead className="w-10" />
                   {canAssign && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canAssign ? 8 : 7} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={canAssign ? 9 : 8} className="text-center text-muted-foreground py-10">
                       No tasks match your filters.
                     </TableCell>
                   </TableRow>
@@ -508,6 +766,9 @@ export default function Tasks() {
                               <span className="text-xs text-muted-foreground">{r.progress}%</span>
                             </div>
                           </TableCell>
+                          <TableCell>
+                            <RequirementEventsDialog requirementId={r.requirementId} requirementTitle={r.title} />
+                          </TableCell>
                           {canAssign && (
                             <TableCell>
                               <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
@@ -516,7 +777,7 @@ export default function Tasks() {
                         </TableRow>
                         {isExpanded && (
                           <TableRow className="hover:bg-transparent">
-                            <TableCell colSpan={canAssign ? 8 : 7} className="bg-muted/10 py-3">
+                            <TableCell colSpan={canAssign ? 9 : 8} className="bg-muted/10 py-3">
                               <PhaseTimelinePanel timeline={r.phaseTimeline} />
                             </TableCell>
                           </TableRow>
