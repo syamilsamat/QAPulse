@@ -116,6 +116,11 @@ export interface DemoMilestone {
   // to completed via PATCH (as closedByKey) so closedBy/completedAt are
   // stamped through the real flow instead of being backfilled at creation.
   lessonsLearned?: string;
+  // Classification for the Lessons Learnt export's Type column. Left unset
+  // on purpose for milestones whose note genuinely mixes what-went-wrong
+  // and what-went-right in one paragraph — forcing a single type there
+  // would misrepresent it (see lessons-learned-excel.ts's own reasoning).
+  lessonsLearnedType?: "what_went_wrong" | "what_went_right" | "best_practice";
   closedByKey?: string;
 }
 
@@ -128,6 +133,7 @@ export const MILESTONES: DemoMilestone[] = [
     key: "sprint10", projectKey: "portal", name: "Sprint 10", type: "sprint", status: "completed", targetDate: "2026-04-15",
     startDate: "2026-03-16", reqTargetDate: "2026-03-24", devTargetDate: "2026-04-03", qaTargetDate: "2026-04-10", uatTargetDate: "2026-04-15", goLiveDate: "2026-04-17", environment: "ENV1",
     lessonsLearned: "Smoothest sprint of the quarter — small, well-sliced requirements meant QA turned everything around in under a week. Worth protecting this scope discipline as the team takes on the checkout work.",
+    lessonsLearnedType: "best_practice",
     closedByKey: "amir",
   },
   {

@@ -57,6 +57,7 @@ interface Milestone {
   goLiveDate: string | null;
   environment: string | null;
   lessonsLearned: string | null;
+  lessonsLearnedType: string | null;
   closedBy: number | null;
   createdAt: string;
   updatedAt: string;
@@ -85,6 +86,13 @@ const TYPE_OPTIONS = [
 ];
 
 const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
+
+// Matches the "Lessons Learnt Type" dropdown in Bestinet's export template exactly.
+const LESSON_TYPE_OPTIONS = [
+  { value: "what_went_wrong", label: "What went wrong" },
+  { value: "what_went_right", label: "What went right" },
+  { value: "best_practice", label: "Best Practice" },
+];
 
 const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
@@ -142,7 +150,7 @@ export default function Milestones() {
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -227,7 +235,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "" });
+    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none" });
     setDialogOpen(true);
   };
 
@@ -247,6 +255,7 @@ export default function Milestones() {
       goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
       environment: m.environment ?? "none",
       lessonsLearned: m.lessonsLearned ?? "",
+      lessonsLearnedType: m.lessonsLearnedType ?? "none",
     });
     setDialogOpen(true);
   };
@@ -271,6 +280,7 @@ export default function Milestones() {
         goLiveDate: form.goLiveDate || null,
         environment: form.environment === "none" ? null : form.environment,
         lessonsLearned: form.lessonsLearned.trim() || null,
+        lessonsLearnedType: form.lessonsLearnedType === "none" ? null : form.lessonsLearnedType,
       };
       const res = editing
         ? await api(`/milestones/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })
@@ -546,7 +556,18 @@ export default function Milestones() {
             )}
             {form.status === "completed" && (
               <div className="space-y-1.5">
-                <Label>Lessons Learned</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <Label>Lessons Learned</Label>
+                  <Select value={form.lessonsLearnedType} onValueChange={(v) => setForm({ ...form, lessonsLearnedType: v })}>
+                    <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not classified</SelectItem>
+                      {LESSON_TYPE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Textarea
                   placeholder="What went well, what to improve next time…"
                   value={form.lessonsLearned}

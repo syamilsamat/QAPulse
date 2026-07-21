@@ -11,12 +11,13 @@
  * Best Practice). QMPulse captures lessons learned as a single free-text
  * field per milestone at Closing (CR033p1) — one blob that can genuinely
  * mix all three types in one paragraph (see the source template's own
- * sample data, which did exactly this). Rather than guess a Type that
- * misrepresents mixed content, Type ships blank — the column's dropdown
- * validation survives the export, so a human can classify it afterward.
- * Phase is filled honestly as "Project Closure": that's literally always
- * when QMPulse captures this field, never invented per-row detail.
- * Comments carries the milestone name, since one export can span several
+ * sample data, which did exactly this). Type now writes the PM's own
+ * classification (milestones.lessonsLearnedType, added as a fast-follow)
+ * when they picked one; ships blank otherwise, with the column's dropdown
+ * validation still intact so it can be classified by hand later. Phase is
+ * filled honestly as "Project Closure": that's literally always when
+ * QMPulse captures this field, never invented per-row detail. Comments
+ * carries the milestone name, since one export can span several
  * milestones and the reader needs to know which is which.
  */
 import { readFileSync } from "fs";
@@ -51,6 +52,9 @@ export interface LessonLogRow {
   milestoneName: string;   // -> G: Comments (which milestone this row is about)
   description: string;     // -> E: Description (the lessonsLearned text, verbatim)
   submittedDate: string | null; // -> F: Date Submitted (milestone.completedAt)
+  // -> D: Lessons Learnt Type. Null when the PM hasn't classified it — the
+  // column's dropdown validation stays intact either way for manual entry.
+  lessonType: string | null;
 }
 
 export interface LessonLogHistoryRow {
@@ -104,7 +108,9 @@ export async function buildLessonsLearnedExcel(
       const row = FIRST_ROW + i;
       llSheet.cell(`B${row}`).value(i + 1);
       llSheet.cell(`C${row}`).value("Project Closure");
-      // D (Type) intentionally left blank — see file header comment.
+      // D (Type): real value if the PM classified it; otherwise blank —
+      // the column's dropdown validation stays available either way.
+      if (r.lessonType) llSheet.cell(`D${row}`).value(r.lessonType);
       llSheet.cell(`E${row}`).value(r.description);
       const submitted = fmtDate(r.submittedDate);
       if (submitted) llSheet.cell(`F${row}`).value(submitted);
@@ -125,7 +131,7 @@ function buildFallback(rows: LessonLogRow[], options: LessonLogBuildOptions): Bu
     return null;
   }
   const header = ["Sl#", "Phase", "Lessons Learnt Type", "Description", "Date Submitted", "Comments"];
-  const data = rows.map((r, i) => [i + 1, "Project Closure", "", r.description, r.submittedDate ?? "", r.milestoneName]);
+  const data = rows.map((r, i) => [i + 1, "Project Closure", r.lessonType ?? "", r.description, r.submittedDate ?? "", r.milestoneName]);
   const ws = XlsxSheetJS.utils.aoa_to_sheet([[`Lessons Learnt — ${options.projectName}`], [], header, ...data]);
   const wb = XlsxSheetJS.utils.book_new();
   XlsxSheetJS.utils.book_append_sheet(wb, ws, "Lessons Learnt");

@@ -30,6 +30,10 @@ export const milestonesTable = pgTable("milestones", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   // CR033 — retrospective fields, filled in on/after the 'completed' transition
   lessonsLearned: text("lessons_learned"),
+  // CR057 follow-up — matches the "Lessons Learnt Type" dropdown in
+  // Bestinet's official export template exactly: 'what_went_wrong' |
+  // 'what_went_right' | 'best_practice'. Null when not yet classified.
+  lessonsLearnedType: text("lessons_learned_type"),
   closedBy: integer("closed_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

@@ -172,6 +172,9 @@ export async function bootstrap() {
   // CR060 — PM-set milestone urgency (Low/Medium/High/Critical), shown on the
   // redesigned Tasks page alongside per-requirement phase status.
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS priority TEXT`);
+  // CR057 follow-up — classifies the lessons-learned text (matches the
+  // "Lessons Learnt Type" dropdown in Bestinet's export template).
+  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS lessons_learned_type TEXT`);
 
   // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
   await pool.query(`

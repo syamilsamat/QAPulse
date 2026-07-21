@@ -178,7 +178,7 @@ async function main() {
       const closerToken = tokenByKey.get(m.closedByKey)!;
       await api(`/milestones/${milestone.id}`, closerToken, {
         method: "PATCH",
-        body: { status: "completed", lessonsLearned: m.lessonsLearned ?? null },
+        body: { status: "completed", lessonsLearned: m.lessonsLearned ?? null, lessonsLearnedType: m.lessonsLearnedType ?? null },
       });
     }
     console.log(`  + ${m.name} — ${m.status}, due ${m.targetDate}`);

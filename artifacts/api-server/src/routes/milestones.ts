@@ -28,6 +28,13 @@ function canWrite(role: string) {
 
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
 const VALID_STATUSES = ["planned", "active", "verified", "uat", "completed", "cancelled"];
+// Matches the "Lessons Learnt Type" dropdown in Bestinet's export template exactly.
+const VALID_LESSON_TYPES = ["what_went_wrong", "what_went_right", "best_practice"];
+const LESSON_TYPE_LABEL: Record<string, string> = {
+  what_went_wrong: "What went wrong",
+  what_went_right: "What went right",
+  best_practice: "Best Practice",
+};
 const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
 
 function fmt(m: typeof milestonesTable.$inferSelect) {
@@ -49,6 +56,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     createdBy: m.createdBy ?? null,
     completedAt: m.completedAt?.toISOString() ?? null,
     lessonsLearned: m.lessonsLearned ?? null,
+    lessonsLearnedType: m.lessonsLearnedType ?? null,
     closedBy: m.closedBy ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
@@ -121,6 +129,7 @@ router.get("/milestones/lessons-learned/export", async (req, res): Promise<void>
     milestoneName: m.name,
     description: m.lessonsLearned!,
     submittedDate: m.completedAt?.toISOString() ?? null,
+    lessonType: m.lessonsLearnedType ? (LESSON_TYPE_LABEL[m.lessonsLearnedType] ?? null) : null,
   }));
 
   // Doc Info history: one row per milestone, since QMPulse doesn't log a
@@ -255,6 +264,12 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     update.environment = req.body.environment ?? null;
   }
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
+  if (req.body.lessonsLearnedType !== undefined) {
+    if (req.body.lessonsLearnedType != null && !VALID_LESSON_TYPES.includes(req.body.lessonsLearnedType)) {
+      res.status(400).json({ error: `lessonsLearnedType must be one of ${VALID_LESSON_TYPES.join(", ")}` }); return;
+    }
+    update.lessonsLearnedType = req.body.lessonsLearnedType ?? null;
+  }
   if (req.body.priority !== undefined) {
     if (req.body.priority != null && !VALID_PRIORITIES.includes(req.body.priority)) {
       res.status(400).json({ error: `priority must be one of ${VALID_PRIORITIES.join(", ")}` }); return;
