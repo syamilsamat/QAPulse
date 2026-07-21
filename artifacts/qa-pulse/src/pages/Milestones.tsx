@@ -16,6 +16,7 @@ import {
   Flag,
   Users,
   X,
+  FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -165,6 +166,29 @@ export default function Milestones() {
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(user?.role ?? "");
 
+  const [exportingLessons, setExportingLessons] = useState(false);
+  const handleExportLessonsLearned = async () => {
+    if (!filterProject || filterProject === "all") return;
+    setExportingLessons(true);
+    try {
+      const res = await api(`/milestones/lessons-learned/export?projectId=${filterProject}`, token);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = match?.[1] ?? "LessonsLearnt.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to export lessons learned" });
+    } finally {
+      setExportingLessons(false);
+    }
+  };
+
   // CR054p2 — milestone staffing (edit dialog only; the milestone must exist)
   const [assigneePick, setAssigneePick] = useState("");
   const { data: assignees = [] } = useQuery<{ id: number; userId: number; name: string; role: string }[]>({
@@ -281,11 +305,18 @@ export default function Milestones() {
           <h1 className="text-2xl font-bold tracking-tight">Milestones</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage project milestones, CRs, and sprints</p>
         </div>
-        {canWrite && filterProject !== "all" && (
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="w-4 h-4" /> New Milestone
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {filterProject !== "all" && (
+            <Button variant="outline" onClick={handleExportLessonsLearned} disabled={exportingLessons} className="gap-2">
+              <FileDown className="w-4 h-4" /> {exportingLessons ? "Exporting…" : "Export Lessons Learnt"}
+            </Button>
+          )}
+          {canWrite && filterProject !== "all" && (
+            <Button onClick={openCreate} className="gap-2">
+              <Plus className="w-4 h-4" /> New Milestone
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Project filter */}

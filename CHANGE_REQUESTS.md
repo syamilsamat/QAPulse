@@ -1527,3 +1527,26 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Scope:** `lib/db` risks schema, `roles.ts` (bootstrap ALTER), `risks.ts` (+1 route, owner-name resolution), `risk-log-excel.ts` (K column), `RiskRegisterCard.tsx`, demo `demo-data.ts`/`seed-demo-data.ts`. No manual db push.
 
 **CR055 follow-up #2 (2026-07-21):** Doc Info sheet's revision-history table (previously always blank) now populates from real audit-trail events — each risk's creation and every status change, chronologically, with actor name and the existing human-readable activity description. Table extended from the source template's 11 pre-styled rows to 100 (`Doc Info` B9:G108) to hold real project history. Reviewed By / Reviewed Date columns stay blank — QMPulse has no peer-review step on risks to report there, so nothing is fabricated to fill them.
+
+### CR057 — Lessons Learned export to Bestinet's official "5.1 Lesson Learned" PMO template
+
+**Status: DEPLOYED (2026-07-21)**
+
+**Origin:** direct follow-on to CR055/056 (Risk Log export) — same ask, different template. Found the source at `~/Desktop/QAPulse/5.1 Lesson Learned/eQuota FWe Approval Project Lessons Learnt.xlsx` (Ref. No. BSB-PMO-TEM–24–V1.0), a real client's actual retrospective content.
+
+**Template asset:** sanitized the same way as the Risk Log (client's 7 real lesson rows + project name stripped, structure/logo/dropdown validations kept). Data-validation dropdowns for Phase (a fixed 13-value PM-phase list) and Lessons Learnt Type (What went wrong / What went right / Best Practice) preserved and extended across the full row range; the source file's inconsistent 4-value variant on 2 rows (a stray extra "Recommendation" option) standardized to one clean 3-value list throughout. Row capacity extended: Lessons Learnt 10→60 rows, Doc Info history 5→60 rows. Row heights on the Lessons Learnt data rows set to a generous fixed height (110pt) — the source file's original per-row heights were sized for each row's own short sample text and clipped QMPulse's longer real content.
+
+**Real data-model mismatch, handled honestly:** the template expects one row per discrete, individually-classified lesson (Phase + Type). QMPulse captures lessons learned as a single free-text field per milestone at Closing (CR033p1) — one blob that can genuinely mix "what went wrong" and "what went right" in one paragraph (confirmed: the source template's own sample data did exactly this). Rather than force a misleading classification:
+- **Phase** is filled honestly as "Project Closure" — that's literally always when QMPulse captures this field, not a per-row guess.
+- **Type** ships blank; its dropdown validation survives the export so a human can classify it manually afterward if they want to.
+- **Comments** carries the milestone name, since one export can span every completed milestone in a project and the reader needs to know which is which.
+
+**Doc Info revision history:** one row per milestone (date = completedAt, actor = closedBy's name, summary = "Lessons learned captured for milestone \"X\"") — reuses the same milestone rows already being exported, since QMPulse has no activity-log event distinct from the completion transition itself for this field.
+
+**Backend:** `lessons-learned-excel.ts` (new, same xlsx-populate + SheetJS-fallback architecture as `risk-log-excel.ts`), `lessons-learned-template-data.ts` (base64 fallback). `GET /milestones/lessons-learned/export?projectId=X` in `milestones.ts` — project-access gated, no elevated role required (same as viewing milestones). Only completed milestones with a non-empty `lessonsLearned` are included.
+
+**Frontend:** "Export Lessons Learnt" button on the Milestones page header, next to "New Milestone" — visible to any viewer with a project selected (export is read-only, same principle as the Risk Register's export button).
+
+**Verified:** built a 2-milestone sample export end-to-end outside the running app, rendered to PDF — Doc Info project name + history populate correctly, Lessons Learnt rows show full untruncated text at the new row height, Phase/Comments map correctly, Type stays blank with its dropdown intact. Defense-in-depth scan of the shipped template confirmed zero residual client data.
+
+**Scope:** new `lessons-learned-excel.ts`, `lessons-learned-template-data.ts`, `assets/lessons-learned-template.xlsx`; `milestones.ts` (+1 route); `Milestones.tsx` (export button). No schema changes, no db push.

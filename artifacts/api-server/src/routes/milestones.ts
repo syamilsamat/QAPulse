@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { eq, and, inArray } from "drizzle-orm";
-import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, requirementsTable, executionFilesTable } from "@workspace/db";
+import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyRolesInProject, notifyUser } from "./_notify";
+import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow } from "./lessons-learned-excel";
 
 const router: IRouter = Router();
 
@@ -90,6 +91,55 @@ router.get("/milestones", async (req, res): Promise<void> => {
       uatFileCount: mExecFiles.filter(f => f.fileType === "uat").length,
     };
   }));
+});
+
+// GET /milestones/lessons-learned/export?projectId=X — Bestinet's official
+// "5.1 Lesson Learned" PMO template
+router.get("/milestones/lessons-learned/export", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
+  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+
+  // Only completed milestones that actually captured a lessons-learned note.
+  const closed = await db.select().from(milestonesTable)
+    .where(and(eq(milestonesTable.projectId, projectId), eq(milestonesTable.status, "completed")))
+    .orderBy(milestonesTable.completedAt);
+  const withLessons = closed.filter((m) => m.lessonsLearned && m.lessonsLearned.trim().length > 0);
+
+  const closerIds = [...new Set(withLessons.map((m) => m.closedBy).filter((id): id is number => id != null))];
+  const closerNameById = closerIds.length
+    ? new Map((await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, closerIds))).map((u) => [u.id, u.name]))
+    : new Map<number, string>();
+
+  const rows: LessonLogRow[] = withLessons.map((m) => ({
+    milestoneName: m.name,
+    description: m.lessonsLearned!,
+    submittedDate: m.completedAt?.toISOString() ?? null,
+  }));
+
+  // Doc Info history: one row per milestone, since QMPulse doesn't log a
+  // distinct "lessons learned" activity event separately from the
+  // completion transition itself (closedBy/completedAt IS that moment).
+  const history: LessonLogHistoryRow[] = withLessons.map((m) => ({
+    date: m.completedAt?.toISOString() ?? null,
+    updatedByName: m.closedBy != null ? (closerNameById.get(m.closedBy) ?? null) : null,
+    summary: `Lessons learned captured for milestone "${m.name}"`,
+  }));
+
+  const buffer = await buildLessonsLearnedExcel(rows, { projectName: project.name, history });
+  if (!buffer) { res.status(500).json({ error: "Failed to build Lessons Learnt Excel. Template may be unavailable." }); return; }
+
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const proj = project.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 60);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${date}_LessonsLearnt_${proj}.xlsx"`);
+  res.send(buffer);
 });
 
 // POST /milestones
