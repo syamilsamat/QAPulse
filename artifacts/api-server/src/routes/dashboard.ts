@@ -543,6 +543,23 @@ export function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSu
   const perReqTotals = entries.map((e) => {
     const totals: Partial<Record<PhaseKey, number>> = {};
     for (const seg of e.timeline) totals[seg.key] = (totals[seg.key] ?? 0) + seg.days;
+
+    // "Gap" is meant to read as total idle/waiting time on the milestone
+    // summary bar, not just the FA-approval-to-dev-assign delay — fold in
+    // the develop→qa idle window too (dev marked ready-for-qa, but QA's
+    // first logged execution came later). The per-requirement Timelines/
+    // Gantt views keep showing these as distinct "Awaiting Dev"/"Awaiting
+    // QA" segments (PmDashboard.tsx's injectAwaitingSegments) — this only
+    // affects the milestone-wide average.
+    for (let i = 0; i < e.timeline.length - 1; i++) {
+      const seg = e.timeline[i];
+      const next = e.timeline[i + 1];
+      if (seg.key === "develop" && seg.end && next.key === "qa") {
+        const idleDays = (new Date(next.start).getTime() - new Date(seg.end).getTime()) / 86_400_000;
+        if (idleDays > 0) totals.gap = Math.round(((totals.gap ?? 0) + idleDays) * 10) / 10;
+      }
+    }
+
     return totals;
   });
   const avg = (vals: (number | undefined)[]) => {
