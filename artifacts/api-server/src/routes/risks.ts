@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, asc, inArray } from "drizzle-orm";
-import { db, risksTable, projectsTable, usersTable, projectMembersTable } from "@workspace/db";
+import { db, risksTable, projectsTable, usersTable, projectMembersTable, activityTable } from "@workspace/db";
 import { getAuthContext, canAccessProject, getRoleTierRank } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
-import { buildRiskLogExcel, type RiskLogRow } from "./risk-log-excel";
+import { buildRiskLogExcel, type RiskLogRow, type RiskLogHistoryRow } from "./risk-log-excel";
 
 const VALID_RESPONSE_STRATEGIES = ["avoid", "transfer", "mitigate", "accept"];
 const RESPONSE_STRATEGY_LABEL: Record<string, string> = { avoid: "Avoid", transfer: "Transfer", mitigate: "Mitigate", accept: "Accept" };
@@ -119,7 +119,30 @@ router.get("/risks/export", async (req, res): Promise<void> => {
     mitigatedDate: r.closedAt?.toISOString() ?? null,
   }));
 
-  const buffer = await buildRiskLogExcel(rows, { projectName: project.name });
+  // Doc Info revision history: each risk's creation + every status change,
+  // chronological — real audit-trail events, not invented rows.
+  const riskIds = risks.map((r) => r.id);
+  const historyEvents = riskIds.length
+    ? await db.select({ description: activityTable.description, userId: activityTable.userId, createdAt: activityTable.createdAt })
+        .from(activityTable)
+        .where(and(
+          eq(activityTable.entityType, "risk"),
+          inArray(activityTable.entityId, riskIds),
+          inArray(activityTable.type, ["risk_created", "risk_status_changed"]),
+        ))
+        .orderBy(asc(activityTable.createdAt))
+    : [];
+  const actorIds = [...new Set(historyEvents.map((e) => e.userId).filter((id): id is number => id != null))];
+  const actorNameById = actorIds.length
+    ? new Map((await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, actorIds))).map((u) => [u.id, u.name]))
+    : new Map<number, string>();
+  const history: RiskLogHistoryRow[] = historyEvents.map((e) => ({
+    date: e.createdAt.toISOString(),
+    updatedByName: e.userId != null ? (actorNameById.get(e.userId) ?? null) : null,
+    summary: e.description,
+  }));
+
+  const buffer = await buildRiskLogExcel(rows, { projectName: project.name, history });
   if (!buffer) { res.status(500).json({ error: "Failed to build Risk Log Excel. Template may be unavailable." }); return; }
 
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");

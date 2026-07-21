@@ -13,6 +13,12 @@
  * fabricated — see the per-field comments below for what's inferred vs.
  * what's genuinely absent. CR056 added the response-strategy enum
  * (Avoid/Transfer/Mitigate/Accept), which now maps to column K.
+ *
+ * Doc Info's revision-history table (B9:G108, extended from the source
+ * template's original 11 rows) is populated from real audit-trail events —
+ * each risk's creation and every status change — not invented rows.
+ * Reviewed By / Reviewed Date stay blank; QMPulse has no peer-review step
+ * on risks to report there.
  */
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -57,8 +63,15 @@ export interface RiskLogRow {
   mitigatedDate: string | null;  // -> P: Risk Mitigated date (from closedAt)
 }
 
+export interface RiskLogHistoryRow {
+  date: string;              // ISO — event timestamp
+  updatedByName: string | null;
+  summary: string;           // human-readable, already formatted (activity.description)
+}
+
 export interface RiskLogBuildOptions {
   projectName: string;
+  history?: RiskLogHistoryRow[]; // Doc Info revision history — risk_created + risk_status_changed events
 }
 
 // Mirrors the template's own J-column IF() formula (see the source file's
@@ -100,6 +113,21 @@ export async function buildRiskLogExcel(
 
     const docSheet = wb.sheet("Doc Info");
     docSheet.cell("D5").value(options.projectName);
+
+    // Revision history (B9:G108) — real audit-trail events, not invented
+    // rows: each risk's creation and every status change it's been through.
+    // Reviewed By / Reviewed Date (F/G) stay blank — QMPulse has no peer-
+    // review step on risks to report there.
+    const DI_HIST_FIRST = 9;
+    const DI_HIST_MAX_ROWS = 100;
+    (options.history ?? []).slice(0, DI_HIST_MAX_ROWS).forEach((h, i) => {
+      const row = DI_HIST_FIRST + i;
+      docSheet.cell(`B${row}`).value(i + 1);
+      const d = fmtDate(h.date);
+      if (d) docSheet.cell(`C${row}`).value(d);
+      if (h.updatedByName) docSheet.cell(`D${row}`).value(h.updatedByName);
+      docSheet.cell(`E${row}`).value(h.summary);
+    });
 
     const rlSheet = wb.sheet("Risk Log");
     const FIRST_ROW = 4;
@@ -156,5 +184,13 @@ function buildRiskLogExcelFallback(rows: RiskLogRow[], options: RiskLogBuildOpti
   const ws = XlsxSheetJS.utils.aoa_to_sheet([[`Risk Log — ${options.projectName}`], [], header, ...data]);
   const wb = XlsxSheetJS.utils.book_new();
   XlsxSheetJS.utils.book_append_sheet(wb, ws, "Risk Log");
+
+  const historyHeader = ["Sl #", "Date", "Updated By", "Update Summary"];
+  const historyRows = (options.history ?? []).map((h, i) => [i + 1, h.date, h.updatedByName ?? "", h.summary]);
+  const docWs = XlsxSheetJS.utils.aoa_to_sheet([
+    ["Project Name", options.projectName], [], historyHeader, ...historyRows,
+  ]);
+  XlsxSheetJS.utils.book_append_sheet(wb, docWs, "Doc Info");
+
   return XlsxSheetJS.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
