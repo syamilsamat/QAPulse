@@ -73,6 +73,39 @@ interface PhaseSegment {
   ongoing: boolean;
 }
 
+// The backend's "develop" segment ends the moment dev marks a requirement
+// ready for QA, but "qa" starts at the first *actual* test execution — those
+// two timestamps can be days apart if QA didn't pick it up immediately. That
+// idle stretch has no segment of its own, so both the Gantt and Timelines
+// views previously rendered it as unexplained blank space. This synthesizes
+// an "Awaiting QA" filler for it, and relabels the existing "gap" segment
+// (approval → dev-assign idle time) to "Awaiting Dev" for the same reason —
+// same data, just named so it reads as information instead of a glitch.
+function injectAwaitingSegments(timeline: PhaseSegment[]): PhaseSegment[] {
+  const result: PhaseSegment[] = [];
+  for (let i = 0; i < timeline.length; i++) {
+    const seg = timeline[i];
+    result.push(seg.key === "gap" ? { ...seg, label: seg.label.replace(/^Gap/, "Awaiting Dev") } : seg);
+
+    const next = timeline[i + 1];
+    if (seg.key === "develop" && seg.end && next?.key === "qa") {
+      const gapDays = (new Date(next.start).getTime() - new Date(seg.end).getTime()) / 86_400_000;
+      if (gapDays >= 0.05) {
+        result.push({
+          key: "awaiting_qa",
+          cycle: next.cycle,
+          label: next.cycle > 1 ? `Awaiting QA (round ${next.cycle})` : "Awaiting QA",
+          start: seg.end,
+          end: next.start,
+          days: Math.round(gapDays * 10) / 10,
+          ongoing: false,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 interface PhaseSummaryEntry {
   key: string;
   label: string;
@@ -513,8 +546,9 @@ function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
 
 const PHASE_COLOR: Record<string, string> = {
   requirements: "bg-purple-500",
-  gap: "bg-amber-400",
+  gap: "bg-amber-400", // displayed as "Awaiting Dev" — see injectAwaitingSegments
   develop: "bg-indigo-500",
+  awaiting_qa: "bg-slate-400", // synthesized filler, see injectAwaitingSegments
   qa: "bg-teal-500",
   uat: "bg-blue-500",
 };
@@ -522,6 +556,7 @@ const PHASE_TEXT_COLOR: Record<string, string> = {
   requirements: "text-purple-700 dark:text-purple-400",
   gap: "text-amber-700 dark:text-amber-400",
   develop: "text-indigo-700 dark:text-indigo-400",
+  awaiting_qa: "text-slate-700 dark:text-slate-400",
   qa: "text-teal-700 dark:text-teal-400",
   uat: "text-blue-700 dark:text-blue-400",
 };
@@ -976,8 +1011,9 @@ function diffDays(a: Date, b: Date): number {
 
 const GANTT_LEGEND: { key: string; label: string }[] = [
   { key: "requirements", label: "Requirements" },
-  { key: "gap", label: "Gap" },
+  { key: "gap", label: "Awaiting Dev" },
   { key: "develop", label: "Develop" },
+  { key: "awaiting_qa", label: "Awaiting QA" },
   { key: "qa", label: "QA testing" },
   { key: "uat", label: "UAT" },
 ];
@@ -1299,6 +1335,13 @@ export default function PmDashboard() {
     ? phaseReport.phaseSummary.map(s => ({ key: s.key, label: s.label, days: s.avgDays ?? 0, ongoing: false }))
     : [];
 
+  // Gantt/Timelines only — Status list doesn't render segment bars, so it
+  // keeps reading phaseReport.requirements directly.
+  const requirementsWithAwaiting: RequirementPhaseEntry[] = (phaseReport?.requirements ?? []).map((r) => ({
+    ...r,
+    timeline: injectAwaitingSegments(r.timeline),
+  }));
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1423,8 +1466,8 @@ export default function PmDashboard() {
                           </button>
                         ))}
                       </div>
-                      {viewMode === "timelines" && <RequirementTimelineList requirements={phaseReport.requirements} plannedPhaseDays={phaseReport.plannedPhaseDays} />}
-                      {viewMode === "gantt" && <RequirementGanttChart requirements={phaseReport.requirements} milestone={phaseReport.milestone} />}
+                      {viewMode === "timelines" && <RequirementTimelineList requirements={requirementsWithAwaiting} plannedPhaseDays={phaseReport.plannedPhaseDays} />}
+                      {viewMode === "gantt" && <RequirementGanttChart requirements={requirementsWithAwaiting} milestone={phaseReport.milestone} />}
                       {viewMode === "status" && <RequirementStatusTable requirements={phaseReport.requirements} />}
                     </div>
                   )}
