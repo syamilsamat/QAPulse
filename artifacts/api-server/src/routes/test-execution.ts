@@ -477,7 +477,10 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
     if (tracker !== undefined) patch.tracker = tracker || null;
     if (projectId !== undefined) patch.projectId = projectId ? Number(projectId) : null;
     if (requirementId !== undefined) patch.requirementId = requirementId ? Number(requirementId) : null;
-    if (qaPic !== undefined) patch.qaPic = qaPic || null;
+    if (qaPic !== undefined) {
+      patch.qaPic = qaPic || null;
+      patch.qaPicSetBy = qaPic ? ctx.userId : null;
+    }
     // Milestone can only ever be set at creation today otherwise — this is
     // the only way to link one onto a file created without one, which is
     // required before any row on it can carry a real result (see the

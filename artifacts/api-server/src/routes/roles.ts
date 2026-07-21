@@ -203,6 +203,9 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
+  // CR067 — tracks who set qaPic, so the Tasks page can show "who assigned
+  // QA" alongside the assignee, matching devAssignedBy's existing coverage of Dev.
+  await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS qa_pic_set_by INTEGER`);
   // PM Dashboard prerequisite — ties tasks to a milestone (nullable; ad-hoc tasks stay unassigned)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
 

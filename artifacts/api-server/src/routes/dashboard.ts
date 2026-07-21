@@ -883,7 +883,9 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       .select({
         id: requirementsTable.id,
         createdBy: requirementsTable.createdBy,
+        approvedBy: requirementsTable.approvedBy,
         devAssigneeId: requirementsTable.devAssigneeId,
+        devAssignedBy: requirementsTable.devAssignedBy,
         reviewStatus: requirementsTable.reviewStatus,
         devStatus: requirementsTable.devStatus,
         projectId: requirementsTable.projectId,
@@ -893,21 +895,28 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
     const extraById = new Map(extra.map((e) => [e.id, e]));
 
     // QA "assignee" — resolved from linked execution file(s)' qaPic (file-level
-    // first, falling back to the per-row qaPic), not a dedicated column.
+    // first, falling back to the per-row qaPic), not a dedicated column. The
+    // "who assigned" name (qaPicSetBy, CR067) is only tracked at file level.
     const qaPicRows = await db
-      .select({ requirementId: executionTestCasesTable.requirementId, executionFileId: executionTestCasesTable.executionFileId, filePic: executionFilesTable.qaPic, rowPic: executionTestCasesTable.qaPic })
+      .select({ requirementId: executionTestCasesTable.requirementId, executionFileId: executionTestCasesTable.executionFileId, filePic: executionFilesTable.qaPic, rowPic: executionTestCasesTable.qaPic, filePicSetBy: executionFilesTable.qaPicSetBy })
       .from(executionTestCasesTable)
       .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
       .where(inArray(executionTestCasesTable.requirementId, reqIds));
     const qaPicNamesByReq = new Map<number, Set<string>>();
+    const qaSetterIdsByReq = new Map<number, Set<number>>();
     const qaFileIdByReq = new Map<number, number>();
     for (const r of qaPicRows) {
       if (r.requirementId == null) continue;
       if (!qaFileIdByReq.has(r.requirementId)) qaFileIdByReq.set(r.requirementId, r.executionFileId);
       const pic = r.filePic || r.rowPic;
-      if (!pic) continue;
-      if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
-      qaPicNamesByReq.get(r.requirementId)!.add(pic);
+      if (pic) {
+        if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
+        qaPicNamesByReq.get(r.requirementId)!.add(pic);
+      }
+      if (r.filePicSetBy != null) {
+        if (!qaSetterIdsByReq.has(r.requirementId)) qaSetterIdsByReq.set(r.requirementId, new Set());
+        qaSetterIdsByReq.get(r.requirementId)!.add(r.filePicSetBy);
+      }
     }
 
     // QA/UAT execution pass-rate per requirement — same simplification
@@ -936,15 +945,22 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       const faOwnerId = info.createdBy ?? null;
       const faOwnerName = faOwnerId != null ? usersById.get(faOwnerId)?.name ?? null : null;
       const faOwnerDept = faOwnerId != null ? usersById.get(faOwnerId)?.department ?? null : null;
+      const faApproverId = info.approvedBy ?? null;
+      const faApproverName = faApproverId != null ? usersById.get(faApproverId)?.name ?? null : null;
       const faProgress = reviewStatusProgress(info.reviewStatus ?? "draft");
 
       const devAssigneeId = info.devAssigneeId ?? null;
       const devAssigneeName = devAssigneeId != null ? usersById.get(devAssigneeId)?.name ?? null : null;
+      const devAssignedById = info.devAssignedBy ?? null;
+      const devAssignedByName = devAssignedById != null ? usersById.get(devAssignedById)?.name ?? null : null;
       const devProgress = devStatusProgress(info.devStatus);
 
       const qaNames = qaPicNamesByReq.get(entry.id) ?? new Set<string>();
       const qaAssigneeName = qaNames.size > 0 ? [...qaNames].join(", ") : null;
       const qaIsQaDept = [...qaNames].some((n) => qaUserNames.has(n.toLowerCase()));
+      const qaSetterNames = [...(qaSetterIdsByReq.get(entry.id) ?? new Set<number>())]
+        .map((id) => usersById.get(id)?.name)
+        .filter((n): n is string => !!n);
       const results = resultsByReq.get(entry.id) ?? { qa: [], uat: [] };
       const qaProgress = passPct(results.qa);
       const uatProgress = passPct(results.uat);
@@ -963,12 +979,17 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       let assignee: string | null;
       let progress: number;
       if (seesEverything) {
-        // PM/admin/cto — show every department's owner on the requirement, not
-        // just the one relevant to its current phase, since a PM needs the
-        // whole cast (FA author, Dev assignee, QA testers) at a glance.
+        // PM/admin/cto — show every name that touched this requirement per
+        // department, not just one, and not just the department relevant to
+        // its current phase: FA's author + approver, Dev's assigning lead +
+        // assigned member, QA's assigning lead + assigned tester(s) (CR067).
         // Progress still tracks the current phase — that's the only sensible
         // single number when three departments' completion states differ.
-        assignee = `FA: ${faOwnerName ?? "—"} · Dev: ${devAssigneeName ?? "—"} · QA: ${qaAssigneeName ?? "—"}`;
+        const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
+        const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
+        const devAll = [...new Set([devAssignedByName, devAssigneeName].filter((n): n is string => !!n))];
+        const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
+        assignee = `FA: ${fmtNames(faAll)} · Dev: ${fmtNames(devAll)} · QA: ${fmtNames(qaAll)}`;
         if (phase === "develop") progress = devProgress;
         else if (phase === "qa") progress = qaProgress;
         else if (phase === "uat") progress = uatProgress;

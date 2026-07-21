@@ -13,6 +13,7 @@ export const executionFilesTable = pgTable("execution_files", {
   redmineTicketId: text("redmine_ticket_id").notNull().unique(),
   title: text("title"),
   qaPic: text("qa_pic"),
+  qaPicSetBy: integer("qa_pic_set_by"),
   remarks: text("remarks"),
   selectedModules: text("selected_modules"),
   tracker: text("tracker"),
