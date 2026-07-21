@@ -967,13 +967,24 @@ function BenchmarkTable({ trend }: { trend: NonNullable<PhaseReport["trend"]> })
   );
 }
 
+// Same color family as the Gantt/Timelines phase bars (PHASE_COLOR) so a
+// status here reads as "which phase this requirement is really sitting in,"
+// not an arbitrary 3-bucket scheme — Draft/In review/Rejected are all still
+// the Requirements phase (purple), awaiting Dev is the Gap phase (amber),
+// in development is Develop (indigo), awaiting QA is the synthesized
+// Awaiting QA filler (slate), and QA testing/UAT get their own phase colors.
+function statusBadgeClasses(status: string): string {
+  if (status === "Approved · in UAT") return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400";
+  if (status === "Approved · in QA testing") return "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400";
+  if (status === "Approved · awaiting QA") return "bg-slate-100 text-slate-700 dark:bg-slate-950 dark:text-slate-400";
+  if (status === "Approved · in development") return "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400";
+  if (status === "Approved · awaiting Dev") return "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
+  // Draft / In review / Rejected — awaiting revision — all still Requirements phase
+  return "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-400";
+}
+
 function RequirementStatusBadge({ status }: { status: string }) {
-  const cls = status.startsWith("Approved · in QA") || status.startsWith("Approved · in UAT")
-    ? "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400"
-    : status.startsWith("Approved")
-    ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400"
-    : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
-  return <Badge className={`text-[11px] font-normal ${cls}`} variant="outline">{status}</Badge>;
+  return <Badge className={`text-[11px] font-normal ${statusBadgeClasses(status)}`} variant="outline">{status}</Badge>;
 }
 
 function RequirementStatusTable({ requirements }: { requirements: RequirementPhaseEntry[] }) {
@@ -1024,7 +1035,7 @@ const GANTT_ONGOING_HATCH = "repeating-linear-gradient(45deg, rgba(255,255,255,0
 
 function ganttStatusDot(status: string): string | null {
   if (status.startsWith("Rejected")) return "bg-red-500";
-  if (status === "In review" || status === "Not yet approved") return "bg-amber-500";
+  if (status === "In review" || status === "Draft") return "bg-amber-500";
   return null; // approved rows carry no dot — only exceptions get flagged
 }
 

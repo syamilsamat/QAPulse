@@ -506,11 +506,15 @@ export async function computeRequirementTimelines(milestoneId: number, milestone
     let status: string;
     const reviewStatus = (r as any).reviewStatus ?? "draft";
     if (reviewStatus !== "approved") {
-      status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Not yet approved";
+      status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Draft";
     } else if (uatExecTimes.length > 0) {
       status = "Approved · in UAT";
     } else if (qaExecTimes.length > 0) {
       status = "Approved · in QA testing";
+    } else if (r.devStatus === "ready_for_qa") {
+      // Dev handed it off, but QA hasn't logged a single execution yet —
+      // distinct from "in development" (dev is still actively working it).
+      status = "Approved · awaiting QA";
     } else if (r.devStatus) {
       status = "Approved · in development";
     } else {
