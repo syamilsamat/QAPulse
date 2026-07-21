@@ -139,6 +139,8 @@ export const MILESTONES: DemoMilestone[] = [
   {
     key: "sprint11", projectKey: "portal", name: "Sprint 11", type: "sprint", status: "completed", targetDate: "2026-05-13",
     startDate: "2026-04-13", reqTargetDate: "2026-04-22", devTargetDate: "2026-05-04", qaTargetDate: "2026-05-09", uatTargetDate: "2026-05-13", goLiveDate: "2026-05-15", environment: "ENV1",
+    lessonsLearned: "The equal-rating tie-break rule for search filters wasn't nailed down until QA had already built the test script — FA rejected the requirement once for missing detail, and even after revision the fix still didn't fully land before QA testing (products with the same rating kept coming back in random order across refreshes). Acceptance criteria need the tie-break rule spelled out before dev estimates, not discovered during test design.",
+    lessonsLearnedType: "what_went_wrong",
     closedByKey: "amir",
   },
   // Completed — all phase targets met, pills show grey (done). Carries
@@ -164,6 +166,8 @@ export const MILESTONES: DemoMilestone[] = [
   {
     key: "sit1", projectKey: "banking", name: "SIT Phase 1", type: "phase", status: "completed", targetDate: "2026-04-28",
     startDate: "2026-03-28", reqTargetDate: "2026-04-06", devTargetDate: "2026-04-17", qaTargetDate: "2026-04-27", uatTargetDate: "2026-04-28", goLiveDate: "2026-04-30", environment: "ENV3",
+    lessonsLearned: "Security-sensitive flows (PIN login, lockout after three failed attempts) passed cleanly on the first SIT pass — the extra time spent on negative-path scenarios during test design paid off immediately. Worth carrying the same rigor into the transaction and statement features still ahead.",
+    lessonsLearnedType: "what_went_right",
     closedByKey: "amir",
   },
   // Completed — phase targets all met. Closed but no lessons learned
