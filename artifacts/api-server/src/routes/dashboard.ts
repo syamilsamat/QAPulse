@@ -514,7 +514,9 @@ export async function computeRequirementTimelines(milestoneId: number, milestone
     } else if (r.devStatus) {
       status = "Approved · in development";
     } else {
-      status = "Approved · awaiting QA";
+      // Approved, no QA/UAT execution yet, and devStatus is still null — no
+      // developer has even been assigned, so the next step is Dev, not QA.
+      status = "Approved · awaiting Dev";
     }
 
     return { id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline };
