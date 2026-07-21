@@ -1489,3 +1489,21 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Scope:** lib/db `milestones.ts` schema, api-server `roles.ts` (bootstrap + nav), `milestones.ts`, `dashboard.ts` (2 lines), new `uat-signoffs.ts`, routes `index.ts`; frontend `Milestones.tsx`, new `UatSignoffs.tsx`, `App.tsx`, `Layout.tsx`. Bootstrap-covered — no manual db push.
 
 **CR054 follow-up (2026-07-17):** defect self-handoff extended from requirement-source defects to ANY defect's current assignee (`defects.ts` assign gate) — the dev member who fixed a QA-raised defect can now hand it back to the reporting tester to verify without a Lead. Found running the full two-cycle UAT scenario: every other step of both cycles is covered; the only interpretation notes are that per-requirement "verified" is evidence-derived (all TCs pass) rather than a button, and defect status transitions still ride on Redmine-synced statuses until CR021.
+
+### CR055 — Risk Register export to Bestinet's "4.3 Risk Log" PMO template
+
+**Status: DEPLOYED (2026-07-21)**
+
+**Origin:** user has Bestinet's official PMO Risk Log template (Ref. No. BSB-PMO-TEM–27–V1.1, `4.3 Risk Log/Risk Log - FWe Approval.xlsx`) and wants the in-app Risk Register exportable into it, matching the company's standard governance format.
+
+**Template asset:** the real client workbook was sanitized (not rebuilt from scratch) — its 24 real project risk rows and project name were stripped, but every structural element was kept: 3 sheets (Doc Info, Risk Log, Read Me), the Bestinet letterhead logo, merged cells, column widths, fonts/borders, and — critically — the Risk Map column's live `IF()` formula (recalculates Red/Yellow/Green from Impact × Likelihood × Status in Excel itself, not baked in at export time). Row capacity extended from 24 to 200 pre-styled rows so real projects don't overflow. The template's patchwork of ad-hoc conditional-formatting ranges (grown organically as the original file was hand-extended row by row) was replaced with 4 clean rule sets spanning the full row range. Fixed a real defect found in the source file: J/T (Risk Map) cells carried a stray static pink fill (legacy indexed color 45) that showed through whenever no CF rule matched (e.g. "Closed") — added an explicit gray CF rule for "Closed" and stripped the base fill so only conditional formatting drives color.
+
+**Column mapping — honest, not fabricated:** QMPulse's risk model doesn't collect everything the template has a slot for. Mapped: Risk ID (sequential R001… by raised-date order), Entry Date, Description (← title), Impact on Project (← description), Category, Impact/Likelihood/Status (pre-treatment), Risk Map (live formula), Owner (resolved name), Describe Response Strategy (← mitigationPlan), Mitigated Date (← closedAt). Left genuinely blank rather than guessed: Response Strategy taxonomy (Avoid/Transfer/Mitigate/Accept — QMPulse has no such field), Contingency Plan, Progress Update, and the entire post-treatment residual block (Q–T) — QMPulse doesn't track a separate residual risk assessment.
+
+**Backend:** `risk-log-excel.ts` (new) — same `xlsx-populate` + SheetJS-fallback architecture as the existing test-case template builder (`excel-builder.ts`), base64-embedded fallback (`risk-log-template-data.ts`) for environments where the asset file isn't readable. `GET /risks/export?projectId=X` in `risks.ts`, project-access gated, no elevated role required (same visibility as viewing the register).
+
+**Frontend:** Export button on `RisksCard` (shared by the PM Dashboard's embedded card and the standalone `/risk-register` page — one change, both surfaces), visible whenever there's at least one risk to export.
+
+**Verified:** built a 4-risk sample export end-to-end outside the running app, rendered to PDF — data lands in the right cells, the live formula computes the correct Red/Yellow/Green/Closed per row, Doc Info project name populates correctly, letterhead intact.
+
+**Scope:** new `risk-log-excel.ts`, `risk-log-template-data.ts`, `assets/risk-log-template.xlsx`; `risks.ts` (+1 route); `RiskRegisterCard.tsx` (export button). No schema changes, no db push.

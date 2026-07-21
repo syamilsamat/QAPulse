@@ -1,8 +1,20 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc } from "drizzle-orm";
-import { db, risksTable } from "@workspace/db";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
+import { db, risksTable, projectsTable, usersTable } from "@workspace/db";
 import { getAuthContext, canAccessProject, getRoleTierRank } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
+import { buildRiskLogExcel, type RiskLogRow } from "./risk-log-excel";
+
+// Server-side mirror of the frontend's RISK_CATEGORY_LABELS (RiskRegisterCard.tsx)
+const CATEGORY_LABELS: Record<string, string> = {
+  schedule: "Schedule",
+  scope: "Scope",
+  resource: "Resource",
+  technical: "Technical",
+  external: "External",
+  other: "Other",
+};
+const LEVEL_LABEL: Record<string, "Low" | "Medium" | "High"> = { low: "Low", medium: "Medium", high: "High" };
 
 const router: IRouter = Router();
 
@@ -54,6 +66,53 @@ router.get("/risks", async (req, res): Promise<void> => {
 
   const rows = await db.select().from(risksTable).where(where).orderBy(desc(risksTable.createdAt));
   res.json(rows.map(fmt));
+});
+
+// GET /risks/export?projectId=X — Bestinet's "4.3 Risk Log" PMO template
+router.get("/risks/export", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  const ok = await canAccessProject(ctx.userId, ctx.role, projectId);
+  if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
+  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+
+  // Oldest-first so exported Risk IDs (R001, R002, …) read as raised-in-order,
+  // matching the template's own convention (see its Read Me sheet).
+  const risks = await db.select().from(risksTable).where(eq(risksTable.projectId, projectId)).orderBy(asc(risksTable.createdAt));
+
+  const ownerIds = [...new Set(risks.map((r) => r.ownerId).filter((id): id is number => id != null))];
+  const owners = ownerIds.length
+    ? await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, ownerIds))
+    : [];
+  const ownerNameById = new Map(owners.map((u) => [u.id, u.name]));
+
+  const rows: RiskLogRow[] = risks.map((r, i) => ({
+    riskNumber: `R${String(i + 1).padStart(3, "0")}`,
+    entryDate: r.createdAt.toISOString(),
+    title: r.title,
+    description: r.description,
+    category: CATEGORY_LABELS[r.category] ?? r.category,
+    impact: LEVEL_LABEL[r.impact] ?? "Medium",
+    probability: LEVEL_LABEL[r.probability] ?? "Medium",
+    status: r.status as RiskLogRow["status"],
+    ownerName: r.ownerId != null ? (ownerNameById.get(r.ownerId) ?? null) : null,
+    mitigationPlan: r.mitigationPlan,
+    mitigatedDate: r.closedAt?.toISOString() ?? null,
+  }));
+
+  const buffer = await buildRiskLogExcel(rows, { projectName: project.name });
+  if (!buffer) { res.status(500).json({ error: "Failed to build Risk Log Excel. Template may be unavailable." }); return; }
+
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const proj = project.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 60);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${date}_RiskLog_${proj}.xlsx"`);
+  res.send(buffer);
 });
 
 // POST /risks

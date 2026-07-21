@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, ShieldAlert, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, ShieldAlert, Plus, Pencil, Trash2, FileDown } from "lucide-react";
 
 // CR033p2 — Risk Register, extracted from PmDashboard.tsx by CR040 so both the
 // standalone Risk Register page and PM Dashboard's link-out card can consume
@@ -288,6 +288,28 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["risks", projectId] });
 
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await api(`/risks/export?projectId=${projectId}`, token);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = match?.[1] ?? "RiskLog.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to export Risk Log" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleDelete = async (id: number) => {
     try {
       const res = await apiWrite(`/risks/${id}`, token, { method: "DELETE" });
@@ -309,11 +331,18 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
             <p className="text-sm font-medium">Risk Register</p>
             {risks.length > 0 && <Badge variant="outline" className="text-[10px]">{risks.length}</Badge>}
           </div>
-          {canWrite && (
-            <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={() => { setEditing(null); setDialogOpen(true); }}>
-              <Plus className="w-3 h-3" /> Raise Risk
-            </Button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {risks.length > 0 && (
+              <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={handleExport} disabled={exporting}>
+                <FileDown className="w-3 h-3" /> {exporting ? "Exporting…" : "Export"}
+              </Button>
+            )}
+            {canWrite && (
+              <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={() => { setEditing(null); setDialogOpen(true); }}>
+                <Plus className="w-3 h-3" /> Raise Risk
+              </Button>
+            )}
+          </div>
         </div>
 
         {isLoading ? (
