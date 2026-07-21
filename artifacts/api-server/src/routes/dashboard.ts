@@ -943,7 +943,7 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       const devProgress = devStatusProgress(info.devStatus);
 
       const qaNames = qaPicNamesByReq.get(entry.id) ?? new Set<string>();
-      const qaAssigneeName = qaNames.size > 0 ? [...qaNames].join(" · ") : null;
+      const qaAssigneeName = qaNames.size > 0 ? [...qaNames].join(", ") : null;
       const qaIsQaDept = [...qaNames].some((n) => qaUserNames.has(n.toLowerCase()));
       const results = resultsByReq.get(entry.id) ?? { qa: [], uat: [] };
       const qaProgress = passPct(results.qa);
@@ -963,11 +963,16 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       let assignee: string | null;
       let progress: number;
       if (seesEverything) {
-        // PM/admin/cto — show whoever owns the row's *current* phase.
-        if (phase === "develop") { assignee = devAssigneeName; progress = devProgress; }
-        else if (phase === "qa") { assignee = qaAssigneeName; progress = qaProgress; }
-        else if (phase === "uat") { assignee = qaAssigneeName; progress = uatProgress; }
-        else { assignee = faOwnerName; progress = faProgress; }
+        // PM/admin/cto — show every department's owner on the requirement, not
+        // just the one relevant to its current phase, since a PM needs the
+        // whole cast (FA author, Dev assignee, QA testers) at a glance.
+        // Progress still tracks the current phase — that's the only sensible
+        // single number when three departments' completion states differ.
+        assignee = `FA: ${faOwnerName ?? "—"} · Dev: ${devAssigneeName ?? "—"} · QA: ${qaAssigneeName ?? "—"}`;
+        if (phase === "develop") progress = devProgress;
+        else if (phase === "qa") progress = qaProgress;
+        else if (phase === "uat") progress = uatProgress;
+        else progress = faProgress;
       } else if (department === "dev") { assignee = devAssigneeName; progress = devProgress; }
       else if (department === "qa") { assignee = qaAssigneeName; progress = phase === "uat" ? uatProgress : qaProgress; }
       else { assignee = faOwnerName; progress = faProgress; }
