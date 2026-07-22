@@ -83,6 +83,10 @@ const TYPE_OPTIONS = [
   { value: "sprint", label: "Sprint" },
   { value: "phase", label: "Phase" },
   { value: "release", label: "Release" },
+  // CR069 — work with no requirement/dev/UAT phase of its own (e.g. QA
+  // data preparation) — the PM Dashboard shows its progress from task
+  // completion instead of the requirement-driven phase breakdown.
+  { value: "data_prep", label: "Data Prep" },
 ];
 
 const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
