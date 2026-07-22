@@ -4,7 +4,7 @@ export const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull(),
   name: text("name").notNull(),
-  type: text("type").notNull().default("cr"), // 'cr' | 'phase' | 'sprint' | 'release'
+  type: text("type").notNull().default("cr"), // 'cr' | 'phase' | 'sprint' | 'release' | 'data_prep'
   status: text("status").notNull().default("planned"), // 'planned' | 'active' | 'completed' | 'cancelled'
   // CR060 — PM-set urgency for the whole milestone (Low/Medium/High/Critical),
   // distinct from an individual requirement's own priority field.

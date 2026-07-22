@@ -152,6 +152,7 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
 
   const resultProjects = projects.map(project => {
     const projectMilestones = milestones.filter(m => m.projectId === project.id);
+    const projectTasks = allTasks.filter(t => t.projectId === project.id);
 
     const milestoneSummaries = projectMilestones.map(m => {
       const mReqs = reqs.filter(r => r.milestoneId === m.id);
@@ -165,6 +166,20 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
       const readinessPct = qa.tcCount > 0 ? qa.passPct : approvedPct;
       const scheduleRisk = computeScheduleRisk(m.status, m.targetDate, readinessPct);
 
+      // CR069 — milestones with no requirement/dev/UAT phase of their own
+      // (e.g. type "data_prep") have nothing for the phase-driven readiness
+      // above to read, so the PM Dashboard falls back to this task rollup
+      // instead of rendering a blank "no requirements" tile.
+      const mTasks = projectTasks.filter(t => t.milestoneId === m.id);
+      const doneCount = mTasks.filter(t => t.status === "done" || t.status === "released_to_production").length;
+      const tasks = {
+        count: mTasks.length,
+        doneCount,
+        donePct: mTasks.length > 0 ? Math.round((doneCount / mTasks.length) * 100) : 0,
+        estimatedHours: mTasks.reduce((sum, t) => sum + (t.estimatedHours ?? 0), 0),
+        actualHours: mTasks.reduce((sum, t) => sum + (t.actualHours ?? 0), 0),
+      };
+
       return {
         id: m.id,
         name: m.name,
@@ -177,10 +192,10 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
         qa,
         uat: uat.tcCount > 0 ? uat : null,
         scheduleRisk,
+        tasks,
       };
     });
 
-    const projectTasks = allTasks.filter(t => t.projectId === project.id);
     type CapacityEntry = {
       userId: number; name: string; openTaskCount: number; estimatedHours: number;
       overdueTaskCount: number; openQaItemCount: number; openFaItemCount: number;

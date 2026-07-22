@@ -30,6 +30,7 @@ interface MilestoneSummary {
   qa: { tcCount: number; passed: number; failed: number; blocked: number; notRun: number; passPct: number };
   uat: { tcCount: number; passed: number; failed: number; blocked: number; notRun: number; passPct: number } | null;
   scheduleRisk: "on-track" | "at-risk" | "overdue" | "no-date" | "completed" | "cancelled";
+  tasks: { count: number; doneCount: number; donePct: number; estimatedHours: number; actualHours: number };
 }
 
 interface CapacityEntry {
@@ -461,12 +462,18 @@ function MetricCard({ label, value, tone }: { label: string; value: number; tone
 
 function MilestoneTile({ m, projectId }: { m: MilestoneSummary; projectId: number }) {
   const [, navigate] = useLocation();
-  const readinessPct = m.qa.tcCount > 0 ? m.qa.passPct : m.approvedPct;
   const dueLabel = m.targetDate
     ? m.scheduleRisk === "overdue"
       ? `Was due ${format(new Date(m.targetDate), "d MMM")}`
       : `Due ${format(new Date(m.targetDate), "d MMM")}`
     : "Not scheduled";
+
+  // CR069 — a milestone with no requirements but real tasks (e.g. type
+  // "data_prep", QA data-preparation work with no requirement/dev/UAT phase
+  // of its own) has nothing for the requirement/QA-driven readiness bar
+  // below to show, so it reads progress from task completion instead.
+  const useTaskRollup = m.requirementCount === 0 && m.tasks.count > 0;
+  const readinessPct = useTaskRollup ? m.tasks.donePct : m.qa.tcCount > 0 ? m.qa.passPct : m.approvedPct;
 
   return (
     <button
@@ -482,13 +489,20 @@ function MilestoneTile({ m, projectId }: { m: MilestoneSummary; projectId: numbe
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${readinessBarColor(m.scheduleRisk)}`} style={{ width: `${readinessPct}%` }} />
       </div>
-      <p className="text-xs text-muted-foreground">
-        {m.requirementCount > 0
-          ? `${m.approvedCount}/${m.requirementCount} reqs approved`
-          : "No requirements linked yet"}
-        {m.qa.tcCount > 0 && ` · ${m.qa.passPct}% QA coverage`}
-        {m.uat && ` · ${m.uat.passPct}% UAT`}
-      </p>
+      {useTaskRollup ? (
+        <p className="text-xs text-muted-foreground">
+          {m.tasks.doneCount}/{m.tasks.count} tasks done ({m.tasks.donePct}%)
+          {m.tasks.actualHours > 0 && ` · ${Math.round(m.tasks.actualHours)}h logged`}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {m.requirementCount > 0
+            ? `${m.approvedCount}/${m.requirementCount} reqs approved`
+            : "No requirements linked yet"}
+          {m.qa.tcCount > 0 && ` · ${m.qa.passPct}% QA coverage`}
+          {m.uat && ` · ${m.uat.passPct}% UAT`}
+        </p>
+      )}
     </button>
   );
 }
