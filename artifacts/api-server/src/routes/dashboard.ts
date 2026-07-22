@@ -872,6 +872,41 @@ export function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestone
   });
 }
 
+// CR075 — an execution file's test cases can each link to a different
+// requirement (per-row link, not per-file), so there's no single requirement
+// to read actual dates from. Rolls up across every linked requirement's own
+// buildPhaseTimeline instead: per phase, actualStart is the earliest start
+// among requirements that reached that phase; actualEnd is the latest end,
+// but stays null (phase reads "in progress") if ANY of them hasn't finished
+// it yet. Planned dates are identical across requirements in one milestone,
+// so they're just copied from whichever entry — or, with zero linked
+// requirements, straight from a call with no segments at all (planned-only).
+export function buildPhaseTimelineRollup(
+  entries: Awaited<ReturnType<typeof computeRequirementTimelines>>,
+  m: typeof milestonesTable.$inferSelect,
+): PhaseTimelineEntry[] {
+  if (entries.length === 0) return buildPhaseTimeline([], m);
+
+  const perReq = entries.map((e) => buildPhaseTimeline(e.timeline, m));
+  return perReq[0].map((_, i) => {
+    const rows = perReq.map((p) => p[i]);
+    const started = rows.filter((r) => r.actualStart != null);
+    const anyOngoing = started.some((r) => r.actualEnd == null);
+    return {
+      key: rows[0].key,
+      label: rows[0].label,
+      plannedStart: rows[0].plannedStart,
+      plannedEnd: rows[0].plannedEnd,
+      actualStart: started.length > 0
+        ? started.reduce((min, r) => (r.actualStart! < min ? r.actualStart! : min), started[0].actualStart!)
+        : null,
+      actualEnd: started.length === 0 || anyOngoing
+        ? null
+        : started.reduce((max, r) => (r.actualEnd! > max ? r.actualEnd! : max), started[0].actualEnd!),
+    };
+  });
+}
+
 function devStatusProgress(devStatus: string | null): number {
   if (devStatus === "ready_for_qa") return 100;
   if (devStatus === "in_progress") return 66;

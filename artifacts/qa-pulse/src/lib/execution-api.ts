@@ -13,6 +13,17 @@ export interface ExecutionProject {
   createdAt: string;
 }
 
+// CR075 — one row per phase (Requirements/Development/Testing/UAT), rolled
+// up across every requirement this execution file's test cases link to.
+export interface PhaseTimelineEntry {
+  key: "requirements" | "development" | "qa" | "uat";
+  label: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+}
+
 export interface ExecutionFile {
   id: number;
   redmineTicketId: string;
@@ -28,6 +39,8 @@ export interface ExecutionFile {
   milestonePriority?: string | null;
   milestoneStatus?: string | null;
   milestonePhaseBreakdown?: { requirement: number; development: number; testing: number; uat: number } | null;
+  phaseTimeline?: PhaseTimelineEntry[] | null;
+  linkedRequirementCount?: number;
   updatedAt: string;
 }
 

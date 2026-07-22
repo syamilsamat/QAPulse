@@ -46,8 +46,10 @@ import {
   GripVertical,
   Tag,
   ArrowDownToLine,
+  CalendarClock,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -70,6 +72,7 @@ import {
   type ExecutionUser,
   type TrackerOption,
   type RequirementOption,
+  type PhaseTimelineEntry,
 } from "@/lib/execution-api";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
@@ -81,6 +84,11 @@ const RESULT_OPTIONS = [
   "Not Executed",
   "",
 ];
+
+// CR075 — matches RequirementDetail.tsx / Tasks.tsx's phase-timeline date formatting
+function fmtPhaseDate(iso: string | null): string {
+  return iso ? format(new Date(iso), "dd MMM yyyy") : "—";
+}
 
 // Normalizes any casing/wording drift in a stored result value (e.g. a
 // lowercase "pass" written by a data-fixup script) back to the canonical
@@ -1232,6 +1240,13 @@ export default function TestCasesExecutionProgressPage() {
   const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
   const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
   const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
+  // CR075 — rolled-up phase timeline (planned dates from the milestone,
+  // actual dates rolled up across every requirement this file's test cases
+  // link to). Collapsed by default, same convention as RequirementDetail's
+  // History (CR074).
+  const [currentFilePhaseTimeline, setCurrentFilePhaseTimeline] = useState<PhaseTimelineEntry[] | null>(null);
+  const [currentFileLinkedReqCount, setCurrentFileLinkedReqCount] = useState(0);
+  const [phaseTimelineExpanded, setPhaseTimelineExpanded] = useState(false);
   // A file with no milestone can't record results — see the same guard on
   // the backend. Lets a user link one right here instead of hitting a save
   // error the first time they try to record a result.
@@ -1427,6 +1442,8 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileProjectId(file?.projectId ?? null);
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
+        setCurrentFilePhaseTimeline(file?.phaseTimeline ?? null);
+        setCurrentFileLinkedReqCount(file?.linkedRequirementCount ?? 0);
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
@@ -3007,6 +3024,63 @@ export default function TestCasesExecutionProgressPage() {
           </div>
         </div>
       </div>
+
+      {/* Phase Timeline — CR075: rolled up across every requirement this
+          file's test cases link to (planned dates come from the milestone,
+          same for all of them). Collapsed by default; click to expand. */}
+      {currentFilePhaseTimeline && (
+        <div className="shrink-0 bg-card border border-border rounded-lg px-3 py-2">
+          <button
+            onClick={() => setPhaseTimelineExpanded((v) => !v)}
+            className="w-full flex items-center justify-between text-left text-sm font-medium"
+          >
+            <span className="flex items-center gap-2">
+              <CalendarClock className="w-4 h-4 text-muted-foreground" /> Phase Timeline
+            </span>
+            <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+              {phaseTimelineExpanded ? "Collapse" : "Expand"}
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${phaseTimelineExpanded ? "rotate-180" : ""}`} />
+            </span>
+          </button>
+          {phaseTimelineExpanded && (
+            <div className="mt-2">
+              {currentFileLinkedReqCount > 1 && (
+                <p className="text-xs text-muted-foreground mb-2">
+                  Actual dates rolled up across {currentFileLinkedReqCount} linked requirements
+                </p>
+              )}
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="h-8">Phase</TableHead>
+                    <TableHead className="h-8">Planned Start</TableHead>
+                    <TableHead className="h-8">Planned End</TableHead>
+                    <TableHead className="h-8">Actual Start</TableHead>
+                    <TableHead className="h-8">Actual End</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentFilePhaseTimeline.map((p) => (
+                    <TableRow key={p.key} className="hover:bg-transparent">
+                      <TableCell className="py-1.5 font-medium">{p.label}</TableCell>
+                      <TableCell className="py-1.5">{fmtPhaseDate(p.plannedStart)}</TableCell>
+                      <TableCell className="py-1.5">{fmtPhaseDate(p.plannedEnd)}</TableCell>
+                      <TableCell className="py-1.5">{fmtPhaseDate(p.actualStart)}</TableCell>
+                      <TableCell className="py-1.5">
+                        {p.actualStart && !p.actualEnd ? (
+                          <span className="text-muted-foreground text-xs">In progress</span>
+                        ) : (
+                          fmtPhaseDate(p.actualEnd)
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* STICKY SUMMARY STATS */}
       <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 bg-card border border-border rounded-lg px-3 py-2">
