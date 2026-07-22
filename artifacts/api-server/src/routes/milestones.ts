@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, inArray } from "drizzle-orm";
-import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable } from "@workspace/db";
+import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, dataPrepFilesTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
@@ -58,6 +58,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     lessonsLearned: m.lessonsLearned ?? null,
     lessonsLearnedType: m.lessonsLearnedType ?? null,
     closedBy: m.closedBy ?? null,
+    description: m.description ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
   };
@@ -87,6 +88,11 @@ router.get("/milestones", async (req, res): Promise<void> => {
     ? await db.select({ milestoneId: executionFilesTable.milestoneId, fileType: executionFilesTable.fileType })
         .from(executionFilesTable).where(inArray(executionFilesTable.milestoneId, ids))
     : [];
+  // CR070 — data-prep files rollup, mirrors the execFiles pattern above.
+  const dataFiles = ids.length
+    ? await db.select({ milestoneId: dataPrepFilesTable.milestoneId })
+        .from(dataPrepFilesTable).where(inArray(dataPrepFilesTable.milestoneId, ids))
+    : [];
 
   res.json(rows.map(m => {
     const mReqs = reqs.filter(r => r.milestoneId === m.id);
@@ -97,6 +103,7 @@ router.get("/milestones", async (req, res): Promise<void> => {
       approvedCount: mReqs.filter(r => r.reviewStatus === "approved").length,
       executionFileCount: mExecFiles.filter(f => f.fileType === "qa").length,
       uatFileCount: mExecFiles.filter(f => f.fileType === "uat").length,
+      dataPrepFileCount: dataFiles.filter(f => f.milestoneId === m.id).length,
     };
   }));
 });
@@ -157,7 +164,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment } = req.body;
+  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
@@ -186,6 +193,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     uatTargetDate: uatTargetDate ? new Date(uatTargetDate) : null,
     goLiveDate: goLiveDate ? new Date(goLiveDate) : null,
     environment: environment ?? null,
+    description: description ? String(description).trim() || null : null,
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
@@ -227,6 +235,8 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     .from(requirementsTable).where(eq(requirementsTable.milestoneId, id));
   const execFiles = await db.select({ id: executionFilesTable.id, fileType: executionFilesTable.fileType })
     .from(executionFilesTable).where(eq(executionFilesTable.milestoneId, id));
+  const dataFiles = await db.select({ id: dataPrepFilesTable.id })
+    .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
 
   res.json({
     ...fmt(m),
@@ -234,6 +244,7 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     approvedCount: reqs.filter(r => r.reviewStatus === "approved").length,
     executionFileCount: execFiles.filter(f => f.fileType === "qa").length,
     uatFileCount: execFiles.filter(f => f.fileType === "uat").length,
+    dataPrepFileCount: dataFiles.length,
   });
 });
 
@@ -264,6 +275,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     update.environment = req.body.environment ?? null;
   }
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
+  if (req.body.description !== undefined) update.description = req.body.description ? String(req.body.description).trim() || null : null;
   if (req.body.lessonsLearnedType !== undefined) {
     if (req.body.lessonsLearnedType != null && !VALID_LESSON_TYPES.includes(req.body.lessonsLearnedType)) {
       res.status(400).json({ error: `lessonsLearnedType must be one of ${VALID_LESSON_TYPES.join(", ")}` }); return;

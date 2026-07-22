@@ -175,6 +175,8 @@ export async function bootstrap() {
   // CR057 follow-up — classifies the lessons-learned text (matches the
   // "Lessons Learnt Type" dropdown in Bestinet's export template).
   await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS lessons_learned_type TEXT`);
+  // CR070 — free-form scope note, auto-populated for 'data_prep' milestones.
+  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS description TEXT`);
 
   // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
   await pool.query(`
@@ -191,6 +193,21 @@ export async function bootstrap() {
   // CR054p3 — UAT sign-off documents (file bytes stored base64 in-row)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS uat_signoffs (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      note TEXT,
+      data_base64 TEXT NOT NULL,
+      uploaded_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  // CR070 — data-prep source files (QA uploads, PM downloads to hand off to client)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS data_prep_files (
       id SERIAL PRIMARY KEY,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
@@ -749,6 +766,12 @@ router.put("/roles/:id/permissions", async (req, res): Promise<void> => {
     if (!role) { jsonError(res, 404, "Role not found"); return; }
     if (role.isSystem && role.name === "admin") {
       jsonError(res, 403, "Admin permissions cannot be changed"); return;
+    }
+    // pmo is a fixed 4-page portal role (Layout.tsx/App.tsx hardcode its
+    // access) — nav permission rows for it are never consulted, so letting
+    // admins edit them here was pure UI theater. Match the admin guard.
+    if (role.name === "pmo") {
+      jsonError(res, 403, "pmo access is fixed and not configurable"); return;
     }
 
     const permissions: string[] = Array.isArray(req.body.permissions) ? req.body.permissions : [];

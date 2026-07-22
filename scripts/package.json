@@ -24,6 +24,8 @@
     "seed:sparrow:milestones-bonus:finalize": "tsx ./src/finalize-sparrow-milestones-bonus.ts",
     "seed:sparrow:uat-signoff-bonus": "tsx ./src/seed-sparrow-uat-signoff-bonus.ts",
     "seed:sparrow:uat-signoff-bonus:finalize": "tsx ./src/finalize-sparrow-uat-signoff-bonus.ts",
+    "seed:sparrow:data-prep-bonus": "tsx ./src/seed-sparrow-data-prep-bonus.ts",
+    "seed:sparrow:data-prep-bonus:finalize": "tsx ./src/finalize-sparrow-data-prep-bonus.ts",
     "seed:sparrow:clear": "tsx ./src/clear-sparrow-data.ts",
     "clear:playwright": "tsx ./src/clear-playwright-data.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

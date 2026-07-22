@@ -35,6 +35,10 @@ export const milestonesTable = pgTable("milestones", {
   // 'what_went_right' | 'best_practice'. Null when not yet classified.
   lessonsLearnedType: text("lessons_learned_type"),
   closedBy: integer("closed_by"),
+  // CR070 — free-form scope note. Auto-populated with a data-prep checklist
+  // template on the client when type is switched to 'data_prep' (QA has no
+  // requirement to read scope from, unlike every other milestone type).
+  description: text("description"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
@@ -68,5 +72,22 @@ export const uatSignoffsTable = pgTable("uat_signoffs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// CR070 — data-prep source files. QA uploads the prepared dataset against a
+// 'data_prep' milestone; PM downloads it to hand off to the client. Same
+// base64-in-row pattern as uat_signoffs (small files, trivial backup/restore).
+export const dataPrepFilesTable = pgTable("data_prep_files", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  milestoneId: integer("milestone_id").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  note: text("note"),
+  dataBase64: text("data_base64").notNull(),
+  uploadedBy: integer("uploaded_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type MilestoneAssignee = typeof milestoneAssigneesTable.$inferSelect;
 export type UatSignoff = typeof uatSignoffsTable.$inferSelect;
+export type DataPrepFile = typeof dataPrepFilesTable.$inferSelect;

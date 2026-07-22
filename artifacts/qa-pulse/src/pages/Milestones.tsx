@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -17,6 +17,8 @@ import {
   Users,
   X,
   FileDown,
+  Download,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,13 +61,39 @@ interface Milestone {
   lessonsLearned: string | null;
   lessonsLearnedType: string | null;
   closedBy: number | null;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
   requirementCount?: number;
   approvedCount?: number;
   executionFileCount?: number;
   uatFileCount?: number;
+  dataPrepFileCount?: number;
 }
+
+interface DataPrepFile {
+  id: number;
+  projectId: number;
+  milestoneId: number;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  note: string | null;
+  uploadedBy: number | null;
+  uploaderName: string | null;
+  createdAt: string;
+}
+
+const fmtSize = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+// CR070 — prefilled when a milestone is switched to "Data Prep" so QA knows
+// exactly what to hand over, without the PM having to type it from scratch.
+const DATA_PREP_TEMPLATE = `Data source / system:
+Fields & format required:
+Number of records needed:
+Target environment:
+Special conditions (edge cases, boundary values):
+Deadline for handover to QA:`;
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -154,7 +182,7 @@ export default function Milestones() {
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -239,7 +267,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none" });
+    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
     setDialogOpen(true);
   };
 
@@ -260,8 +288,19 @@ export default function Milestones() {
       environment: m.environment ?? "none",
       lessonsLearned: m.lessonsLearned ?? "",
       lessonsLearnedType: m.lessonsLearnedType ?? "none",
+      description: m.description ?? "",
     });
     setDialogOpen(true);
+  };
+
+  // CR070 — switching the type dropdown to Data Prep prefills the checklist
+  // template (only if the PM hasn't already typed a description themselves).
+  const handleTypeChange = (v: string) => {
+    setForm((f) => ({
+      ...f,
+      type: v,
+      description: v === "data_prep" && !f.description.trim() ? DATA_PREP_TEMPLATE : f.description,
+    }));
   };
 
   const handleSave = async () => {
@@ -285,6 +324,7 @@ export default function Milestones() {
         environment: form.environment === "none" ? null : form.environment,
         lessonsLearned: form.lessonsLearned.trim() || null,
         lessonsLearnedType: form.lessonsLearnedType === "none" ? null : form.lessonsLearnedType,
+        description: form.description.trim() || null,
       };
       const res = editing
         ? await api(`/milestones/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })
@@ -402,16 +442,24 @@ export default function Milestones() {
                     )}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded bg-muted/50 p-2 text-center">
-                    <p className="text-lg font-bold">{m.requirementCount ?? 0}</p>
-                    <p className="text-muted-foreground">Requirements</p>
+                {m.type === "data_prep" ? (
+                  <div className="rounded bg-muted/50 p-2 text-center text-xs flex items-center justify-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="font-bold">{m.dataPrepFileCount ?? 0}</span>
+                    <span className="text-muted-foreground">file{m.dataPrepFileCount === 1 ? "" : "s"} uploaded</span>
                   </div>
-                  <div className="rounded bg-muted/50 p-2 text-center">
-                    <p className="text-lg font-bold text-green-600">{m.approvedCount ?? 0}</p>
-                    <p className="text-muted-foreground">Approved</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded bg-muted/50 p-2 text-center">
+                      <p className="text-lg font-bold">{m.requirementCount ?? 0}</p>
+                      <p className="text-muted-foreground">Requirements</p>
+                    </div>
+                    <div className="rounded bg-muted/50 p-2 text-center">
+                      <p className="text-lg font-bold text-green-600">{m.approvedCount ?? 0}</p>
+                      <p className="text-muted-foreground">Approved</p>
+                    </div>
                   </div>
-                </div>
+                )}
                 {canWrite && (
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
@@ -446,7 +494,7 @@ export default function Milestones() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Type</Label>
-                <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                <Select value={form.type} onValueChange={handleTypeChange}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TYPE_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
@@ -501,39 +549,55 @@ export default function Milestones() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs">Start</Label>
-                  <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Requirements by</Label>
-                  <Input type="date" value={form.reqTargetDate} onChange={(e) => setForm({ ...form, reqTargetDate: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Dev done by</Label>
-                  <Input type="date" value={form.devTargetDate} onChange={(e) => setForm({ ...form, devTargetDate: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">QA done by</Label>
-                  <Input type="date" value={form.qaTargetDate} onChange={(e) => setForm({ ...form, qaTargetDate: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">UAT done by</Label>
-                  <Input type="date" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Go-Live</Label>
-                  <Input type="date" value={form.goLiveDate} onChange={(e) => setForm({ ...form, goLiveDate: e.target.value })} />
+            {form.type !== "data_prep" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Start</Label>
+                    <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Requirements by</Label>
+                    <Input type="date" value={form.reqTargetDate} onChange={(e) => setForm({ ...form, reqTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Dev done by</Label>
+                    <Input type="date" value={form.devTargetDate} onChange={(e) => setForm({ ...form, devTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">QA done by</Label>
+                    <Input type="date" value={form.qaTargetDate} onChange={(e) => setForm({ ...form, qaTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">UAT done by</Label>
+                    <Input type="date" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Go-Live</Label>
+                    <Input type="date" value={form.goLiveDate} onChange={(e) => setForm({ ...form, goLiveDate: e.target.value })} />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+            {form.type === "data_prep" && (
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5" /> What QA needs to prepare
+                </Label>
+                <Textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={6}
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
+            {editing && form.type === "data_prep" && <DataPrepFilesSection milestone={editing} token={token} canWrite={canWrite} userId={user?.id} />}
             {editing && canWrite && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5" /> Team
+                  <Users className="w-3.5 h-3.5" /> {form.type === "data_prep" ? "QA assigned to prepare this data" : "Team"}
                 </Label>
                 <div className="flex flex-wrap gap-1.5">
                   {assignees.map((a) => (
@@ -607,6 +671,113 @@ export default function Milestones() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// CR070 — data-prep file handoff: QA uploads the prepared dataset, PM
+// downloads it to email the client. Lives inside the edit dialog since it
+// needs the milestone to already exist (same constraint as the Team section).
+function DataPrepFilesSection({ milestone, token, canWrite, userId }: { milestone: Milestone; token: string | null; canWrite: boolean; userId: number | undefined }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const { data: files = [], isLoading } = useQuery<DataPrepFile[]>({
+    queryKey: ["data-prep-files", milestone.id],
+    queryFn: async () => {
+      const res = await api(`/data-prep-files?milestoneId=${milestone.id}`, token);
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const handlePick = async (file: File | null) => {
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { toast({ variant: "destructive", title: "File too large (max 15 MB)" }); return; }
+    setUploading(true);
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+        reader.onerror = () => reject(new Error("Could not read file"));
+        reader.readAsDataURL(file);
+      });
+      const res = await api("/data-prep-files", token, {
+        method: "POST",
+        body: JSON.stringify({ milestoneId: milestone.id, fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64 }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? "Upload failed"); }
+      toast({ title: "File uploaded" });
+      queryClient.invalidateQueries({ queryKey: ["data-prep-files", milestone.id] });
+      queryClient.invalidateQueries({ queryKey: ["milestones"] });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message ?? "Upload failed" });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDownload = async (f: DataPrepFile) => {
+    const res = await api(`/data-prep-files/${f.id}/download`, token);
+    if (!res.ok) { toast({ variant: "destructive", title: "Download failed" }); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = f.fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDelete = async (f: DataPrepFile) => {
+    const res = await api(`/data-prep-files/${f.id}`, token, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); toast({ variant: "destructive", title: d.error ?? "Delete failed" }); return; }
+    toast({ title: "File deleted" });
+    queryClient.invalidateQueries({ queryKey: ["data-prep-files", milestone.id] });
+    queryClient.invalidateQueries({ queryKey: ["milestones"] });
+  };
+
+  const canDelete = (f: DataPrepFile) => canWrite && (f.uploadedBy === userId || f.uploadedBy == null);
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
+        <Database className="w-3.5 h-3.5" /> Data File
+      </Label>
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : files.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No file uploaded yet — QA uploads the prepared dataset here.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {files.map((f) => (
+            <div key={f.id} className="flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-xs">
+              <div className="min-w-0">
+                <p className="font-medium truncate">{f.fileName}</p>
+                <p className="text-muted-foreground">{fmtSize(f.sizeBytes)} · {f.uploaderName ?? "—"} · {format(new Date(f.createdAt), "dd MMM yyyy")}</p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" onClick={() => handleDownload(f)}>
+                  <Download className="w-3.5 h-3.5" /> Download
+                </Button>
+                {canDelete(f) && (
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDelete(f)} aria-label="Delete file">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {canWrite && (
+        <div className="pt-1">
+          <Input ref={fileInputRef} type="file" disabled={uploading} onChange={(e) => handlePick(e.target.files?.[0] ?? null)} className="h-8 text-xs file:text-xs" />
+          {uploading && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Uploading…</p>}
+        </div>
+      )}
     </div>
   );
 }

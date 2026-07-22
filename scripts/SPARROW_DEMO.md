@@ -13,8 +13,8 @@ its own escape, FA-Lead sign-off, milestone closure, a production escape two
 weeks after go-live, the full risk register (R-01…R-09), and 3 lessons-learned
 entries.
 
-**Presenting a specific page?** There are five optional bonus layers, run
-after the main steps below, each independent of the others:
+**Presenting a specific page?** There are optional bonus layers, run after
+the main steps below, each independent of the others:
 
 - `seed-sparrow-requirements-bonus.ts` — 12 Requirements-page scenarios
   (parent/child hierarchy, Redmine import/sync, attachments, comment
@@ -42,10 +42,22 @@ after the main steps below, each independent of the others:
   approved on retry, a deleted milestone, environment contention resolved
   proactively (a month ahead, not mid-run), an external-vendor start delay,
   and a milestone that's still just a placeholder nobody's touched.
+- `seed-sparrow-uat-signoff-bonus.ts` — uploads a real UAT sign-off document
+  for CR-2026-014, showing CR056's gap between the business acceptance pack
+  landing and the FA Lead formally closing the milestone in QAPulse.
+- `seed-sparrow-data-prep-bonus.ts` — the CR070 Data Prep milestone type
+  (MS-10 — CR-2026-029): auto-populated "what QA needs to prepare"
+  description, multi-assignee staffing (qa_lead + qa_member), a
+  two-done/one-in-progress task set feeding the CR069 task-completion
+  rollup on the PM Dashboard, and the QA-uploads/PM-downloads dataset
+  handoff feeding CR-2026-026's SIT round.
 
-See `SPARROW_SCENARIOS.html` for the full reference covering **all five**
-— every scenario, actor, and data value spelled out. Open it in a browser
-and keep it up while presenting.
+See `SPARROW_SCENARIOS.html` for the full reference covering the main
+storyline and the Requirements/Test Cases/Defects/PM Dashboard/Milestones
+bonus layers — every scenario, actor, and data value spelled out. Open it
+in a browser and keep it up while presenting. (The UAT sign-off and Data
+Prep bonus layers were added after that reference doc and aren't in it yet
+— this README is the source of truth for those two.)
 
 Everything is created through the real API — not raw SQL — so the FA review
 workflow, segregation-of-duties blocks, dev hand-off gates, defect codes,
@@ -123,10 +135,26 @@ QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-milestones-bonus.ts
 ```
 
-All five are independent and can be run in any order (or just the ones you
-need). Then open `SPARROW_SCENARIOS.html` for the full RQ-01…12 / TX-01…12 /
-DX-01…10 / PM-01…10 / MS-01…10 reference (data, actors, dates, what each one
-demonstrates).
+**Presenting UAT sign-offs?**
+
+```bash
+QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-uat-signoff-bonus.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-uat-signoff-bonus.ts
+```
+
+**Presenting the Data Prep milestone type (CR070)?**
+
+```bash
+QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-data-prep-bonus.ts
+DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-data-prep-bonus.ts
+```
+
+All bonus layers are independent and can be run in any order (or just the
+ones you need). Then open `SPARROW_SCENARIOS.html` for the RQ-01…12 /
+TX-01…12 / DX-01…10 / PM-01…10 / MS-01…10 reference (data, actors, dates,
+what each one demonstrates) — note it predates the UAT sign-off and Data
+Prep bonus layers, so neither is covered there; this README is the
+reference for those two until it's updated.
 
 **Re-run the PM Dashboard finalize close to when you actually present** —
 its dates are anchored to "today" at run time (same as TX-11's stale file
