@@ -1859,6 +1859,7 @@ export default function TestCasesExecutionProgressPage() {
       expectedResult: tc.expectedResult || "",
       preCondition: tc.preConditions || "",
       libraryTcId: tc.id,
+      requirementId: tc.requirementId ?? null,
     }));
     setData(prev => [...prev, ...newRows]);
     setDirtyRowIds(prev => new Set([...prev, ...newRows.map(r => r.id)]));

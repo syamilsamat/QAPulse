@@ -1275,6 +1275,7 @@ export default function TestCases() {
       expectedResult: tc.expectedResult ?? "",
       comments: tc.comments ?? "",
       libraryTcId: tc.id,
+      requirementId: tc.requirementId ?? null,
       result: "Not Executed",
     }));
     const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
