@@ -478,7 +478,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
     alwaysVisible: true,
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/milestones",
@@ -487,7 +487,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-violet-500",
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:milestones",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/requirements",
@@ -496,7 +496,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-orange-500",
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:requirements",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/test-cases",
@@ -508,7 +508,7 @@ const NAV_ITEMS: NavItem[] = [
     subItems: [
       { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
     ],
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/defects",
@@ -520,7 +520,7 @@ const NAV_ITEMS: NavItem[] = [
     // CR042 — FA added: requirement defects (CR031) route to FA authors.
     roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"],
     permKey: "nav:defects",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/tasks",
@@ -532,7 +532,7 @@ const NAV_ITEMS: NavItem[] = [
     subItems: [
       { href: "/history-trail", label: "History Trail", icon: HoverHistory, activeColor: "text-purple-500" },
     ],
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/traceability",
@@ -541,7 +541,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-cyan-500",
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:traceability",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/risk-register",
@@ -550,7 +550,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-amber-500",
     roles: ["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto"],
     permKey: "nav:risk-register",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/qa-analytics",
@@ -559,7 +559,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-indigo-500",
     roles: ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
     permKey: "nav:qa-analytics",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/pmo-report",
@@ -568,7 +568,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-pink-500",
     roles: ["qa_member", "pmo", "qa_lead", "admin"],
     permKey: "nav:report",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/uat-signoffs",
@@ -577,7 +577,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-teal-500",
     roles: ["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
     permKey: "nav:uat-signoffs",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/pm-dashboard",
@@ -586,7 +586,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-blue-600",
     roles: ["hod_pm", "pm_lead", "admin", "cto"],
     permKey: "nav:pm-dashboard",
-    section: "QA & Project Delivery",
+    section: "Delivery Flow",
   },
   {
     href: "/ai-features",
