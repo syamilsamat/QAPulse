@@ -57,9 +57,9 @@ async function redmineFetch(
   return fetch(`${getBaseUrl()}${path}`, { ...options, headers });
 }
 
-// ─── Existing: single issue fetch (PMO) ─────────────────────────────────────
+// ─── Existing: single issue fetch (Verdict Report + callers elsewhere) ──────
 
-router.get("/pmo/redmine/:issueId", async (req, res): Promise<void> => {
+router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> => {
   const issueId = parseInt(req.params.issueId);
   if (isNaN(issueId)) {
     res.status(400).json({ error: "Invalid issue ID" });
@@ -111,7 +111,7 @@ router.get("/pmo/redmine/:issueId", async (req, res): Promise<void> => {
 
 // ─── Existing: status check ──────────────────────────────────────────────────
 
-router.get("/pmo/redmine-status", async (_req, res): Promise<void> => {
+router.get("/verdict-report/redmine-status", async (_req, res): Promise<void> => {
   try {
     const baseUrl = getBaseUrl();
     const response = await fetch(`${baseUrl}/issues.json?limit=1`);

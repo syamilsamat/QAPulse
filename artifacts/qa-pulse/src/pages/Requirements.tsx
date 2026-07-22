@@ -722,7 +722,7 @@ export default function Requirements() {
   };
 
   const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, milestoneId?: number, isRoot: boolean = true) => {
-    const resp = await fetch(`${getApiUrl()}/pmo/redmine/${encodeURIComponent(ticketIdToSync)}`, {
+    const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     const data = await resp.json();

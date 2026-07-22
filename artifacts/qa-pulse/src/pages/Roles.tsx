@@ -131,8 +131,8 @@ const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
   "nav:ai-hub":         { qa_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", hod_qa: "I", hod_fa: "I", cto: "I" },
   "nav:report":         { qa_lead: "R", hod_qa: "A", qa_manager: "C", qa_member: "C", fa_lead: "I", fa_member: "I", hod_fa: "I", dev_lead: "I", dev_member: "I", hod_dev: "I", pm_lead: "I", hod_pm: "I", cto: "I" },
   "nav:milestones":     { qa_lead: "R", pm_lead: "A", qa_manager: "C", qa_member: "C", fa_lead: "C", fa_member: "C", hod_qa: "I", hod_fa: "I", hod_pm: "I", cto: "I" },
-  "nav:pm-dashboard":   { pm_lead: "R", hod_pm: "A", pmo: "C", cto: "I" },
-  "nav:risk-register":  { pm_lead: "R", hod_pm: "A", qa_lead: "C", fa_lead: "C", pmo: "C", hod_qa: "I", hod_fa: "I", hod_dev: "I", cto: "I" },
+  "nav:pm-dashboard":   { pm_lead: "R", hod_pm: "A", pm_member: "C", cto: "I" },
+  "nav:risk-register":  { pm_lead: "R", hod_pm: "A", qa_lead: "C", fa_lead: "C", pm_member: "C", hod_qa: "I", hod_fa: "I", hod_dev: "I", cto: "I" },
   "nav:qa-analytics":   { qa_lead: "R", qa_manager: "A", hod_qa: "I", cto: "I" },
   "nav:defects":        { qa_member: "R", dev_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", fa_member: "C", dev_lead: "C", hod_qa: "I", hod_dev: "I", cto: "I" },
   "nav:resources":      { qa_lead: "R", fa_lead: "R", dev_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", pm_lead: "C", cto: "I" },
@@ -237,7 +237,7 @@ export default function Roles() {
     enabled: !!permRole,
   });
 
-  interface MatrixRole { id: number; name: string; department: string | null; tierRank: number | null; isSystem: boolean; permissions: string[]; }
+  interface MatrixRole { id: number; name: string; description: string | null; department: string | null; tierRank: number | null; isSystem: boolean; permissions: string[]; }
   const { data: matrixData, isLoading: matrixLoading } = useQuery<{ allKeys: string[]; roles: MatrixRole[] }>({
     queryKey: ["role-permissions-matrix"],
     queryFn: async () => {
@@ -406,7 +406,6 @@ export default function Roles() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Role Name</TableHead>
                   <TableHead>Display Name</TableHead>
                   <TableHead className="w-24">Department</TableHead>
                   <TableHead className="w-28">Tier</TableHead>
@@ -421,11 +420,8 @@ export default function Roles() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {role.isSystem && <Lock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                        {role.name}
+                        {role.description || <span className="italic text-muted-foreground">No description</span>}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {role.description ?? <span className="italic">No description</span>}
                     </TableCell>
                     <TableCell>
                       {deptLabel(role.department) ? (
@@ -766,7 +762,7 @@ export default function Roles() {
                         </TableRow>
                         {deptRoles.map((role) => (
                           <TableRow key={role.id}>
-                            <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.name}</TableCell>
+                            <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.description || role.name}</TableCell>
                             {matrixData.allKeys.map((key) => (
                               <TableCell key={key} className="text-center px-2">
                                 {matrixCell(role, key)}
@@ -791,7 +787,7 @@ export default function Roles() {
                         </TableRow>
                         {otherRoles.map((role) => (
                           <TableRow key={role.id}>
-                            <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.name}</TableCell>
+                            <TableCell className="sticky left-0 bg-background font-medium whitespace-nowrap">{role.description || role.name}</TableCell>
                             {matrixData.allKeys.map((key) => (
                               <TableCell key={key} className="text-center px-2">
                                 {matrixCell(role, key)}

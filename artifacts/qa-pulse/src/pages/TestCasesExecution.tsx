@@ -566,7 +566,7 @@ export default function TestCasesExecution() {
         } else {
           // Try Redmine directly for title + tracker only
           try {
-            const rr = await fetch(`${getApiUrl()}/pmo/redmine/${ticketId}`, { headers: getHeaders() });
+            const rr = await fetch(`${getApiUrl()}/verdict-report/redmine/${ticketId}`, { headers: getHeaders() });
             if (rr.ok) {
               const rd = await rr.json();
               const subject = rd.issue?.subject || rd.subject || "";
@@ -645,7 +645,7 @@ export default function TestCasesExecution() {
     setIsSendingVerdict(true);
     try {
       const verdict = getVerdict(prog);
-      const res = await fetch(`${getApiUrl()}/pmo/send-verdict`, {
+      const res = await fetch(`${getApiUrl()}/verdict-report/send-verdict`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({

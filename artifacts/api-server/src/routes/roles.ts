@@ -17,12 +17,12 @@ const DEFAULT_ROLES: Array<{ name: string; description: string; isSystem: boolea
   { name: "qa_manager", description: "QA Manager",               isSystem: false, department: "qa", tierRank: 3 },
   { name: "qa_lead",    description: "QA Lead",                  isSystem: false, department: "qa", tierRank: 2 },
   { name: "qa_member",  description: "QA Member",                isSystem: false, department: "qa", tierRank: 1 },
-  { name: "fa_lead",    description: "Functional Analyst Lead",  isSystem: false, department: "fa", tierRank: 2 },
-  { name: "fa_member",  description: "Functional Analyst",       isSystem: false, department: "fa", tierRank: 1 },
+  { name: "fa_lead",    description: "FA Lead",                  isSystem: false, department: "fa", tierRank: 2 },
+  { name: "fa_member",  description: "FA Member",                isSystem: false, department: "fa", tierRank: 1 },
   { name: "dev_lead",   description: "Dev Lead",                 isSystem: false, department: "dev", tierRank: 2 },
   { name: "dev_member", description: "Developer",                isSystem: false, department: "dev", tierRank: 1 },
   { name: "pm_lead",    description: "PM Lead",                  isSystem: false, department: "pm", tierRank: 2 },
-  { name: "pmo",        description: "PMO",                      isSystem: false, department: "pm", tierRank: 1 },
+  { name: "pm_member",  description: "PM Member",                 isSystem: false, department: "pm", tierRank: 1 },
 ];
 
 export const ALL_NAV_KEYS = [
@@ -63,7 +63,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
   dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts", "nav:defects"],
   pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
-  pmo:        ["nav:uat-signoffs"],
+  pm_member:  ["nav:milestones", "nav:pm-dashboard", "nav:risk-register", "nav:report", "nav:uat-signoffs"],
 };
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
@@ -482,7 +482,7 @@ export async function bootstrap() {
 
   // nav:uat-signoffs (CR054p3) — PM family owns the sign-off registry;
   // QA managers/leads get read access to check UAT closure evidence.
-  for (const roleName of ["hod_pm", "pm_lead", "pmo", "cto", "qa_manager", "hod_qa", "qa_lead"]) {
+  for (const roleName of ["hod_pm", "pm_lead", "pm_member", "cto", "qa_manager", "hod_qa", "qa_lead"]) {
     const { rows } = await pool.query<{ id: number }>(
       `SELECT id FROM roles WHERE name = $1`, [roleName]
     );
@@ -718,6 +718,7 @@ router.get("/roles/permissions-matrix", async (req, res): Promise<void> => {
       roles: roles.map((r) => ({
         id: r.id,
         name: r.name,
+        description: r.description ?? null,
         department: r.department ?? null,
         tierRank: r.tierRank ?? null,
         isSystem: r.isSystem,
@@ -766,12 +767,6 @@ router.put("/roles/:id/permissions", async (req, res): Promise<void> => {
     if (!role) { jsonError(res, 404, "Role not found"); return; }
     if (role.isSystem && role.name === "admin") {
       jsonError(res, 403, "Admin permissions cannot be changed"); return;
-    }
-    // pmo is a fixed 4-page portal role (Layout.tsx/App.tsx hardcode its
-    // access) — nav permission rows for it are never consulted, so letting
-    // admins edit them here was pure UI theater. Match the admin guard.
-    if (role.name === "pmo") {
-      jsonError(res, 403, "pmo access is fixed and not configurable"); return;
     }
 
     const permissions: string[] = Array.isArray(req.body.permissions) ? req.body.permissions : [];

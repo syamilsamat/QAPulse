@@ -223,7 +223,7 @@ interface ClosedMilestone {
 // CR040 — Risk Register extracted to components/RiskRegisterCard.tsx and its
 // own standalone page (pages/RiskRegister.tsx), so qa_lead/fa_lead (who can't
 // see this whole dashboard) can reach it without the rest of PM Dashboard.
-const CAN_ASSESS_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
+const CAN_ASSESS_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
 
 // ── AI Risk Assessment (CR037) ──────────────────────────────────────────────
 // Milestone-level, on-demand, stored history. Distinct from the Risk Register

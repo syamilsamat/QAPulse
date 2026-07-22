@@ -56,7 +56,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 
 const fmtSize = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
-const UPLOAD_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"];
+const UPLOAD_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
 
 export default function UatSignoffs() {
   const { token, user } = useAuth();

@@ -15,7 +15,7 @@ const router: IRouter = Router();
 
 // Milestone writers plus qa_member — the actual data-prep work is often done
 // by a QA member, not just leads (mirrors milestones.ts's canWrite + qa_member).
-const UPLOAD_ROLES = ["admin", "qa_lead", "qa_member", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"];
+const UPLOAD_ROLES = ["admin", "qa_lead", "qa_member", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
 const MAX_BYTES = 15 * 1024 * 1024;
 
 // GET /data-prep-files?milestoneId=N

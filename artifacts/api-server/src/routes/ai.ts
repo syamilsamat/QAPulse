@@ -1058,7 +1058,7 @@ Rules:
 // articulates, it never does the arithmetic. On any AI failure the endpoint
 // returns 502 rather than a fabricated risk level.
 
-const MILESTONE_RISK_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
+const MILESTONE_RISK_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
 const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
 const CLOSED_DEFECT_STATUSES = new Set(["closed", "verified", "rejected", "duplicate"]);
 

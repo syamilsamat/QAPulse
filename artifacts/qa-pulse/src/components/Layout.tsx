@@ -562,11 +562,11 @@ const NAV_ITEMS: NavItem[] = [
     section: "Delivery Flow",
   },
   {
-    href: "/pmo-report",
+    href: "/verdict-report",
     label: "Verdict Report",
     icon: HoverChart,
     activeColor: "text-pink-500",
-    roles: ["qa_member", "pmo", "qa_lead", "admin"],
+    roles: ["qa_member", "pm_member", "qa_lead", "admin"],
     permKey: "nav:report",
     section: "Delivery Flow",
   },
@@ -575,7 +575,7 @@ const NAV_ITEMS: NavItem[] = [
     label: "UAT Sign-offs",
     icon: FileCheck2,
     activeColor: "text-teal-500",
-    roles: ["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
+    roles: ["hod_pm", "pm_lead", "pm_member", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
     permKey: "nav:uat-signoffs",
     section: "Delivery Flow",
   },
@@ -709,7 +709,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     queryKey: ["notifications-unread", user?.id],
     queryFn: () =>
       listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
-    enabled: !!user?.id && user.role !== "pmo",
+    enabled: !!user?.id,
     refetchInterval: 30000,
   });
 
@@ -719,7 +719,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // writes a new notification for this user. The 30s poll above stays as a
   // correctness fallback in case the SSE stream silently stalls.
   useEffect(() => {
-    if (!user?.id || user.role === "pmo" || !token) return;
+    if (!user?.id || !token) return;
     // Token rides as a query param — EventSource can't set an Authorization
     // header (CR047). The server binds the stream to the token's own user.
     const es = new EventSource(`${getApiUrl()}/notifications/stream?token=${encodeURIComponent(token)}`);
@@ -753,12 +753,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: !!user && user.role !== "pmo",
+    enabled: !!user,
   });
 
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!user) return false;
-    if (user.role === "pmo") return item.href === "/pmo-report" || item.href === "/pm-dashboard" || item.href === "/risk-register" || item.href === "/milestones";
     if (item.alwaysVisible) return true;
     // Use dynamic permissions when available, fall back to static roles
     if (navPermissions && item.permKey) return navPermissions.includes(item.permKey);

@@ -204,7 +204,7 @@ export default function Milestones() {
     enabled: filterProject !== "all",
   });
 
-  const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(user?.role ?? "");
+  const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
 
   const [exportingLessons, setExportingLessons] = useState(false);
   const handleExportLessonsLearned = async () => {

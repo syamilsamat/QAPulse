@@ -20,10 +20,10 @@ function requireAuth(req: any, res: any): { userId: number; role: string } | nul
 }
 
 function canWrite(role: string) {
-  // pm_lead/pmo were missing here even though dashboard.ts's PM_ROLES
+  // pm_lead/pm_member were missing here even though dashboard.ts's PM_ROLES
   // already treats them as legitimate PM roles for reading milestone data —
   // without them a PM couldn't create, edit, or close their own milestones.
-  return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"].includes(role);
+  return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(role);
 }
 
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
@@ -457,7 +457,7 @@ router.get("/milestones/:id/risk-assessments", async (req, res): Promise<void> =
   const ctx = requireAuth(req, res);
   if (!ctx) return;
 
-  const PM_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
+  const PM_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
   if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
 
   const id = parseInt(req.params.id);

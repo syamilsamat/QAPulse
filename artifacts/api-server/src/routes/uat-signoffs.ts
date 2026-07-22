@@ -15,7 +15,7 @@ import { logActivity } from "./_audit";
 const router: IRouter = Router();
 
 // Same write tier as milestones: PM family + QA/FA leadership + admin/cto.
-const UPLOAD_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pmo", "cto"];
+const UPLOAD_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
 const MAX_BYTES = 15 * 1024 * 1024;
 
 // GET /uat-signoffs?projectId=N — metadata only, scoped to the caller's projects

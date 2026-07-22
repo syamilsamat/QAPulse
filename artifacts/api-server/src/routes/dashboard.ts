@@ -6,7 +6,7 @@ import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank,
 
 const router: IRouter = Router();
 
-const PM_ROLES = ["pmo", "pm_lead", "hod_pm", "admin", "cto"];
+const PM_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
 
 // CR038 — flat assumed weekly capacity per person, used for the Capacity
 // table's utilization % column. No per-user configurable capacity field
@@ -72,7 +72,7 @@ function computeScheduleRisk(status: string, targetDate: Date | null, readinessP
 }
 
 // GET /dashboard/pm-summary — CR014 Part 3. Portfolio view for the PM track
-// (pmo, pm_lead, hod_pm) plus admin/cto: per-project milestone health
+// (pm_member, pm_lead, hod_pm) plus admin/cto: per-project milestone health
 // (requirement approval + QA/UAT execution readiness, schedule risk) and a
 // project-level resource capacity strip. Optional ?projectId= drills into one.
 router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
@@ -1124,7 +1124,7 @@ async function resolveResourceViewScope(ctx: { userId: number; role: string }): 
   const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, ctx.role));
   const department = roleRow?.department ?? null;
   const tierRank = roleRow?.tierRank ?? 1;
-  if (!department || tierRank < 2) return null; // tier 1 (member/pmo) — no access to this view
+  if (!department || tierRank < 2) return null; // tier 1 (member) — no access to this view
 
   if (department === "pm" && tierRank >= 4) {
     return { departments: null, projectIds: null }; // hod_pm — every department, every project

@@ -23,7 +23,7 @@ import { notifyUser } from "./_notify";
 import { computeRequirementTimelines } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
-import { fetchActiveDefectsForIssue } from "./pmo-report";
+import { fetchActiveDefectsForIssue } from "./verdict-report";
 
 const router: IRouter = Router();
 

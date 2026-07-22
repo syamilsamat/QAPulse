@@ -101,7 +101,7 @@ function RiskBadge({ level }: { level: string }) {
 }
 
 // --- Interfaces & Constants ---
-interface PmoReportData {
+interface VerdictReportData {
   redmineId: string;
   generatedAt: string;
   source?: "redmine" | "local";
@@ -241,118 +241,6 @@ const PRIORITY_COLOR: Record<string, string> = {
   Immediate: "bg-red-200 text-red-900",
 };
 
-function Sidebar({
-  onLogout,
-  isOpen,
-  setIsOpen,
-}: {
-  onLogout: () => void;
-  isOpen: boolean;
-  setIsOpen: (open: boolean) => void;
-}) {
-  const { user } = useAuth();
-  const [logoutOpen, setLogoutOpen] = useState(false);
-
-  const initials = user?.name
-    ? user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
-    : "PM";
-
-  return (
-    <>
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
-          onClick={() => setIsOpen(false)}
-        />
-      )}
-
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col h-screen w-60 bg-sidebar border-r border-sidebar-border transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute right-3 top-3 md:hidden h-8 w-8 text-sidebar-foreground/60"
-          onClick={() => setIsOpen(false)}
-        >
-          <X className="w-4 h-4" />
-        </Button>
-
-        <div className="p-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-3 group cursor-default">
-            <PulseLogo size="sm" showWord={false} />
-
-            <div>
-              <p className="font-bold text-sidebar-foreground text-sm leading-tight">
-                QMPulse
-              </p>
-              <p className="text-xs text-sidebar-foreground/50 leading-tight">
-                PMO Portal
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1">
-          <div className="px-3 py-2 rounded-lg bg-primary/10 flex items-center gap-2 group cursor-pointer">
-            <HoverChart className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-primary">
-              Verdict Report
-            </span>
-          </div>
-        </nav>
-
-        <div className="p-3 border-t border-sidebar-border space-y-3">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-sidebar-accent/30">
-            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-              <span className="text-xs font-bold text-primary">{initials}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {user?.name ?? "PMO Manager"}
-              </p>
-              <p className="text-xs text-sidebar-foreground/50 truncate">
-                {user?.email ?? ""}
-              </p>
-            </div>
-            <ThemeToggle className="shrink-0" />
-          </div>
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => setLogoutOpen(true)}
-          >
-            <LogOut className="w-4 h-4" />
-            Sign Out
-          </Button>
-        </div>
-      </aside>
-
-      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sign out?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You will be returned to the login page.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onLogout}>Sign Out</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
-
 function StatBox({
   label,
   value,
@@ -386,7 +274,7 @@ function RedmineSection({
   const { data, isLoading, error } = useQuery<RedmineData>({
     queryKey: ["redmine-issue", issueId],
     queryFn: async () => {
-      const resp = await fetch(`${getApiUrl()}/pmo/redmine/${issueId}`, {
+      const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${issueId}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       return resp.json();
@@ -703,8 +591,8 @@ function RedmineSection({
   );
 }
 
-export default function PmoReport() {
-  const { token, logout, user } = useAuth();
+export default function VerdictReport() {
+  const { token, user } = useAuth();
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -722,7 +610,6 @@ export default function PmoReport() {
       })
       .catch(() => {});
   }, []);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeDefectsPage, setActiveDefectsPage] = useState(1);
   const [showAllDefects, setShowAllDefects] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -738,11 +625,11 @@ export default function PmoReport() {
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
 
-  const { data, isLoading, error } = useQuery<PmoReportData>({
-    queryKey: ["pmo-report", redmineId],
+  const { data, isLoading, error } = useQuery<VerdictReportData>({
+    queryKey: ["verdict-report", redmineId],
     queryFn: async () => {
       const resp = await fetch(
-        `${getApiUrl()}/pmo/report?redmineId=${encodeURIComponent(redmineId!)}`,
+        `${getApiUrl()}/verdict-report/report?redmineId=${encodeURIComponent(redmineId!)}`,
         {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         },
@@ -758,7 +645,7 @@ export default function PmoReport() {
 
       try {
         const execResp = await fetch(
-          `${getApiUrl()}/pmo/execution-details?redmineId=${encodeURIComponent(redmineId!)}`,
+          `${getApiUrl()}/verdict-report/execution-details?redmineId=${encodeURIComponent(redmineId!)}`,
           {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           },
@@ -971,7 +858,7 @@ export default function PmoReport() {
     setIsSending(true);
     try {
       const reportName = data.issueSubject || `Ticket #${redmineId}`;
-      const res = await fetch(`${getApiUrl()}/pmo/send-email`, {
+      const res = await fetch(`${getApiUrl()}/verdict-report/send-email`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1004,7 +891,7 @@ export default function PmoReport() {
     setIsSendingVerdict(true);
     try {
       const verdict: Verdict = data.testExecution.passRate >= 100 ? "PASS" : "CONDITIONAL SIGN OFF";
-      const res = await fetch(`${getApiUrl()}/pmo/send-verdict`, {
+      const res = await fetch(`${getApiUrl()}/verdict-report/send-verdict`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1080,56 +967,10 @@ export default function PmoReport() {
         })
     : [];
 
-  const isStandalonePMO = user?.role === "pmo";
-
   return (
     <>
-      <div
-        className={
-          isStandalonePMO
-            ? "flex h-screen overflow-hidden bg-background"
-            : "flex bg-background"
-        }
-      >
-        {user?.role === "pmo" && (
-          <Sidebar
-            onLogout={logout}
-            isOpen={sidebarOpen}
-            setIsOpen={setSidebarOpen}
-          />
-        )}
-
-        <main
-          className={
-            isStandalonePMO
-              ? "flex-1 overflow-y-auto bg-muted/20"
-              : "flex-1 bg-muted/20"
-          }
-        >
-          {user?.role === "pmo" && (
-            <div className="flex items-center justify-between px-4 py-3 border-b bg-card md:hidden sticky top-0 z-30">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 -ml-1"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  <Menu className="w-5 h-5" />
-                </Button>
-                <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
-                  QMPulse PMO
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <ThemeToggle />
-                <Badge variant="secondary" className="text-[10px]">
-                  Portal
-                </Badge>
-              </div>
-            </div>
-          )}
-
+      <div className="flex bg-background">
+        <main className="flex-1 bg-muted/20">
           <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
               <div className="flex items-center gap-3 group">

@@ -65,13 +65,13 @@ const ROLE_LABELS: Record<string, string> = {
   qa_member: "QA Member",
   qa_lead: "QA Lead",
   admin: "Admin",
-  pmo: "PMO",
+  pm_member: "PM Member",
 };
 const ROLE_COLORS: Record<string, string> = {
   qa_member:  "bg-slate-100 text-slate-700",
   qa_lead:    "bg-blue-100 text-blue-700",
   admin:      "bg-purple-100 text-purple-700",
-  pmo:        "bg-emerald-100 text-emerald-700",
+  pm_member:  "bg-emerald-100 text-emerald-700",
 };
 
 const COLOR_PALETTE = [
@@ -306,7 +306,7 @@ export default function Team() {
 
   const roleOptions = (
     dbRoles.length > 0
-      ? dbRoles.filter((r) => r.name !== "pmo")
+      ? dbRoles
       : [{ name: "qa_member", description: "QA Member" }, { name: "qa_lead", description: "QA Lead" }, { name: "admin", description: "Admin" }]
   ).map((r) => ({ value: r.name, label: r.description || formatRoleLabel(r.name) }));
 

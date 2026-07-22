@@ -20,7 +20,7 @@ import Settings from "@/pages/Settings";
 import Inbox from "@/pages/Inbox";
 import TeamHangouts from "@/pages/TeamHangouts";
 import NotFound from "@/pages/not-found";
-import PmoReport from "@/pages/PmoReport";
+import VerdictReport from "@/pages/VerdictReport";
 import AiFeatures from "@/pages/AiFeatures";
 import ReportDashboard from "@/pages/ReportDashboard";
 import TestExecutionDetails from "@/pages/TestExecutionDetail";
@@ -76,7 +76,7 @@ function ProtectedRoute({
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: !!user && user.role !== "pmo" && !!permKey,
+    enabled: !!user && !!permKey,
   });
 
   if (isLoading) {
@@ -91,11 +91,9 @@ function ProtectedRoute({
     return <Redirect to="/login" />;
   }
 
-  // pmo is a two-page role handled by its own routes; anywhere it lands that
-  // isn't explicitly its own goes to the PMO report.
   const denied = (): boolean => {
     if (user.role === "admin") return false;
-    if (permKey && user.role !== "pmo") {
+    if (permKey) {
       // Wait for permissions rather than flash-redirect a user who's allowed.
       if (navPermissions === undefined) return false;
       if (navPermissions) return !navPermissions.includes(permKey);
@@ -105,7 +103,7 @@ function ProtectedRoute({
   };
 
   // Block render until permissions resolve for permKey-gated routes.
-  if (permKey && user.role !== "admin" && user.role !== "pmo" && navPermissions === undefined && permsLoading) {
+  if (permKey && user.role !== "admin" && navPermissions === undefined && permsLoading) {
     return (
       <div className="h-screen w-full flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -114,7 +112,7 @@ function ProtectedRoute({
   }
 
   if (denied()) {
-    return <Redirect to={user.role === "pmo" ? "/pmo-report" : "/dashboard"} />;
+    return <Redirect to="/dashboard" />;
   }
 
   return (
@@ -141,27 +139,11 @@ function Router() {
         If logged in, go to the app. If logged out, show the landing page.
       */}
       <Route path="/">
-        {user ? (
-          user.role === "pmo" ? (
-            <Redirect to="/pmo-report" />
-          ) : (
-            <Redirect to="/dashboard" />
-          )
-        ) : (
-          <QMPulseLanding />
-        )}
+        {user ? <Redirect to="/dashboard" /> : <QMPulseLanding />}
       </Route>
 
       <Route path="/login">
-        {user ? (
-          user.role === "pmo" ? (
-            <Redirect to="/pmo-report" />
-          ) : (
-            <Redirect to="/dashboard" />
-          )
-        ) : (
-          <Login />
-        )}
+        {user ? <Redirect to="/dashboard" /> : <Login />}
       </Route>
 
       {/* CR048 — Dashboard is the universal fallback landing (sidebar marks it
@@ -192,7 +174,7 @@ function Router() {
         <ProtectedRoute
           component={Milestones}
           permKey="nav:milestones"
-          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead", "pmo"]}
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead", "pm_member"]}
         />
       </Route>
 
@@ -200,7 +182,7 @@ function Router() {
         <ProtectedRoute
           component={PmDashboard}
           permKey="nav:pm-dashboard"
-          roles={["hod_pm", "pm_lead", "admin", "cto", "pmo"]}
+          roles={["hod_pm", "pm_lead", "admin", "cto", "pm_member"]}
         />
       </Route>
 
@@ -208,7 +190,7 @@ function Router() {
         <ProtectedRoute
           component={RiskRegister}
           permKey="nav:risk-register"
-          roles={["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto", "pmo"]}
+          roles={["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto", "pm_member"]}
         />
       </Route>
 
@@ -216,7 +198,7 @@ function Router() {
         <ProtectedRoute
           component={UatSignoffs}
           permKey="nav:uat-signoffs"
-          roles={["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"]}
+          roles={["hod_pm", "pm_lead", "pm_member", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"]}
         />
       </Route>
 
@@ -377,21 +359,16 @@ function Router() {
         <ProtectedRoute
           component={ReportDashboard}
           permKey="nav:report"
-          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead", "pmo"]}
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead", "pm_member"]}
         />
       </Route>
 
-      <Route path="/pmo-report">
+      <Route path="/verdict-report">
         {!user ? (
           <Redirect to="/login" />
-        ) : user.role === "pmo" ? (
-          // Standalone PMO users get the self-contained PMO portal shell
-          // (its own sidebar + header). Wrapping it in Layout would nest two
-          // shells and show two burger menus on mobile.
-          <PmoReport />
         ) : (
           <Layout>
-            <PmoReport />
+            <VerdictReport />
           </Layout>
         )}
       </Route>
