@@ -851,7 +851,7 @@ interface PhaseTimelineEntry {
 // last segment's end across every cycle (a resubmitted requirement's second
 // Requirements round still counts) — actualEnd stays null while that phase is
 // the requirement's current one (its last segment is still "ongoing").
-function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestonesTable.$inferSelect): PhaseTimelineEntry[] {
+export function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestonesTable.$inferSelect): PhaseTimelineEntry[] {
   const groups: { key: PhaseTimelineEntry["key"]; label: string; segKeys: PhaseKey[]; plannedStart: Date | null; plannedEnd: Date | null }[] = [
     { key: "requirements", label: "Requirements", segKeys: ["requirements"], plannedStart: m.startDate ?? null, plannedEnd: m.reqTargetDate ?? null },
     { key: "development", label: "Development", segKeys: ["gap", "develop"], plannedStart: m.reqTargetDate ?? null, plannedEnd: m.devTargetDate ?? null },

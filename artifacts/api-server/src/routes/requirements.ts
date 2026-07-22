@@ -4,6 +4,7 @@ import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
+import { computeRequirementTimelines, buildPhaseTimeline } from "./dashboard";
 import {
   db,
   requirementsTable,
@@ -329,12 +330,27 @@ router.get("/requirements/:id", async (req, res, next): Promise<void> => {
     else execPending += row.cnt;
   }
 
+  // CR074 — phase timeline for the detail page: planned dates come from the
+  // milestone (same for every requirement in it, blank if the PM hasn't set
+  // them), actual dates are this requirement's own (same computation the
+  // Tasks page's task-board endpoint uses, batched per milestone).
+  let phaseTimeline: ReturnType<typeof buildPhaseTimeline> | null = null;
+  if (requirement.milestoneId) {
+    const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, requirement.milestoneId));
+    if (milestone) {
+      const timelines = await computeRequirementTimelines(milestone.id, milestone.completedAt);
+      const entry = timelines.find((t) => t.id === requirement.id);
+      if (entry) phaseTimeline = buildPhaseTimeline(entry.timeline, milestone);
+    }
+  }
+
   res.json({
     ...(await formatRequirement(requirement)),
     tcCount: distinctTcs.size,
     execPass,
     execFail,
     execPending,
+    phaseTimeline,
   });
 });
 

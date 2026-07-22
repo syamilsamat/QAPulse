@@ -15,6 +15,7 @@ import {
   Send,
   MessageSquare,
   ChevronRight,
+  ChevronDown,
   AlertTriangle,
   AlertCircle,
   CheckSquare,
@@ -25,10 +26,12 @@ import {
   Loader2,
   Pencil,
   Plus,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -163,6 +166,8 @@ export default function RequirementDetail() {
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
+  // CR074 — History defaults to collapsed (latest entry only)
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [devLoading, setDevLoading] = useState(false);
   // CR046 — QA returning a ready_for_qa requirement back to dev
@@ -620,6 +625,8 @@ export default function RequirementDetail() {
   // CR071 — normalized (trim + lowercase) set for "already in requirement" dedup
   const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
   const acNormalized = new Set(ac.map(normalize));
+  // CR074 — matches Tasks.tsx's PhaseTimelinePanel date formatting
+  const fmtPhaseDate = (iso: string | null) => (iso ? format(new Date(iso), "dd MMM yyyy") : "—");
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -940,19 +947,75 @@ export default function RequirementDetail() {
             </CardContent>
           </Card>
 
-          {/* History — chronological activity journal (creation, review actions, AI runs) */}
+          {/* Phase Timeline — CR074: planned dates from the milestone (blank
+              if the PM hasn't set them), actual dates specific to this
+              requirement. Same computation as the Tasks page's expanded row. */}
+          {req.phaseTimeline && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4" /> Phase Timeline
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="h-8">Phase</TableHead>
+                      <TableHead className="h-8">Planned Start</TableHead>
+                      <TableHead className="h-8">Planned End</TableHead>
+                      <TableHead className="h-8">Actual Start</TableHead>
+                      <TableHead className="h-8">Actual End</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {req.phaseTimeline.map((p: any) => (
+                      <TableRow key={p.key} className="hover:bg-transparent">
+                        <TableCell className="py-1.5 font-medium">{p.label}</TableCell>
+                        <TableCell className="py-1.5">{fmtPhaseDate(p.plannedStart)}</TableCell>
+                        <TableCell className="py-1.5">{fmtPhaseDate(p.plannedEnd)}</TableCell>
+                        <TableCell className="py-1.5">{fmtPhaseDate(p.actualStart)}</TableCell>
+                        <TableCell className="py-1.5">
+                          {p.actualStart && !p.actualEnd ? (
+                            <span className="text-muted-foreground text-xs">In progress</span>
+                          ) : (
+                            fmtPhaseDate(p.actualEnd)
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* History — chronological activity journal (creation, review actions, AI runs).
+              CR074 — collapsed by default (latest entry only); click to expand. */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <HistoryIcon className="w-4 h-4" /> History
-              </CardTitle>
+              <button
+                onClick={() => setHistoryExpanded((v) => !v)}
+                className="w-full flex items-center justify-between text-left"
+                disabled={history.length === 0}
+              >
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <HistoryIcon className="w-4 h-4" /> History
+                </CardTitle>
+                {history.length > 0 && (
+                  <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                    {historyExpanded ? "Collapse" : `Show all (${history.length})`}
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${historyExpanded ? "rotate-180" : ""}`} />
+                  </span>
+                )}
+              </button>
             </CardHeader>
             <CardContent>
               {history.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No activity yet.</p>
               ) : (
                 <ul className="space-y-3">
-                  {history.map((h: any) => (
+                  {(historyExpanded ? history : history.slice(0, 1)).map((h: any) => (
                     <li key={h.id} className="flex gap-3">
                       <Clock className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
                       <div className="flex-1">
