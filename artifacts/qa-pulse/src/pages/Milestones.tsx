@@ -265,9 +265,31 @@ export default function Milestones() {
     if (res.ok) refreshAssignees();
   };
 
+  // CR070 follow-up — staffing chosen at CREATE time, before the milestone
+  // (and therefore a milestoneId to attach assignee rows to) exists. Held
+  // locally and sent along with the POST body instead of hitting
+  // /milestones/:id/assignees immediately like the edit-dialog Team section does.
+  const [pendingAssignees, setPendingAssignees] = useState<{ id: number; name: string; role: string }[]>([]);
+  const [pendingAssigneePick, setPendingAssigneePick] = useState("");
+  const { data: newAssignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["milestone-assignable-new", filterProject],
+    queryFn: async () => {
+      const res = await api(`/milestones/assignable-users?projectId=${filterProject}`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: dialogOpen && !editing && form.type === "data_prep" && filterProject !== "all",
+  });
+  const addPendingAssignee = (userId: string) => {
+    setPendingAssigneePick("");
+    const u = newAssignableUsers.find((x) => x.id === Number(userId));
+    if (u && !pendingAssignees.some((a) => a.id === u.id)) setPendingAssignees((prev) => [...prev, u]);
+  };
+  const removePendingAssignee = (userId: number) => setPendingAssignees((prev) => prev.filter((a) => a.id !== userId));
+
   const openCreate = () => {
     setEditing(null);
     setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+    setPendingAssignees([]);
     setDialogOpen(true);
   };
 
@@ -325,6 +347,7 @@ export default function Milestones() {
         lessonsLearned: form.lessonsLearned.trim() || null,
         lessonsLearnedType: form.lessonsLearnedType === "none" ? null : form.lessonsLearnedType,
         description: form.description.trim() || null,
+        ...(editing ? {} : { assigneeUserIds: pendingAssignees.map((a) => a.id) }),
       };
       const res = editing
         ? await api(`/milestones/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })
@@ -591,6 +614,34 @@ export default function Milestones() {
                   rows={6}
                   className="font-mono text-xs"
                 />
+              </div>
+            )}
+            {!editing && form.type === "data_prep" && canWrite && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" /> QA assigned to prepare this data
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {pendingAssignees.map((a) => (
+                    <Badge key={a.id} variant="outline" className="gap-1 pr-1">
+                      {a.name}
+                      <button type="button" onClick={() => removePendingAssignee(a.id)} className="hover:text-destructive" aria-label={`Remove ${a.name}`}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                  {pendingAssignees.length === 0 && <span className="text-xs text-muted-foreground">No one assigned yet.</span>}
+                </div>
+                <Select value={pendingAssigneePick} onValueChange={addPendingAssignee}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Add project member…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {newAssignableUsers.filter((u) => !pendingAssignees.some((a) => a.id === u.id)).map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.role}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
             {editing && form.type === "data_prep" && <DataPrepFilesSection milestone={editing} token={token} canWrite={canWrite} userId={user?.id} />}

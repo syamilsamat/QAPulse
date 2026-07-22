@@ -164,7 +164,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description } = req.body;
+  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
@@ -215,7 +215,44 @@ router.post("/milestones", async (req, res): Promise<void> => {
     actorId: (ctx as any).id ?? ctx.userId,
   }).catch(() => {});
 
+  // Staffing chosen at create time (currently only offered by the dialog for
+  // 'data_prep' milestones — the assignees table just needs a milestoneId,
+  // so nothing here is type-specific). Best-effort per user: an invalid
+  // target shouldn't roll back the milestone that already saved.
+  if (Array.isArray(assigneeUserIds)) {
+    for (const rawId of assigneeUserIds) {
+      const userId = Number(rawId);
+      if (!userId) continue;
+      const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+      if (!target || !(await canAccessProject(target.id, target.role, m.projectId))) continue;
+      await db.insert(milestoneAssigneesTable).values({ milestoneId: m.id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
+      await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", m.id, (ctx as any).id ?? ctx.userId).catch(() => {});
+    }
+  }
+
   res.status(201).json(fmt(m));
+});
+
+// GET /milestones/assignable-users?projectId=N — same staffing-candidate
+// list as /milestones/:id/assignable-users, but keyed by project instead of
+// an existing milestone so the create dialog can offer it before the
+// milestone exists. Must be registered before GET /milestones/:id or Express
+// would treat "assignable-users" as the :id param.
+router.get("/milestones/assignable-users", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const rows = await db
+    .select({ id: usersTable.id, name: usersTable.name, role: usersTable.role })
+    .from(projectMembersTable)
+    .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
+    .where(eq(projectMembersTable.projectId, projectId));
+  const seen = new Set<number>();
+  res.json(rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true))));
 });
 
 // GET /milestones/:id
