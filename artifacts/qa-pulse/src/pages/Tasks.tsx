@@ -21,10 +21,9 @@ import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle
 
 // CR060 — Tasks is now a read-only, auto-populated rollup of requirements
 // within their milestones (no manual creation). One row per requirement that
-// has a milestone; visibility, assignee, and progress are department-scoped
-// server-side (GET /dashboard/task-board) — qa/fa/dev each only ever see
-// their own department's slice, pm/admin/cto see everything. See CR059 for
-// the same department-scoping principle applied earlier to ad-hoc tasks.
+// has a milestone. CR073 removed GET /dashboard/task-board's per-department
+// row filtering — every viewer with project access now sees every row, with
+// the full FA/Dev/QA name breakdown (previously PM/admin/cto-only).
 interface PhaseTimelineEntry {
   key: "requirements" | "development" | "qa" | "uat";
   label: string;
@@ -647,7 +646,7 @@ export default function Tasks() {
             <CheckSquare className="w-7 h-7 text-primary" /> Tasks
           </h1>
           <p className="text-muted-foreground mt-1">
-            Auto-populated from your milestones — {seesEverything ? "all departments" : department ? `${department.toUpperCase()} work` : "your work"}
+            Auto-populated from your milestones — all departments
           </p>
         </div>
         <Button variant="outline" onClick={handleExport} className="gap-2">

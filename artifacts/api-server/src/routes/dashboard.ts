@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getRoleDepartment } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
 const router: IRouter = Router();
 
@@ -897,18 +897,8 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       : [];
   if (milestones.length === 0) { res.json([]); return; }
 
-  const tierRank = await getRoleTierRank(ctx.role);
-  const department = await getRoleDepartment(ctx.role);
-  const seesEverything = tierRank >= 5 || department === "pm";
-
-  // Department membership — used to resolve who's QA (qaPic name-match) and
-  // to confirm an FA "owner" is really in the fa department.
-  const allUsers = await db
-    .select({ id: usersTable.id, name: usersTable.name, department: rolesTable.department })
-    .from(usersTable)
-    .innerJoin(rolesTable, eq(rolesTable.name, usersTable.role));
+  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
   const usersById = new Map(allUsers.map((u) => [u.id, u]));
-  const qaUserNames = new Set(allUsers.filter((u) => u.department === "qa").map((u) => u.name.toLowerCase()));
 
   const rows: any[] = [];
 
@@ -982,7 +972,6 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
 
       const faOwnerId = info.createdBy ?? null;
       const faOwnerName = faOwnerId != null ? usersById.get(faOwnerId)?.name ?? null : null;
-      const faOwnerDept = faOwnerId != null ? usersById.get(faOwnerId)?.department ?? null : null;
       const faApproverId = info.approvedBy ?? null;
       const faApproverName = faApproverId != null ? usersById.get(faApproverId)?.name ?? null : null;
       const faProgress = reviewStatusProgress(info.reviewStatus ?? "draft");
@@ -994,8 +983,6 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       const devProgress = devStatusProgress(info.devStatus);
 
       const qaNames = qaPicNamesByReq.get(entry.id) ?? new Set<string>();
-      const qaAssigneeName = qaNames.size > 0 ? [...qaNames].join(", ") : null;
-      const qaIsQaDept = [...qaNames].some((n) => qaUserNames.has(n.toLowerCase()));
       const qaSetterNames = [...(qaSetterIdsByReq.get(entry.id) ?? new Set<number>())]
         .map((id) => usersById.get(id)?.name)
         .filter((n): n is string => !!n);
@@ -1003,38 +990,24 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       const qaProgress = passPct(results.qa);
       const uatProgress = passPct(results.uat);
 
-      // Department-scoped visibility (CR059's principle, applied to requirements).
-      // Positive allowlist, not a series of exclusions — a department value
-      // outside dev/qa/fa (e.g. a reserved-but-unused one like "bi") hides
-      // everything rather than silently falling through unfiltered.
-      if (!seesEverything) {
-        if (department === "dev") { if (devAssigneeId == null) continue; }
-        else if (department === "qa") { if (!qaIsQaDept) continue; }
-        else if (department === "fa") { if (faOwnerDept !== "fa") continue; }
-        else continue;
-      }
-
-      let assignee: string | null;
+      // Task board is cross-department visibility for everyone with project
+      // access (scopeToUserProjects above) — no dev/qa/fa row filtering here.
+      // Show every name that touched this requirement per department, not
+      // just one, and not just the department relevant to its current phase:
+      // FA's author + approver, Dev's assigning lead + assigned member, QA's
+      // assigning lead + assigned tester(s) (CR067). Progress still tracks
+      // the current phase — that's the only sensible single number when
+      // three departments' completion states differ.
+      const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
+      const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
+      const devAll = [...new Set([devAssignedByName, devAssigneeName].filter((n): n is string => !!n))];
+      const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
+      const assignee = `FA: ${fmtNames(faAll)} · Dev: ${fmtNames(devAll)} · QA: ${fmtNames(qaAll)}`;
       let progress: number;
-      if (seesEverything) {
-        // PM/admin/cto — show every name that touched this requirement per
-        // department, not just one, and not just the department relevant to
-        // its current phase: FA's author + approver, Dev's assigning lead +
-        // assigned member, QA's assigning lead + assigned tester(s) (CR067).
-        // Progress still tracks the current phase — that's the only sensible
-        // single number when three departments' completion states differ.
-        const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
-        const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
-        const devAll = [...new Set([devAssignedByName, devAssigneeName].filter((n): n is string => !!n))];
-        const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
-        assignee = `FA: ${fmtNames(faAll)} · Dev: ${fmtNames(devAll)} · QA: ${fmtNames(qaAll)}`;
-        if (phase === "develop") progress = devProgress;
-        else if (phase === "qa") progress = qaProgress;
-        else if (phase === "uat") progress = uatProgress;
-        else progress = faProgress;
-      } else if (department === "dev") { assignee = devAssigneeName; progress = devProgress; }
-      else if (department === "qa") { assignee = qaAssigneeName; progress = phase === "uat" ? uatProgress : qaProgress; }
-      else { assignee = faOwnerName; progress = faProgress; }
+      if (phase === "develop") progress = devProgress;
+      else if (phase === "qa") progress = qaProgress;
+      else if (phase === "uat") progress = uatProgress;
+      else progress = faProgress;
 
       const dueDate = (m as any)[PHASE_DUE_DATE_FIELD[phase]]?.toISOString?.() ?? null;
 
