@@ -467,6 +467,7 @@ interface NavItem {
   showBadge?: boolean;
   permKey?: string;      // nav permission key — if present, checked against dynamic permissions
   alwaysVisible?: boolean; // Dashboard and Account skip the permission check
+  section?: string;      // section header rendered above this item when it differs from the previous item's
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -477,6 +478,16 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-blue-500",
     roles: ["qa_member", "qa_lead", "admin"],
     alwaysVisible: true,
+    section: "QA & Project Delivery",
+  },
+  {
+    href: "/milestones",
+    label: "Milestones",
+    icon: ScrollText,
+    activeColor: "text-violet-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:milestones",
+    section: "QA & Project Delivery",
   },
   {
     href: "/requirements",
@@ -485,6 +496,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-orange-500",
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:requirements",
+    section: "QA & Project Delivery",
   },
   {
     href: "/test-cases",
@@ -496,22 +508,7 @@ const NAV_ITEMS: NavItem[] = [
     subItems: [
       { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
     ],
-  },
-  {
-    href: "/traceability",
-    label: "Traceability",
-    icon: GitMerge,
-    activeColor: "text-cyan-500",
-    roles: ["qa_member", "qa_lead", "admin"],
-    permKey: "nav:traceability",
-  },
-  {
-    href: "/qa-analytics",
-    label: "QA Analytics",
-    icon: HoverBarChart,
-    activeColor: "text-indigo-500",
-    roles: ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
-    permKey: "nav:qa-analytics",
+    section: "QA & Project Delivery",
   },
   {
     href: "/defects",
@@ -523,6 +520,7 @@ const NAV_ITEMS: NavItem[] = [
     // CR042 — FA added: requirement defects (CR031) route to FA authors.
     roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"],
     permKey: "nav:defects",
+    section: "QA & Project Delivery",
   },
   {
     href: "/tasks",
@@ -534,14 +532,34 @@ const NAV_ITEMS: NavItem[] = [
     subItems: [
       { href: "/history-trail", label: "History Trail", icon: HoverHistory, activeColor: "text-purple-500" },
     ],
+    section: "QA & Project Delivery",
   },
   {
-    href: "/ai-features",
-    label: "AI Hub",
-    icon: HoverSparkles,
-    activeColor: "text-fuchsia-500",
+    href: "/traceability",
+    label: "Traceability",
+    icon: GitMerge,
+    activeColor: "text-cyan-500",
     roles: ["qa_member", "qa_lead", "admin"],
-    permKey: "nav:ai-hub",
+    permKey: "nav:traceability",
+    section: "QA & Project Delivery",
+  },
+  {
+    href: "/risk-register",
+    label: "Risk Register",
+    icon: ShieldAlert,
+    activeColor: "text-amber-500",
+    roles: ["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto"],
+    permKey: "nav:risk-register",
+    section: "QA & Project Delivery",
+  },
+  {
+    href: "/qa-analytics",
+    label: "QA Analytics",
+    icon: HoverBarChart,
+    activeColor: "text-indigo-500",
+    roles: ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
+    permKey: "nav:qa-analytics",
+    section: "QA & Project Delivery",
   },
   {
     href: "/pmo-report",
@@ -550,6 +568,34 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-pink-500",
     roles: ["qa_member", "pmo", "qa_lead", "admin"],
     permKey: "nav:report",
+    section: "QA & Project Delivery",
+  },
+  {
+    href: "/uat-signoffs",
+    label: "UAT Sign-offs",
+    icon: FileCheck2,
+    activeColor: "text-teal-500",
+    roles: ["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
+    permKey: "nav:uat-signoffs",
+    section: "QA & Project Delivery",
+  },
+  {
+    href: "/pm-dashboard",
+    label: "PM Dashboard",
+    icon: LayoutDashboard,
+    activeColor: "text-blue-600",
+    roles: ["hod_pm", "pm_lead", "admin", "cto"],
+    permKey: "nav:pm-dashboard",
+    section: "QA & Project Delivery",
+  },
+  {
+    href: "/ai-features",
+    label: "AI Hub",
+    icon: HoverSparkles,
+    activeColor: "text-fuchsia-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:ai-hub",
+    section: "AI",
   },
   {
     href: "/inbox",
@@ -559,22 +605,7 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:inbox",
     showBadge: true,
-  },
-  {
-    href: "/team",
-    label: "Team",
-    icon: HoverUsers,
-    activeColor: "text-indigo-500",
-    roles: ["qa_lead", "admin"],
-    permKey: "nav:team",
-  },
-  {
-    href: "/admin/search",
-    label: "Admin Search",
-    icon: HoverSearch,
-    activeColor: "text-violet-500",
-    roles: ["admin"],
-    permKey: "nav:admin-search",
+    section: "Communication",
   },
   {
     href: "/team-hangouts",
@@ -584,38 +615,16 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["qa_member", "qa_lead", "admin"],
     permKey: "nav:team-hangouts",
     showBadge: false,
+    section: "Communication",
   },
   {
-    href: "/milestones",
-    label: "Milestones",
-    icon: ScrollText,
-    activeColor: "text-violet-500",
-    roles: ["qa_member", "qa_lead", "admin"],
-    permKey: "nav:milestones",
-  },
-  {
-    href: "/pm-dashboard",
-    label: "PM Dashboard",
-    icon: LayoutDashboard,
-    activeColor: "text-blue-600",
-    roles: ["hod_pm", "pm_lead", "admin", "cto"],
-    permKey: "nav:pm-dashboard",
-  },
-  {
-    href: "/risk-register",
-    label: "Risk Register",
-    icon: ShieldAlert,
-    activeColor: "text-amber-500",
-    roles: ["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto"],
-    permKey: "nav:risk-register",
-  },
-  {
-    href: "/uat-signoffs",
-    label: "UAT Sign-offs",
-    icon: FileCheck2,
-    activeColor: "text-teal-500",
-    roles: ["hod_pm", "pm_lead", "pmo", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
-    permKey: "nav:uat-signoffs",
+    href: "/team",
+    label: "Team",
+    icon: HoverUsers,
+    activeColor: "text-indigo-500",
+    roles: ["qa_lead", "admin"],
+    permKey: "nav:team",
+    section: "People & Resources",
   },
   {
     href: "/resources",
@@ -624,6 +633,16 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-teal-500",
     roles: ["qa_lead", "qa_manager", "hod_qa", "fa_lead", "hod_fa", "dev_lead", "hod_dev", "pm_lead", "hod_pm", "admin", "cto"],
     permKey: "nav:resources",
+    section: "People & Resources",
+  },
+  {
+    href: "/admin/search",
+    label: "Admin Search",
+    icon: HoverSearch,
+    activeColor: "text-violet-500",
+    roles: ["admin"],
+    permKey: "nav:admin-search",
+    section: "Administration",
   },
   {
     href: "/configurations",
@@ -632,6 +651,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-slate-500",
     roles: ["qa_lead", "admin"],
     permKey: "nav:configurations",
+    section: "Administration",
   },
   {
     href: "/roles",
@@ -639,6 +659,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: Shield,
     activeColor: "text-slate-400",
     roles: ["admin"],
+    section: "Administration",
   },
   {
     href: "/audit-log",
@@ -647,6 +668,7 @@ const NAV_ITEMS: NavItem[] = [
     activeColor: "text-slate-500",
     roles: ["admin"],
     permKey: "nav:audit-log",
+    section: "Administration",
   },
   {
     href: "/settings",
@@ -761,17 +783,28 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav */}
         <nav className={`flex-1 ${show ? "px-2" : "px-3"} space-y-1 overflow-y-auto`}>
-          {visibleNavItems.map((item) => {
+          {visibleNavItems.map((item, idx) => {
             const Icon = item.icon;
             const badge = item.showBadge ? unreadCount : 0;
             const isParentActive =
               location === item.href ||
               item.subItems?.some((sub) => location === sub.href);
 
+            const sectionHeader = item.section && item.section !== visibleNavItems[idx - 1]?.section ? (
+              show ? (
+                <div key={`${item.section}-divider`} className="my-2 border-t border-sidebar-border" />
+              ) : (
+                <div key={`${item.section}-label`} className="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                  {item.section}
+                </div>
+              )
+            ) : null;
+
             // Inbox is replaced by the bell dropdown popover (CR027)
             if (item.href === "/inbox") {
               return (
                 <div key={item.href} className="flex flex-col">
+                  {sectionHeader}
                   <NotificationDropdown collapsed={show} unreadCount={unreadCount} />
                 </div>
               );
@@ -780,6 +813,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
             return (
               <div
                 key={item.href}
+                className="contents"
+              >
+              {sectionHeader}
+              <div
                 className="flex flex-col"
                 onMouseEnter={show && item.subItems?.length ? (e) => {
                   if (flyoutTimer.current) clearTimeout(flyoutTimer.current);
@@ -844,6 +881,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     })}
                   </div>
                 )}
+              </div>
               </div>
             );
           })}
