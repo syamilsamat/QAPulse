@@ -303,6 +303,21 @@ export default function Requirements() {
     openEdit(target);
   }, [searchString, requirements]);
 
+  // ?createChild=<parentId> deep link (from RequirementDetail's "Add child"
+  // button, CR072) — auto-opens the create dialog pre-filled as a child of
+  // that requirement, same wait-for-load rule as the ?edit= link above.
+  const hasAppliedCreateChildDeepLink = useRef(false);
+  useEffect(() => {
+    if (hasAppliedCreateChildDeepLink.current || requirements.length === 0) return;
+    const params = new URLSearchParams(searchString);
+    const parentIdParam = params.get("createChild");
+    if (!parentIdParam) return;
+    const parentReq = requirements.find((r: any) => String(r.id) === parentIdParam);
+    if (!parentReq) return;
+    hasAppliedCreateChildDeepLink.current = true;
+    openCreateChild(parentReq);
+  }, [searchString, requirements]);
+
   const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_REVIEW_ROLES.includes(user?.role ?? "");
 

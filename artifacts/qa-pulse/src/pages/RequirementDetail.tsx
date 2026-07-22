@@ -16,6 +16,7 @@ import {
   MessageSquare,
   ChevronRight,
   AlertTriangle,
+  AlertCircle,
   CheckSquare,
   Square,
   Paperclip,
@@ -23,6 +24,7 @@ import {
   Trash2,
   Loader2,
   Pencil,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +92,57 @@ function DevStatusBadge({ status }: { status: string | null }) {
   }
 }
 
+// CR071 — a single AI recommendation row: an "Accept" button that appends the
+// text to Acceptance Criteria, or a static badge once an equivalent item is
+// already there (normalized exact match, done by the caller).
+function RecommendationRow({
+  icon,
+  text,
+  secondary,
+  showAction,
+  isDuplicate,
+  isAccepting,
+  onAccept,
+}: {
+  icon: React.ReactNode;
+  text: string;
+  secondary?: string;
+  showAction: boolean;
+  isDuplicate: boolean;
+  isAccepting: boolean;
+  onAccept: () => void;
+}) {
+  return (
+    <li className="flex items-start justify-between gap-3 text-sm">
+      <span className="flex gap-2 flex-1">
+        {icon}
+        <span>
+          {text}
+          {secondary && <span className="block text-xs text-muted-foreground mt-0.5">{secondary}</span>}
+        </span>
+      </span>
+      {showAction && (
+        isDuplicate ? (
+          <span className="text-xs text-green-600 flex items-center gap-1 shrink-0 whitespace-nowrap mt-0.5">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Already in requirement
+          </span>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-xs gap-1 shrink-0"
+            disabled={isAccepting}
+            onClick={onAccept}
+          >
+            <Plus className="w-3 h-3" />
+            {isAccepting ? "Adding…" : "Accept"}
+          </Button>
+        )
+      )}
+    </li>
+  );
+}
+
 export default function RequirementDetail() {
   const [, params] = useRoute("/requirements/:id");
   const [, navigate] = useLocation();
@@ -107,6 +160,9 @@ export default function RequirementDetail() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  // CR071 — text of the recommendation currently being written to Acceptance
+  // Criteria (drives per-row loading state; null when nothing is in flight)
+  const [acceptingText, setAcceptingText] = useState<string | null>(null);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [devLoading, setDevLoading] = useState(false);
   // CR046 — QA returning a ready_for_qa requirement back to dev
@@ -498,6 +554,31 @@ export default function RequirementDetail() {
     }
   };
 
+  // CR071 — accept an AI recommendation (missing item / issue suggestion /
+  // question) by appending it as a new Acceptance Criteria entry. The
+  // acceptanceCriteria column is raw JSON text server-side, so the client
+  // owns the read-append-stringify round trip; PATCH does a full replace.
+  const acceptRecommendation = async (text: string) => {
+    if (!reqId || !req) return;
+    setAcceptingText(text);
+    try {
+      const current: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
+      const updated = [...current, text.trim()];
+      const res = await api(`/requirements/${reqId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
+      });
+      if (!res.ok) { toast({ variant: "destructive", title: "Failed to add to acceptance criteria" }); return; }
+      toast({ title: "Added to acceptance criteria" });
+      queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to add to acceptance criteria" });
+    } finally {
+      setAcceptingText(null);
+    }
+  };
+
   const role = user?.role ?? "";
   const FA_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_ROLES.includes(role);
@@ -536,6 +617,9 @@ export default function RequirementDetail() {
   );
 
   const ac: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
+  // CR071 — normalized (trim + lowercase) set for "already in requirement" dedup
+  const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const acNormalized = new Set(ac.map(normalize));
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -686,12 +770,38 @@ export default function RequirementDetail() {
                 {aiResult.missingItems?.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Missing Items</p>
-                    <ul className="space-y-1">
+                    <ul className="space-y-1.5">
                       {aiResult.missingItems.map((item: string, i: number) => (
-                        <li key={i} className="text-sm flex gap-2">
-                          <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
-                          {item}
-                        </li>
+                        <RecommendationRow
+                          key={i}
+                          icon={<XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />}
+                          text={item}
+                          showAction={canEditReq}
+                          isDuplicate={acNormalized.has(normalize(item))}
+                          isAccepting={acceptingText === item}
+                          onAccept={() => acceptRecommendation(item)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* CR071 — issues[].suggestion wasn't rendered anywhere before; the
+                    API has always returned it, just silently dropped by the UI */}
+                {aiResult.issues?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Issue Suggestions</p>
+                    <ul className="space-y-1.5">
+                      {aiResult.issues.map((issue: any, i: number) => (
+                        <RecommendationRow
+                          key={i}
+                          icon={<AlertCircle className="w-3.5 h-3.5 text-orange-500 mt-0.5 shrink-0" />}
+                          text={issue.suggestion}
+                          secondary={issue.description}
+                          showAction={canEditReq}
+                          isDuplicate={acNormalized.has(normalize(issue.suggestion))}
+                          isAccepting={acceptingText === issue.suggestion}
+                          onAccept={() => acceptRecommendation(issue.suggestion)}
+                        />
                       ))}
                     </ul>
                   </div>
@@ -699,12 +809,17 @@ export default function RequirementDetail() {
                 {aiResult.questions?.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Questions to Clarify</p>
-                    <ul className="space-y-1">
+                    <ul className="space-y-1.5">
                       {aiResult.questions.map((q: string, i: number) => (
-                        <li key={i} className="text-sm flex gap-2">
-                          <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 shrink-0" />
-                          {q}
-                        </li>
+                        <RecommendationRow
+                          key={i}
+                          icon={<AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 shrink-0" />}
+                          text={q}
+                          showAction={canEditReq}
+                          isDuplicate={acNormalized.has(normalize(q))}
+                          isAccepting={acceptingText === q}
+                          onAccept={() => acceptRecommendation(q)}
+                        />
                       ))}
                     </ul>
                   </div>
@@ -785,13 +900,30 @@ export default function RequirementDetail() {
             </CardContent>
           </Card>
 
-          {/* Child Requirements */}
-          {children.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">Child Requirements</CardTitle>
-              </CardHeader>
-              <CardContent>
+          {/* Child Requirements — CR072: always shown (was hidden entirely at
+              zero children before), with an "Add child" action mirroring the
+              Requirements list's openCreateChild via a ?createChild= deep link */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">
+                  Child Requirements
+                  {children.length > 0 && <span className="text-xs font-normal text-muted-foreground ml-1">({children.length})</span>}
+                </CardTitle>
+                {canEditReq && (
+                  <button
+                    onClick={() => navigate(`/requirements?createChild=${req.id}`)}
+                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />Add child
+                  </button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {children.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No child requirements yet.</p>
+              ) : (
                 <ul className="space-y-1">
                   {children.map((c: any) => (
                     <li key={c.id}>
@@ -804,9 +936,9 @@ export default function RequirementDetail() {
                     </li>
                   ))}
                 </ul>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
 
           {/* History — chronological activity journal (creation, review actions, AI runs) */}
           <Card>
