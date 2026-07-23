@@ -14,8 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Building2, Users, AlertTriangle, Clock, Archive, Quote, Sparkles, ChevronRight } from "lucide-react";
-import { RisksCard, CAN_WRITE_ROLES as RISK_WRITE_ROLES } from "@/components/RiskRegisterCard";
+import { Loader2, Building2, Users, AlertTriangle, Clock, Archive, Quote, Sparkles, ChevronRight, ShieldAlert } from "lucide-react";
+import { RisksCard, RiskDialog, CAN_WRITE_ROLES as RISK_WRITE_ROLES } from "@/components/RiskRegisterCard";
 import { format } from "date-fns";
 
 interface MilestoneSummary {
@@ -249,14 +249,23 @@ const ASSESSMENT_LEVEL_CLASS: Record<RiskAssessment["riskLevel"], string> = {
   critical: "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/60 dark:text-red-400 dark:border-red-900",
 };
 
-function MilestoneRiskCard({ milestoneId, token, canAssess }: {
+// CR077 — only medium+ is worth escalating into the Risk Register; "low"
+// already reads as "no material concern" on this card.
+const RAISEABLE_LEVELS: RiskAssessment["riskLevel"][] = ["medium", "high", "critical"];
+
+function MilestoneRiskCard({ milestoneId, token, canAssess, projectId, milestones, canWriteRisk }: {
   milestoneId: number;
   token: string | null;
   canAssess: boolean;
+  projectId: number;
+  milestones: { id: number; name: string }[];
+  canWriteRisk: boolean;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [assessing, setAssessing] = useState(false);
+  const [raiseDialogOpen, setRaiseDialogOpen] = useState(false);
 
   const { data: history = [], isLoading } = useQuery<RiskAssessment[]>({
     queryKey: ["milestone-risk-assessments", milestoneId],
@@ -266,7 +275,17 @@ function MilestoneRiskCard({ milestoneId, token, canAssess }: {
     },
   });
 
+  const { data: aiRiskStatus } = useQuery<{ hasOpenAiRisk: boolean; riskId: number | null }>({
+    queryKey: ["milestone-ai-risk-status", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/milestones/${milestoneId}/ai-risk-status`, token);
+      return res.ok ? res.json() : { hasOpenAiRisk: false, riskId: null };
+    },
+    enabled: canWriteRisk,
+  });
+
   const latest = history[0] ?? null;
+  const canRaise = canWriteRisk && !!latest && RAISEABLE_LEVELS.includes(latest.riskLevel);
 
   const handleAssess = async () => {
     setAssessing(true);
@@ -289,6 +308,7 @@ function MilestoneRiskCard({ milestoneId, token, canAssess }: {
   };
 
   return (
+    <>
     <Card>
       <CardContent className="p-4 sm:p-5 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -333,6 +353,31 @@ function MilestoneRiskCard({ milestoneId, token, canAssess }: {
             {latest.mitigation && (
               <p className="text-xs text-muted-foreground italic border-t pt-2">Suggested next step: {latest.mitigation}</p>
             )}
+            {canRaise && (
+              <div className="border-t pt-2">
+                {aiRiskStatus?.hasOpenAiRisk ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 h-7 text-xs"
+                    onClick={() => navigate(`/risk-register?projectId=${projectId}`)}
+                  >
+                    <ShieldAlert className="w-3 h-3" />
+                    Already raised — view risk
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 h-7 text-xs"
+                    onClick={() => setRaiseDialogOpen(true)}
+                  >
+                    <ShieldAlert className="w-3 h-3" />
+                    Raise as Risk
+                  </Button>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between border-t pt-2">
               <p className="text-[11px] text-muted-foreground">
                 Last assessed {format(new Date(latest.createdAt), "d MMM yyyy, HH:mm")}
@@ -356,6 +401,33 @@ function MilestoneRiskCard({ milestoneId, token, canAssess }: {
         )}
       </CardContent>
     </Card>
+    {latest && (
+      <RiskDialog
+        open={raiseDialogOpen}
+        onOpenChange={(v) => {
+          setRaiseDialogOpen(v);
+          // CR077 — re-sync on close regardless of outcome (saved, cancelled,
+          // or a 409 from someone else raising it in the same window) so the
+          // button never lingers on stale state.
+          if (!v) queryClient.invalidateQueries({ queryKey: ["milestone-ai-risk-status", milestoneId] });
+        }}
+        editing={null}
+        projectId={projectId}
+        milestones={milestones}
+        token={token}
+        prefill={{
+          title: `AI-flagged: ${latest.factors[0]?.signal ?? "Elevated risk"} (${ASSESSMENT_LEVEL_LABEL[latest.riskLevel]})`,
+          mitigationPlan: latest.mitigation ?? "",
+          milestoneId,
+          sourceAssessmentId: latest.id,
+        }}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["risks", projectId] });
+          queryClient.invalidateQueries({ queryKey: ["milestone-ai-risk-status", milestoneId] });
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -1509,7 +1581,14 @@ export default function PmDashboard() {
           )}
 
           {/* ── AI Risk Assessment (CR037) ────────────────────────────────── */}
-          <MilestoneRiskCard milestoneId={Number(filterMilestone)} token={token} canAssess={CAN_ASSESS_ROLES.includes(user?.role ?? "")} />
+          <MilestoneRiskCard
+            milestoneId={Number(filterMilestone)}
+            token={token}
+            canAssess={CAN_ASSESS_ROLES.includes(user?.role ?? "")}
+            projectId={Number(filterProject)}
+            milestones={milestonesForFilter}
+            canWriteRisk={RISK_WRITE_ROLES.includes(user?.role ?? "")}
+          />
 
           {/* ── Benchmark + Blockers ──────────────────────────────────────── */}
           {phaseReport && (phaseReport.trend || phaseReport.topBlockers.length > 0) && (

@@ -24,6 +24,13 @@ export const risksTable = pgTable(
     responseStrategy: text("response_strategy"), // avoid | transfer | mitigate | accept | null (not yet decided)
     ownerId: integer("owner_id"),
     raisedBy: integer("raised_by"),
+    // CR077 — distinguishes manually-raised risks from ones pre-filled off an
+    // AI milestone risk assessment. sourceAssessmentId is traceability only
+    // (which assessment prompted it) — dedup (at most one open ai_assessment
+    // risk per milestone) is enforced by a partial unique index, not by this
+    // column, since "Reassess" creates a new assessment row every time.
+    source: text("source").notNull().default("manual"), // manual | ai_assessment
+    sourceAssessmentId: integer("source_assessment_id"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

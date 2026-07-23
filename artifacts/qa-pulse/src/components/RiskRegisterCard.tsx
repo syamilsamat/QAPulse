@@ -65,6 +65,8 @@ export interface Risk {
   ownerId: number | null;
   ownerName: string | null;
   raisedBy: number | null;
+  source: "manual" | "ai_assessment";
+  sourceAssessmentId: number | null;
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -131,8 +133,8 @@ const EMPTY_RISK_FORM = {
   responseStrategy: "none", ownerId: "none",
 };
 
-function RiskDialog({
-  open, onOpenChange, editing, projectId, milestones, token, onSaved,
+export function RiskDialog({
+  open, onOpenChange, editing, projectId, milestones, token, onSaved, prefill,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -141,6 +143,11 @@ function RiskDialog({
   milestones: { id: number; name: string }[];
   token: string | null;
   onSaved: () => void;
+  // CR077 — pre-fills a new risk from an AI milestone risk assessment. Only
+  // title/mitigationPlan/milestoneId are pre-filled; probability/impact/
+  // owner/responseStrategy stay at their normal blank defaults for the PM
+  // to set. Ignored when `editing` is set (editing always wins).
+  prefill?: { title: string; mitigationPlan: string; milestoneId: number; sourceAssessmentId: number };
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState(() =>
@@ -151,7 +158,9 @@ function RiskDialog({
           mitigationPlan: editing.mitigationPlan ?? "", milestoneId: editing.milestoneId ? String(editing.milestoneId) : "none",
           responseStrategy: editing.responseStrategy ?? "none", ownerId: editing.ownerId ? String(editing.ownerId) : "none",
         }
-      : EMPTY_RISK_FORM,
+      : prefill
+        ? { ...EMPTY_RISK_FORM, title: prefill.title, mitigationPlan: prefill.mitigationPlan, milestoneId: String(prefill.milestoneId) }
+        : EMPTY_RISK_FORM,
   );
   const [saving, setSaving] = useState(false);
 
@@ -179,6 +188,10 @@ function RiskDialog({
         mitigationPlan: form.mitigationPlan.trim() || null,
         responseStrategy: form.responseStrategy === "none" ? null : form.responseStrategy,
         ownerId: form.ownerId === "none" ? null : Number(form.ownerId),
+        // CR077 — only stamped on a fresh create from a prefilled AI
+        // assessment; omitted (server defaults to "manual") for the existing
+        // edit and blank-create flows, so this is zero-behavior-change for them.
+        ...(!editing && prefill ? { source: "ai_assessment", sourceAssessmentId: prefill.sourceAssessmentId } : {}),
       };
       const res = editing
         ? await apiWrite(`/risks/${editing.id}`, token, { method: "PATCH", body: JSON.stringify(body) })

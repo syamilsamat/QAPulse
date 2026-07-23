@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, inArray } from "drizzle-orm";
-import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, dataPrepFilesTable } from "@workspace/db";
+import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, dataPrepFilesTable, risksTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
@@ -527,6 +527,33 @@ router.get("/milestones/:id/risk-assessments", async (req, res): Promise<void> =
       createdAt: a.createdAt.toISOString(),
     };
   }));
+});
+
+// GET /milestones/:id/ai-risk-status — CR077: does this milestone already
+// have an open (open/mitigating) AI-sourced Risk Register entry? Drives the
+// "Raise as Risk" button's state. Deliberately NOT gated to PM_ROLES like
+// risk-assessments above — the write action this feeds (Raise as Risk) is
+// gated to the Risk Register's own write-tier (qa_lead/fa_lead/dev_lead/...,
+// broader than PM-only), so the read needs to match. Same gate as GET /risks.
+router.get("/milestones/:id/ai-risk-status", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const id = parseInt(req.params.id);
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject((ctx as any).id ?? ctx.userId, ctx.role, m.projectId))) {
+    res.status(403).json({ error: "Access denied" }); return;
+  }
+
+  const [openRisk] = await db.select({ id: risksTable.id })
+    .from(risksTable)
+    .where(and(
+      eq(risksTable.milestoneId, id),
+      eq(risksTable.source, "ai_assessment"),
+      inArray(risksTable.status, ["open", "mitigating"]),
+    ));
+  res.json({ hasOpenAiRisk: !!openRisk, riskId: openRisk?.id ?? null });
 });
 
 export default router;

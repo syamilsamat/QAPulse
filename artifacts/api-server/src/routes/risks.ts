@@ -47,6 +47,8 @@ function fmt(r: typeof risksTable.$inferSelect, ownerName: string | null = null)
     ownerId: r.ownerId ?? null,
     ownerName,
     raisedBy: r.raisedBy ?? null,
+    source: r.source,
+    sourceAssessmentId: r.sourceAssessmentId ?? null,
     closedAt: r.closedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -179,31 +181,61 @@ router.post("/risks", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!(await canWriteRisk(ctx.role))) { res.status(403).json({ error: "Lead role or above required" }); return; }
 
-  const { projectId, milestoneId, title, description, category, probability, impact, status, mitigationPlan, responseStrategy, ownerId } = req.body ?? {};
+  const { projectId, milestoneId, title, description, category, probability, impact, status, mitigationPlan, responseStrategy, ownerId, source, sourceAssessmentId } = req.body ?? {};
   if (!projectId || !title?.trim()) { res.status(400).json({ error: "projectId and title are required" }); return; }
   if (responseStrategy != null && !VALID_RESPONSE_STRATEGIES.includes(responseStrategy)) {
     res.status(400).json({ error: `responseStrategy must be one of ${VALID_RESPONSE_STRATEGIES.join(", ")}` }); return;
   }
+  const riskSource = source === "ai_assessment" ? "ai_assessment" : "manual";
 
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
   if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
 
-  const [r] = await db.insert(risksTable).values({
-    projectId: Number(projectId),
-    milestoneId: milestoneId != null ? Number(milestoneId) : null,
-    title: title.trim(),
-    description: description ?? null,
-    category: category ?? "other",
-    probability: probability ?? "medium",
-    impact: impact ?? "medium",
-    status: status ?? "open",
-    mitigationPlan: mitigationPlan ?? null,
-    responseStrategy: responseStrategy ?? null,
-    ownerId: ownerId != null ? Number(ownerId) : null,
-    raisedBy: ctx.userId,
-    // Edge case: importing a historical risk already marked closed/realized.
-    closedAt: (status === "closed" || status === "realized") ? new Date() : null,
-  }).returning();
+  // CR077 — at most one open (open/mitigating) AI-sourced risk per milestone.
+  // App-level pre-check for a clean error message; the partial unique index
+  // (roles.ts bootstrap) is the actual race-proof guarantee if two clicks
+  // land at the same time — caught below as a 23505 fallback.
+  if (riskSource === "ai_assessment" && milestoneId != null) {
+    const [existing] = await db.select({ id: risksTable.id })
+      .from(risksTable)
+      .where(and(
+        eq(risksTable.milestoneId, Number(milestoneId)),
+        eq(risksTable.source, "ai_assessment"),
+        inArray(risksTable.status, ["open", "mitigating"]),
+      ));
+    if (existing) {
+      res.status(409).json({ error: "An AI-sourced risk is already open for this milestone", existingRiskId: existing.id });
+      return;
+    }
+  }
+
+  let r: typeof risksTable.$inferSelect;
+  try {
+    [r] = await db.insert(risksTable).values({
+      projectId: Number(projectId),
+      milestoneId: milestoneId != null ? Number(milestoneId) : null,
+      title: title.trim(),
+      description: description ?? null,
+      category: category ?? "other",
+      probability: probability ?? "medium",
+      impact: impact ?? "medium",
+      status: status ?? "open",
+      mitigationPlan: mitigationPlan ?? null,
+      responseStrategy: responseStrategy ?? null,
+      ownerId: ownerId != null ? Number(ownerId) : null,
+      raisedBy: ctx.userId,
+      source: riskSource,
+      sourceAssessmentId: sourceAssessmentId != null ? Number(sourceAssessmentId) : null,
+      // Edge case: importing a historical risk already marked closed/realized.
+      closedAt: (status === "closed" || status === "realized") ? new Date() : null,
+    }).returning();
+  } catch (e: any) {
+    if (e?.code === "23505") {
+      res.status(409).json({ error: "An AI-sourced risk is already open for this milestone" });
+      return;
+    }
+    throw e;
+  }
 
   await logActivity({
     type: "risk_created",

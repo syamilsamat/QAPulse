@@ -300,6 +300,19 @@ export async function bootstrap() {
   await pool.query(`CREATE INDEX IF NOT EXISTS risks_milestone_idx ON risks (milestone_id)`);
   // CR056 — PMBOK response-strategy category, distinct from the free-text mitigationPlan.
   await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS response_strategy TEXT`);
+  // CR077 — AI Risk Assessment -> Risk Register bridge. source distinguishes
+  // manually-raised risks from ones pre-filled off an AI assessment;
+  // source_assessment_id is traceability only, NOT the dedup key. The partial
+  // unique index is the real duplicate-proofing mechanism — at most one open
+  // (open/mitigating) ai_assessment risk per milestone, enforced by Postgres
+  // itself so concurrent clicks can never create two.
+  await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`);
+  await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS source_assessment_id INTEGER`);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS risks_one_open_ai_per_milestone_idx
+    ON risks (milestone_id)
+    WHERE source = 'ai_assessment' AND status IN ('open', 'mitigating') AND milestone_id IS NOT NULL
+  `);
 
   // CR037 — stored AI milestone risk assessments (append-only history)
   await pool.query(`
