@@ -47,7 +47,7 @@ export interface SparrowUser {
 }
 
 export const USERS: SparrowUser[] = [
-  { key: "salmah",  name: "Salmah Idris",    email: "salmah.idris@demo.qapulse.local",    role: "pmo" },
+  { key: "salmah",  name: "Salmah Idris",    email: "salmah.idris@demo.qapulse.local",    role: "pm_member" },
   { key: "rizal",   name: "Rizal Hamzah",    email: "rizal.hamzah@demo.qapulse.local",    role: "hod_pm" },
   { key: "aina",    name: "Aina Zulkifli",   email: "aina.zulkifli@demo.qapulse.local",   role: "fa_member" },
   { key: "daniel",  name: "Daniel Wong",     email: "daniel.wong@demo.qapulse.local",     role: "fa_lead" },
