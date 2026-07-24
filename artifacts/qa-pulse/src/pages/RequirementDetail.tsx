@@ -106,6 +106,9 @@ function RecommendationRow({
   isDuplicate,
   isAccepting,
   onAccept,
+  actionLabel = "Accept",
+  pendingLabel = "Adding…",
+  duplicateLabel = "Already in requirement",
 }: {
   icon: React.ReactNode;
   text: string;
@@ -114,6 +117,9 @@ function RecommendationRow({
   isDuplicate: boolean;
   isAccepting: boolean;
   onAccept: () => void;
+  actionLabel?: string;
+  pendingLabel?: string;
+  duplicateLabel?: string;
 }) {
   return (
     <li className="flex items-start justify-between gap-3 text-sm">
@@ -127,7 +133,7 @@ function RecommendationRow({
       {showAction && (
         isDuplicate ? (
           <span className="text-xs text-green-600 flex items-center gap-1 shrink-0 whitespace-nowrap mt-0.5">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Already in requirement
+            <CheckCircle2 className="w-3.5 h-3.5" /> {duplicateLabel}
           </span>
         ) : (
           <Button
@@ -138,7 +144,7 @@ function RecommendationRow({
             onClick={onAccept}
           >
             <Plus className="w-3 h-3" />
-            {isAccepting ? "Adding…" : "Accept"}
+            {isAccepting ? pendingLabel : actionLabel}
           </Button>
         )
       )}
@@ -166,6 +172,8 @@ export default function RequirementDetail() {
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
+  // Per-item busy index for acceptance-criteria cleanup (remove / move)
+  const [acBusyIndex, setAcBusyIndex] = useState<number | null>(null);
   // CR074 — History defaults to collapsed (latest entry only)
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
@@ -584,6 +592,84 @@ export default function RequirementDetail() {
     }
   };
 
+  // Shared by "Ask in Discussion" (AI panel) and "Move to discussion" (cleanup
+  // of a mis-filed acceptance criterion) so both post with the same framing.
+  const postClarificationComment = (question: string) =>
+    api(`/requirements/${reqId}/comments`, token, {
+      method: "POST",
+      body: JSON.stringify({ body: `Clarification needed (AI review): ${question.trim()}` }),
+    });
+
+  // Accept a "Question to Clarify" by posting it into the Discussion thread —
+  // a question isn't an acceptance criterion, it's something the FA / leads
+  // need to answer, so it belongs in the conversation. Reuses acceptingText
+  // for the per-row spinner (only one row's action is ever in flight).
+  const askQuestionInDiscussion = async (question: string) => {
+    if (!reqId) return;
+    setAcceptingText(question);
+    try {
+      const res = await postClarificationComment(question);
+      if (!res.ok) { toast({ variant: "destructive", title: "Failed to post question" }); return; }
+      toast({ title: "Posted to discussion" });
+      queryClient.invalidateQueries({ queryKey: ["requirement-comments", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to post question" });
+    } finally {
+      setAcceptingText(null);
+    }
+  };
+
+  // Cleanup — remove one acceptance criterion (read-filter-PATCH, mirroring
+  // acceptRecommendation's full-replace contract; filter by index so duplicate
+  // strings stay unambiguous).
+  const removeAcceptanceCriterion = async (index: number) => {
+    if (!reqId || !req) return;
+    setAcBusyIndex(index);
+    try {
+      const current: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
+      const updated = current.filter((_, i) => i !== index);
+      const res = await api(`/requirements/${reqId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
+      });
+      if (!res.ok) { toast({ variant: "destructive", title: "Failed to remove" }); return; }
+      toast({ title: "Removed from acceptance criteria" });
+      queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to remove" });
+    } finally {
+      setAcBusyIndex(null);
+    }
+  };
+
+  // Cleanup for questions mis-filed as acceptance criteria before the fix:
+  // post to the Discussion thread first, then drop from acceptance criteria.
+  // If the comment post fails we leave the criterion in place (no data loss).
+  const moveAcCriterionToDiscussion = async (index: number, text: string) => {
+    if (!reqId || !req) return;
+    setAcBusyIndex(index);
+    try {
+      const posted = await postClarificationComment(text);
+      if (!posted.ok) { toast({ variant: "destructive", title: "Failed to post question" }); return; }
+      const current: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
+      const updated = current.filter((_, i) => i !== index);
+      const res = await api(`/requirements/${reqId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
+      });
+      if (!res.ok) { toast({ variant: "destructive", title: "Posted to discussion, but failed to remove from criteria" }); return; }
+      toast({ title: "Moved to discussion" });
+      queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-comments", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to move to discussion" });
+    } finally {
+      setAcBusyIndex(null);
+    }
+  };
+
   const role = user?.role ?? "";
   const FA_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
   const canReview = FA_ROLES.includes(role);
@@ -625,6 +711,12 @@ export default function RequirementDetail() {
   // CR071 — normalized (trim + lowercase) set for "already in requirement" dedup
   const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
   const acNormalized = new Set(ac.map(normalize));
+  // Accepted questions land in the Discussion thread as comments; dedup a
+  // question row against existing comment bodies (substring match tolerates
+  // the "Clarification needed (AI review): " prefix we post them with).
+  const commentBodiesNormalized = comments.map((c: any) => normalize(c.body ?? ""));
+  const questionAlreadyAsked = (q: string) =>
+    commentBodiesNormalized.some((b) => b.includes(normalize(q)));
   // CR074 — matches Tasks.tsx's PhaseTimelinePanel date formatting
   const fmtPhaseDate = (iso: string | null) => (iso ? format(new Date(iso), "dd MMM yyyy") : "—");
 
@@ -823,9 +915,12 @@ export default function RequirementDetail() {
                           icon={<AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 shrink-0" />}
                           text={q}
                           showAction={canEditReq}
-                          isDuplicate={acNormalized.has(normalize(q))}
+                          isDuplicate={questionAlreadyAsked(q)}
                           isAccepting={acceptingText === q}
-                          onAccept={() => acceptRecommendation(q)}
+                          onAccept={() => askQuestionInDiscussion(q)}
+                          actionLabel="Ask in Discussion"
+                          pendingLabel="Posting…"
+                          duplicateLabel="Already asked"
                         />
                       ))}
                     </ul>
@@ -845,12 +940,42 @@ export default function RequirementDetail() {
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
-                  {ac.map((criterion, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <Square className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
-                      <span>{criterion}</span>
-                    </li>
-                  ))}
+                  {ac.map((criterion, i) => {
+                    const looksLikeQuestion = criterion.trim().endsWith("?");
+                    const busy = acBusyIndex === i;
+                    return (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <Square className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+                        <span className="flex-1">{criterion}</span>
+                        {canEditReq && (
+                          <span className="flex items-center gap-1 shrink-0">
+                            {looksLikeQuestion && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                                disabled={busy}
+                                onClick={() => moveAcCriterionToDiscussion(i, criterion)}
+                                title="This looks like a question — move it to the Discussion thread"
+                              >
+                                <MessageSquare className="w-3 h-3" /> Move to discussion
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              disabled={busy}
+                              onClick={() => removeAcceptanceCriterion(i)}
+                              title="Remove from acceptance criteria"
+                            >
+                              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            </Button>
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </CardContent>
             </Card>
