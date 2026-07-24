@@ -152,6 +152,10 @@ function RecommendationRow({
   );
 }
 
+// Acceptance-criteria entries accepted from the AI panel are prefixed with
+// their source category (e.g. "Missing Items: …") so the origin stays visible.
+const criterionText = (label: string, text: string) => `${label}: ${text.trim()}`;
+
 export default function RequirementDetail() {
   const [, params] = useRoute("/requirements/:id");
   const [, navigate] = useLocation();
@@ -567,16 +571,17 @@ export default function RequirementDetail() {
     }
   };
 
-  // CR071 — accept an AI recommendation (missing item / issue suggestion /
-  // question) by appending it as a new Acceptance Criteria entry. The
-  // acceptanceCriteria column is raw JSON text server-side, so the client
-  // owns the read-append-stringify round trip; PATCH does a full replace.
-  const acceptRecommendation = async (text: string) => {
+  // CR071 — accept an AI recommendation (missing item / issue suggestion) by
+  // appending it as a new Acceptance Criteria entry, prefixed with its source
+  // category (e.g. "Missing Items: …") so the origin stays visible. The
+  // acceptanceCriteria column is raw JSON text server-side, so the client owns
+  // the read-append-stringify round trip; PATCH does a full replace.
+  const acceptRecommendation = async (label: string, text: string) => {
     if (!reqId || !req) return;
     setAcceptingText(text);
     try {
       const current: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
-      const updated = [...current, text.trim()];
+      const updated = [...current, criterionText(label, text)];
       const res = await api(`/requirements/${reqId}`, token, {
         method: "PATCH",
         body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
@@ -711,6 +716,10 @@ export default function RequirementDetail() {
   // CR071 — normalized (trim + lowercase) set for "already in requirement" dedup
   const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
   const acNormalized = new Set(ac.map(normalize));
+  // A recommendation is "already in requirement" if its prefixed form OR its
+  // raw text (accepted before category prefixes existed) is present.
+  const alreadyInAc = (label: string, text: string) =>
+    acNormalized.has(normalize(criterionText(label, text))) || acNormalized.has(normalize(text));
   // Accepted questions land in the Discussion thread as comments; dedup a
   // question row against existing comment bodies (substring match tolerates
   // the "Clarification needed: " prefix we post them with).
@@ -876,9 +885,9 @@ export default function RequirementDetail() {
                           icon={<XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />}
                           text={item}
                           showAction={canEditReq}
-                          isDuplicate={acNormalized.has(normalize(item))}
+                          isDuplicate={alreadyInAc("Missing Items", item)}
                           isAccepting={acceptingText === item}
-                          onAccept={() => acceptRecommendation(item)}
+                          onAccept={() => acceptRecommendation("Missing Items", item)}
                         />
                       ))}
                     </ul>
@@ -897,9 +906,9 @@ export default function RequirementDetail() {
                           text={issue.suggestion}
                           secondary={issue.description}
                           showAction={canEditReq}
-                          isDuplicate={acNormalized.has(normalize(issue.suggestion))}
+                          isDuplicate={alreadyInAc("Issue Suggestions", issue.suggestion)}
                           isAccepting={acceptingText === issue.suggestion}
-                          onAccept={() => acceptRecommendation(issue.suggestion)}
+                          onAccept={() => acceptRecommendation("Issue Suggestions", issue.suggestion)}
                         />
                       ))}
                     </ul>
