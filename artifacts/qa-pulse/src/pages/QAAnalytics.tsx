@@ -48,6 +48,12 @@ function shortWeek(w: string) {
   return w.split("-")[1] ?? w;
 }
 
+// Milestone names are long ("CR-2026-020 — Loyalty Rewards Integration"); the
+// axis shows a truncated form while the tooltip keeps the full name.
+function truncate(s: string, max = 18) {
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
+
 // ── Panel components ──────────────────────────────────────────────────────────
 
 function Panel({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
@@ -181,13 +187,13 @@ export default function QAAnalytics() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <TrendingUp className="w-7 h-7 text-indigo-500" />
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
+            <TrendingUp className="w-6 h-6 sm:w-7 sm:h-7 text-indigo-500" />
             QA Analytics
           </h1>
-          <p className="text-muted-foreground mt-1">Trend visibility across milestones and sprints</p>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Trend visibility across milestones and sprints</p>
         </div>
         {hasData && (
           <Button variant="outline" size="sm" onClick={() => {
@@ -206,7 +212,7 @@ export default function QAAnalytics() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-4">
-          <div className="flex flex-wrap gap-4 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap gap-4 lg:items-end">
             <div className="space-y-1 min-w-48">
               <Label className="text-xs">Project</Label>
               <Select value={projectId} onValueChange={v => { setProjectId(v); setMilestoneId("all"); }}>
@@ -234,11 +240,11 @@ export default function QAAnalytics() {
 
             <div className="space-y-1">
               <Label className="text-xs">From</Label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-36" disabled={milestoneId !== "all"} />
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full sm:w-36" disabled={milestoneId !== "all"} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">To</Label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-36" disabled={milestoneId !== "all"} />
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full sm:w-36" disabled={milestoneId !== "all"} />
             </div>
 
             {milestoneId !== "all" && (
@@ -312,14 +318,14 @@ export default function QAAnalytics() {
             {data.passByMilestone.every(m => m.total === 0) ? (
               <EmptyChart message="No execution data across milestones" />
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={data.passByMilestone} layout="horizontal" margin={{ top: 8, right: 16, bottom: 0, left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <ResponsiveContainer width="100%" height={Math.max(200, data.passByMilestone.length * 40)}>
+                <BarChart data={data.passByMilestone} layout="vertical" margin={{ top: 8, right: 44, bottom: 0, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                   <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis type="category" dataKey="milestoneName" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} width={80} />
+                  <YAxis type="category" dataKey="milestoneName" tickFormatter={(v: string) => truncate(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={130} />
                   <Tooltip formatter={(v) => [`${v}%`, "Pass rate"]} />
                   <Bar dataKey="pct" fill="#22c55e" radius={[0, 3, 3, 0]}
-                    label={{ position: "right", formatter: (v: number) => v > 0 ? `${v}%` : "", fontSize: 11, fill: "#6b7280" }}
+                    label={{ position: "right", formatter: (v: number) => v > 0 ? `${v}%` : "", fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -371,16 +377,16 @@ export default function QAAnalytics() {
             {data.escapeFunnel.every(m => m.sit + m.uat + m.production === 0) ? (
               <EmptyChart message="No defects with milestone linkage found" />
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={data.escapeFunnel} margin={{ top: 8, right: 8, bottom: 40, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="milestoneName" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} angle={-35} textAnchor="end" interval={0} />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <ResponsiveContainer width="100%" height={Math.max(220, data.escapeFunnel.length * 48)}>
+                <BarChart data={data.escapeFunnel} layout="vertical" margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis type="category" dataKey="milestoneName" tickFormatter={(v: string) => truncate(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={130} />
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="sit" stackId="a" fill="#6366f1" name="SIT" />
                   <Bar dataKey="uat" stackId="a" fill="#f59e0b" name="UAT" />
-                  <Bar dataKey="production" stackId="a" fill="#ef4444" name="Production" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="production" stackId="a" fill="#ef4444" name="Production" radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

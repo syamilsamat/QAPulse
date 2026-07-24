@@ -1,5 +1,7 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "wouter";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import * as XLSX from "xlsx-js-style";
 import { listProjects, getListProjectsQueryKey, listUsers, getListUsersQueryKey } from "@workspace/api-client-react";
 import { getApiUrl, authHeaders } from "@/lib/api";
@@ -622,6 +624,26 @@ export default function Tasks() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
+  // Deep-link from the dashboard's blocked/overdue & pending popovers:
+  // ?highlight=<requirementId> scrolls to and flashes that requirement's row.
+  const searchString = useSearch();
+  const highlightReqId = useMemo(() => {
+    const raw = new URLSearchParams(searchString).get("highlight");
+    return raw ? Number(raw) : null;
+  }, [searchString]);
+  // Jump to the page holding the highlighted row (once per target) so it is
+  // actually rendered for useHighlightRow to find and scroll to.
+  const jumpedForRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (highlightReqId == null || rows.length === 0) return;
+    if (jumpedForRef.current === highlightReqId) return;
+    const idx = filtered.findIndex((r) => r.requirementId === highlightReqId);
+    if (idx === -1) return;
+    jumpedForRef.current = highlightReqId;
+    setCurrentPage(Math.floor(idx / ITEMS_PER_PAGE) + 1);
+  }, [highlightReqId, filtered, rows.length]);
+  useHighlightRow([currentPage, filtered.length]);
+
   const handleExport = () => {
     if (filtered.length === 0) {
       toast({ variant: "destructive", title: "Nothing to export" });
@@ -739,7 +761,7 @@ export default function Tasks() {
                       });
                     return (
                       <Fragment key={r.requirementId}>
-                        <TableRow>
+                        <TableRow id={highlightRowId(r.requirementId)}>
                           <TableCell className="font-medium">
                             <button
                               type="button"

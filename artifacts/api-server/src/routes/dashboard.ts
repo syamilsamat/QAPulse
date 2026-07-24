@@ -1362,6 +1362,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     })
     .map(t => ({
       id: t.id,
+      requirementId: t.requirementId,
       name: t.name,
       status: t.status,
       dueDate: t.dueDate,
@@ -1371,7 +1372,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   // Pending task details (UAT / SIT)
   const pendingTasksList = tasks
     .filter(t => ["uat", "sit"].includes(t.status))
-    .map(t => ({ id: t.id, name: t.name, status: t.status, dueDate: t.dueDate ?? null }));
+    .map(t => ({ id: t.id, requirementId: t.requirementId, name: t.name, status: t.status, dueDate: t.dueDate ?? null }));
 
   res.json({
     totalTasks,

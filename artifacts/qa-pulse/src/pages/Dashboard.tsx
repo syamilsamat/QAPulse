@@ -637,7 +637,7 @@ function TeamCalendar({ users }: { users: User[] }) {
 
 // ─── MetricCard ───────────────────────────────────────────────────────────────
 
-type HoverItem = { id: number; name: string; status: string; dueDate?: string | null; isOverdue?: boolean };
+type HoverItem = { id: number; requirementId?: number | null; name: string; status: string; dueDate?: string | null; isOverdue?: boolean };
 
 function MetricCard({
   title, value, icon, description, alert, hoverItems, hoverLabel = "blocked / overdue task",
@@ -722,7 +722,7 @@ function MetricCard({
                 : "bg-orange-100 text-orange-700";
               const badgeLabel = item.status === "blocked" ? "Blocked" : isPending ? item.status.toUpperCase() : "Overdue";
               return (
-              <div key={item.id} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors" onClick={() => setLocation("/tasks")}>
+              <div key={item.id} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors" onClick={() => setLocation(item.requirementId ? `/tasks?highlight=${item.requirementId}` : "/tasks")}>
                 <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${dotColor}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate leading-snug">{item.name}</p>

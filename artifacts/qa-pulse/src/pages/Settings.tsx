@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
   RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, XIcon,
@@ -285,6 +286,23 @@ export default function Settings() {
         <p className="text-muted-foreground mt-1">Manage your account and preferences</p>
       </div>
 
+      <Tabs defaultValue="profile" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="profile" className="gap-2">
+            <User className="w-4 h-4" /> Profile
+          </TabsTrigger>
+          <TabsTrigger value="security" className="gap-2">
+            <Lock className="w-4 h-4" /> Security
+          </TabsTrigger>
+          <TabsTrigger value="role" className="gap-2">
+            <Shield className="w-4 h-4" /> Role &amp; Permissions
+          </TabsTrigger>
+          <TabsTrigger value="about" className="gap-2">
+            <Bell className="w-4 h-4" /> About
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile" className="space-y-6">
       {/* Profile Card */}
       <Card>
         <CardHeader>
@@ -394,7 +412,9 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="security" className="space-y-6">
       {/* Change Password */}
       <Card>
         <CardHeader>
@@ -467,7 +487,9 @@ export default function Settings() {
           </Button>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="role" className="space-y-6">
       {/* Role & Permissions */}
       <Card>
         <CardHeader>
@@ -491,7 +513,9 @@ export default function Settings() {
           <p className="text-xs text-muted-foreground mt-3">Contact an admin to change your role</p>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="about" className="space-y-6">
       {/* Team Members section has moved to Configuration > Team Members tab */}
 
       {/* Redmine Integration moved to Project & Module Config page */}
@@ -587,6 +611,8 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

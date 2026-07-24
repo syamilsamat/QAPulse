@@ -374,6 +374,8 @@ export default function ModuleAndProject() {
   const [modules, setModules] = useState<ExecutionModule[]>([]);
   const [modulesLoading, setModulesLoading] = useState(true);
   const [newModule, setNewModule] = useState("");
+  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
+  const [moduleSubmitting, setModuleSubmitting] = useState(false);
   const [moduleSearch, setModuleSearch] = useState("");
   const [modulePage, setModulePage] = useState(1);
   const [showAllModules, setShowAllModules] = useState(false);
@@ -397,13 +399,17 @@ export default function ModuleAndProject() {
 
   const handleAddModule = async () => {
     if (!newModule.trim()) return;
+    setModuleSubmitting(true);
     try {
       const mod = await addModule(newModule.trim());
-      setModules((prev) => [mod, ...prev]); 
+      setModules((prev) => [mod, ...prev]);
       setNewModule("");
+      setModuleDialogOpen(false);
       toast({ title: "Module added" });
     } catch {
       toast({ variant: "destructive", title: "Failed to add module" });
+    } finally {
+      setModuleSubmitting(false);
     }
   };
 
@@ -865,13 +871,23 @@ export default function ModuleAndProject() {
         {/* === MODULES SECTION === */}
         <Card className="flex flex-col h-[650px] shadow-none border-border/60 bg-background/50">
           <CardHeader className="border-b px-6 py-5">
-            <CardTitle className="flex items-center gap-2 text-lg font-medium">
-              <Layers className="w-5 h-5 text-muted-foreground" />
-              Modules
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-lg font-medium">
+                <Layers className="w-5 h-5 text-muted-foreground" />
+                Modules
+              </CardTitle>
+              <Button
+                onClick={() => setModuleDialogOpen(true)}
+                size="sm"
+                variant="outline"
+                className="h-8 shadow-none"
+              >
+                <Plus className="w-4 h-4 mr-1.5" /> New Module
+              </Button>
+            </div>
           </CardHeader>
 
-          <div className="px-6 py-4 border-b bg-muted/10 space-y-3">
+          <div className="px-6 py-4 border-b bg-muted/10">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/70" />
               <Input
@@ -883,23 +899,6 @@ export default function ModuleAndProject() {
                   setModulePage(1);
                 }}
               />
-            </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder="New module name..."
-                className="h-9 shadow-none border-border/50"
-                value={newModule}
-                onChange={(e) => setNewModule(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddModule()}
-              />
-              <Button
-                onClick={handleAddModule}
-                size="sm"
-                variant="secondary"
-                className="h-9 px-4 shrink-0 shadow-none"
-              >
-                <Plus className="w-4 h-4 mr-1.5" /> Add
-              </Button>
             </div>
           </div>
 
@@ -1480,6 +1479,42 @@ export default function ModuleAndProject() {
               className="w-full sm:w-auto shadow-none"
             >
               {projectSubmitting ? "Saving..." : "Create Project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* === CREATE MODULE DIALOG === */}
+      <Dialog open={moduleDialogOpen} onOpenChange={setModuleDialogOpen}>
+        <DialogContent className="w-[95vw] sm:w-full max-w-md gap-6 border-border/60 shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-medium">Create Module</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Name</Label>
+            <Input
+              placeholder="e.g. Payment"
+              value={newModule}
+              className="shadow-none"
+              onChange={(e) => setNewModule(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddModule()}
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              onClick={() => setModuleDialogOpen(false)}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddModule}
+              disabled={moduleSubmitting || !newModule.trim()}
+              className="w-full sm:w-auto shadow-none"
+            >
+              {moduleSubmitting ? "Saving..." : "Create Module"}
             </Button>
           </DialogFooter>
         </DialogContent>
