@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useSearch } from "wouter";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import {
@@ -129,6 +131,10 @@ export default function Team() {
     queryKey: getListUsersQueryKey(),
     queryFn: () => listUsers(),
   });
+
+  const searchString = useSearch();
+  const highlightId = new URLSearchParams(searchString).get("highlight") ? Number(new URLSearchParams(searchString).get("highlight")) : null;
+  useHighlightRow([users.length, highlightId]);
 
   const { data: selectedUserStats } = useQuery({
     queryKey: getGetUserStatsQueryKey(selectedUserId ?? 0),
@@ -362,6 +368,7 @@ export default function Team() {
             return (
               <Card
                 key={u.id}
+                id={highlightRowId(u.id)}
                 className="cursor-pointer hover:shadow-md transition-shadow"
                 onClick={() => setSelectedUserId(u.id)}
               >

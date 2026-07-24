@@ -891,13 +891,27 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-1">{headerSub}</p>
         </div>
 
-        {canViewMembers && (
-          <MemberPicker
-            users={users.filter((u) => u.id !== user?.id)}
-            selected={selectedMember}
-            onSelect={setSelectedMember}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            className="gap-2 text-muted-foreground" 
+            onClick={() => window.dispatchEvent(new Event('open-global-search'))}
+          >
+            <Search className="w-4 h-4" />
+            <span className="hidden sm:inline">Search...</span>
+            <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+              <span className="text-xs">⌘</span>K
+            </kbd>
+          </Button>
+          {canViewMembers && (
+            <MemberPicker
+              users={users.filter((u) => u.id !== user?.id)}
+              selected={selectedMember}
+              onSelect={setSelectedMember}
+            />
+          )}
+        </div>
+
       </div>
 
       {/* Member context banner */}

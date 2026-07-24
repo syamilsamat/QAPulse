@@ -7,6 +7,7 @@ import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2, FileCheck2 } from 'lucide-react';
 import { NotificationDropdown } from "@/components/NotificationDropdown";
+import { GlobalSearch } from "@/components/GlobalSearch";
 
 import {
   HoverPulse,
@@ -1162,6 +1163,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Inject the global Copilot here */}
         <GlobalQACopilot />
+        {/* Global Search Component */}
+        <GlobalSearch />
       </div>
 
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>

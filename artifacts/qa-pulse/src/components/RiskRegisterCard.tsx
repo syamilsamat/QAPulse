@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "wouter";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
@@ -327,6 +329,9 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Risk | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  
+  const searchString = useSearch();
+  const highlightId = new URLSearchParams(searchString).get("highlight") ? Number(new URLSearchParams(searchString).get("highlight")) : null;
 
   const { data: risks = [], isLoading } = useQuery<Risk[]>({
     queryKey: ["risks", projectId],
@@ -347,6 +352,8 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["risks", projectId] });
+  
+  useHighlightRow([sorted.length, highlightId]);
 
   const [exporting, setExporting] = useState(false);
   const handleExport = async () => {
@@ -414,8 +421,9 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
             {sorted.map((r) => {
               const band = riskScoreBand(r.probability, r.impact);
               return (
-                <div key={r.id} className="flex items-start gap-2 text-sm py-1.5 border-t first:border-t-0">
+                <div key={r.id} id={highlightRowId(r.id)} className="flex items-start gap-2 text-sm py-1.5 border-t first:border-t-0">
                   <Badge variant="outline" className={`text-[10px] font-semibold shrink-0 mt-0.5 ${SCORE_BAND_CLASS[band]}`}>{SCORE_BAND_LABEL[band]}</Badge>
+
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{r.title}</p>
                     <p className="text-xs text-muted-foreground">

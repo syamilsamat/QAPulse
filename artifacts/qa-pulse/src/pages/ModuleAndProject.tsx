@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { useSearch } from "wouter";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 const TeamsPage = lazy(() => import("./Teams"));
 import { Columns3Cog } from 'lucide-react';
 import {
@@ -126,6 +128,11 @@ export default function ModuleAndProject() {
   const qc = useQueryClient();
 
   // =========================
+  const searchString = useSearch();
+  const searchParams = new URLSearchParams(searchString);
+  const defaultTab = searchParams.get("tab") || "projects";
+  const highlightId = searchParams.get("highlight") ? Number(searchParams.get("highlight")) : null;
+
   // DOCUMENT REGISTER STATE
   // =========================
   const [docRegEntries, setDocRegEntries] = useState<DocRegEntry[]>([]);
@@ -134,6 +141,8 @@ export default function ModuleAndProject() {
   const [editingDocRegId, setEditingDocRegId] = useState<number | null>(null);
   const [showDocRegForm, setShowDocRegForm] = useState(false);
   const [isSavingDocReg, setIsSavingDocReg] = useState(false);
+
+  useHighlightRow([docRegEntries.length, highlightId]);
 
   useEffect(() => {
     fetch(`${getApiUrl()}/document-register`, { headers: authHeaders() })
@@ -624,7 +633,7 @@ export default function ModuleAndProject() {
         </p>
       </div>
 
-      <Tabs defaultValue="projects" className="space-y-4">
+      <Tabs defaultValue={defaultTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="projects" className="gap-2">
             <Box className="w-4 h-4" /> Projects &amp; Modules
@@ -711,6 +720,7 @@ export default function ModuleAndProject() {
                   return (
                     <div
                       key={p.id}
+                      id={highlightRowId(p.id)}
                       className={`group flex flex-col justify-center px-6 py-4 border-b last:border-0 hover:bg-muted/30 transition-all ${
                         isGreyedOut ? "opacity-50 hover:opacity-100" : ""
                       }`}
@@ -919,6 +929,7 @@ export default function ModuleAndProject() {
                   return (
                     <div
                       key={mod.id}
+                      id={highlightRowId(mod.id)}
                       className="group flex items-center justify-between px-6 py-3.5 border-b last:border-0 hover:bg-muted/30 transition-colors min-h-[60px]"
                     >
                       {isEditing ? (
@@ -1152,7 +1163,7 @@ export default function ModuleAndProject() {
                         return !q || c.fullName.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
                       })
                       .map((contact) => (
-                        <div key={contact.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
+                        <div key={contact.id} id={highlightRowId(contact.id)} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium truncate">{contact.fullName}</span>
                             {contact.isGroup && <Badge variant="outline" className="text-[10px] py-0">Group</Badge>}
@@ -1267,7 +1278,7 @@ export default function ModuleAndProject() {
                     </thead>
                     <tbody>
                       {docRegEntries.map((e) => (
-                        <tr key={e.id} className="border-t">
+                        <tr key={e.id} id={highlightRowId(e.id)} className="border-t">
                           <td className="px-3 py-2">{e.projectName}</td>
                           <td className="px-3 py-2">{e.moduleName}</td>
                           <td className="px-3 py-2">{e.tracker}</td>

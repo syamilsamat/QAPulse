@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { useSearch } from "wouter";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -131,6 +133,9 @@ export default function UatSignoffs() {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const searchString = useSearch();
+  const highlightId = new URLSearchParams(searchString).get("highlight") ? Number(new URLSearchParams(searchString).get("highlight")) : null;
+
 
   const [filterProject, setFilterProject] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -159,6 +164,8 @@ export default function UatSignoffs() {
       return res.ok ? res.json() : [];
     },
   });
+
+  useHighlightRow([signoffs.length, highlightId]);
 
   const { data: milestones = [] } = useQuery<{ id: number; name: string; status: string }[]>({
     queryKey: ["milestones", upProject],
@@ -299,8 +306,9 @@ export default function UatSignoffs() {
             </thead>
             <tbody>
               {signoffs.map((s) => (
-                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                <tr key={s.id} id={highlightRowId(s.id)} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-3 py-2.5">
+
                     <p className="font-medium">{s.fileName}</p>
                     <p className="text-xs text-muted-foreground">{fmtSize(s.sizeBytes)}{s.note ? ` · ${s.note}` : ""}</p>
                   </td>
