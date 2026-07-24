@@ -75,6 +75,103 @@ async function callAiEndpoint(
   return res.json();
 }
 
+// Lightweight, dependency-free markdown for chat replies. The model returns
+// **bold**, *italic*, `code`, and -/*/numbered lists; without this the raw
+// markers ("* **Bold:**") leak to the user. Renders to React nodes (never
+// dangerouslySetInnerHTML) so reply text can never inject markup.
+function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*)/g;
+  let last = 0;
+  let i = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      nodes.push(<strong key={`${keyPrefix}-b${i}`}>{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith("`")) {
+      nodes.push(<code key={`${keyPrefix}-c${i}`} className="px-1 py-0.5 rounded bg-foreground/10 font-mono text-[0.85em]">{tok.slice(1, -1)}</code>);
+    } else {
+      nodes.push(<em key={`${keyPrefix}-i${i}`}>{tok.slice(1, -1)}</em>);
+    }
+    last = m.index + tok.length;
+    i++;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function ChatMarkdown({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  let para: string[] = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    const key = `p${blocks.length}`;
+    const buffered = para;
+    blocks.push(
+      <p key={key}>
+        {buffered.map((ln, j) => (
+          <span key={j}>
+            {j > 0 && <br />}
+            {renderInline(ln, `${key}-${j}`)}
+          </span>
+        ))}
+      </p>,
+    );
+    para = [];
+  };
+
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i];
+    const heading = line.match(/^\s*#{1,3}\s+(.*)$/);
+    if (/^\s*[-*•]\s+/.test(line)) {
+      flushPara();
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*•]\s+/, ""));
+        i++;
+      }
+      const key = `ul${blocks.length}`;
+      blocks.push(
+        <ul key={key} className="list-disc pl-5 space-y-1">
+          {items.map((it, j) => <li key={j}>{renderInline(it, `${key}-${j}`)}</li>)}
+        </ul>,
+      );
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      flushPara();
+      const items: string[] = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
+        i++;
+      }
+      const key = `ol${blocks.length}`;
+      blocks.push(
+        <ol key={key} className="list-decimal pl-5 space-y-1">
+          {items.map((it, j) => <li key={j}>{renderInline(it, `${key}-${j}`)}</li>)}
+        </ol>,
+      );
+      continue;
+    }
+    if (heading) {
+      flushPara();
+      blocks.push(<div key={`h${blocks.length}`} className="font-semibold">{renderInline(heading[1], `h${blocks.length}`)}</div>);
+      i++;
+      continue;
+    }
+    if (line.trim() === "") { flushPara(); i++; continue; }
+    para.push(line);
+    i++;
+  }
+  flushPara();
+
+  return <div className="space-y-2 leading-relaxed">{blocks}</div>;
+}
+
 // --- Global QA Copilot Component ---
 function GlobalQACopilot() {
   const { user, token } = useAuth();
@@ -328,7 +425,7 @@ function GlobalQACopilot() {
                     <div
                       className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
                     >
-                      {m.content}
+                      {m.role === "assistant" ? <ChatMarkdown content={m.content} /> : m.content}
                     </div>
                   </div>
                 ))}
@@ -395,7 +492,7 @@ function GlobalQACopilot() {
                         m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
                       }`}
                     >
-                      {m.content}
+                      {m.role === "assistant" ? <ChatMarkdown content={m.content} /> : m.content}
                     </div>
                     {m.role === "assistant" && m.candidates && m.candidates.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mt-1">
