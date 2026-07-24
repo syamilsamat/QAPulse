@@ -144,6 +144,26 @@ function collectModules(rows: TraceabilityRow[], acc: Set<string>) {
   }
 }
 
+// ─── Outline numbering ─────────────────────────────────────────────────────
+// Requirements get numbers (1.), 2.), …); test cases get letters (a.), b.), …).
+// Both restart within their container (requirements per milestone, test cases
+// per requirement), so indentation + symbol type — number = requirement,
+// letter = test case — reads as a nested outline. Child requirements reuse the
+// requirement (number) sequence, scoped to their own parent.
+function reqOutlineLabel(index: number): string {
+  return `${index + 1}.)`;
+}
+
+function tcOutlineLabel(index: number): string {
+  let n = index;
+  let s = "";
+  do {
+    s = String.fromCharCode(97 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return `${s}.)`;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TraceabilityMatrix() {
@@ -407,7 +427,7 @@ export default function TraceabilityMatrix() {
   };
 
   // ─── Recursive requirement rows ───────────────────────────────────────────
-  const renderReqRows = (req: TraceabilityRow, depth: number): JSX.Element => {
+  const renderReqRows = (req: TraceabilityRow, depth: number, index: number): JSX.Element => {
     // CR017 target #3 — an out-of-milestone ancestor exists purely to show
     // context for an in-sprint descendant, so it's always expanded (not
     // independently collapsible) and its rollup is already scoped to just
@@ -438,6 +458,9 @@ export default function TraceabilityMatrix() {
               {depth > 0 && (
                 <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               )}
+              <span className="text-xs font-semibold text-foreground/70 tabular-nums shrink-0">
+                {reqOutlineLabel(index)}
+              </span>
               <span className="text-xs text-muted-foreground font-mono">#{req.reqRedmineId ?? req.reqId}</span>
               <span className={depth === 0 ? "font-medium text-sm" : "text-sm"}>{req.reqTitle}</span>
               {isContextRow && (
@@ -478,13 +501,16 @@ export default function TraceabilityMatrix() {
 
         {/* Expanded TC rows (direct links on this requirement) */}
         {isOpen &&
-          req.testCases.map((tc) => {
+          req.testCases.map((tc, tcIndex) => {
             const latest = tc.results[tc.results.length - 1];
             return (
               <TableRow key={tc.key} className="bg-muted/20">
                 <TableCell />
                 <TableCell colSpan={2} style={{ paddingLeft: 32 + depth * 24 }}>
                   <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-foreground/70 shrink-0">
+                      {tcOutlineLabel(tcIndex)}
+                    </span>
                     <span className="text-xs font-mono text-muted-foreground">
                       {tc.displayCaseId}
                     </span>
@@ -512,7 +538,7 @@ export default function TraceabilityMatrix() {
           })}
 
         {/* Expanded child requirements */}
-        {isOpen && req.children.map((child) => renderReqRows(child, depth + 1))}
+        {isOpen && req.children.map((child, childIndex) => renderReqRows(child, depth + 1, childIndex))}
       </Fragment>
     );
   };
@@ -730,12 +756,12 @@ export default function TraceabilityMatrix() {
                             </TableCell>
                             <TableCell><StatusBadge status={mg.overallStatus} /></TableCell>
                           </TableRow>
-                          {!mgCollapsed && mg.rows.map((req) => renderReqRows(req, 0))}
+                          {!mgCollapsed && mg.rows.map((req, i) => renderReqRows(req, 0, i))}
                         </Fragment>
                       );
                     })}
                   {!collapsedProjects.has(group.projectId) && filterMilestone !== "all" &&
-                    group.rows.map((req) => renderReqRows(req, 0))}
+                    group.rows.map((req, i) => renderReqRows(req, 0, i))}
                 </Fragment>
               ))}
             </TableBody>

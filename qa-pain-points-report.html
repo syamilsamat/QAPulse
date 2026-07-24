@@ -1,0 +1,726 @@
+<title>QAPulse — Twenty-Four Pain Points, Traced to Fixes</title>
+<style>
+  :root {
+    --paper: #EEF1F0;
+    --surface: #FFFFFF;
+    --ink: #16211F;
+    --muted: #55625C;
+    --rule: #D3D8D4;
+    --accent: #B8402B;
+    --shadow: rgba(20,30,28,0.07);
+
+    --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101615;
+      --surface: #171F1E;
+      --ink: #E9EEEB;
+      --muted: #9AA6A0;
+      --rule: #2A3432;
+      --accent: #E2694A;
+      --shadow: rgba(0,0,0,0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101615;
+    --surface: #171F1E;
+    --ink: #E9EEEB;
+    --muted: #9AA6A0;
+    --rule: #2A3432;
+    --accent: #E2694A;
+    --shadow: rgba(0,0,0,0.4);
+  }
+  :root[data-theme="light"] {
+    --paper: #EEF1F0;
+    --surface: #FFFFFF;
+    --ink: #16211F;
+    --muted: #55625C;
+    --rule: #D3D8D4;
+    --accent: #B8402B;
+    --shadow: rgba(20,30,28,0.07);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 4.5rem 1.5rem 5rem;
+  }
+
+  /* ---------- Masthead ---------- */
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.9rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  .subtitle {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 56ch;
+    margin: 0 0 1.75rem;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    padding-bottom: 1.75rem;
+  }
+  .meta-row span b {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .pulse-line {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 0 2.75rem;
+  }
+  .pulse-line path {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 2000;
+    stroke-dashoffset: 2000;
+    animation: draw 1.6s ease-out forwards;
+  }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-line path { animation: none; stroke-dashoffset: 0; }
+  }
+
+  .intro {
+    font-size: 1.02rem;
+    max-width: 62ch;
+    margin: 0 0 2rem;
+  }
+  .intro strong { font-weight: 600; }
+
+  .flow-map {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--muted);
+    line-height: 2;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--surface);
+    margin: 0 0 3.5rem;
+  }
+  .flow-map .arrow {
+    color: var(--accent);
+    margin: 0 0.45em;
+  }
+
+  /* ---------- Sections ---------- */
+  section.group {
+    margin-bottom: 3rem;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.9rem;
+  }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.3rem;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .stage-num {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--accent);
+    margin-right: 0.55rem;
+  }
+  .section-head .count {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .rule {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 0 0 1.25rem;
+  }
+
+  /* ---------- Findings ---------- */
+  .finding {
+    display: grid;
+    grid-template-columns: 1.35fr 1px 1fr;
+    gap: 1.5rem;
+    background: var(--surface);
+    border-left: 3px solid var(--ink);
+    border-radius: 3px;
+    box-shadow: 0 1px 3px var(--shadow);
+    padding: 1.4rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .finding .divider {
+    background: var(--rule);
+  }
+  .finding h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.08rem;
+    margin: 0 0 0.5rem;
+    text-wrap: balance;
+  }
+  .finding-main p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.94rem;
+  }
+  .finding-fix {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .cr-tag {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0.15rem 0.5rem;
+  }
+  .finding-fix p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--ink);
+  }
+
+  /* ---------- Open (unresolved) variant ---------- */
+  .finding.is-open {
+    border-left-style: dashed;
+    border-left-color: var(--muted);
+  }
+  .tag-open {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    border: 1px dashed var(--muted);
+    border-radius: 3px;
+    padding: 0.15rem 0.5rem;
+  }
+
+  @media (max-width: 680px) {
+    .finding {
+      grid-template-columns: 1fr;
+      gap: 0.9rem;
+    }
+    .finding .divider {
+      display: none;
+    }
+    .finding-fix {
+      border-top: 1px solid var(--rule);
+      padding-top: 0.9rem;
+    }
+  }
+
+  /* ---------- Footer ---------- */
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--rule);
+  }
+  .tally {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--ink);
+    margin: 0 0 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .sources {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+  }
+</style>
+
+<div class="page">
+
+  <p class="kicker">QAPulse — Internal Review</p>
+  <h1>Twenty-four pain points, traced to fixes</h1>
+  <p class="subtitle">The same findings, now walked in test-cycle order — from the moment a requirement lands to the moment a release ships — with four gaps still honestly open.</p>
+  <div class="meta-row">
+    <span>Ref <b>QAP&#8209;REV&#8209;2026&#8209;07</b> Rev&nbsp;3</span>
+    <span>Date <b>23 Jul 2026</b></span>
+    <span>Scope <b>CR001&ndash;CR053</b></span>
+  </div>
+
+  <svg class="pulse-line" viewBox="0 0 800 60" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,30 H80 L90,12 L100,48 L110,4 L120,52 L130,30 H320 L330,12 L340,48 L350,4 L360,52 L370,30 H560 L570,12 L580,48 L590,4 L600,52 L610,30 H800" />
+  </svg>
+
+  <p class="intro">QA testing generates a specific, recurring set of frustrations — proving coverage, chasing a bug through a tracker, telling a stale pass from a real one. This review pairs each one against the QAPulse change request that shipped the fix, grounded in the 53 change requests already <strong>deployed</strong> to the system, not the proposals sitting alongside them.</p>
+
+  <p class="intro">Rev&nbsp;3 keeps every finding and every citation from Rev&nbsp;2 — re-verified against the running code, not just the change-log — and reorders them into the actual sequence a test cycle runs in, first stage to last, so it reads as a flow rather than a category list.</p>
+
+  <p class="flow-map">01 Intake<span class="arrow">&rarr;</span>02 Authoring<span class="arrow">&rarr;</span>03 Planning<span class="arrow">&rarr;</span>04 Execution<span class="arrow">&rarr;</span>05 Defect Logging<span class="arrow">&rarr;</span>06 Resolution<span class="arrow">&rarr;</span>07 Escape Analysis<span class="arrow">&rarr;</span>08 Reporting</p>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">01</span>Requirement Intake &amp; Understanding</h2>
+      <span class="count">1 finding</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>An unclear requirement meant chasing someone over chat to ask what it meant.</h3>
+        <p>Clarifying a vague requirement lived outside the tool entirely, in whatever thread the question happened to land in.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR039</span>
+        <p>Requirement Q&amp;A Chat — ask in plain language; the assistant resolves which requirement you mean (or asks which of a few candidates) and answers grounded in its actual content.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">02</span>Test Case Authoring &amp; Library</h2>
+      <span class="count">3 findings + 1 open</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Test cases lived in scattered spreadsheets, not one library.</h3>
+        <p>Every project kept its own copy on a shared drive — reusing a test case for a new project meant hunting down whoever had it last.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CORE</span>
+        <p>A single Test Case Library, searchable by project, module, tag, and linked requirement, with clone / bulk-clone for reuse across projects.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Writing test cases started from a blank page every time.</h3>
+        <p>Turning a new requirement into a full set of test steps was manual, requirement by requirement.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR006 &middot; CR015 &middot; CR022 Pt.1</span>
+        <p>AI-assisted generation drafts test cases per requirement, grounded in its acceptance criteria, saving each batch back to the correct requirement rather than one bundled group.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Editing a shared test case meant editing blind.</h3>
+        <p>Changing or deleting a library test case gave no warning about which live execution runs depended on it.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR018</span>
+        <p>Execution drill-down — the "In N runs" badge opens every execution file using that test case before you touch it.</p>
+      </div>
+    </article>
+
+    <article class="finding is-open">
+      <div class="finding-main">
+        <h3>A test case has no version to roll back to.</h3>
+        <p>Deleting a critical step by accident has no undo — only a record that it happened.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="tag-open">OPEN &middot; Test case versioning</span>
+        <p>Half-solved: the audit trail (CR011) shows who changed what and when, but there is no version snapshot and no one-click rollback.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">03</span>Planning: Resourcing, Risk &amp; Access</h2>
+      <span class="count">3 findings + 1 open</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Nobody could see who was overloaded until a milestone was already slipping.</h3>
+        <p>Resource load was invisible across projects — a tester could be double-booked across two active milestones with no signal to anyone.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR034 &middot; CR036 &middot; CR038</span>
+        <p>A department-wide Resources page with an overallocation flag for anyone spanning two or more active milestones, plus utilization %.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Risks lived in someone's head, not in the system.</h3>
+        <p>"This could slip because of X" got said in a meeting and never written down anywhere QA or PM could revisit later.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR033 &middot; CR037 &middot; CR040</span>
+        <p>A dedicated Risk Register, plus an AI Risk Predictor synthesizing schedule drift, defect trends, and coverage gaps into an on-demand milestone risk read.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Nobody could say for certain who was allowed to do what.</h3>
+        <p>Role permissions existed in code, not anywhere a lead could actually look them up.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR041 &middot; CR043</span>
+        <p>An Access Matrix page with a RACI overlay, viewable without reading the source.</p>
+      </div>
+    </article>
+
+    <article class="finding is-open">
+      <div class="finding-main">
+        <h3>There's no shared home for reusable test data.</h3>
+        <p>Mock datasets get regenerated or copy-pasted per test cycle instead of stored once and reused ahead of a run.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="tag-open">OPEN &middot; Test data management</span>
+        <p>Proposed, not built.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">04</span>Test Execution</h2>
+      <span class="count">3 findings + 1 open</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Two testers on the same execution file didn't know about each other's saves.</h3>
+        <p>A colleague's update to a shared execution file was invisible until you happened to refresh the page.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CORE</span>
+        <p>Every save on an execution file broadcasts a live update to anyone else viewing it — confirmed in <code>test-execution.ts</code> — no polling, no stale screen.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>A pass from last sprint still read as a pass.</h3>
+        <p>A test case last executed weeks ago kept showing green, indistinguishable from one actually verified this sprint.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR017</span>
+        <p>Sprint-scoped result resolution — with a milestone selected, anything not re-run this sprint shows Not Run instead of stale green.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>The spec moved mid-cycle and nobody testing against it was told.</h3>
+        <p>A requirement's description changed after approval — by hand, or by re-pulling an updated Redmine ticket — and test cases already written and executed against the old wording stayed silently unflagged.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR023 Pt.4</span>
+        <p>Revision alerts — any description change, including a Redmine resync, flags every linked test case and task "Alert: Revised" until acknowledged. Verified directly in <code>requirements.ts</code>: both paths run through the same update handler.</p>
+      </div>
+    </article>
+
+    <article class="finding is-open">
+      <div class="finding-main">
+        <h3>Automation results still don't reach QAPulse on their own.</h3>
+        <p>A Playwright or Cypress run has no path into an execution file without someone manually transcribing the result.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="tag-open">OPEN &middot; CR009 &middot; CR010</span>
+        <p>Both a reporter and an in-app "Run Automation" trigger are designed and registered as change requests; neither has shipped.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">05</span>Defect Logging &amp; Tracking</h2>
+      <span class="count">5 findings + 1 open</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Defect numbers were retyped, and sometimes wrong.</h3>
+        <p>A tester copied a Redmine ID by hand into the execution sheet — one transposed digit and the link to the real ticket was broken.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR019</span>
+        <p>Auto defect creation — failing a step creates the Redmine ticket and writes the real ID back automatically.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Duplicate bug reports piled up because nobody checked what already existed.</h3>
+        <p>Two testers hitting the same failure often filed two separate tickets, doubling the tracker's noise.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR019</span>
+        <p>The fail modal runs a duplicate check against the tracker before a new defect is created.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>A tracker outage stopped testing outright.</h3>
+        <p>If Redmine was unreachable, there was no way to log a failure at all — testers waited instead of working.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR019</span>
+        <p>"Never block on Redmine" — a failed step saves locally as pending sync and pushes through once the tracker is back.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>No pattern showed which kind of defect kept recurring.</h3>
+        <p>Bugs were logged as free text — nothing separated a performance regression from a UI slip from a security gap.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR029</span>
+        <p>A fixed ten-category defect taxonomy applies at both creation points, feeding density-by-module reporting.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>A wrong requirement had nowhere to go once approved.</h3>
+        <p>The only outlet for "this requirement is ambiguous or contradictory" was rejecting it during the original review — a door that shut the moment it was approved.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR031</span>
+        <p>Requirement defect workflow — authoring problems now get the same severity, assignee, and tracking as a code defect.</p>
+      </div>
+    </article>
+
+    <article class="finding is-open">
+      <div class="finding-main">
+        <h3>Redmine is the only tracker QAPulse talks to.</h3>
+        <p>A Jira-based team gets none of the auto-defect-creation or sync behavior above — every integration in this report is Redmine-specific.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="tag-open">OPEN &middot; Jira / multi-tracker</span>
+        <p>Proposed, not built. No Jira code exists anywhere in the repository today.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">06</span>Defect Resolution &amp; Rework Loops</h2>
+      <span class="count">4 findings</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>"Fixed" didn't mean retested.</h3>
+        <p>A developer closed a bug; nobody was prompted to confirm the linked test case actually passed afterward.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR019 &middot; CR020</span>
+        <p>Retest-needed flag — a defect marked fixed while its test case is still Failed surfaces under Awaiting Retest automatically.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>"Ready for QA" had no way back.</h3>
+        <p>If a developer marked work ready too early, QA's only recourse was chasing them over chat while every dashboard kept showing "Ready."</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR046 &middot; CR052</span>
+        <p>Return to Dev — QA bounces work back with a reason, and the timeline correctly counts the rework as development time, not testing time.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>A bad requirement, not just a bad build, had no return path.</h3>
+        <p>When dev or QA found the approved requirement itself was wrong, filing a code defect against it didn't fix the source.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR053</span>
+        <p>Return to FA — a dedicated action reopens the requirement for its author to revise, tracked as its own rework cycle.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Review actions arrived late, or not at all.</h3>
+        <p>A rejection or a retest request sat in a generic notification feed, unrouted, on a thirty-second poll.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR027</span>
+        <p>Real-time notification center — nine structured event types push instantly and deep-link straight to the item.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">07</span>Production Escape Analysis</h2>
+      <span class="count">1 finding</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Bugs that escaped to production were patched, not investigated.</h3>
+        <p>An incident got fixed with no record of whether a coverage gap, a skipped test, or a bad pass let it through.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR020</span>
+        <p>Escape analysis — every production defect is classified (coverage gap / selection gap / wrongly passed), with one-click regression test creation and a tracked leakage rate.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="group">
+    <div class="section-head">
+      <h2><span class="stage-num">08</span>Reporting, Sign-off &amp; Compliance</h2>
+      <span class="count">4 findings</span>
+    </div>
+    <hr class="rule" />
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Quality trend required manual detective work.</h3>
+        <p>A QA lead proving "are we improving sprint over sprint" had to stitch together the execution file, the defect tracker, and the traceability matrix by hand — no view answered it directly.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR026</span>
+        <p>QA Analytics Dashboard — execution trend, velocity, pass rate by milestone, defect density and escape funnel, coverage snapshot, all on one page.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>Proving coverage meant building the matrix by hand.</h3>
+        <p>Mapping every requirement to its test cases and defects for a stakeholder sign-off had no supporting tool — it was a spreadsheet exercise every time.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR005 &middot; CR016</span>
+        <p>Traceability Matrix with full requirement-hierarchy rollup, deduped by test case identity, exportable to Excel.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>QA absorbed the blame for delays it didn't cause.</h3>
+        <p>When a milestone slipped, the read was "testing ran long" — with no record of how long requirements sign-off or dev handoff had already taken.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR014 &middot; CR032 &middot; CR052</span>
+        <p>Phase-breakdown timeline — Requirements, Dev, QA, and UAT are timestamped separately, so a slip shows exactly where it sat.</p>
+      </div>
+    </article>
+
+    <article class="finding">
+      <div class="finding-main">
+        <h3>A changed test result left no fingerprints.</h3>
+        <p>Nothing recorded who flipped a Pass to a Fail, or when — an unanswerable question the moment a compliance review asked it.</p>
+      </div>
+      <div class="divider"></div>
+      <div class="finding-fix">
+        <span class="cr-tag">CR011</span>
+        <p>Audit trail — every result change, assignment, and status transition is logged, searchable by entity and date range.</p>
+      </div>
+    </article>
+  </section>
+
+  <footer>
+    <p class="tally">24 pain points resolved &middot; 29 change requests cited &middot; 4 gaps confirmed still open &middot; 0 speculative</p>
+    <p class="sources">Full detail in <code>PROJECT.md</code>, <code>CHANGE_REQUESTS.md</code>, and <code>docs/pmo-pain-points-review.md</code>. Claims cross-checked directly against <code>artifacts/api-server/src/routes/*.ts</code>.</p>
+  </footer>
+
+</div>
