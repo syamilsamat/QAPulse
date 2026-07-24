@@ -337,17 +337,17 @@ export default function QAAnalytics() {
             {data.defectByModule.length === 0 ? (
               <EmptyChart message="No defects recorded" />
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={data.defectByModule} margin={{ top: 8, right: 8, bottom: 40, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="module" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} angle={-35} textAnchor="end" interval={0} />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <ResponsiveContainer width="100%" height={Math.max(220, data.defectByModule.length * 40)}>
+                <BarChart data={data.defectByModule} layout="vertical" margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis type="category" dataKey="module" tickFormatter={(v: string) => truncate(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={120} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="critical" stackId="a" fill="#ef4444" />
-                  <Bar dataKey="high" stackId="a" fill="#f97316" />
-                  <Bar dataKey="medium" stackId="a" fill="#eab308" />
-                  <Bar dataKey="low" stackId="a" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="critical" stackId="a" fill="#ef4444" name="Critical" />
+                  <Bar dataKey="high" stackId="a" fill="#f97316" name="High" />
+                  <Bar dataKey="medium" stackId="a" fill="#eab308" name="Medium" />
+                  <Bar dataKey="low" stackId="a" fill="#22c55e" name="Low" radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
