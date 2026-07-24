@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout, listNotifications } from "@workspace/api-client-react";
@@ -694,6 +694,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [flyout, setFlyout] = useState<{ href: string; top: number } | null>(null);
   const flyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Preserve sidebar scroll position across navigation. SidebarContent is
+  // defined inside Layout, so each navigation re-creates it and React remounts
+  // the <nav>, resetting scrollTop to 0. We remember the last offset and
+  // restore it when the fresh <nav> mounts — the ref callback fires during
+  // commit (before paint), so there's no visible scroll jump.
+  const navScrollTop = useRef(0);
+  const attachNav = useCallback((el: HTMLElement | null) => {
+    if (el) el.scrollTop = navScrollTop.current;
+  }, []);
+  const rememberNavScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
+    navScrollTop.current = e.currentTarget.scrollTop;
+  }, []);
+
   useEffect(() => {
     try { localStorage.setItem("sidebar_collapsed", String(collapsed)); } catch {}
     setFlyout(null);
@@ -781,7 +794,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Nav */}
-        <nav className={`flex-1 ${show ? "px-2" : "px-3"} space-y-1 overflow-y-auto`}>
+        <nav
+          ref={attachNav}
+          onScroll={rememberNavScroll}
+          className={`flex-1 ${show ? "px-2" : "px-3"} space-y-1 overflow-y-auto`}
+        >
           {visibleNavItems.map((item, idx) => {
             const Icon = item.icon;
             const badge = item.showBadge ? unreadCount : 0;
