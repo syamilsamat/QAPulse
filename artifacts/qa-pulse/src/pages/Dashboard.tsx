@@ -22,7 +22,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
 import {
-  Activity, AlertCircle, Clock, LayoutDashboard, TestTube, Search, X,
+  Activity, AlertCircle, Clock, LayoutDashboard, TestTube, Search, X, Check,
   ChevronDown, Users, CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Pencil,
   AlertTriangle
 } from "lucide-react";
@@ -478,24 +478,7 @@ function TeamCalendar({ users }: { users: User[] }) {
             </div>
             <div className="space-y-2">
               <Label>Tag Team Members</Label>
-              <div className="flex flex-wrap gap-2">
-                {users.map((u) => {
-                  const tagged = eventForm.taggedUserIds.includes(u.id);
-                  return (
-                    <button key={u.id} type="button"
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs transition-colors ${
-                        tagged ? "bg-primary/10 border-primary/30 text-primary" : "bg-card border-border text-muted-foreground hover:border-muted-foreground"
-                      }`}
-                      onClick={() => toggleTaggedUser(u.id)}
-                    >
-                      <Avatar className="w-4 h-4">
-                        <AvatarFallback className="text-[8px]">{u.name.substring(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      {u.name.split(" ")[0]}
-                    </button>
-                  );
-                })}
-              </div>
+              <TagMembersPicker users={users} selectedIds={eventForm.taggedUserIds} onToggle={toggleTaggedUser} />
             </div>
           </div>
           <DialogFooter>
@@ -601,24 +584,7 @@ function TeamCalendar({ users }: { users: User[] }) {
                 </div>
                 <div className="space-y-2">
                   <Label>Tag Team Members</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {users.map((u) => {
-                      const tagged = eventForm.taggedUserIds.includes(u.id);
-                      return (
-                        <button key={u.id} type="button"
-                          className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs transition-colors ${
-                            tagged ? "bg-primary/10 border-primary/30 text-primary" : "bg-card border-border text-muted-foreground hover:border-muted-foreground"
-                          }`}
-                          onClick={() => toggleTaggedUser(u.id)}
-                        >
-                          <Avatar className="w-4 h-4">
-                            <AvatarFallback className="text-[8px]">{u.name.substring(0, 2).toUpperCase()}</AvatarFallback>
-                          </Avatar>
-                          {u.name.split(" ")[0]}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <TagMembersPicker users={users} selectedIds={eventForm.taggedUserIds} onToggle={toggleTaggedUser} />
                 </div>
               </div>
               <DialogFooter>
@@ -638,6 +604,110 @@ function TeamCalendar({ users }: { users: User[] }) {
 // ─── MetricCard ───────────────────────────────────────────────────────────────
 
 type HoverItem = { id: number; requirementId?: number | null; name: string; status: string; dueDate?: string | null; isOverdue?: boolean };
+
+// Searchable, paginated member picker for tagging users on a calendar event.
+// Replaces the flat chip grid (which dumped every user at once) with smart
+// search + 5-per-page navigation; selected members stay pinned above the list
+// so they're never lost while searching or paging.
+function TagMembersPicker({
+  users,
+  selectedIds,
+  onToggle,
+}: {
+  users: { id: number; name: string }[];
+  selectedIds: number[];
+  onToggle: (id: number) => void;
+}) {
+  const PER_PAGE = 5;
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? users.filter((u) => u.name.toLowerCase().includes(q)) : users;
+  }, [users, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+  const selected = users.filter((u) => selectedIds.includes(u.id));
+
+  return (
+    <div className="space-y-2">
+      {/* Selected members — always visible regardless of search / page */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => onToggle(u.id)}
+              className="flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs"
+              title="Remove"
+            >
+              <Avatar className="w-4 h-4"><AvatarFallback className="text-[8px]">{u.name.substring(0, 2).toUpperCase()}</AvatarFallback></Avatar>
+              {u.name.split(" ")[0]}
+              <X className="w-3 h-3" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Smart search */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          placeholder="Search members…"
+          className="h-8 pl-8 text-sm"
+        />
+      </div>
+
+      {/* One page of members (5 per page) */}
+      <div className="border rounded-md divide-y">
+        {pageItems.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground">No members found</div>
+        ) : (
+          pageItems.map((u) => {
+            const tagged = selectedIds.includes(u.id);
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => onToggle(u.id)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${tagged ? "bg-primary/5" : "hover:bg-muted/50"}`}
+              >
+                <Avatar className="w-6 h-6"><AvatarFallback className="text-[9px]">{u.name.substring(0, 2).toUpperCase()}</AvatarFallback></Avatar>
+                <span className="flex-1 truncate">{u.name}</span>
+                {tagged
+                  ? <Check className="w-4 h-4 text-primary shrink-0" />
+                  : <span className="w-4 h-4 rounded-full border border-muted-foreground/40 shrink-0" />}
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          {filtered.length} member{filtered.length !== 1 ? "s" : ""}
+          {selected.length > 0 ? ` · ${selected.length} selected` : ""}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button type="button" variant="outline" size="sm" className="h-7 px-2 gap-1" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
+            <ChevronLeft className="w-3.5 h-3.5" /> Back
+          </Button>
+          <span className="px-1 tabular-nums">{safePage}/{totalPages}</span>
+          <Button type="button" variant="outline" size="sm" className="h-7 px-2 gap-1" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>
+            Next <ChevronRight className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function MetricCard({
   title, value, icon, description, alert, hoverItems, hoverLabel = "blocked / overdue task",
