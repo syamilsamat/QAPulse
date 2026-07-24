@@ -154,8 +154,8 @@ export function GlobalSearch() {
               const Icon = TYPE_ICONS[group.type] || FileText;
               return (
                 <CommandItem
-                  key={\`\${item.type}-\${item.id}\`}
-                  value={\`\${item.title} \${item.subtitle}\`}
+                  key={`${item.type}-${item.id}`}
+                  value={`${item.title} ${item.subtitle}`}
                   onSelect={() => handleSelect(item.route)}
                   className="flex items-start gap-3 py-3"
                 >
@@ -164,7 +164,7 @@ export function GlobalSearch() {
                     <div className="flex items-center justify-between">
                       <span className="font-semibold">{item.title}</span>
                       {item.status && (
-                        <Badge variant="secondary" className={\`uppercase text-[10px] tracking-wider font-semibold px-2 py-0.5 \${getStatusColor(item.statusTone)}\`}>
+                        <Badge variant="secondary" className={`uppercase text-[10px] tracking-wider font-semibold px-2 py-0.5 ${getStatusColor(item.statusTone)}`}>
                           {item.status}
                         </Badge>
                       )}
@@ -178,7 +178,7 @@ export function GlobalSearch() {
             {/* Show "N more results" if there are more in the group but we are in "all" view */}
             {activeType === "all" && group.count > group.results.length && (
               <CommandItem
-                value={\`more-\${group.type}\`}
+                value={`more-${group.type}`}
                 onSelect={() => setActiveType(group.type)}
                 className="text-primary text-sm font-medium justify-center py-3"
               >
