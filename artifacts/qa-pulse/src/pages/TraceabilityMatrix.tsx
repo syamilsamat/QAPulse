@@ -444,20 +444,22 @@ export default function TraceabilityMatrix() {
           className={isContextRow ? "bg-muted/30 opacity-70" : "cursor-pointer hover:bg-muted/50"}
           onClick={() => expandable && toggleExpand(req.reqId)}
         >
-          <TableCell>
-            {expandable ? (
-              expanded ? (
-                <ChevronDown className="w-4 h-4 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              )
-            ) : null}
-          </TableCell>
+          <TableCell />
           <TableCell>
             <div className="flex items-center gap-2" style={{ paddingLeft: 24 + depth * 24 }}>
               {depth > 0 && (
                 <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               )}
+              {/* Chevron rides the indent (fixed slot keeps numbers aligned when not expandable) */}
+              <span className="w-4 shrink-0 flex items-center justify-center">
+                {expandable ? (
+                  expanded ? (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  )
+                ) : null}
+              </span>
               <span className="text-xs font-semibold text-foreground/70 tabular-nums shrink-0">
                 {reqOutlineLabel(index)}
               </span>
@@ -473,7 +475,7 @@ export default function TraceabilityMatrix() {
             {req.children.length > 0 && (
               <div
                 className="text-xs text-muted-foreground mt-0.5"
-                style={{ paddingLeft: 24 + depth * 24 + (depth > 0 ? 22 : 0) }}
+                style={{ paddingLeft: 48 + depth * 24 + (depth > 0 ? 22 : 0) }}
               >
                 {req.directTcCount} direct · {rolledFromChildren} rolled up from {req.children.length}{" "}
                 {req.children.length === 1 ? "child" : "children"}
@@ -506,7 +508,7 @@ export default function TraceabilityMatrix() {
             return (
               <TableRow key={tc.key} className="bg-muted/20">
                 <TableCell />
-                <TableCell colSpan={2} style={{ paddingLeft: 48 + depth * 24 }}>
+                <TableCell colSpan={2} style={{ paddingLeft: 72 + depth * 24 + (depth > 0 ? 22 : 0) }}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-foreground/70 shrink-0">
                       {tcOutlineLabel(tcIndex)}
