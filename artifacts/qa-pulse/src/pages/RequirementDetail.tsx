@@ -597,7 +597,7 @@ export default function RequirementDetail() {
   const postClarificationComment = (question: string) =>
     api(`/requirements/${reqId}/comments`, token, {
       method: "POST",
-      body: JSON.stringify({ body: `Clarification needed (AI review): ${question.trim()}` }),
+      body: JSON.stringify({ body: `Clarification needed: ${question.trim()}` }),
     });
 
   // Accept a "Question to Clarify" by posting it into the Discussion thread —
@@ -713,7 +713,7 @@ export default function RequirementDetail() {
   const acNormalized = new Set(ac.map(normalize));
   // Accepted questions land in the Discussion thread as comments; dedup a
   // question row against existing comment bodies (substring match tolerates
-  // the "Clarification needed (AI review): " prefix we post them with).
+  // the "Clarification needed: " prefix we post them with).
   const commentBodiesNormalized = comments.map((c: any) => normalize(c.body ?? ""));
   const questionAlreadyAsked = (q: string) =>
     commentBodiesNormalized.some((b) => b.includes(normalize(q)));
