@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
@@ -86,7 +86,7 @@ export function GlobalSearch() {
     queryKey: ["global-search", debouncedQuery, activeType],
     queryFn: () => fetchSearch(token, debouncedQuery, activeType),
     enabled: !!token && debouncedQuery.length >= 2,
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 
   const handleSelect = (route: string) => {
@@ -104,7 +104,7 @@ export function GlobalSearch() {
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
+    <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
       <CommandInput 
         placeholder="Type a command or search..." 
         value={query} 
