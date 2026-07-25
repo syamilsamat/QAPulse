@@ -299,14 +299,22 @@ router.get("/search", async (req, res) => {
       const condition = accessCond ? and(accessCond, textMatch) : textMatch;
       const rank = sql<number>`CASE WHEN ${documentRegisterTable.refNo} ILIKE ${q} THEN 5 WHEN ${documentRegisterTable.refNo} ILIKE ${q + '%'} THEN 4 WHEN ${documentRegisterTable.refNo} ILIKE ${qLike} THEN 3 ELSE 1 END`;
       
-      const results = await db.select({ id: documentRegisterTable.id, title: sql<string>`${documentRegisterTable.refNo} - ${documentRegisterTable.projectName}`, createdAt: documentRegisterTable.createdAt, projectId: null, rank })
+      const results = await db.select({ id: documentRegisterTable.id, title: sql<string>`${documentRegisterTable.refNo} - ${documentRegisterTable.projectName}`, createdAt: documentRegisterTable.createdAt, rank })
         .from(documentRegisterTable).where(condition).orderBy(desc(rank), desc(documentRegisterTable.createdAt)).limit(100);
       
       return results.map(r => ({ ...r, type: 'document_register', label: 'Document Register' }));
     })());
   }
 
-  const allResultGroups = await Promise.all(searches);
+  // Resilient: a single entity's query failing must not blank the whole
+  // search — keep every group that succeeded and log the ones that didn't.
+  const settled = await Promise.allSettled(searches);
+  const allResultGroups = settled
+    .filter((s): s is PromiseFulfilledResult<any[]> => s.status === "fulfilled")
+    .map((s) => s.value);
+  for (const s of settled) {
+    if (s.status === "rejected") console.error("[search] entity query failed:", s.reason);
+  }
   
   const getStatusTone = (status: string | undefined | null) => {
     if (!status) return 'neutral';
@@ -348,7 +356,7 @@ router.get("/search", async (req, res) => {
         case 'task': route = `/tasks?highlight=${r.requirementId}`; break;
         case 'defect': route = `/defects?highlight=${r.id}`; break;
         case 'milestone': route = `/milestones?highlight=${r.id}`; break;
-        case 'risk': route = `/risk-register?highlight=${r.id}`; break;
+        case 'risk': route = `/risk-register?projectId=${r.projectId}&highlight=${r.id}`; break;
         case 'uat_signoff': route = `/uat-signoffs?highlight=${r.id}`; break;
         case 'project': route = `/configurations?tab=projects&highlight=${r.id}`; break;
         case 'module': route = `/configurations?tab=projects&highlight=${r.id}`; break;
