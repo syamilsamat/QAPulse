@@ -311,10 +311,20 @@ export default function Teams() {
                 </TableCell>
                 <TableCell>
                   {team.members.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">—</span>
+                    <Button 
+                      variant="link" 
+                      className="p-0 h-auto text-xs text-muted-foreground hover:text-primary"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await loadTeamDetail(team);
+                        setAddMemberOpen(true);
+                      }}
+                    >
+                      Add members
+                    </Button>
                   ) : (
                     <div className="flex flex-wrap gap-1 py-1">
-                      {team.members.map((m) => (
+                      {[...team.members].sort((a, b) => (a.teamRole === "lead" ? -1 : b.teamRole === "lead" ? 1 : 0)).map((m) => (
                         <span
                           key={m.id}
                           className={cn(
@@ -414,7 +424,7 @@ export default function Teams() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {detailTeam?.members.map((m) => (
+                    {[...(detailTeam?.members || [])].sort((a, b) => (a.teamRole === "lead" ? -1 : b.teamRole === "lead" ? 1 : 0)).map((m) => (
                       <TableRow key={m.id}>
                         <TableCell>{m.name}</TableCell>
                         <TableCell><Badge variant="secondary">{formatRoleLabel(m.role)}</Badge></TableCell>
