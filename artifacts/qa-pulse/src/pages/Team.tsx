@@ -666,12 +666,12 @@ export default function Team() {
             </div>
           )}
 
-          <DialogFooter className="flex-col gap-2 sm:flex-col">
+          <DialogFooter className={`sm:space-x-0 gap-3 mt-4 ${editingUser ? "sm:justify-between" : "sm:justify-end"}`}>
             {editingUser && (
-              <div className="flex gap-2 w-full">
+              <div className="flex gap-2 w-full sm:w-auto order-last sm:order-first">
                 <Button
                   variant={editingUser.isActive === false ? "default" : "outline"}
-                  className={`flex-1 ${editingUser.isActive === false ? "bg-green-600 hover:bg-green-700 text-white" : "text-orange-600 border-orange-300 hover:bg-orange-50"}`}
+                  className={`flex-1 sm:flex-none ${editingUser.isActive === false ? "bg-green-600 hover:bg-green-700 text-white" : "text-orange-600 border-orange-300 hover:bg-orange-50"}`}
                   disabled={toggleActiveMutation.isPending}
                   onClick={() => toggleActiveMutation.mutate({ id: editingUser.id, isActive: editingUser.isActive === false })}
                 >
@@ -679,7 +679,7 @@ export default function Team() {
                 </Button>
                 <Button
                   variant="destructive"
-                  className="flex-1"
+                  className="flex-1 sm:flex-none"
                   disabled={deleteMutation.isPending}
                   onClick={() => { setDeletingUser(editingUser); setDeleteConfirmOpen(true); }}
                 >
@@ -687,11 +687,12 @@ export default function Team() {
                 </Button>
               </div>
             )}
-            <div className="flex gap-2 w-full justify-end">
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <div className="flex gap-2 w-full sm:w-auto justify-end">
+              <Button variant="outline" onClick={() => setDialogOpen(false)} className="flex-1 sm:flex-none">
                 Cancel
               </Button>
               <Button
+                className="flex-1 sm:flex-none"
                 onClick={handleSubmit}
                 disabled={
                   !form.name ||

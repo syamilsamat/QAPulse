@@ -696,24 +696,36 @@ export default function Defects() {
               {expanded.has(d.id) && (
                 <div className="bg-muted/20 px-4 py-3 space-y-3">
                   {/* Status edit — write-through to Redmine */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Status:</span>
-                    <Select
-                      value={String(statuses.find((s) => s.name.toLowerCase() === d.status.toLowerCase())?.redmineId ?? "")}
-                      onValueChange={(v) => handleStatusChange(d, Number(v))}
-                    >
-                      <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
-                        <SelectValue placeholder={d.status} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statuses.map((s) => (
-                          <SelectItem key={s.redmineId} value={String(s.redmineId)}>{s.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="text-[10px] text-muted-foreground">
-                      {d.redmineId ? `saving pushes the change to Redmine #${d.redmineId}` : "local only until synced to Redmine"}
-                    </span>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-muted-foreground">Status:</span>
+                      <Select
+                        value={String(statuses.find((s) => s.name.toLowerCase() === d.status.toLowerCase())?.redmineId ?? "")}
+                        onValueChange={(v) => handleStatusChange(d, Number(v))}
+                      >
+                        <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                          <SelectValue placeholder={d.status} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {statuses.map((s) => (
+                            <SelectItem key={s.redmineId} value={String(s.redmineId)}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-[10px] text-muted-foreground">
+                        {d.redmineId ? `saving pushes the change to Redmine #${d.redmineId}` : "local only until synced to Redmine"}
+                      </span>
+                    </div>
+                    {canLinkTc && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs gap-1 border"
+                        onClick={(e) => { e.stopPropagation(); setLinkingDefect(d); }}
+                      >
+                        <Link2 className="w-3 h-3" /> Link Test Case
+                      </Button>
+                    )}
                   </div>
 
                   {/* Dev assignment — Lead-tier+ only (CR030), plus a CR031 self-handoff
@@ -749,19 +761,7 @@ export default function Defects() {
                   })()}
 
                   {/* Linked TCs */}
-                  <div className="flex items-center justify-between gap-2">
-                    {d.links.length === 0 && <p className="text-xs text-muted-foreground">No linked test cases.</p>}
-                    {canLinkTc && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs gap-1 ml-auto"
-                        onClick={(e) => { e.stopPropagation(); setLinkingDefect(d); }}
-                      >
-                        <Link2 className="w-3 h-3" /> Link Test Case
-                      </Button>
-                    )}
-                  </div>
+                  {d.links.length === 0 && <p className="text-xs text-muted-foreground">No linked test cases.</p>}
                   {d.links.length > 0 && (
                     <div className="space-y-1">
                       {d.links.map((l) => (

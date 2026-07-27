@@ -43,6 +43,21 @@ function api(path: string, token: string | null) {
   });
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  qa_member: "QA Member",
+  qa_lead: "QA Lead",
+  admin: "Admin",
+  pm_member: "PM Member",
+  dev_member: "Dev Member",
+  dev_lead: "Dev Lead",
+  fa_member: "FA Member",
+  fa_lead: "FA Lead",
+};
+
+function formatRoleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 const DEPT_LABEL: Record<string, string> = { qa: "QA", fa: "FA", dev: "Dev", pm: "PM" };
 const DEPT_CLASS: Record<string, string> = {
   qa: "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-950/60 dark:text-teal-400 dark:border-teal-900",
@@ -88,7 +103,7 @@ function PersonRow({ r }: { r: ResourceRow }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium">{r.name}</span>
             <DeptBadge department={r.department} />
-            <span className="text-xs text-muted-foreground">{r.role} &middot; {projectSummary(r.projects)}</span>
+            <span className="text-xs text-muted-foreground">{formatRoleLabel(r.role)} &middot; {projectSummary(r.projects)}</span>
             {overallocated && (
               <Badge variant="outline" className="text-[10px] font-semibold bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-900">
                 Overallocated &middot; {r.activeMilestones.length} milestones

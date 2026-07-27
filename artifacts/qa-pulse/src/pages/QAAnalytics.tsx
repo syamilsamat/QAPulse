@@ -54,6 +54,15 @@ function truncate(s: string, max = 18) {
   return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
 }
 
+function TruncatedTick({ x, y, payload }: any) {
+  return (
+    <text x={x} y={y} dy="0.35em" textAnchor="end" fill="hsl(var(--muted-foreground))" fontSize={11}>
+      <title>{payload.value}</title>
+      {truncate(payload.value)}
+    </text>
+  );
+}
+
 // ── Panel components ──────────────────────────────────────────────────────────
 
 function Panel({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
@@ -322,7 +331,7 @@ export default function QAAnalytics() {
                 <BarChart data={data.passByMilestone} layout="vertical" margin={{ top: 8, right: 44, bottom: 0, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                   <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis type="category" dataKey="milestoneName" tickFormatter={(v: string) => truncate(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={130} />
+                  <YAxis type="category" dataKey="milestoneName" tick={<TruncatedTick />} width={130} />
                   <Tooltip formatter={(v) => [`${v}%`, "Pass rate"]} />
                   <Bar dataKey="pct" fill="#22c55e" radius={[0, 3, 3, 0]}
                     label={{ position: "right", formatter: (v: number) => v > 0 ? `${v}%` : "", fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
@@ -341,7 +350,7 @@ export default function QAAnalytics() {
                 <BarChart data={data.defectByModule} layout="vertical" margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis type="category" dataKey="module" tickFormatter={(v: string) => truncate(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={120} />
+                  <YAxis type="category" dataKey="module" tick={<TruncatedTick />} width={120} />
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="critical" stackId="a" fill="#ef4444" name="Critical" />
@@ -381,7 +390,7 @@ export default function QAAnalytics() {
                 <BarChart data={data.escapeFunnel} layout="vertical" margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis type="category" dataKey="milestoneName" tickFormatter={(v: string) => truncate(v)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={130} />
+                  <YAxis type="category" dataKey="milestoneName" tick={<TruncatedTick />} width={130} />
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="sit" stackId="a" fill="#6366f1" name="SIT" />
