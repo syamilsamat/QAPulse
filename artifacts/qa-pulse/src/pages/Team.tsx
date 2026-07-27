@@ -247,8 +247,12 @@ export default function Team() {
     if (editingUser) {
       updateMutation.mutate({ id: editingUser.id, data: form as any });
     } else {
+      if (!form.password || form.password.length < 8) {
+        toast({ variant: "destructive", title: "Password must be at least 8 characters" });
+        return;
+      }
       createMutation.mutate({
-        data: { ...form, password: "password123" } as UserInput,
+        data: form as UserInput,
       });
     }
   };
@@ -569,6 +573,28 @@ export default function Team() {
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
             </div>
+            {!editingUser && (
+              <div className="space-y-1.5">
+                <Label>Initial Password *</Label>
+                <div className="relative">
+                  <Input
+                    type={showNewPassword ? "text" : "password"}
+                    placeholder="Min. 8 characters"
+                    value={form.password ?? ""}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowNewPassword(v => !v)}
+                    tabIndex={-1}
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Role</Label>
@@ -697,6 +723,7 @@ export default function Team() {
                 disabled={
                   !form.name ||
                   !form.email ||
+                  (!editingUser && (!form.password || form.password.length < 8)) ||
                   createMutation.isPending ||
                   updateMutation.isPending
                 }

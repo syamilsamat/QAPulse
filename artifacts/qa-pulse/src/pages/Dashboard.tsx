@@ -51,7 +51,18 @@ const ROLE_LABELS: Record<string, string> = {
   qa_member: "QA Member",
   qa_lead: "QA Lead",
   admin: "Admin",
+  pm_member: "PM Member",
+  pm_lead: "PM Lead",
+  dev_member: "Dev Member",
+  dev_lead: "Dev Lead",
+  fa_member: "FA Member",
+  fa_lead: "FA Lead",
+  cto: "CTO",
 };
+
+function formatRoleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 const EVENT_TYPE_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   uat:      { bg: "bg-indigo-100",  text: "text-indigo-700",  border: "border-indigo-200",  dot: "bg-indigo-500" },
@@ -175,7 +186,7 @@ function MemberPicker({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{u.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {ROLE_LABELS[u.role] ?? u.role}{u.team ? ` · ${u.team}` : ""}
+                      {formatRoleLabel(u.role)}{u.team ? ` · ${u.team}` : ""}
                     </p>
                   </div>
                   {selected?.id === u.id && <div className="w-2 h-2 rounded-full bg-primary shrink-0" />}
