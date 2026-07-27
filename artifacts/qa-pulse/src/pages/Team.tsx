@@ -545,7 +545,7 @@ export default function Team() {
       </Sheet>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setNewPassword(""); setConfirmPassword(""); setResetPasswordOpen(false); } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {editingUser ? "Edit Member" : "Add Team Member"}
@@ -683,7 +683,7 @@ export default function Team() {
                   disabled={deleteMutation.isPending}
                   onClick={() => { setDeletingUser(editingUser); setDeleteConfirmOpen(true); }}
                 >
-                  Delete Member
+                  Delete
                 </Button>
               </div>
             )}
