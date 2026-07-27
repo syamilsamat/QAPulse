@@ -357,7 +357,7 @@ export default function Teams() {
                       Add members
                     </Button>
                   ) : (
-                    <div className="flex flex-wrap gap-1 py-1">
+                    <div className="flex flex-wrap items-center gap-1 py-1">
                       {[...team.members].sort((a, b) => (a.teamRole === "lead" ? -1 : b.teamRole === "lead" ? 1 : 0)).map((m) => (
                         <span
                           key={m.id}
@@ -372,6 +372,18 @@ export default function Teams() {
                           {m.teamRole === "lead" && <span className="ml-1 opacity-60">★</span>}
                         </span>
                       ))}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground ml-1"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await loadTeamDetail(team);
+                          setAddMemberOpen(true);
+                        }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
                     </div>
                   )}
                 </TableCell>
