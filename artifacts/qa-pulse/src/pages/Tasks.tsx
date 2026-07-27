@@ -19,7 +19,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
 // CR060 — Tasks is now a read-only, auto-populated rollup of requirements
 // within their milestones (no manual creation). One row per requirement that
@@ -506,27 +506,76 @@ function AssignPopover({
 // department-scoped `rows` — pm/admin (seesEverything) skip this entirely,
 // since "everyone's workload at once" isn't a single department's view.
 function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; members: Member[]; department: string | null }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 5;
+
+  const counts = useMemo(() => {
+    return members.map((m) => ({
+      ...m,
+      openCount: rows.filter((r) => r.assignee === m.name && r.progress < 100).length,
+    }));
+  }, [members, rows]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? counts.filter((m) => m.name.toLowerCase().includes(q)) : counts;
+  }, [counts, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
   if (!department || members.length === 0) return null;
-  const counts = members.map((m) => ({
-    ...m,
-    openCount: rows.filter((r) => r.assignee === m.name && r.progress < 100).length,
-  }));
+
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Users className="w-4 h-4" /> Team Workload
         </CardTitle>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search team member..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {counts.map((m) => (
-            <div key={m.id} className="border rounded-md p-3 text-sm">
-              <p className="font-medium truncate">{m.name}</p>
-              <p className="text-muted-foreground text-xs mt-1">{m.openCount} open</p>
+        {pageItems.length === 0 ? (
+          <div className="text-center py-6 text-sm text-muted-foreground border rounded-md border-dashed">
+            No members found
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {pageItems.map((m) => (
+              <div key={m.id} className="border rounded-md p-3 text-sm">
+                <p className="font-medium truncate" title={m.name}>{m.name}</p>
+                <p className="text-muted-foreground text-xs mt-1">{m.openCount} open</p>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {filtered.length > PER_PAGE && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground mt-4 pt-4 border-t">
+            <span>
+              {filtered.length} member{filtered.length !== 1 ? "s" : ""}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="outline" size="sm" className="h-7 px-2 gap-1" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
+                <ChevronLeft className="w-3.5 h-3.5" /> Back
+              </Button>
+              <span className="px-2 tabular-nums font-medium">{safePage}/{totalPages}</span>
+              <Button type="button" variant="outline" size="sm" className="h-7 px-2 gap-1" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>
+                Next <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
