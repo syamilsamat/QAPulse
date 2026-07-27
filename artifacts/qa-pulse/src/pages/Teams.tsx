@@ -6,6 +6,7 @@ import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocation } from "wouter";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -132,6 +133,7 @@ export default function Teams() {
 
   const [form, setForm] = useState({ name: "", department: "" });
   const [memberForm, setMemberForm] = useState({ userIds: [] as number[], role: "member" });
+  const [loc, setLocation] = useLocation();
 
   const { data: teams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["teams"],
@@ -223,6 +225,7 @@ export default function Teams() {
       setMemberPickerOpen(false);
       setMemberForm({ userIds: [], role: "member" });
       if (detailTeam) await loadTeamDetail(detailTeam);
+      qc.invalidateQueries({ queryKey: ["teams"] });
       const count = memberForm.userIds.length;
       toast({ title: count === 1 ? "Member added" : `${count} members added` });
     },
@@ -239,6 +242,7 @@ export default function Teams() {
     },
     onSuccess: async () => {
       if (detailTeam) await loadTeamDetail(detailTeam);
+      qc.invalidateQueries({ queryKey: ["teams"] });
       toast({ title: "Member removed" });
     },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
@@ -329,7 +333,16 @@ export default function Teams() {
                 </TableCell>
                 <TableCell>
                   {team.projects.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">—</span>
+                    <Button 
+                      variant="link" 
+                      className="p-0 h-auto text-xs text-muted-foreground hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLocation("?tab=project-access");
+                      }}
+                    >
+                      Assign members to project
+                    </Button>
                   ) : (
                     <div className="flex flex-wrap gap-1 py-1">
                       {team.projects.map((p) => (
