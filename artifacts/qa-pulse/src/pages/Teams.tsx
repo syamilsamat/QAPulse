@@ -89,6 +89,27 @@ function deptLabel(d: string) {
   return DEPARTMENTS.find((x) => x.value === d)?.label ?? d.toUpperCase();
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  qa_member: "QA Member",
+  qa_lead: "QA Lead",
+  admin: "Admin",
+  pm_member: "PM Member",
+  pm_lead: "PM Lead",
+  dev_member: "Dev Member",
+  dev_lead: "Dev Lead",
+  fa_member: "FA Member",
+  fa_lead: "FA Lead",
+  cto: "CTO",
+  hod_qa: "HOD QA",
+  hod_pm: "HOD PM",
+  hod_fa: "HOD FA",
+  hod_dev: "HOD Dev",
+};
+
+function formatRoleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function api(path: string) {
   return `${getApiUrl()}${path}`;
 }
@@ -369,7 +390,7 @@ export default function Teams() {
                     {detailTeam?.members.map((m) => (
                       <TableRow key={m.id}>
                         <TableCell>{m.name}</TableCell>
-                        <TableCell><Badge variant="secondary">{m.role}</Badge></TableCell>
+                        <TableCell><Badge variant="secondary">{formatRoleLabel(m.role)}</Badge></TableCell>
                         <TableCell>
                           <Badge variant={m.teamRole === "lead" ? "default" : "outline"}>
                             {m.teamRole}
@@ -452,7 +473,7 @@ export default function Teams() {
                           return (
                             <CommandItem
                               key={u.id}
-                              value={`${u.name} ${u.role}`}
+                              value={`${u.name} ${formatRoleLabel(u.role)}`}
                               onSelect={() => {
                                 setMemberForm((f) => ({
                                   ...f,
@@ -464,7 +485,7 @@ export default function Teams() {
                             >
                               <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
                               <span>{u.name}</span>
-                              <Badge variant="outline" className="ml-auto text-xs">{u.role}</Badge>
+                              <Badge variant="outline" className="ml-auto text-xs">{formatRoleLabel(u.role)}</Badge>
                             </CommandItem>
                           );
                         })}
