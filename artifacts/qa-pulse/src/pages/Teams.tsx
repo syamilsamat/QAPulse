@@ -244,9 +244,23 @@ export default function Teams() {
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
 
-  const availableUsers = allUsers.filter(
-    (u) => !detailTeam?.members.find((m) => m.id === u.id)
-  );
+  const availableUsers = allUsers.filter((u) => {
+    // Already in team
+    if (detailTeam?.members.find((m) => m.id === u.id)) return false;
+    if (!detailTeam) return true;
+
+    const role = u.role;
+    // Admins and CTOs can be added anywhere
+    if (role === "admin" || role === "cto") return true;
+
+    const dept = detailTeam.department;
+    if (dept === "qa" && !["qa_member", "qa_lead", "hod_qa"].includes(role)) return false;
+    if (dept === "pm" && !["pm_member", "pm_lead", "hod_pm"].includes(role)) return false;
+    if (dept === "dev" && !["dev_member", "dev_lead", "hod_dev"].includes(role)) return false;
+    if (dept === "fa" && !["fa_member", "fa_lead", "hod_fa"].includes(role)) return false;
+
+    return true;
+  });
 
   return (
     <div className="space-y-6">
