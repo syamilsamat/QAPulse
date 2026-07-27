@@ -361,8 +361,16 @@ export default function Requirements() {
     setSelectedReqs([]);
   }, [search, filterPriority, filterProject, filterModule, filterMilestone, sortBy]);
 
-  const createMutation = useCreateRequirement();
-  const updateMutation = useUpdateRequirement();
+  const createMutation = useCreateRequirement({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() }),
+    },
+  });
+  const updateMutation = useUpdateRequirement({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() }),
+    },
+  });
 
   const deleteMutation = useDeleteRequirement({
     mutation: {
@@ -817,6 +825,7 @@ export default function Requirements() {
     setRedmineLoading(true);
     try {
       await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone));
+      queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       toast({ title: "Import Successful", description: "Successfully imported ticket and subtasks." });
       setRedmineDialogOpen(false);
       setRedmineInput("");
@@ -849,6 +858,7 @@ export default function Requirements() {
 
     try {
       await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, req.parentId, req.tracker || undefined, undefined, true);
+      queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
     } catch (err: any) {
       const msg: string = err?.message ?? "";
