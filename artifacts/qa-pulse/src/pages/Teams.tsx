@@ -4,7 +4,6 @@ import { Users, Plus, Pencil, Trash2, UserPlus, UserMinus, ChevronsUpDown, Check
 import { useToast } from "@/hooks/use-toast";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { fetchProjects, type ExecutionProject } from "@/lib/execution-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
@@ -132,15 +131,9 @@ export default function Teams() {
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
 
-  const [form, setForm] = useState({ name: "", department: "", projectIds: [] as number[] });
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", department: "" });
   const [memberForm, setMemberForm] = useState({ userIds: [] as number[], role: "member" });
   const [loc, setLocation] = useLocation();
-
-  const { data: allProjects = [] } = useQuery<ExecutionProject[]>({
-    queryKey: ["projects"],
-    queryFn: fetchProjects,
-  });
 
   const { data: teams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["teams"],
@@ -166,7 +159,7 @@ export default function Teams() {
   }
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; department: string; projectIds: number[] }) => {
+    mutationFn: async (data: { name: string; department: string }) => {
       const r = await fetch(api("/teams"), {
         method: "POST",
         headers: authHeaders(token),
@@ -177,18 +170,18 @@ export default function Teams() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["teams"] });
       setCreateOpen(false);
-      setForm({ name: "", department: "", projectIds: [] });
+      setForm({ name: "", department: "" });
       toast({ title: "Team created" });
     },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
 
   const editMutation = useMutation({
-    mutationFn: async (data: { id: number; name: string; department: string; projectIds: number[] }) => {
+    mutationFn: async (data: { id: number; name: string; department: string }) => {
       const r = await fetch(api(`/teams/${data.id}`), {
         method: "PATCH",
         headers: authHeaders(token),
-        body: JSON.stringify({ name: data.name, department: data.department, projectIds: data.projectIds }),
+        body: JSON.stringify({ name: data.name, department: data.department }),
       });
       if (!r.ok) throw new Error((await r.json()).error ?? "Failed to update team");
     },
@@ -281,7 +274,7 @@ export default function Teams() {
           <h2 className="text-lg font-medium">Teams</h2>
           <span className="text-sm text-muted-foreground">— assign users to projects by team</span>
         </div>
-        <Button onClick={() => { setForm({ name: "", department: "", projectIds: [] }); setCreateOpen(true); }}>
+        <Button onClick={() => { setForm({ name: "", department: "" }); setCreateOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" /> New Team
         </Button>
       </div>
@@ -378,7 +371,7 @@ export default function Teams() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => { setForm({ name: team.name, department: team.department, projectIds: team.projects.map(p => p.id) }); setEditTeam(team); }}
+                      onClick={() => { setForm({ name: team.name, department: team.department }); setEditTeam(team); }}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -592,78 +585,6 @@ export default function Teams() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Projects (Optional)</Label>
-              <Popover open={projectPickerOpen} onOpenChange={setProjectPickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    className="w-full justify-between min-h-10 h-auto"
-                  >
-                    <span className="flex flex-wrap gap-1 py-0.5">
-                      {form.projectIds.length === 0 ? (
-                        <span className="text-muted-foreground font-normal">Select projects…</span>
-                      ) : (
-                        form.projectIds.map((pid) => {
-                          const p = allProjects.find((x) => x.id === pid);
-                          return (
-                            <span
-                              key={pid}
-                              className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
-                            >
-                              {p?.name ?? pid}
-                              <span
-                                role="button"
-                                aria-label="Remove"
-                                className="hover:text-destructive cursor-pointer"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setForm((f) => ({ ...f, projectIds: f.projectIds.filter((id) => id !== pid) }));
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </span>
-                            </span>
-                          );
-                        })
-                      )}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search projects…" />
-                    <CommandList>
-                      <CommandEmpty>No projects found.</CommandEmpty>
-                      <CommandGroup>
-                        {allProjects.map((p) => {
-                          const selected = form.projectIds.includes(p.id);
-                          return (
-                            <CommandItem
-                              key={p.id}
-                              value={p.name}
-                              onSelect={() => {
-                                setForm((f) => ({
-                                  ...f,
-                                  projectIds: selected
-                                    ? f.projectIds.filter((id) => id !== p.id)
-                                    : [...f.projectIds, p.id],
-                                }));
-                              }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
-                              <span>{p.name}</span>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateOpen(false); setEditTeam(null); }}>Cancel</Button>
@@ -671,9 +592,9 @@ export default function Teams() {
               disabled={!form.name || !form.department || createMutation.isPending || editMutation.isPending}
               onClick={() => {
                 if (editTeam) {
-                  editMutation.mutate({ id: editTeam.id, name: form.name, department: form.department, projectIds: form.projectIds });
+                  editMutation.mutate({ id: editTeam.id, name: form.name, department: form.department });
                 } else {
-                  createMutation.mutate({ name: form.name, department: form.department, projectIds: form.projectIds });
+                  createMutation.mutate({ name: form.name, department: form.department });
                 }
               }}
             >
