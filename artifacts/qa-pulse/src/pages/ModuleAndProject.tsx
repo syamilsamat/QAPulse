@@ -1632,6 +1632,23 @@ interface ProjectMemberRow {
   assignedAt: string | null;
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  qa_member: "QA Member",
+  qa_lead: "QA Lead",
+  admin: "Admin",
+  pm_member: "PM Member",
+  pm_lead: "PM Lead",
+  dev_member: "Dev Member",
+  dev_lead: "Dev Lead",
+  fa_member: "FA Member",
+  fa_lead: "FA Lead",
+  cto: "CTO",
+};
+
+function formatRoleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // CR044 — multi-select module scope picker. Empty selection = whole project.
 function ModuleScopeSelect({ modules, selected, onChange }: {
   modules: ExecutionModule[];
@@ -1856,10 +1873,10 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-medium">{m.name}</span>
-                          <span className="text-xs text-muted-foreground">{m.role}</span>
+                          <span className="text-xs text-muted-foreground">{formatRoleLabel(m.role)}</span>
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          {m.assignedByName ? `assigned by ${m.assignedByName}` : "assigned"}
+                          {m.assignedByName ? `Assigned by ${m.assignedByName}` : "Assigned"}
                           {m.assignedAt ? ` · ${new Date(m.assignedAt).toLocaleDateString()}` : ""}
                         </p>
                       </div>
@@ -1893,7 +1910,7 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
               <SearchableSelect
                 value={assignUserId}
                 onValueChange={setAssignUserId}
-                options={assignableUsers.map(u => ({ value: String(u.id), label: `${u.name} — ${u.role}` }))}
+                options={assignableUsers.map(u => ({ value: String(u.id), label: `${u.name} — ${formatRoleLabel(u.role)}` }))}
                 placeholder="Select a person"
                 searchPlaceholder="Search people…"
                 className="w-64"
