@@ -131,6 +131,7 @@ export default function Teams() {
   const [detailTeam, setDetailTeam] = useState<TeamDetail | null>(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<{ userId: number; role: string; name: string } | null>(null);
 
   const [form, setForm] = useState({ name: "", department: "", projectIds: [] as number[], originalProjectIds: [] as number[] });
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -282,6 +283,24 @@ export default function Teams() {
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
 
+  const updateMemberRoleMutation = useMutation({
+    mutationFn: async (data: { teamId: number; userId: number; role: string }) => {
+      const r = await fetch(api(`/teams/${data.teamId}/members`), {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({ userId: data.userId, role: data.role }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to update member role");
+    },
+    onSuccess: async () => {
+      if (detailTeam) await loadTeamDetail(detailTeam);
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      setEditingMember(null);
+      toast({ title: "Member role updated" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
   const availableUsers = allUsers.filter((u) => {
     // Already in team
     if (detailTeam?.members.find((m) => m.id === u.id)) return false;
@@ -351,7 +370,6 @@ export default function Teams() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         await loadTeamDetail(team);
-                        setAddMemberOpen(true);
                       }}
                     >
                       Add members
@@ -379,7 +397,6 @@ export default function Teams() {
                         onClick={async (e) => {
                           e.stopPropagation();
                           await loadTeamDetail(team);
-                          setAddMemberOpen(true);
                         }}
                       >
                         <Plus className="h-3 w-3" />
@@ -484,6 +501,13 @@ export default function Teams() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setEditingMember({ userId: m.id, role: m.teamRole, name: m.name })}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                           <Button
                             size="icon"
                             variant="ghost"
@@ -604,6 +628,45 @@ export default function Teams() {
               })}
             >
               Add {memberForm.userIds.length > 0 ? `(${memberForm.userIds.length})` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Member Role Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={!!editingMember} onOpenChange={(o) => { if (!o) setEditingMember(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Role for {editingMember?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Team Role</Label>
+              <Select 
+                value={editingMember?.role} 
+                onValueChange={(v) => setEditingMember((prev) => prev ? { ...prev, role: v } : null)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="lead">Lead</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingMember(null)}>Cancel</Button>
+            <Button
+              disabled={updateMemberRoleMutation.isPending}
+              onClick={() => {
+                if (editingMember && detailTeam) {
+                  updateMemberRoleMutation.mutate({
+                    teamId: detailTeam.id,
+                    userId: editingMember.userId,
+                    role: editingMember.role,
+                  });
+                }
+              }}
+            >
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
