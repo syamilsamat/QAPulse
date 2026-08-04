@@ -1675,17 +1675,19 @@ export default function TestCases() {
                       <button className="hover:underline text-left flex-1 truncate pr-2" onClick={() => openEdit(t)}>
                         {t.title}
                       </button>
-                      <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(t.id, "approve")}>
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
-                          const comment = prompt("Reason for rejection:");
-                          if (comment !== null) handleReviewAction(t.id, "reject", comment);
-                        }}>
-                          <XCircleIcon className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
+                      {t.authorId !== user?.id && (
+                        <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(t.id, "approve")}>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
+                            const comment = prompt("Reason for rejection:");
+                            if (comment !== null) handleReviewAction(t.id, "reject", comment);
+                          }}>
+                            <XCircleIcon className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      )}
                       {t.stale && <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0 ml-2" aria-label="Stale — waiting 3+ days" />}
                     </div>
                   ))}
