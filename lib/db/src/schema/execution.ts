@@ -22,6 +22,12 @@ export const executionFilesTable = pgTable("execution_files", {
   // CR014p2 / CR022p3 — milestone linkage and file type
   milestoneId: integer("milestone_id"),
   fileType: text("file_type").notNull().default("qa"), // 'qa' | 'uat'
+  reviewStatus: text("review_status").notNull().default("draft"), // 'draft' | 'in_review' | 'approved' | 'rejected'
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectedBy: integer("rejected_by"),
+  rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+  rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

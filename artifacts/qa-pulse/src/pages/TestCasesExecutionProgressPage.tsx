@@ -612,7 +612,7 @@ const DesktopTableRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = !isQaMember || isAssignedToMe;
+    const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
 
     if (row.rowType === "group") {
       return (
@@ -937,7 +937,7 @@ const MobileCardRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = !isQaMember || isAssignedToMe;
+    const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
 
     return (
       <Card
@@ -1240,6 +1240,7 @@ export default function TestCasesExecutionProgressPage() {
   const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
   const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
   const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
+  const [currentFileReviewStatus, setCurrentFileReviewStatus] = useState<string | null>(null);
   // CR075 — rolled-up phase timeline (planned dates from the milestone,
   // actual dates rolled up across every requirement this file's test cases
   // link to). Collapsed by default, same convention as RequirementDetail's
@@ -1442,6 +1443,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileProjectId(file?.projectId ?? null);
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
+        setCurrentFileReviewStatus(file?.reviewStatus ?? null);
         setCurrentFilePhaseTimeline(file?.phaseTimeline ?? null);
         setCurrentFileLinkedReqCount(file?.linkedRequirementCount ?? 0);
         const selectedModuleNames = file?.selectedModules
@@ -2876,6 +2878,19 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
+      {currentFileReviewStatus && currentFileReviewStatus !== "approved" && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm">Execution is Locked</p>
+            <p className="text-xs text-amber-700 mt-1">
+              This execution file is currently in <strong>{currentFileReviewStatus.replace("_", " ")}</strong> status. 
+              You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* HEADER & ACTION BUTTONS */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
@@ -3356,7 +3371,7 @@ export default function TestCasesExecutionProgressPage() {
               const isQaMember = currentUser?.role === "qa_member";
               const isAssignedToMe = row.qaPic === currentUser?.name;
               const isUnassigned = !row.qaPic;
-              const canEdit = !isQaMember || isAssignedToMe;
+              const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
               const steps = parseLines(row.testSteps);
               const expectations = parseLines(row.expectedResult);
@@ -3650,7 +3665,7 @@ export default function TestCasesExecutionProgressPage() {
                         const isQaMember = currentUser?.role === "qa_member";
                         const isAssignedToMe = row.qaPic === currentUser?.name;
                         const isUnassigned = !row.qaPic;
-                        const canEdit = !isQaMember || isAssignedToMe;
+                        const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
                         if (row.rowType === "group") {
                           return (
                             <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">

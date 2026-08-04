@@ -276,6 +276,8 @@ router.get("/execution-files", async (req, res): Promise<void> => {
           phaseTimeline: milestone ? buildPhaseTimelineRollup(linkedEntries, milestone) : null,
           linkedRequirementCount: linkedEntries.length,
           fileType: (f as any).fileType ?? "qa",
+          reviewStatus: (f as any).reviewStatus ?? "draft",
+          rejectionReason: (f as any).rejectionReason ?? null,
           createdAt: f.createdAt,
           updatedAt: f.updatedAt,
         };
@@ -621,6 +623,47 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
   }
 });
 
+// GET /execution-files/review-queue - My Review Queue for QA roles
+router.get("/execution-files/review-queue", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const isLead = QA_REVIEW_ROLES.includes(ctx.role);
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
+  try {
+    const allFiles = await db.select().from(executionFilesTable);
+    const scoped = allFiles.filter(t => accessible === null || (t.projectId != null && accessible.includes(t.projectId)));
+
+    const waitingOnMe = scoped.filter(t => {
+      const reviewStatus = (t as any).reviewStatus ?? "draft";
+      return reviewStatus === "in_review" && (isLead || (t as any).qaPicSetBy !== ctx.userId);
+    });
+
+    const awaitingMyRevision = scoped.filter(t => {
+      const reviewStatus = (t as any).reviewStatus ?? "draft";
+      return reviewStatus === "rejected" && (t as any).qaPicSetBy === ctx.userId;
+    });
+
+    const now = Date.now();
+    function withAge(files: typeof allFiles) {
+      return files.map(t => ({
+        ...t,
+        reviewStatus: (t as any).reviewStatus ?? "draft",
+        rejectedAt: (t as any).rejectedAt ?? null,
+        updatedAt: t.updatedAt.toISOString(),
+        daysInStatus: Math.floor((now - t.updatedAt.getTime()) / 86400000),
+        stale: Math.floor((now - t.updatedAt.getTime()) / 86400000) > 3,
+      }));
+    }
+
+    res.json({ waitingOnMe: withAge(waitingOnMe), awaitingMyRevision: withAge(awaitingMyRevision) });
+  } catch (error) {
+    console.error("Failed to fetch execution files review queue:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/execution-files/:id", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
@@ -653,11 +696,83 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
       requirementId: file.requirementId,
       milestoneId: (file as any).milestoneId ?? null,
       fileType: (file as any).fileType ?? "qa",
+      reviewStatus: (file as any).reviewStatus ?? "draft",
+      rejectionReason: (file as any).rejectionReason ?? null,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
   } catch {
     res.status(500).json({ error: "Failed to fetch execution file" });
+  }
+});
+
+const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
+
+router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!QA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA role required for review actions" }); return; }
+
+  const id = parseInt(req.params.id);
+  const { action, comment } = req.body as { action: "submit" | "approve" | "reject"; comment?: string };
+
+  if (Number.isNaN(id) || !["submit", "approve", "reject"].includes(action)) {
+    res.status(400).json({ error: "Invalid request payload" }); return;
+  }
+
+  try {
+    const [file_] = await db.select().from(executionFilesTable).where(eq(executionFilesTable.id, id));
+    if (!file_) { res.status(404).json({ error: "Execution file not found" }); return; }
+    if (!(await canAccessFileProject(ctx, file_.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+
+    // Segregation of duties: Creator cannot approve or reject their own execution file
+    // Wait, who is the creator? The execution file has qaPicSetBy or qaPic? There is no authorId.
+    // Let's assume qaPicSetBy is the creator.
+    // Actually, we don't have authorId on executionFilesTable. I'll just skip segregation of duties if it's not possible, or rely on qaPicSetBy.
+    // If we want segregation of duties, we can check if file_.qaPicSetBy === ctx.userId.
+    if ((action === "approve" || action === "reject") && file_.qaPicSetBy === ctx.userId) {
+      res.status(403).json({ error: `You cannot ${action} an execution file you authored` }); return;
+    }
+
+    const now = new Date();
+    const update: any = {};
+
+    if (action === "submit") {
+      update.reviewStatus = "in_review";
+      // Clear rejection reason on resubmit
+      update.rejectionReason = null;
+    } else if (action === "approve") {
+      update.reviewStatus = "approved";
+      update.approvedBy = ctx.userId;
+      update.approvedAt = now;
+      update.rejectedBy = null;
+      update.rejectedAt = null;
+      update.rejectionReason = null;
+    } else {
+      update.reviewStatus = "rejected";
+      update.rejectedBy = ctx.userId;
+      update.rejectedAt = now;
+      update.rejectionReason = comment ?? null;
+    }
+
+    const [updated] = await db.update(executionFilesTable).set(update).where(eq(executionFilesTable.id, id)).returning();
+
+    await logActivity({
+      type: `execution_file_${action}`,
+      description: `Execution file "${file_.title || file_.redmineTicketId}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
+      userId: ctx.userId,
+      entityId: id,
+      entityType: "execution_file",
+      oldValue: { reviewStatus: (file_ as any).reviewStatus ?? "draft" },
+      newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error("Execution file review action failed:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

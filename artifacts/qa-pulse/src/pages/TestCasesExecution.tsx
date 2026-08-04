@@ -309,12 +309,63 @@ function MiniProgressBar({ data }: { data: ProgressData[string] | undefined }) {
   );
 }
 
+const reviewStatusBadge = (status?: string | null) => {
+  if (!status || status === "draft") return <Badge variant="outline" className="text-[9px] h-4 text-slate-500 border-slate-200 shrink-0">Draft</Badge>;
+  if (status === "in_review") return <Badge variant="outline" className="text-[9px] h-4 bg-yellow-50 text-yellow-700 border-yellow-200 shrink-0">In Review</Badge>;
+  if (status === "approved") return <Badge variant="outline" className="text-[9px] h-4 bg-green-50 text-green-700 border-green-200 shrink-0">Approved</Badge>;
+  if (status === "rejected") return <Badge variant="outline" className="text-[9px] h-4 bg-red-50 text-red-700 border-red-200 shrink-0">Rejected</Badge>;
+  return null;
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function TestCasesExecution() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
+  const canReview = QA_REVIEW_ROLES.includes(user?.role ?? "");
+
+  const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({
+    queryKey: ["execution-review-queue"],
+    queryFn: async () => {
+      const t = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`${getApiUrl()}/execution-files/review-queue`, {
+        headers: t ? { Authorization: `Bearer ${t}` } : {},
+      });
+      return res.ok ? res.json() : { waitingOnMe: [], awaitingMyRevision: [] };
+    },
+    enabled: canReview,
+    refetchInterval: 60000,
+  });
+
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectTargetId, setRejectTargetId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const handleReviewAction = async (id: number, action: "submit" | "approve" | "reject", comment?: string) => {
+    try {
+      const t = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`${getApiUrl()}/execution-files/${id}/review`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(t ? { Authorization: `Bearer ${t}` } : {}),
+        },
+        body: JSON.stringify({ action, comment }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to perform review action");
+      }
+      toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
+      fetchExecutionFiles().then(setFiles);
+      // We'll let the polling query catch up or wait for next interval, or we can't easily invalidate without queryClient here unless we hook it, but this is fine.
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
+    }
+  };
 
   const [search, setSearch] = useState("");
   const [files, setFiles] = useState<ExecutionFile[]>([]);
@@ -1039,6 +1090,61 @@ export default function TestCasesExecution() {
         </div>
       )}
 
+      {/* Review Queue — shown to QA roles */}
+      {canReview && reviewQueue && (reviewQueue.waitingOnMe.length > 0 || reviewQueue.awaitingMyRevision.length > 0) && (
+        <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-600" />
+              <span className="font-semibold text-sm text-blue-700 dark:text-blue-400">Review Queue</span>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            {reviewQueue.waitingOnMe.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Waiting on my review ({reviewQueue.waitingOnMe.length})</p>
+                <div className="space-y-1">
+                  {reviewQueue.waitingOnMe.slice(0, 5).map((f: any) => (
+                    <div key={f.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded pl-2 pr-1 py-1 border border-blue-100 dark:border-blue-900 group">
+                      <button className="hover:underline text-left flex-1 truncate pr-2" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                        #{f.redmineTicketId} — {f.title}
+                      </button>
+                      <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(f.id, "approve")}>
+                          <TestTube className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
+                          setRejectTargetId(f.id);
+                          setRejectReason("");
+                          setRejectDialogOpen(true);
+                        }}>
+                          <XIcon className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {reviewQueue.awaitingMyRevision.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Awaiting my revision ({reviewQueue.awaitingMyRevision.length})</p>
+                <div className="space-y-1">
+                  {reviewQueue.awaitingMyRevision.slice(0, 5).map((f: any) => (
+                    <div key={f.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-red-100 dark:border-red-900">
+                      <button className="hover:underline text-left flex-1 truncate" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                        #{f.redmineTicketId} — {f.title}
+                      </button>
+                      <XIcon className="w-3.5 h-3.5 text-red-500 shrink-0 ml-2" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <div className="flex flex-col gap-3">
@@ -1113,7 +1219,12 @@ export default function TestCasesExecution() {
                         onChange={e => handleSelectFile(f.id, e.target.checked)} />
                     </TableCell>
                     <TableCell className="border-r border-border font-bold text-primary">#{f.redmineTicketId}</TableCell>
-                    <TableCell className="border-r border-border">{getTaskForFile(f)?.name || f.title || "—"}</TableCell>
+                    <TableCell className="border-r border-border">
+                      <div className="flex flex-col gap-1 items-start">
+                        <span>{getTaskForFile(f)?.name || f.title || "—"}</span>
+                        {reviewStatusBadge(f.reviewStatus)}
+                      </div>
+                    </TableCell>
                     <TableCell className="border-r border-border">{f.qaPic || "—"}</TableCell>
                     <TableCell className="border-r border-border">
                       {f.milestonePriority ? (
@@ -1178,6 +1289,26 @@ export default function TestCasesExecution() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {(!f.reviewStatus || f.reviewStatus === "draft" || f.reviewStatus === "rejected") && (
+                              <DropdownMenuItem onClick={() => handleReviewAction(f.id, "submit")}>
+                                <Clock className="w-4 h-4 mr-2" /> Submit for Review
+                              </DropdownMenuItem>
+                            )}
+                            {f.reviewStatus === "in_review" && canReview && (
+                              <>
+                                <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(f.id, "approve")}>
+                                  <TestTube className="w-4 h-4 mr-2" /> Approve
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
+                                  setRejectTargetId(f.id);
+                                  setRejectReason("");
+                                  setRejectDialogOpen(true);
+                                }}>
+                                  <XIcon className="w-4 h-4 mr-2" /> Reject
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuItem
                               onClick={() => openEditFile(f)}
                               className="text-amber-600 focus:text-amber-700">
@@ -1710,6 +1841,54 @@ export default function TestCasesExecution() {
           isSending={isSendingVerdict}
         />
       )}
+
+      {/* Reject Reason Dialog */}
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+        setRejectDialogOpen(open);
+        if (!open) {
+          setRejectReason("");
+          setRejectTargetId(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <XIcon className="w-5 h-5 text-red-500" />
+              Reject Execution File
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reject-reason" className="mb-2 block">
+              Reason for rejection <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="reject-reason"
+              placeholder="Please explain why this is being rejected..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={4}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              disabled={!rejectReason.trim()}
+              onClick={() => {
+                if (rejectTargetId !== null) {
+                  handleReviewAction(rejectTargetId, "reject", rejectReason.trim());
+                  setRejectDialogOpen(false);
+                  setRejectReason("");
+                  setRejectTargetId(null);
+                }
+              }}
+            >
+              Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
