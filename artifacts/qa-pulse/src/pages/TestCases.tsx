@@ -2535,8 +2535,6 @@ export default function TestCases() {
               <Button
                 onClick={handleSubmit}
                 disabled={
-                  !form.title ||
-                  !form.testSteps ||
                   createMutation.isPending ||
                   updateMutation.isPending
                 }
