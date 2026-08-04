@@ -1214,7 +1214,7 @@ export default function TestCasesExecution() {
                 <TableHead className={thClass} onClick={() => handleSort("updatedAt")}>
                   <div className="flex items-center gap-1">Last Modified <SortIcon k="updatedAt" /></div>
                 </TableHead>
-                <TableHead className="text-right sticky right-0 bg-muted/50 z-10 shadow-[-4px_0_12px_rgba(0,0,0,0.05)] border-l">Actions</TableHead>
+                <TableHead className="text-right sticky right-0 bg-background z-10 shadow-[-4px_0_12px_rgba(0,0,0,0.05)] border-l px-4 py-3">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1267,7 +1267,7 @@ export default function TestCasesExecution() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right sticky right-0 bg-white dark:bg-background z-10 shadow-[-4px_0_12px_rgba(0,0,0,0.05)] border-l" onClick={e => e.stopPropagation()}>
+                    <TableCell className="text-right sticky right-0 bg-background z-10 shadow-[-4px_0_12px_rgba(0,0,0,0.05)] border-l px-4" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end items-center gap-1">
                         <Button variant="ghost" size="sm" title="Open Execution Sheet"
                           className="text-blue-600 hover:text-blue-800"
