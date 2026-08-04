@@ -68,7 +68,7 @@ import {
   Copy,
   Clock,
   MoreHorizontal,
-  TestTube,
+  CheckCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -379,6 +379,8 @@ export default function TestCasesExecution() {
 
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number | "all">(10);
 
   const [users, setUsers] = useState<any[]>([]);
   const environments = [
@@ -775,6 +777,12 @@ export default function TestCasesExecution() {
     });
   }, [filteredFiles, sortKey, sortDir]);
 
+  const paginatedFiles = useMemo(() => {
+    if (pageSize === "all") return sortedFiles;
+    const start = (page - 1) * pageSize;
+    return sortedFiles.slice(start, start + pageSize);
+  }, [sortedFiles, page, pageSize]);
+
   // ─── Requirement auto-fill ─────────────────────────────────────────────────
   const handleRequirementChange = (reqId: string) => {
     const req = requirements.find((r: any) => String(r.id) === reqId);
@@ -1112,7 +1120,7 @@ export default function TestCasesExecution() {
                       </button>
                       <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
                         <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(f.id, "approve")}>
-                          <TestTube className="w-3.5 h-3.5" />
+                          <CheckCircle className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
                           setRejectTargetId(f.id);
@@ -1184,8 +1192,8 @@ export default function TestCasesExecution() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table className="border-collapse border border-border min-w-[900px]">
+        <CardContent className="overflow-x-auto p-0 sm:p-6">
+          <Table className="border-collapse border border-border w-full min-w-max">
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="w-[50px] border-r border-border text-center">
@@ -1206,11 +1214,11 @@ export default function TestCasesExecution() {
                 <TableHead className={thClass} onClick={() => handleSort("updatedAt")}>
                   <div className="flex items-center gap-1">Last Modified <SortIcon k="updatedAt" /></div>
                 </TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-right sticky right-0 bg-muted/50 z-10 shadow-[-4px_0_12px_rgba(0,0,0,0.05)] border-l">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedFiles.map(f => {
+              {paginatedFiles.map(f => {
                 const prog = progress[f.redmineTicketId];
                 return (
                   <TableRow key={f.id} className="border-b border-border hover:bg-muted/20 cursor-pointer" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
@@ -1259,7 +1267,7 @@ export default function TestCasesExecution() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                    <TableCell className="text-right sticky right-0 bg-white dark:bg-background z-10 shadow-[-4px_0_12px_rgba(0,0,0,0.05)] border-l" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end items-center gap-1">
                         <Button variant="ghost" size="sm" title="Open Execution Sheet"
                           className="text-blue-600 hover:text-blue-800"
@@ -1298,7 +1306,7 @@ export default function TestCasesExecution() {
                             {f.reviewStatus === "in_review" && canReview && (
                               <>
                                 <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(f.id, "approve")}>
-                                  <TestTube className="w-4 h-4 mr-2" /> Approve
+                                  <CheckCircle className="w-4 h-4 mr-2" /> Approve
                                 </DropdownMenuItem>
                                 <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
                                   setRejectTargetId(f.id);
@@ -1348,6 +1356,40 @@ export default function TestCasesExecution() {
               )}
             </TableBody>
           </Table>
+          
+          <div className="flex flex-col sm:flex-row items-center justify-between px-4 py-3 border-t gap-3">
+            <div className="text-sm text-muted-foreground text-center sm:text-left">
+              Showing {pageSize === "all" ? sortedFiles.length : Math.min(sortedFiles.length, (page - 1) * pageSize + (sortedFiles.length > 0 ? 1 : 0))} to {pageSize === "all" ? sortedFiles.length : Math.min(sortedFiles.length, page * pageSize)} of {sortedFiles.length} entries
+            </div>
+            <div className="flex items-center justify-center sm:justify-end gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1 || pageSize === "all"}
+              >
+                Back
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => p + 1)}
+                disabled={pageSize === "all" || page * (pageSize as number) >= sortedFiles.length}
+              >
+                Next
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPageSize(pageSize === "all" ? 10 : "all");
+                  setPage(1);
+                }}
+              >
+                {pageSize === "all" ? "Show Paginated" : "See All"}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
