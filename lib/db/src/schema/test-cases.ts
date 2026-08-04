@@ -23,6 +23,11 @@ export const testCasesTable = pgTable("test_cases", {
   authorId: integer("author_id"),
   aiAssisted: boolean("ai_assisted").notNull().default(false),
   status: text("status").notNull().default("active"),
+  reviewStatus: text("review_status").notNull().default("draft"), // 'draft' | 'in_review' | 'approved' | 'rejected'
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectedBy: integer("rejected_by"),
+  rejectedAt: timestamp("rejected_at", { withTimezone: true }),
 
   // --- NEW FIELDS ADDED TO FIX SAVING ---
   redmineUserStory: text("redmine_user_story"),

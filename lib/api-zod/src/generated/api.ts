@@ -410,6 +410,11 @@ export const ListTestCasesResponseItem = zod.object({
   redmineDefectId: zod.string().nullish(),
   comments: zod.string().nullish(),
   qaPic: zod.string().nullish(),
+  reviewStatus: zod.string().optional(),
+  approvedBy: zod.number().nullish(),
+  approvedAt: zod.string().nullish(),
+  rejectedBy: zod.number().nullish(),
+  rejectedAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -441,6 +446,7 @@ export const CreateTestCaseBody = zod.object({
   comments: zod.string().optional(),
   qaPic: zod.string().optional(),
   module: zod.string().optional(),
+  reviewStatus: zod.string().optional(),
 });
 
 export const CreateTestCaseResponse = zod.void();
@@ -478,6 +484,11 @@ export const GetTestCaseResponse = zod.object({
   redmineDefectId: zod.string().nullish(),
   comments: zod.string().nullish(),
   qaPic: zod.string().nullish(),
+  reviewStatus: zod.string().optional(),
+  approvedBy: zod.number().nullish(),
+  approvedAt: zod.string().nullish(),
+  rejectedBy: zod.number().nullish(),
+  rejectedAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -511,6 +522,7 @@ export const UpdateTestCaseBody = zod.object({
   comments: zod.string().optional(),
   qaPic: zod.string().optional(),
   module: zod.string().optional(),
+  reviewStatus: zod.string().optional(),
 });
 
 export const UpdateTestCaseResponse = zod.object({
@@ -532,6 +544,11 @@ export const UpdateTestCaseResponse = zod.object({
   authorName: zod.string().nullish(),
   aiAssisted: zod.boolean(),
   status: zod.string(),
+  reviewStatus: zod.string().optional(),
+  approvedBy: zod.number().nullish(),
+  approvedAt: zod.string().nullish(),
+  rejectedBy: zod.number().nullish(),
+  rejectedAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

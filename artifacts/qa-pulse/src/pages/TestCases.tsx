@@ -76,9 +76,9 @@ import {
   FolderOpen,
   List,
 } from "lucide-react";
-import React from "react";
 import { format } from "date-fns";
 import { getApiUrl } from "@/lib/api";
+import { Clock, AlertTriangle, XCircleIcon } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
   const res = await fetch(`${getApiUrl()}/test-cases/export`, {
@@ -700,6 +700,22 @@ function ExecutionRunsDialog({ tc, onClose }: { tc: any | null; onClose: () => v
   );
 }
 
+const reviewStatusBadge = (status?: string | null) => {
+  if (!status || status === "draft") {
+    return <Badge variant="outline" className="text-[9px] h-4 border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-400 shrink-0">Draft</Badge>;
+  }
+  if (status === "in_review") {
+    return <Badge variant="outline" className="text-[9px] h-4 border-blue-300 text-blue-600 bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:bg-blue-950 shrink-0">In Review</Badge>;
+  }
+  if (status === "approved") {
+    return <Badge variant="outline" className="text-[9px] h-4 border-green-300 text-green-600 bg-green-50 dark:border-green-700 dark:text-green-400 dark:bg-green-950 shrink-0">Approved</Badge>;
+  }
+  if (status === "rejected") {
+    return <Badge variant="outline" className="text-[9px] h-4 border-red-300 text-red-600 bg-red-50 dark:border-red-700 dark:text-red-400 dark:bg-red-950 shrink-0">Rejected</Badge>;
+  }
+  return null;
+};
+
 export default function TestCases() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -743,6 +759,44 @@ export default function TestCases() {
   const [formModules, setFormModules] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
+  const canReview = QA_REVIEW_ROLES.includes(user?.role ?? "");
+  const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+
+  const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({
+    queryKey: ["test-cases-review-queue"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/test-cases/review-queue`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok ? res.json() : { waitingOnMe: [], awaitingMyRevision: [] };
+    },
+    enabled: canReview,
+    refetchInterval: 60000,
+  });
+
+  const handleReviewAction = async (id: number, action: "submit" | "approve" | "reject", comment?: string) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/test-cases/${id}/review`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action, comment }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to perform review action");
+      }
+      toast({ title: "Success", description: `Test case ${action}ed successfully.` });
+      queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
+      if (canReview) queryClient.invalidateQueries({ queryKey: ["test-cases-review-queue"] });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
+    }
+  };
 
   const [compileOpen, setCompileOpen] = useState(false);
   const [compileStep, setCompileStep] = useState<"mode" | "existing" | "new">("mode");
@@ -1474,6 +1528,7 @@ export default function TestCases() {
                   Requirement Revised
                 </Badge>
               )}
+              {reviewStatusBadge(tc.reviewStatus)}
             </div>
           </TableCell>
           {viewMode === "comfy" && (
@@ -1502,6 +1557,25 @@ export default function TestCases() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {(!tc.reviewStatus || tc.reviewStatus === "draft" || tc.reviewStatus === "rejected") && tc.authorId === user?.id && (
+                  <DropdownMenuItem onClick={() => handleReviewAction(tc.id, "submit")}>
+                    <Clock className="w-4 h-4 mr-2" /> Submit for Review
+                  </DropdownMenuItem>
+                )}
+                {tc.reviewStatus === "in_review" && canReview && tc.authorId !== user?.id && (
+                  <>
+                    <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(tc.id, "approve")}>
+                      <TestTube className="w-4 h-4 mr-2" /> Approve
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
+                      const comment = prompt("Reason for rejection:");
+                      if (comment !== null) handleReviewAction(tc.id, "reject", comment);
+                    }}>
+                      <XCircleIcon className="w-4 h-4 mr-2" /> Reject
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem onClick={() => openEdit(tc)}>
                   <Pencil className="w-4 h-4 mr-2" />Edit
                 </DropdownMenuItem>
@@ -1579,6 +1653,50 @@ export default function TestCases() {
           </div>
         </div>
       </div>
+
+      {/* Review Queue — shown to QA roles */}
+      {canReview && reviewQueue && (reviewQueue.waitingOnMe.length > 0 || reviewQueue.awaitingMyRevision.length > 0) && (
+        <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-600" />
+              <span className="font-semibold text-sm text-blue-700 dark:text-blue-400">Review Queue</span>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            {reviewQueue.waitingOnMe.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Waiting on my review ({reviewQueue.waitingOnMe.length})</p>
+                <div className="space-y-1">
+                  {reviewQueue.waitingOnMe.slice(0, 5).map((t: any) => (
+                    <div key={t.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-blue-100 dark:border-blue-900">
+                      <button className="hover:underline text-left flex-1 truncate" onClick={() => openEdit(t)}>
+                        {t.title}
+                      </button>
+                      {t.stale && <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0 ml-2" aria-label="Stale — waiting 3+ days" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {reviewQueue.awaitingMyRevision.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Awaiting my revision ({reviewQueue.awaitingMyRevision.length})</p>
+                <div className="space-y-1">
+                  {reviewQueue.awaitingMyRevision.slice(0, 5).map((t: any) => (
+                    <div key={t.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-red-100 dark:border-red-900">
+                      <button className="hover:underline text-left flex-1 truncate" onClick={() => openEdit(t)}>
+                        {t.title}
+                      </button>
+                      <XCircleIcon className="w-3.5 h-3.5 text-red-500 shrink-0 ml-2" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {selectedIds.size > 0 && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
@@ -1863,6 +1981,25 @@ export default function TestCases() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {(!tc.reviewStatus || tc.reviewStatus === "draft" || tc.reviewStatus === "rejected") && tc.authorId === user?.id && (
+                            <DropdownMenuItem onClick={() => handleReviewAction(tc.id, "submit")}>
+                              <Clock className="w-4 h-4 mr-2" /> Submit for Review
+                            </DropdownMenuItem>
+                          )}
+                          {tc.reviewStatus === "in_review" && canReview && tc.authorId !== user?.id && (
+                            <>
+                              <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(tc.id, "approve")}>
+                                <TestTube className="w-4 h-4 mr-2" /> Approve
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
+                                const comment = prompt("Reason for rejection:");
+                                if (comment !== null) handleReviewAction(tc.id, "reject", comment);
+                              }}>
+                                <XCircleIcon className="w-4 h-4 mr-2" /> Reject
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
                           <DropdownMenuItem onClick={() => openEdit(tc)}>
                             <Pencil className="w-4 h-4 mr-2" />
                             Edit
@@ -1924,6 +2061,7 @@ export default function TestCases() {
                                 In {tc.executionCount} run{tc.executionCount !== 1 ? "s" : ""}
                               </Badge>
                             )}
+                            {reviewStatusBadge(tc.reviewStatus)}
                           </div>
                         </div>
                       </div>

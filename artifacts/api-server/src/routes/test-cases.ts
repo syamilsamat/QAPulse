@@ -25,10 +25,12 @@ import {
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
+import { notifyUser, notifyRolesInProject } from "./_notify";
 import pLimit from "p-limit";
 
-// Initialize primary Gemini client
 const ai = new GoogleGenAI({});
+
+const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
 
 const router: IRouter = Router();
 
@@ -173,6 +175,11 @@ async function formatTestCase(tc: any) {
     authorName,
     aiAssisted: tc.aiAssisted,
     status: tc.status,
+    reviewStatus: tc.reviewStatus,
+    approvedBy: tc.approvedBy,
+    approvedAt: tc.approvedAt ? new Date(tc.approvedAt).toISOString() : null,
+    rejectedBy: tc.rejectedBy,
+    rejectedAt: tc.rejectedAt ? new Date(tc.rejectedAt).toISOString() : null,
     // CR023p4 — informational badge only here; the actionable "Revised"
     // control lives on the execution file page (per-instance ack)
     requirementRevisedAt: tc.requirementRevisedAt ? new Date(tc.requirementRevisedAt).toISOString() : null,
@@ -362,6 +369,133 @@ router.get("/test-cases", async (req, res): Promise<void> => {
   }
 
   res.json(formatted.map((tc) => ({ ...tc, executionCount: execCountMap[tc.id] ?? 0 })));
+});
+
+// GET /test-cases/review-queue — My Review Queue for QA roles
+router.get("/test-cases/review-queue", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const isLead = ["qa_lead", "hod_qa", "admin"].includes(ctx.role);
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
+  const allTcs = await db.select().from(testCasesTable);
+  const scoped = allTcs.filter(t => accessible === null || (t.projectId != null && accessible.includes(t.projectId)));
+
+  const waitingOnMe = scoped.filter(t => {
+    const reviewStatus = t.reviewStatus ?? "draft";
+    const authorId = t.authorId;
+    return reviewStatus === "in_review" && (isLead || authorId !== ctx.userId);
+  });
+
+  const awaitingMyRevision = scoped.filter(t => {
+    const reviewStatus = t.reviewStatus ?? "draft";
+    const authorId = t.authorId;
+    return reviewStatus === "rejected" && authorId === ctx.userId;
+  });
+
+  const now = Date.now();
+  function withAge(tcs: typeof allTcs) {
+    return tcs.map(t => ({
+      id: t.id,
+      title: t.title,
+      module: t.module,
+      projectId: t.projectId,
+      reviewStatus: t.reviewStatus ?? "draft",
+      authorId: t.authorId,
+      rejectedAt: t.rejectedAt ?? null,
+      updatedAt: t.updatedAt.toISOString(),
+      daysInStatus: Math.floor((now - t.updatedAt.getTime()) / 86400000),
+      stale: Math.floor((now - t.updatedAt.getTime()) / 86400000) > 3,
+    }));
+  }
+
+  res.json({ waitingOnMe: withAge(waitingOnMe), awaitingMyRevision: withAge(awaitingMyRevision) });
+});
+
+// PATCH /test-cases/:id/review — approve or reject
+router.patch("/test-cases/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!QA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA role required for review actions" }); return; }
+
+  const id = parseInt(req.params.id);
+  const [tc_] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, id));
+  if (!tc_) { res.status(404).json({ error: "Test case not found" }); return; }
+
+  const { action, comment } = req.body; // action: 'submit' | 'approve' | 'reject'
+  if (!["submit", "approve", "reject"].includes(action)) {
+    res.status(400).json({ error: "action must be submit, approve, or reject" }); return;
+  }
+
+  const authorId = tc_.authorId;
+
+  // Segregation of duties: author cannot review (approve or reject) their own test case
+  if ((action === "approve" || action === "reject") && authorId === ctx.userId) {
+    res.status(403).json({ error: `You cannot ${action} a test case you authored` }); return;
+  }
+
+  const now = new Date();
+  const update: any = {};
+
+  if (action === "submit") {
+    update.reviewStatus = "in_review";
+  } else if (action === "approve") {
+    update.reviewStatus = "approved";
+    update.approvedBy = ctx.userId;
+    update.approvedAt = now;
+    update.rejectedBy = null;
+    update.rejectedAt = null;
+  } else {
+    update.reviewStatus = "rejected";
+    update.rejectedBy = ctx.userId;
+    update.rejectedAt = now;
+  }
+
+  const [updated] = await db.update(testCasesTable).set(update).where(eq(testCasesTable.id, id)).returning();
+
+  await logActivity({
+    type: `test_case_${action}`,
+    description: `Test case "${tc_.title}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "test_case",
+    oldValue: { reviewStatus: tc_.reviewStatus ?? "draft" },
+    newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
+  });
+
+  if (action === "submit" && tc_.projectId != null) {
+    await notifyRolesInProject({
+      roles: QA_REVIEW_ROLES,
+      projectId: tc_.projectId,
+      module: tc_.module,
+      title: "Test Case submitted for review",
+      message: `"${tc_.title}" is waiting on your review.`,
+      type: "review_request",
+      entityType: "test_case",
+      entityId: id,
+      actorId: ctx.userId,
+    }).catch(() => {});
+  }
+
+  if ((action === "approve" || action === "reject") && authorId) {
+    const msg = action === "approve"
+      ? `Your test case "${tc_.title}" has been approved.`
+      : `Test case "${tc_.title}" was rejected${comment ? `: ${comment}` : ""}.`;
+    const notifType = action === "approve" ? "review_approved" : "review_rejected";
+
+    await notifyUser({
+      userId: authorId,
+      title: action === "approve" ? "Test Case approved" : "Test Case rejected",
+      message: msg,
+      type: notifType,
+      entityType: "test_case",
+      entityId: id,
+      actorId: ctx.userId,
+    }).catch(() => {});
+  }
+
+  res.sendStatus(204);
 });
 
 router.post("/test-cases", async (req, res): Promise<void> => {
