@@ -4046,6 +4046,47 @@ export default function TestCasesExecutionProgressPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Reject Reason Dialog */}
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+        setRejectDialogOpen(open);
+        if (!open) setRejectReason("");
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <X className="w-5 h-5 text-red-500" />
+              Reject Execution File
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reject-reason" className="mb-2 block text-sm font-medium">
+              Reason for rejection <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="reject-reason"
+              placeholder="Please provide a reason so the creator knows what to fix..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="min-h-[100px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              disabled={!rejectReason.trim()}
+              onClick={() => {
+                handleReviewAction("reject", rejectReason.trim());
+                setRejectDialogOpen(false);
+                setRejectReason("");
+              }}
+            >
+              Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
