@@ -2531,8 +2531,7 @@ export default function TestCases() {
                       setRejectTargetId(editingTC.id);
                       setRejectReason("");
                       setRejectDialogOpen(true);
-                        setDialogOpen(false);
-                      }
+                      setDialogOpen(false);
                     }}
                   >
                     <XCircleIcon className="w-4 h-4 mr-2" /> Reject
