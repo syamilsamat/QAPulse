@@ -637,7 +637,8 @@ router.get("/execution-files/review-queue", async (req, res): Promise<void> => {
 
     const waitingOnMe = scoped.filter(t => {
       const reviewStatus = (t as any).reviewStatus ?? "draft";
-      return reviewStatus === "in_review" && (isLead || (t as any).qaPicSetBy !== ctx.userId);
+      // Ensure segregation of duties: You cannot review your own submitted execution files
+      return reviewStatus === "in_review" && (t as any).qaPicSetBy !== ctx.userId;
     });
 
     const awaitingMyRevision = scoped.filter(t => {
