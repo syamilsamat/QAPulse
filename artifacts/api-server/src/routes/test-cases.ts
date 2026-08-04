@@ -436,6 +436,9 @@ router.patch("/test-cases/:id/review", async (req, res): Promise<void> => {
 
   if (action === "submit") {
     update.reviewStatus = "in_review";
+    if (tc_.comments?.startsWith("[REJECTION REASON]:")) {
+      update.comments = tc_.comments.replace(/^\[REJECTION REASON\]:.*?(?:\n---\n|$)/s, '');
+    }
   } else if (action === "approve") {
     update.reviewStatus = "approved";
     update.approvedBy = ctx.userId;
@@ -446,6 +449,9 @@ router.patch("/test-cases/:id/review", async (req, res): Promise<void> => {
     update.reviewStatus = "rejected";
     update.rejectedBy = ctx.userId;
     update.rejectedAt = now;
+    if (comment) {
+      update.comments = `[REJECTION REASON]: ${comment}${tc_.comments ? '\n---\n' + tc_.comments : ''}`;
+    }
   }
 
   const [updated] = await db.update(testCasesTable).set(update).where(eq(testCasesTable.id, id)).returning();

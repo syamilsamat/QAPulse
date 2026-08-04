@@ -754,6 +754,10 @@ export default function TestCases() {
   const [bulkCloneForm, setBulkCloneForm] = useState<{ requirementId?: number; projectId?: number; module?: string }>({});
   const [isBulkCloning, setIsBulkCloning] = useState(false);
 
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectTargetId, setRejectTargetId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
   const [editingTC, setEditingTC] = useState<any | null>(null);
   const [form, setForm] = useState<Partial<any>>({});
   const [formModules, setFormModules] = useState<string[]>([]);
@@ -1570,8 +1574,9 @@ export default function TestCases() {
                       <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
                     </DropdownMenuItem>
                     <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
-                      const comment = prompt("Reason for rejection:");
-                      if (comment !== null) handleReviewAction(tc.id, "reject", comment);
+                      setRejectTargetId(tc.id);
+                      setRejectReason("");
+                      setRejectDialogOpen(true);
                     }}>
                       <XCircleIcon className="w-4 h-4 mr-2" /> Reject
                     </DropdownMenuItem>
@@ -1681,8 +1686,9 @@ export default function TestCases() {
                             <CheckCircle2 className="w-3.5 h-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
-                            const comment = prompt("Reason for rejection:");
-                            if (comment !== null) handleReviewAction(t.id, "reject", comment);
+                            setRejectTargetId(t.id);
+                            setRejectReason("");
+                            setRejectDialogOpen(true);
                           }}>
                             <XCircleIcon className="w-3.5 h-3.5" />
                           </Button>
@@ -2015,8 +2021,9 @@ export default function TestCases() {
                                 <TestTube className="w-4 h-4 mr-2" /> Approve
                               </DropdownMenuItem>
                               <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
-                                const comment = prompt("Reason for rejection:");
-                                if (comment !== null) handleReviewAction(tc.id, "reject", comment);
+                                setRejectTargetId(tc.id);
+                                setRejectReason("");
+                                setRejectDialogOpen(true);
                               }}>
                                 <XCircleIcon className="w-4 h-4 mr-2" /> Reject
                               </DropdownMenuItem>
@@ -2483,12 +2490,13 @@ export default function TestCases() {
               </div>
               <div className="space-y-1.5">
                 <Label>Comments / Issues</Label>
-                <Input
+                <Textarea
                   placeholder="..."
                   value={form.comments ?? ""}
                   onChange={(e) =>
                     setForm({ ...form, comments: e.target.value })
                   }
+                  rows={2}
                 />
               </div>
             </div>
@@ -2520,9 +2528,9 @@ export default function TestCases() {
                     variant="outline"
                     className="w-full sm:w-auto text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-500 dark:border-red-900 dark:hover:bg-red-950"
                     onClick={() => {
-                      const comment = prompt("Reason for rejection:");
-                      if (comment !== null) {
-                        handleReviewAction(editingTC.id, "reject", comment);
+                      setRejectTargetId(editingTC.id);
+                      setRejectReason("");
+                      setRejectDialogOpen(true);
                         setDialogOpen(false);
                       }
                     }}
@@ -2849,6 +2857,55 @@ export default function TestCases() {
                 <Trash2 className="w-4 h-4 mr-2" />
               )}{" "}
               Delete Item(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reject Reason Dialog ── */}
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+        setRejectDialogOpen(open);
+        if (!open) {
+          setRejectReason("");
+          setRejectTargetId(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <XCircleIcon className="w-5 h-5 text-red-500" />
+              Reject Test Case
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reject-reason" className="mb-2 block">
+              Reason for rejection <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="reject-reason"
+              placeholder="Please explain why this test case is being rejected..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={4}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              disabled={!rejectReason.trim()}
+              onClick={() => {
+                if (rejectTargetId !== null) {
+                  handleReviewAction(rejectTargetId, "reject", rejectReason.trim());
+                  setRejectDialogOpen(false);
+                  setRejectReason("");
+                  setRejectTargetId(null);
+                  if (dialogOpen) setDialogOpen(false);
+                }
+              }}
+            >
+              Reject
             </Button>
           </DialogFooter>
         </DialogContent>
