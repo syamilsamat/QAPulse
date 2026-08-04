@@ -1581,7 +1581,7 @@ export default function TestCases() {
                 <DropdownMenuItem onClick={() => openEdit(tc)}>
                   <Pencil className="w-4 h-4 mr-2" />Edit
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openCloneDialog(tc)}>
+                <DropdownMenuItem disabled={tc.reviewStatus !== "approved"} onClick={() => openCloneDialog(tc)}>
                   <Copy className="w-4 h-4 mr-2" />Clone
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -1727,6 +1727,10 @@ export default function TestCases() {
               variant="outline"
               size="sm"
               className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1"
+              disabled={Array.from(selectedIds).some((id) => {
+                const tc = testCases.find((t: any) => t.id === id);
+                return tc && tc.reviewStatus !== "approved";
+              })}
               onClick={() => {
                 setBulkCloneForm({});
                 setBulkCloneDialogOpen(true);
@@ -1738,6 +1742,10 @@ export default function TestCases() {
               variant="outline"
               size="sm"
               className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950"
+              disabled={Array.from(selectedIds).some((id) => {
+                const tc = testCases.find((t: any) => t.id === id);
+                return tc && tc.reviewStatus !== "approved";
+              })}
               onClick={openCompileDialog}
             >
               <PackagePlus className="w-3 h-3" /> Compile
