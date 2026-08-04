@@ -278,6 +278,7 @@ router.get("/execution-files", async (req, res): Promise<void> => {
           fileType: (f as any).fileType ?? "qa",
           reviewStatus: (f as any).reviewStatus ?? "draft",
           rejectionReason: (f as any).rejectionReason ?? null,
+          qaPicSetBy: (f as any).qaPicSetBy ?? null,
           createdAt: f.createdAt,
           updatedAt: f.updatedAt,
         };

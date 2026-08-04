@@ -1241,6 +1241,8 @@ export default function TestCasesExecutionProgressPage() {
   const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
   const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
   const [currentFileReviewStatus, setCurrentFileReviewStatus] = useState<string | null>(null);
+  const [currentFileQaPicSetBy, setCurrentFileQaPicSetBy] = useState<number | null>(null);
+  const [currentFileQaPic, setCurrentFileQaPic] = useState<string | null>(null);
   // CR075 — rolled-up phase timeline (planned dates from the milestone,
   // actual dates rolled up across every requirement this file's test cases
   // link to). Collapsed by default, same convention as RequirementDetail's
@@ -1444,6 +1446,8 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
         setCurrentFileReviewStatus(file?.reviewStatus ?? null);
+        setCurrentFileQaPicSetBy((file as any)?.qaPicSetBy ?? null);
+        setCurrentFileQaPic(file?.qaPic ?? null);
         setCurrentFilePhaseTimeline(file?.phaseTimeline ?? null);
         setCurrentFileLinkedReqCount(file?.linkedRequirementCount ?? 0);
         const selectedModuleNames = file?.selectedModules
@@ -1488,6 +1492,32 @@ export default function TestCasesExecutionProgressPage() {
       .then((ms) => setMilestoneOptions(Array.isArray(ms) ? ms.map((m: any) => ({ id: m.id, name: m.name })) : []))
       .catch(() => setMilestoneOptions([]));
   }, [currentFileMilestoneId, currentFileProjectId]);
+
+  const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
+  const canReview = QA_REVIEW_ROLES.includes(currentUser?.role ?? "");
+
+  const handleReviewAction = async (action: "approve" | "reject", comment?: string) => {
+    if (!currentFileId) return;
+    try {
+      const t = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`/api/execution-files/${currentFileId}/review`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(t ? { Authorization: `Bearer ${t}` } : {}),
+        },
+        body: JSON.stringify({ action, comment }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to perform review action");
+      }
+      toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
+      fetchData();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
+    }
+  };
 
   const linkMilestone = async () => {
     if (!currentFileId || !selectedMilestoneToLink) return;
@@ -2879,15 +2909,27 @@ export default function TestCasesExecutionProgressPage() {
       )}
 
       {currentFileReviewStatus && currentFileReviewStatus !== "approved" && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-sm">Execution is Locked</p>
-            <p className="text-xs text-amber-700 mt-1">
-              This execution file is currently in <strong>{currentFileReviewStatus.replace("_", " ")}</strong> status. 
-              You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
-            </p>
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-sm">Execution is Locked</p>
+              <p className="text-xs text-amber-700 mt-1">
+                This execution file is currently in <strong>{currentFileReviewStatus.replace("_", " ")}</strong> status. 
+                You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
+              </p>
+            </div>
           </div>
+          {currentFileReviewStatus === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => handleReviewAction("reject")}>
+                <XCircle className="w-4 h-4 mr-2" /> Reject
+              </Button>
+              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleReviewAction("approve")}>
+                <CheckCircle className="w-4 h-4 mr-2" /> Approve
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
