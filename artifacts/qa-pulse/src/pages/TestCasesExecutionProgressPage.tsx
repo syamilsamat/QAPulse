@@ -1241,6 +1241,9 @@ export default function TestCasesExecutionProgressPage() {
   const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
   const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
   const [currentFileReviewStatus, setCurrentFileReviewStatus] = useState<string | null>(null);
+  const [currentFileRejectionReason, setCurrentFileRejectionReason] = useState<string | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [currentFileQaPicSetBy, setCurrentFileQaPicSetBy] = useState<number | null>(null);
   const [currentFileQaPic, setCurrentFileQaPic] = useState<string | null>(null);
   // CR075 — rolled-up phase timeline (planned dates from the milestone,
@@ -1446,6 +1449,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
         setCurrentFileReviewStatus(file?.reviewStatus ?? null);
+        setCurrentFileRejectionReason((file as any)?.rejectionReason ?? null);
         setCurrentFileQaPicSetBy((file as any)?.qaPicSetBy ?? null);
         setCurrentFileQaPic(file?.qaPic ?? null);
         setCurrentFilePhaseTimeline(file?.phaseTimeline ?? null);
@@ -1514,6 +1518,7 @@ export default function TestCasesExecutionProgressPage() {
       }
       toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
       setCurrentFileReviewStatus(action === "approve" ? "approved" : "rejected");
+      if (action === "reject") setCurrentFileRejectionReason(comment ?? null);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
     }
@@ -2918,11 +2923,17 @@ export default function TestCasesExecutionProgressPage() {
                 This execution file is currently in <strong>{currentFileReviewStatus.replace("_", " ")}</strong> status. 
                 You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
               </p>
+              {currentFileReviewStatus === "rejected" && currentFileRejectionReason && (
+                <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
+                  <strong>Rejection Reason:</strong> <br/>
+                  <span className="whitespace-pre-wrap">{currentFileRejectionReason}</span>
+                </div>
+              )}
             </div>
           </div>
           {currentFileReviewStatus === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
             <div className="flex items-center gap-2 shrink-0">
-              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => handleReviewAction("reject")}>
+              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
                 <XCircle className="w-4 h-4 mr-2" /> Reject
               </Button>
               <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleReviewAction("approve")}>
