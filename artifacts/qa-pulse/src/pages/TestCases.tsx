@@ -78,7 +78,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { getApiUrl } from "@/lib/api";
-import { Clock, AlertTriangle, XCircleIcon } from "lucide-react";
+import { Clock, AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
   const res = await fetch(`${getApiUrl()}/test-cases/export`, {
@@ -1567,7 +1567,7 @@ export default function TestCases() {
                 {tc.reviewStatus === "in_review" && canReview && tc.authorId !== user?.id && (
                   <>
                     <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(tc.id, "approve")}>
-                      <TestTube className="w-4 h-4 mr-2" /> Approve
+                      <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
                     </DropdownMenuItem>
                     <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
                       const comment = prompt("Reason for rejection:");
@@ -1677,7 +1677,7 @@ export default function TestCases() {
                       </button>
                       <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
                         <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(t.id, "approve")}>
-                          <TestTube className="w-3.5 h-3.5" />
+                          <CheckCircle2 className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
                           const comment = prompt("Reason for rejection:");
@@ -2504,7 +2504,7 @@ export default function TestCases() {
                       setDialogOpen(false);
                     }}
                   >
-                    <TestTube className="w-4 h-4 mr-2" /> Approve
+                    <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
                   </Button>
                   <Button
                     variant="outline"
