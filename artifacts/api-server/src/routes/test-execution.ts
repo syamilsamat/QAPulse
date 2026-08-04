@@ -408,6 +408,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
         requirementId: requirementId ? Number(requirementId) : null,
         milestoneId: milestoneId ? Number(milestoneId) : null,
         fileType: fileType || "qa",
+        qaPicSetBy: ctx.userId,
       } as any)
       .returning();
     // Audit: log execution file creation
@@ -632,13 +633,16 @@ router.get("/execution-files/review-queue", async (req, res): Promise<void> => {
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
 
   try {
+    const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId)).limit(1);
+    const userName = u?.name;
+
     const allFiles = await db.select().from(executionFilesTable);
     const scoped = allFiles.filter(t => accessible === null || (t.projectId != null && accessible.includes(t.projectId)));
 
     const waitingOnMe = scoped.filter(t => {
       const reviewStatus = (t as any).reviewStatus ?? "draft";
       // Ensure segregation of duties: You cannot review your own submitted execution files
-      return reviewStatus === "in_review" && (t as any).qaPicSetBy !== ctx.userId;
+      return reviewStatus === "in_review" && (t as any).qaPicSetBy !== ctx.userId && (t as any).qaPic !== userName;
     });
 
     const awaitingMyRevision = scoped.filter(t => {
@@ -742,6 +746,7 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
 
     if (action === "submit") {
       update.reviewStatus = "in_review";
+      update.qaPicSetBy = ctx.userId;
       // Clear rejection reason on resubmit
       update.rejectionReason = null;
     } else if (action === "approve") {
