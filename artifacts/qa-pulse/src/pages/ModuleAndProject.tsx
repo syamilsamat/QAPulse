@@ -672,7 +672,7 @@ export default function ModuleAndProject() {
       </div>
 
       <Tabs defaultValue={defaultTab} className="space-y-4">
-        <TabsList>
+        <TabsList className="flex flex-wrap h-auto w-full justify-start p-1 bg-muted/50 gap-y-1">
           <TabsTrigger value="projects" className="gap-2">
             <Box className="w-4 h-4" /> Projects &amp; Modules
           </TabsTrigger>
