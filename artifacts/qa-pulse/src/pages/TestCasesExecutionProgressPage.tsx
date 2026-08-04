@@ -1513,7 +1513,7 @@ export default function TestCasesExecutionProgressPage() {
         throw new Error(body.error ?? "Failed to perform review action");
       }
       toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
-      fetchData();
+      setCurrentFileReviewStatus(action === "approve" ? "approved" : "rejected");
     } catch (err: any) {
       toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
     }
