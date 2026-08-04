@@ -1416,8 +1416,6 @@ export default function ModuleAndProject() {
           <ProjectAccessPanel projects={projects} allModules={modules} />
         </TabsContent>
 
-      </Tabs>
-
       {/* === CONTACT ADD/EDIT DIALOG === */}
       <Dialog open={contactDialogOpen} onOpenChange={(v) => !v && setContactDialogOpen(false)}>
         <DialogContent className="max-w-md">
@@ -1678,6 +1676,7 @@ export default function ModuleAndProject() {
           </CardContent>
         </Card>
       </TabsContent>
+      </Tabs>
 
     </div>
   );
