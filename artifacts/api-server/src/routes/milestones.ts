@@ -61,6 +61,11 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     description: m.description ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
+    requiresUat: m.requiresUat ?? false,
+    pipelineEnabled: m.pipelineEnabled ?? false,
+    pipelineStep: m.pipelineStep ?? null,
+    signedOffAt: m.signedOffAt?.toISOString() ?? null,
+    signedOffBy: m.signedOffBy ?? null,
   };
 }
 
@@ -164,7 +169,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds } = req.body;
+  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds, requiresUat, pipelineEnabled, pipelineStep } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
@@ -197,6 +202,9 @@ router.post("/milestones", async (req, res): Promise<void> => {
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
+    requiresUat: Boolean(requiresUat),
+    pipelineEnabled: Boolean(pipelineEnabled),
+    pipelineStep: pipelineStep ? Number(pipelineStep) : null,
   }).returning();
 
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: ctx.id ?? ctx.userId, entityId: m.id, entityType: "milestone" });

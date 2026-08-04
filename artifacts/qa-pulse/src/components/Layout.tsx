@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // 1. Replaced MessageSquare with Bot
-import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon, FileSearch } from "lucide-react";
+import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon, FileSearch, Rocket } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const API_BASE = () => getApiUrl();
@@ -621,6 +621,16 @@ const NAV_ITEMS: NavItem[] = [
     section: "Delivery Flow",
   },
   {
+    href: "/qa-pipeline",
+    label: "QA Pipeline",
+    icon: Rocket,
+    activeColor: "text-blue-600",
+    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
+    permKey: "nav:qa-pipeline",
+    section: "Delivery Flow",
+    isPipelineFlow: true,
+  },
+  {
     href: "/tasks",
     label: "Tasks",
     icon: HoverCheckSquare,
@@ -867,8 +877,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
     enabled: !!user,
   });
 
+  const { data: pipelineSettings } = useQuery<{ qaFlowEnabled: boolean }>({
+    queryKey: ["pipeline-settings"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/pipeline-settings`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return { qaFlowEnabled: false };
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!user) return false;
+    
+    // Hide QA Pipeline if toggle is off
+    if ((item as any).isPipelineFlow && !pipelineSettings?.qaFlowEnabled) {
+      return false;
+    }
+
     if (item.alwaysVisible) return true;
     // Use dynamic permissions when available, fall back to static roles
     if (navPermissions && item.permKey) return navPermissions.includes(item.permKey);

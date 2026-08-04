@@ -79,6 +79,8 @@ import {
   BookOpen,
   Pencil,
   KeyRound,
+  Rocket,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import { getApiUrl, authHeaders } from "@/lib/api";
 
@@ -607,6 +609,42 @@ export default function ModuleAndProject() {
   };
 
   // =========================
+  // GLOBAL SETTINGS STATE
+  // =========================
+  const [qaFlowEnabled, setQaFlowEnabled] = useState(false);
+  const [globalSettingsLoading, setGlobalSettingsLoading] = useState(false);
+  const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      setGlobalSettingsLoading(true);
+      fetch(`${getApiUrl()}/pipeline-settings`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(data => setQaFlowEnabled(data.qaFlowEnabled ?? false))
+        .catch(() => {})
+        .finally(() => setGlobalSettingsLoading(false));
+    }
+  }, [user?.role]);
+
+  const handleSaveGlobalSettings = async () => {
+    setSavingGlobalSettings(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/pipeline-settings`, {
+        method: "PUT",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ qaFlowEnabled }),
+      });
+      if (!res.ok) throw new Error("Failed to save settings");
+      qc.invalidateQueries({ queryKey: ["pipeline-settings"] });
+      toast({ title: "Global settings saved" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to save global settings" });
+    } finally {
+      setSavingGlobalSettings(false);
+    }
+  };
+
+  // =========================
   // RENDER HELPERS
   // =========================
   const getStatusColor = (status: string) => {
@@ -664,6 +702,11 @@ export default function ModuleAndProject() {
           <TabsTrigger value="doc-register" className="gap-2">
             <BookOpen className="w-4 h-4" /> Document Register
           </TabsTrigger>
+          {user?.role === "admin" && (
+            <TabsTrigger value="global-settings" className="gap-2">
+              <SettingsIcon className="w-4 h-4" /> Global Settings
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="projects">
@@ -1596,6 +1639,46 @@ export default function ModuleAndProject() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* === GLOBAL SETTINGS TAB === */}
+      <TabsContent value="global-settings" className="space-y-6">
+        <Card className="max-w-2xl">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <Rocket className="w-5 h-5 text-blue-600" />
+              QA Pipeline Features
+            </CardTitle>
+            <CardDescription>
+              Enable or disable the guided QA deployment flow system-wide.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {globalSettingsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading settings...</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <Label className="text-base">Enable QA Pipeline Flow</Label>
+                    <p className="text-sm text-muted-foreground">
+                      If enabled, users will use the 8-step QA pipeline. If disabled, the system reverts to the standard flow.
+                    </p>
+                  </div>
+                  <Checkbox 
+                    checked={qaFlowEnabled} 
+                    onCheckedChange={(checked) => setQaFlowEnabled(!!checked)}
+                    className="h-5 w-5"
+                  />
+                </div>
+                <Button onClick={handleSaveGlobalSettings} disabled={savingGlobalSettings}>
+                  {savingGlobalSettings ? "Saving..." : "Save Settings"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+
     </div>
   );
 }

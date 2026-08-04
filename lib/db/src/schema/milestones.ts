@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 
 export const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
@@ -21,6 +21,12 @@ export const milestonesTable = pgTable("milestones", {
   goLiveDate: timestamp("go_live_date", { withTimezone: true }),
   // Test environment this milestone runs in ('ENV1'…'ENV6'), set by the PM.
   environment: text("environment"),
+  // QA Pipeline additions
+  requiresUat: boolean("requires_uat").notNull().default(false),
+  pipelineStep: integer("pipeline_step"),
+  pipelineEnabled: boolean("pipeline_enabled").notNull().default(false),
+  signedOffAt: timestamp("signed_off_at", { withTimezone: true }),
+  signedOffBy: integer("signed_off_by"),
   // CR023p1.2 — needed to notify the milestone's PM on a linked requirement's rejection
   createdBy: integer("created_by"),
   // Auto-stamped when status transitions to 'completed' (and cleared if it

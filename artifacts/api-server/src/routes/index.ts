@@ -27,6 +27,7 @@ import milestonesRouter from "./milestones";
 import requirementCommentsRouter from "./requirement-comments";
 import risksRouter from "./risks";
 import searchRouter from "./search";
+import pipelineSettingsRouter from "./pipeline-settings";
 
 const router: IRouter = Router();
 
@@ -58,5 +59,6 @@ router.use(milestonesRouter);
 router.use(requirementCommentsRouter);
 router.use(risksRouter);
 router.use(searchRouter);
+router.use(pipelineSettingsRouter);
 
 export default router;

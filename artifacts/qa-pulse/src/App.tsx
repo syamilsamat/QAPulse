@@ -39,6 +39,7 @@ import RiskRegister from "@/pages/RiskRegister";
 import UatSignoffs from "@/pages/UatSignoffs";
 import Resources from "@/pages/Resources";
 import QAAnalytics from "@/pages/QAAnalytics";
+import QAPipeline from "@/pages/QAPipeline";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -175,6 +176,22 @@ function Router() {
           component={Milestones}
           permKey="nav:milestones"
           roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead", "pm_member"]}
+        />
+      </Route>
+
+      <Route path="/qa-pipeline">
+        <ProtectedRoute
+          component={QAPipeline}
+          permKey="nav:qa-pipeline"
+          roles={["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]}
+        />
+      </Route>
+
+      <Route path="/qa-pipeline/:milestoneId">
+        <ProtectedRoute
+          component={QAPipeline}
+          permKey="nav:qa-pipeline"
+          roles={["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]}
         />
       </Route>
 
