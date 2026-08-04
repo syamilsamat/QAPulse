@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -1147,11 +1147,13 @@ export default function TestCases() {
       selectedIds.size > 0
         ? testCases.filter((t) => selectedIds.has(t.id))
         : filtered;
-    if (toExport.length === 0)
-      return toast({
+    if (toExport.length === 0) {
+      toast({
         variant: "destructive",
         title: "No test cases to export",
       });
+      return;
+    }
     exportToExcel(toExport, user?.name).then(() => toast({ title: "Export complete" }));
   };
 
