@@ -682,7 +682,7 @@ router.get("/requirements/review-queue", async (req, res): Promise<void> => {
   const waitingOnMe = scoped.filter(r => {
     const reviewStatus = (r as any).reviewStatus ?? "draft";
     const createdBy = (r as any).createdBy;
-    return reviewStatus === "in_review" && (isLead || createdBy !== ctx.userId);
+    return reviewStatus === "in_review" && createdBy !== ctx.userId;
   });
 
   const awaitingMyRevision = scoped.filter(r => {
