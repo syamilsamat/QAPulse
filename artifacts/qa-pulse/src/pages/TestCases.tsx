@@ -1671,10 +1671,21 @@ export default function TestCases() {
                 <p className="text-xs font-medium text-muted-foreground mb-1.5">Waiting on my review ({reviewQueue.waitingOnMe.length})</p>
                 <div className="space-y-1">
                   {reviewQueue.waitingOnMe.slice(0, 5).map((t: any) => (
-                    <div key={t.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded px-2 py-1 border border-blue-100 dark:border-blue-900">
-                      <button className="hover:underline text-left flex-1 truncate" onClick={() => openEdit(t)}>
+                    <div key={t.id} className="flex items-center justify-between text-sm bg-white dark:bg-background rounded pl-2 pr-1 py-1 border border-blue-100 dark:border-blue-900 group">
+                      <button className="hover:underline text-left flex-1 truncate pr-2" onClick={() => openEdit(t)}>
                         {t.title}
                       </button>
+                      <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(t.id, "approve")}>
+                          <TestTube className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
+                          const comment = prompt("Reason for rejection:");
+                          if (comment !== null) handleReviewAction(t.id, "reject", comment);
+                        }}>
+                          <XCircleIcon className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                       {t.stale && <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0 ml-2" aria-label="Stale — waiting 3+ days" />}
                     </div>
                   ))}
@@ -2481,30 +2492,61 @@ export default function TestCases() {
               />
             </div>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button
-              variant="outline"
-              onClick={() => setDialogOpen(false)}
-              className="w-full sm:w-auto"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={
-                !form.title ||
-                !form.testSteps ||
-                createMutation.isPending ||
-                updateMutation.isPending
-              }
-              className="w-full sm:w-auto"
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? "Saving..."
-                : editingTC
-                  ? "Save Changes"
-                  : "Create"}
-            </Button>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0 sm:justify-between w-full">
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              {editingTC && editingTC.reviewStatus === "in_review" && canReview && editingTC.authorId !== user?.id && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="w-full sm:w-auto text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700 dark:text-green-500 dark:border-green-900 dark:hover:bg-green-950"
+                    onClick={() => {
+                      handleReviewAction(editingTC.id, "approve");
+                      setDialogOpen(false);
+                    }}
+                  >
+                    <TestTube className="w-4 h-4 mr-2" /> Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full sm:w-auto text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-500 dark:border-red-900 dark:hover:bg-red-950"
+                    onClick={() => {
+                      const comment = prompt("Reason for rejection:");
+                      if (comment !== null) {
+                        handleReviewAction(editingTC.id, "reject", comment);
+                        setDialogOpen(false);
+                      }
+                    }}
+                  >
+                    <XCircleIcon className="w-4 h-4 mr-2" /> Reject
+                  </Button>
+                </>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+                className="w-full sm:w-auto"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={
+                  !form.title ||
+                  !form.testSteps ||
+                  createMutation.isPending ||
+                  updateMutation.isPending
+                }
+                className="w-full sm:w-auto"
+              >
+                {createMutation.isPending || updateMutation.isPending
+                  ? "Saving..."
+                  : editingTC
+                    ? "Save Changes"
+                    : "Create"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
