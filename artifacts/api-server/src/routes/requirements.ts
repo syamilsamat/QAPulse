@@ -694,12 +694,8 @@ router.get("/requirements/review-queue", async (req, res): Promise<void> => {
   const now = Date.now();
   function withAge(reqs: typeof allReqs) {
     return reqs.map(r => ({
-      id: r.id,
-      title: r.title,
-      module: r.module,
-      projectId: r.projectId,
+      ...r,
       reviewStatus: (r as any).reviewStatus ?? "draft",
-      createdBy: (r as any).createdBy,
       rejectedAt: (r as any).rejectedAt ?? null,
       updatedAt: r.updatedAt.toISOString(),
       daysInStatus: Math.floor((now - r.updatedAt.getTime()) / 86400000),

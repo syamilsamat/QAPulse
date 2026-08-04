@@ -397,12 +397,8 @@ router.get("/test-cases/review-queue", async (req, res): Promise<void> => {
   const now = Date.now();
   function withAge(tcs: typeof allTcs) {
     return tcs.map(t => ({
-      id: t.id,
-      title: t.title,
-      module: t.module,
-      projectId: t.projectId,
+      ...t,
       reviewStatus: t.reviewStatus ?? "draft",
-      authorId: t.authorId,
       rejectedAt: t.rejectedAt ?? null,
       updatedAt: t.updatedAt.toISOString(),
       daysInStatus: Math.floor((now - t.updatedAt.getTime()) / 86400000),
