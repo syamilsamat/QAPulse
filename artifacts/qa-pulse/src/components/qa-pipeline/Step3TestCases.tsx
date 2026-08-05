@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, TestTube, Wand2, PackagePlus, X, CheckCircle2 } from "lucide-react";
+import { Loader2, TestTube, Wand2, PackagePlus, X, CheckCircle2, Send, Clock } from "lucide-react";
 import { useMilestoneTestCases } from "./useMilestoneTestCases";
 import { CompileToExecutionDialog } from "@/components/execution/CompileToExecutionDialog";
 
@@ -35,6 +35,7 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
   const [, setLocation] = useLocation();
 
   const [tagging, setTagging] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [compileOpen, setCompileOpen] = useState(false);
 
@@ -80,9 +81,13 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
       return res.ok ? res.json() : [];
     },
   });
-  const milestoneTicketIds = useMemo(
-    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId).map((f) => String(f.redmineTicketId)),
+  const milestoneFiles = useMemo(
+    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
     [allFiles, milestoneId],
+  );
+  const milestoneTicketIds = useMemo(
+    () => milestoneFiles.map((f) => String(f.redmineTicketId)),
+    [milestoneFiles],
   );
   const { data: compiledIdList } = useQuery({
     queryKey: ["compiled-library-tc-ids", milestoneId, milestoneTicketIds.join(",")],
@@ -122,6 +127,47 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
     setSelectedIds(allSelected ? new Set() : new Set(compilableTestCases.map((tc: any) => tc.id)));
   };
 
+  // Same action the Execution Dashboard's own "Submit for Review" uses
+  // (PATCH /execution-files/:id/review with action "submit" → reviewStatus
+  // becomes in_review), so a reviewer picks it up in the exact same queue.
+  const submittableFiles = useMemo(
+    () => milestoneFiles.filter((f) => !f.reviewStatus || f.reviewStatus === "draft" || f.reviewStatus === "rejected"),
+    [milestoneFiles],
+  );
+  const inReviewCount = useMemo(
+    () => milestoneFiles.filter((f) => f.reviewStatus === "in_review").length,
+    [milestoneFiles],
+  );
+  const approvedCount = useMemo(
+    () => milestoneFiles.filter((f) => f.reviewStatus === "approved").length,
+    [milestoneFiles],
+  );
+
+  const handleSubmitForReview = async () => {
+    setSubmitting(true);
+    try {
+      for (const f of submittableFiles) {
+        const res = await api(`/execution-files/${f.id}/review`, token, {
+          method: "PATCH",
+          body: JSON.stringify({ action: "submit" }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? "Failed to submit for review");
+        }
+      }
+      toast({
+        title: "Submitted for review",
+        description: "A reviewer can now review these test cases on the Execution Dashboard.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["execution-files"] });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Submit failed", description: String(err?.message ?? err) });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleRiskBasedTagging = async () => {
     setTagging(true);
     try {
@@ -158,12 +204,47 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <div className="text-4xl font-bold text-primary">{coveragePercent}%</div>
-            <div className="text-sm text-muted-foreground mt-1">Requirement Coverage</div>
-          </CardContent>
-        </Card>
+        {milestoneFiles.length === 0 ? (
+          <Card>
+            <CardContent className="pt-6 text-center">
+              <div className="text-4xl font-bold text-primary">{coveragePercent}%</div>
+              <div className="text-sm text-muted-foreground mt-1">Requirement Coverage</div>
+            </CardContent>
+          </Card>
+        ) : submittableFiles.length > 0 ? (
+          <Card className="border-primary/40">
+            <CardContent className="pt-6 flex flex-col items-center justify-center h-full gap-3">
+              <p className="text-sm text-muted-foreground text-center">
+                {submittableFiles.length} execution file{submittableFiles.length > 1 ? "s" : ""} compiled and ready for review
+              </p>
+              <Button className="w-full" onClick={handleSubmitForReview} disabled={submitting}>
+                {submitting
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting...</>
+                  : <><Send className="w-4 h-4 mr-2" /> Submit for Review</>}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : inReviewCount > 0 ? (
+          <Card className="border-amber-300">
+            <CardContent className="pt-6 flex flex-col items-center justify-center h-full gap-2 text-center">
+              <Clock className="w-7 h-7 text-amber-500" />
+              <p className="font-medium text-amber-600">Awaiting review</p>
+              <p className="text-xs text-muted-foreground">
+                Submitted — a reviewer approves this on the Execution Dashboard (Step 4).
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-green-500 bg-green-50 dark:bg-green-950/20">
+            <CardContent className="pt-6 flex flex-col items-center justify-center h-full gap-2 text-center">
+              <CheckCircle2 className="w-7 h-7 text-green-600" />
+              <p className="font-medium text-green-700 dark:text-green-400">
+                {approvedCount > 1 ? `${approvedCount} files approved` : "Approved"}
+              </p>
+              <p className="text-xs text-muted-foreground">Ready to execute in Step 5.</p>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardContent className="pt-6 text-center">
             <div className="text-4xl font-bold text-primary">{testCases.length}</div>
