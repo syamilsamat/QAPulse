@@ -835,6 +835,52 @@ const PHASE_DUE_DATE_FIELD: Record<PhaseKey, "reqTargetDate" | "devTargetDate" |
   uat: "uatTargetDate",
 };
 
+// ── QA Pipeline progress for the Tasks board ────────────────────────────────
+// A pipeline milestone doesn't advance through the FA→Dev→QA activity events
+// that computeRequirementTimelines() reads: Step 4 approves execution *files*,
+// not requirements, and nothing ever writes requirement.reviewStatus. So the
+// timeline machinery leaves every pipeline requirement parked in
+// "requirements"/"Draft" at 0% no matter how much of the pipeline is done.
+//
+// For pipeline milestones we therefore derive stage, label and progress from the
+// pipeline's own gates — deliberately the same checks Step 8's readiness list
+// shows, so the two screens can't disagree.
+interface PipelineState {
+  progress: number;
+  label: string;
+  phase: PhaseKey;
+}
+
+function computePipelineState(input: {
+  requirementCount: number;
+  executionFileCount: number;
+  allFilesApproved: boolean;
+  totalExecRows: number;
+  executedRows: number;
+  signedOff: boolean;
+  requiresUat: boolean;
+  uatDocCount: number;
+  deployed: boolean;
+}): PipelineState {
+  const gates: { done: boolean; label: string; phase: PhaseKey }[] = [
+    { done: input.requirementCount > 0, label: "Awaiting requirements", phase: "requirements" },
+    { done: input.executionFileCount > 0, label: "Awaiting test cases", phase: "requirements" },
+    { done: input.allFilesApproved, label: "Awaiting test case approval", phase: "qa" },
+    { done: input.totalExecRows > 0 && input.executedRows >= input.totalExecRows, label: "In execution", phase: "qa" },
+    { done: input.signedOff, label: "Awaiting functional sign-off", phase: "qa" },
+    { done: !input.requiresUat || input.uatDocCount > 0, label: "Awaiting UAT sign-off", phase: "uat" },
+    { done: input.deployed, label: "Ready to deploy", phase: "uat" },
+  ];
+
+  const doneCount = gates.filter((g) => g.done).length;
+  const progress = Math.round((doneCount / gates.length) * 100);
+  const firstOpen = gates.find((g) => !g.done);
+
+  // Every gate cleared — the milestone is deployed and the pipeline is closed.
+  if (!firstOpen) return { progress: 100, label: "Deployed", phase: "uat" };
+  return { progress, label: firstOpen.label, phase: firstOpen.phase };
+}
+
 interface PhaseTimelineEntry {
   key: "requirements" | "development" | "qa" | "uat";
   label: string;
@@ -993,6 +1039,42 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       .from(executionTestCasesTable)
       .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
       .where(inArray(executionTestCasesTable.requirementId, reqIds));
+
+    // Pipeline milestones get their stage/progress from the pipeline's gates
+    // instead of the requirement activity timeline — see computePipelineState.
+    let pipelineState: PipelineState | null = null;
+    if (m.pipelineEnabled) {
+      const milestoneFiles = await db
+        .select({ id: executionFilesTable.id, reviewStatus: executionFilesTable.reviewStatus })
+        .from(executionFilesTable)
+        .where(eq(executionFilesTable.milestoneId, m.id));
+
+      const fileIds = milestoneFiles.map((f) => f.id);
+      // Scoped by execution file, not requirementId, so rows that were never
+      // linked back to a requirement still count toward "everything executed".
+      const execRowsForMilestone = fileIds.length > 0
+        ? await db
+            .select({ result: executionTestCasesTable.result })
+            .from(executionTestCasesTable)
+            .where(inArray(executionTestCasesTable.executionFileId, fileIds))
+        : [];
+
+      const uatDocs = m.requiresUat
+        ? await db.select({ id: uatSignoffsTable.id }).from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, m.id))
+        : [];
+
+      pipelineState = computePipelineState({
+        requirementCount: entries.length,
+        executionFileCount: milestoneFiles.length,
+        allFilesApproved: milestoneFiles.length > 0 && milestoneFiles.every((f) => f.reviewStatus === "approved"),
+        totalExecRows: execRowsForMilestone.length,
+        executedRows: execRowsForMilestone.filter((r) => classifyResult(r.result) !== "notRun").length,
+        signedOff: !!m.signedOffAt,
+        requiresUat: !!m.requiresUat,
+        uatDocCount: uatDocs.length,
+        deployed: m.status === "completed",
+      });
+    }
     const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
     for (const r of execResultRows) {
       if (r.requirementId == null) continue;
@@ -1063,7 +1145,21 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       else if (phase === "uat") progress = uatProgress;
       else progress = faProgress;
 
-      const dueDate = (m as any)[PHASE_DUE_DATE_FIELD[phase]]?.toISOString?.() ?? null;
+      // Pipeline milestones report the pipeline's own stage and progress.
+      const effectivePhase = pipelineState ? pipelineState.phase : phase;
+      const effectiveLabel = pipelineState ? pipelineState.label : PHASE_LABELS[phase];
+      const effectiveProgress = pipelineState ? pipelineState.progress : progress;
+
+      // The per-phase target dates (Requirements by / Dev done by / …) are
+      // optional and usually blank, which left this column empty. Fall back to
+      // the milestone's own target date — the one date that's actually always
+      // set — and prefer it outright for pipeline milestones, where QA plans
+      // against the milestone target rather than per-phase windows.
+      const phaseDue = (m as any)[PHASE_DUE_DATE_FIELD[phase]] ?? null;
+      const milestoneDue = m.targetDate ?? null;
+      const dueDate = (m.pipelineEnabled
+        ? (milestoneDue ?? phaseDue)
+        : (phaseDue ?? milestoneDue))?.toISOString?.() ?? null;
 
       rows.push({
         requirementId: entry.id,
@@ -1074,11 +1170,11 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
         milestoneName: m.name,
         milestonePriority: (m as any).priority ?? null,
         milestoneStatus: m.status,
-        phase,
-        phaseLabel: PHASE_LABELS[phase],
-        statusLabel: entry.status,
+        phase: effectivePhase,
+        phaseLabel: effectiveLabel,
+        statusLabel: pipelineState ? effectiveLabel : entry.status,
         assignee,
-        progress,
+        progress: effectiveProgress,
         dueDate,
         goLiveDate: m.goLiveDate?.toISOString() ?? null,
         devAssigneeId,
