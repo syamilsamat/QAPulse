@@ -905,6 +905,8 @@ function SyncRedmineDialog({
   const [projectId, setProjectId] = useState<string>("");
   const [module, setModule] = useState<string>("");
   const [requirementId, setRequirementId] = useState<string>("");
+  // Typed straight from Redmine — the parent needn't exist in QMPulse yet.
+  const [parentRedmineId, setParentRedmineId] = useState<string>("");
   const [trackerName, setTrackerName] = useState<string>("all");
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -936,8 +938,13 @@ function SyncRedmineDialog({
     .map((r) => ({ value: String(r.id), label: `#${r.redmineTicketId} — ${r.title}` }));
 
   const handleSync = async () => {
-    if (!requirementId) {
-      toast({ variant: "destructive", title: "Select the requirement (Redmine ticket) to sync under" });
+    const typedParent = parentRedmineId.trim().replace(/^#/, "");
+    if (!typedParent && !requirementId) {
+      toast({ variant: "destructive", title: "Enter the parent Redmine ID to sync" });
+      return;
+    }
+    if (typedParent && !/^\d+$/.test(typedParent)) {
+      toast({ variant: "destructive", title: "Parent Redmine ID must be a number, e.g. 38849" });
       return;
     }
     setIsSyncing(true);
@@ -948,7 +955,10 @@ function SyncRedmineDialog({
         body: JSON.stringify({
           projectId: projectId ? Number(projectId) : null,
           module: module || null,
-          requirementId: Number(requirementId),
+          // Typed ID wins when both are somehow present.
+          ...(typedParent
+            ? { parentRedmineId: typedParent }
+            : { requirementId: Number(requirementId) }),
           trackerName,
         }),
       });
@@ -1005,15 +1015,37 @@ function SyncRedmineDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Requirement (Redmine ticket) <span className="text-destructive">*</span></Label>
-            <SearchableSelect
-              value={requirementId}
-              onValueChange={setRequirementId}
-              options={reqOptions}
-              placeholder="Select #redmineId — title..."
-              searchPlaceholder="Search requirement..."
-              emptyText={projectId ? "No requirements with a Redmine ticket in this project." : "No requirements with a Redmine ticket."}
+            <Label htmlFor="syncParentRedmineId">
+              Parent Redmine ID <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="syncParentRedmineId"
+              inputMode="numeric"
+              value={parentRedmineId}
+              onChange={(e) => setParentRedmineId(e.target.value)}
+              placeholder="e.g. 38849"
             />
+            <p className="text-xs text-muted-foreground">
+              The parent ticket is imported too, along with every child and grandchild beneath it — it doesn't need
+              to be in QMPulse first.
+            </p>
+            {reqOptions.length > 0 && (
+              <details className="pt-1">
+                <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                  Or pick a requirement already in QMPulse
+                </summary>
+                <div className="pt-2">
+                  <SearchableSelect
+                    value={requirementId}
+                    onValueChange={(v) => { setRequirementId(v); setParentRedmineId(""); }}
+                    options={reqOptions}
+                    placeholder="Select #redmineId — title..."
+                    searchPlaceholder="Search requirement..."
+                    emptyText={projectId ? "No requirements with a Redmine ticket in this project." : "No requirements with a Redmine ticket."}
+                  />
+                </div>
+              </details>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Tracker</Label>

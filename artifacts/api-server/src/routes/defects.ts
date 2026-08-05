@@ -22,6 +22,7 @@ import {
   refreshDefectStatuses,
   pullTrackerIssues,
   fetchIssueTree,
+  fetchSingleIssue,
   severityFromPriority,
   syncIssueStatuses,
   pushStatusToRedmine,
@@ -1096,9 +1097,14 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { projectId, module, requirementId, trackerName } = req.body ?? {};
-    if (!requirementId) {
-      res.status(400).json({ error: "requirementId is required" });
+    const { projectId, module, requirementId, trackerName, parentRedmineId } = req.body ?? {};
+    const typedParentId = parentRedmineId != null ? String(parentRedmineId).trim().replace(/^#/, "") : "";
+    if (!requirementId && !typedParentId) {
+      res.status(400).json({ error: "Enter a parent Redmine ID (or pick a requirement)" });
+      return;
+    }
+    if (typedParentId && !/^\d+$/.test(typedParentId)) {
+      res.status(400).json({ error: "Parent Redmine ID must be a number, e.g. 38849" });
       return;
     }
     // trackerName optional: "all" (or empty) syncs every tracker, each issue
@@ -1107,36 +1113,83 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
     const trackerFilter =
       trackerName && String(trackerName).toLowerCase() !== "all" ? String(trackerName).toLowerCase() : null;
 
-    const [requirement] = await db
-      .select()
-      .from(requirementsTable)
-      .where(eq(requirementsTable.id, Number(requirementId)));
-    if (!requirement) {
-      res.status(404).json({ error: "Requirement not found" });
-      return;
-    }
-    if (!(await canAccessDefectProject(ctx, projectId ?? requirement.projectId))) {
-      res.status(403).json({ error: "Access denied to this project" });
-      return;
-    }
-    if (!requirement.redmineTicketId) {
-      res.status(400).json({ error: "Selected requirement has no Redmine ticket id" });
-      return;
-    }
-
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-    const { issues, error } = await fetchIssueTree(apiKey, requirement.redmineTicketId);
-    if (error) {
-      res.status(502).json({ error });
-      return;
-    }
-
     const actorId = actorFromReq(req);
     const syncDate = new Date();
     let created = 0;
     let ignored = 0; // already in QAPulse → left untouched (insert-only sync)
     let skipped = 0;
     const counts = { requirements: 0, qaDefects: 0, prodDefects: 0, others: 0 };
+
+    // The tree walk hangs everything off a QAPulse requirement (it supplies the
+    // project/module/milestone defaults and the hierarchy root). Two ways to get
+    // one:
+    //   • requirementId — pick an already-imported requirement (original flow).
+    //   • parentRedmineId — type the parent ticket straight from Redmine. The
+    //     parent itself gets imported here, so a single ID brings in the parent
+    //     *and* its whole subtree, which is what fetchIssueTree alone can't do
+    //     (it only returns descendants).
+    let requirement: typeof requirementsTable.$inferSelect | undefined;
+
+    if (typedParentId) {
+      const { issue: rootIssue, error: rootErr } = await fetchSingleIssue(apiKey, typedParentId);
+      if (rootErr || !rootIssue) {
+        res.status(502).json({ error: rootErr ?? `Redmine issue #${typedParentId} not found` });
+        return;
+      }
+      if (!(await canAccessDefectProject(ctx, projectId ?? null))) {
+        res.status(403).json({ error: "Access denied to this project" });
+        return;
+      }
+      [requirement] = await db
+        .select()
+        .from(requirementsTable)
+        .where(eq(requirementsTable.redmineTicketId, typedParentId));
+      if (requirement) {
+        ignored++; // parent already in QAPulse — reuse it as the anchor
+      } else {
+        const [row] = await db
+          .insert(requirementsTable)
+          .values({
+            title: rootIssue.subject ?? `Redmine #${typedParentId}`,
+            description: rootIssue.description ?? null,
+            module: module ?? null,
+            projectId: projectId ?? null,
+            redmineTicketId: typedParentId,
+            tracker: rootIssue.tracker?.name ?? null,
+            status: "open",
+            redmineCreatedAt: rootIssue.created_on ? new Date(rootIssue.created_on) : null,
+            createdBy: actorId,
+          })
+          .returning();
+        requirement = row;
+        created++;
+        counts.requirements++;
+      }
+    } else {
+      [requirement] = await db
+        .select()
+        .from(requirementsTable)
+        .where(eq(requirementsTable.id, Number(requirementId)));
+      if (!requirement) {
+        res.status(404).json({ error: "Requirement not found" });
+        return;
+      }
+      if (!(await canAccessDefectProject(ctx, projectId ?? requirement.projectId))) {
+        res.status(403).json({ error: "Access denied to this project" });
+        return;
+      }
+      if (!requirement.redmineTicketId) {
+        res.status(400).json({ error: "Selected requirement has no Redmine ticket id" });
+        return;
+      }
+    }
+
+    const { issues, error } = await fetchIssueTree(apiKey, requirement.redmineTicketId!);
+    if (error) {
+      res.status(502).json({ error });
+      return;
+    }
 
     // Hierarchy anchors: for each Redmine id, the QAPulse requirement to hang
     // children off. Root = the selected requirement. Defects and skipped

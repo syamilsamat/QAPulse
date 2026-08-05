@@ -375,6 +375,25 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
 // Sync-from-Redmine dialog: walk the WHOLE subtree under a parent ticket
 // (children, grandchildren, …) breadth-first, so parents always come before
 // their children in the returned list. Read-only. Caps: depth 5, ~300 issues.
+// Fetch a single issue by id. Used when syncing from a typed-in parent Redmine
+// id, where the root ticket may not be in QAPulse yet — fetchIssueTree below
+// only walks *descendants* and never returns the root itself.
+export async function fetchSingleIssue(
+  apiKey: string,
+  redmineId: string,
+): Promise<{ issue: any | null; error?: string }> {
+  try {
+    const res = await redmineFetch(`/issues/${encodeURIComponent(redmineId)}.json`, apiKey);
+    if (res.status === 404) return { issue: null, error: `Redmine issue #${redmineId} not found` };
+    if (!res.ok) return { issue: null, error: `Redmine ${res.status}` };
+    const data: any = await res.json();
+    if (!data?.issue) return { issue: null, error: `Redmine issue #${redmineId} not found` };
+    return { issue: data.issue };
+  } catch (err: any) {
+    return { issue: null, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
 export async function fetchIssueTree(
   apiKey: string,
   rootRedmineId: string,
