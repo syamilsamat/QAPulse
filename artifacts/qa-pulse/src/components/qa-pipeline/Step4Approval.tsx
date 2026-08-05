@@ -118,36 +118,6 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
         </Card>
       )}
 
-      <div className="grid grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <div className="text-3xl font-bold">{total}</div>
-            <div className="text-xs text-muted-foreground mt-1 uppercase">Total</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <Clock className="w-4 h-4 mx-auto mb-1 text-amber-500" />
-            <div className="text-3xl font-bold text-amber-500">{pending}</div>
-            <div className="text-xs text-muted-foreground mt-1 uppercase">Pending</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <CheckCircle2 className="w-4 h-4 mx-auto mb-1 text-green-500" />
-            <div className="text-3xl font-bold text-green-500">{approved}</div>
-            <div className="text-xs text-muted-foreground mt-1 uppercase">Approved</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <XCircle className="w-4 h-4 mx-auto mb-1 text-red-500" />
-            <div className="text-3xl font-bold text-red-500">{rejected}</div>
-            <div className="text-xs text-muted-foreground mt-1 uppercase">Rejected</div>
-          </CardContent>
-        </Card>
-      </div>
-
       {total > 0 && (
         <Card>
           <CardContent className="p-0">

@@ -66,5 +66,30 @@ export function useMilestoneTestCases(milestoneId: number, projectId?: number) {
     [projectTestCases, requirementIds],
   );
 
-  return { requirements, testCases, isLoading, refetch };
+  // How many of this milestone's requirements have at least one test case.
+  // Computed here rather than by the caller because of the same widening as
+  // above: a test case's requirementId can point at a *duplicate* requirement
+  // row under another milestone, so a plain `requirementId === r.id` match
+  // would under-count. Requirements are matched back through redmineTicketId.
+  const coveredRequirementCount = useMemo(() => {
+    const ticketByReqId = new Map<number, string>();
+    for (const r of [...(allProjectRequirements as any[]), ...(requirements as any[])]) {
+      if (r.redmineTicketId) ticketByReqId.set(r.id, String(r.redmineTicketId));
+    }
+    const coveredReqIds = new Set<number>();
+    const coveredTickets = new Set<string>();
+    for (const tc of testCases as any[]) {
+      if (tc.requirementId == null) continue;
+      coveredReqIds.add(tc.requirementId);
+      const ticket = ticketByReqId.get(tc.requirementId);
+      if (ticket) coveredTickets.add(ticket);
+    }
+    return (requirements as any[]).filter((r) => {
+      if (coveredReqIds.has(r.id)) return true;
+      const ticket = r.redmineTicketId ? String(r.redmineTicketId) : null;
+      return !!ticket && coveredTickets.has(ticket);
+    }).length;
+  }, [requirements, allProjectRequirements, testCases]);
+
+  return { requirements, testCases, coveredRequirementCount, isLoading, refetch };
 }
