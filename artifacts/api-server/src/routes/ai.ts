@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { execSync } from "child_process";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import {
   db,
@@ -1976,28 +1977,217 @@ ${gherkin}`;
 });
 
 // 4. Generate Release Notes (Enhancement 9 / Step 8)
+// ── Release notes PDF ───────────────────────────────────────────────────────
+// Rendered through headless Chromium (same approach as verdict-report.ts) so
+// the document gets real typography, page margins and repeating page numbers
+// rather than a plain text dump.
+let releaseNotesPuppeteer: any = null;
+try {
+  releaseNotesPuppeteer = require("puppeteer");
+} catch {}
+
+function findChromiumForPdf(): string | undefined {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  try {
+    const p = execSync(
+      "which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null",
+      { encoding: "utf8" },
+    ).trim();
+    return p || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Minimal Markdown → HTML for the fixed structure the prompt above produces
+// (headings, bullets, bold, paragraphs). Deliberately not a full parser.
+function releaseNotesMarkdownToHtml(md: string): string {
+  const lines = md.replace(/^```(?:markdown)?\s*|\s*```$/g, "").split(/\r?\n/);
+  const out: string[] = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+  const inline = (s: string) =>
+    escapeHtml(s)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[\s(])\*(?!\s)([^*]+?)\*(?=[\s.,;:)]|$)/g, "$1<em>$2</em>")
+      .replace(/·/g, "<span class='dot'>·</span>");
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { closeList(); continue; }
+    const h1 = line.match(/^#\s+(.*)$/);
+    const h2 = line.match(/^##\s+(.*)$/);
+    const h3 = line.match(/^###\s+(.*)$/);
+    const li = line.match(/^[-*]\s+(.*)$/);
+    if (h1) { closeList(); out.push(`<h1>${inline(h1[1])}</h1>`); continue; }
+    if (h2) { closeList(); out.push(`<h2>${inline(h2[1])}</h2>`); continue; }
+    if (h3) { closeList(); out.push(`<h3>${inline(h3[1])}</h3>`); continue; }
+    if (li) {
+      if (!inList) { out.push("<ul>"); inList = true; }
+      out.push(`<li>${inline(li[1])}</li>`);
+      continue;
+    }
+    closeList();
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  closeList();
+  return out.join("\n");
+}
+
+async function releaseNotesPdf(
+  markdown: string,
+  meta: { title: string; project: string | null },
+): Promise<Buffer | null> {
+  if (!releaseNotesPuppeteer) return null;
+  const body = releaseNotesMarkdownToHtml(markdown);
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  @page { size: A4; margin: 20mm 18mm 18mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt; line-height: 1.6; color: #1f2937; margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 {
+    font-size: 21pt; line-height: 1.25; font-weight: 700; color: #0f2942;
+    margin: 0 0 4mm; padding-bottom: 3mm; border-bottom: 2.5px solid #2E75B6;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 13pt; font-weight: 700; color: #1F4E79;
+    margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 1px solid #dbe5ef;
+    page-break-after: avoid;
+  }
+  h3 { font-size: 11pt; font-weight: 700; color: #1F4E79; margin: 6mm 0 2mm; page-break-after: avoid; }
+  p { margin: 0 0 3.5mm; text-align: justify; }
+  ul { margin: 0 0 4mm; padding-left: 6mm; }
+  li { margin-bottom: 2mm; page-break-inside: avoid; }
+  li strong { color: #0f2942; }
+  strong { font-weight: 700; }
+  .dot { color: #9aa7b4; padding: 0 2px; }
+  h1 + p { color: #55657a; font-size: 9.5pt; margin-bottom: 7mm; }
+</style></head><body>
+${body}
+</body></html>`;
+
+  const browser = await releaseNotesPuppeteer.launch({
+    headless: true,
+    executablePath: findChromiumForPdf(),
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    const buf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:7.5pt;color:#9aa7b4;width:100%;padding:0 18mm;">
+        <span>${escapeHtml(meta.project ?? "")}</span>
+      </div>`,
+      footerTemplate: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:7.5pt;color:#9aa7b4;width:100%;padding:0 18mm;display:flex;justify-content:space-between;">
+        <span>${escapeHtml(meta.title)} — Release Notes</span>
+        <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+      </div>`,
+      margin: { top: "20mm", bottom: "18mm", left: "18mm", right: "18mm" },
+    });
+    return Buffer.from(buf);
+  } finally {
+    await browser.close();
+  }
+}
+
 router.post("/ai/generate-release-notes", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { milestoneId } = req.body;
+  const { milestoneId, format } = req.body;
   if (!milestoneId) { res.status(400).json({ error: "Missing milestoneId" }); return; }
 
   try {
     const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, milestoneId));
     if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return; }
+    if (!(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
 
     const reqs = await db.select().from(requirementsTable).where(eq(requirementsTable.milestoneId, milestoneId));
+    const [project] = milestone.projectId
+      ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, milestone.projectId))
+      : [];
 
-    const prompt = `Draft business-friendly release notes in Markdown for a milestone named "${milestone.name}".
-It includes the following features/requirements:
-${reqs.map(r => "- " + r.title).join("\n")}
-Keep it professional and highlight value to the business.`;
+    // Defects give the notes a "Fixes" section grounded in real data rather
+    // than the model inventing what was resolved.
+    const defectRows = await db
+      .select({ title: defectsTable.title, severity: defectsTable.severity, status: defectsTable.status })
+      .from(defectsTable)
+      .where(eq(defectsTable.milestoneId, milestoneId));
+    const fixedDefects = defectRows.filter((d) => CLOSED_DEFECT_STATUSES.has((d.status ?? "").toLowerCase()));
 
-    const aiRes = await runOpenRouterCascade([{ role: "user", content: prompt }], false); // requireJson = false
+    const systemPrompt = `You are a technical writer producing customer-facing release notes for an enterprise software release.
+Write in Markdown using EXACTLY this structure and nothing else:
 
-    res.json({ success: true, content: aiRes });
+# Release Notes — <release name>
+
+**Release:** <name>  ·  **Project:** <project>  ·  **Date:** <date>
+
+## Overview
+One short paragraph (2-3 sentences) in plain business language explaining what this release delivers and why it matters. No jargon, no internal ticket IDs.
+
+## What's New
+- **<Short feature name>** — one sentence on the business benefit.
+(one bullet per delivered requirement; merge near-duplicates; skip anything internal-only)
+
+## Fixes & Improvements
+- One sentence per resolved issue, phrased as the user-visible improvement.
+(omit this whole section if there are no resolved defects)
+
+## Notes for Users
+2-4 bullets on anything worth knowing: actions required, changed behaviour, or known limitations. If nothing applies, write a single bullet: "No action required."
+
+Rules: professional and warm, never marketing hype. Never invent features, fixes or dates that aren't in the input. Do not wrap the output in a code fence.`;
+
+    const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const userPrompt = [
+      `Release name: ${milestone.name}`,
+      `Project: ${project?.name ?? "—"}`,
+      `Date: ${milestone.goLiveDate ? new Date(milestone.goLiveDate).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : today}`,
+      "",
+      `Delivered requirements (${reqs.length}):`,
+      ...(reqs.length > 0 ? reqs.map((r) => `- ${r.title}`) : ["- (none recorded)"]),
+      "",
+      `Resolved defects (${fixedDefects.length}):`,
+      ...(fixedDefects.length > 0
+        ? fixedDefects.map((d) => `- ${d.title}${d.severity ? ` [${d.severity}]` : ""}`)
+        : ["- (none recorded)"]),
+    ].join("\n");
+
+    const markdown = await executeAiTask(systemPrompt, userPrompt, 3072);
+
+    if (format === "pdf") {
+      const pdf = await releaseNotesPdf(markdown, {
+        title: milestone.name,
+        project: project?.name ?? null,
+      });
+      if (!pdf) {
+        res.status(500).json({ error: "PDF generator unavailable on the server" });
+        return;
+      }
+      const safeName = String(milestone.name).replace(/[^\w-]+/g, "_").slice(0, 60);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="ReleaseNotes_${safeName}.pdf"`);
+      res.send(pdf);
+      return;
+    }
+
+    res.json({ success: true, content: markdown });
   } catch (err: any) {
+    console.error("Release notes generation failed:", err);
     res.status(500).json({ error: err.message });
   }
 });

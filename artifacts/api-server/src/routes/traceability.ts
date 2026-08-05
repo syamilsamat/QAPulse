@@ -2,6 +2,13 @@ import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
 import { getAuthContext, scopeToUserProjects } from "../middleware/access";
 
+// Same optional-load pattern as excel-builder.ts — styling (bold, fills,
+// borders) needs xlsx-populate; the community SheetJS build can't write it.
+let XlsxPopulate: any = null;
+try {
+  XlsxPopulate = require("xlsx-populate");
+} catch {}
+
 const router: IRouter = Router();
 
 interface TcResult {
@@ -98,6 +105,218 @@ function rollup(node: ReqNode): Map<string, Classification> {
 
   return agg;
 }
+
+// ── RTM Excel export ────────────────────────────────────────────────────────
+// An RTM is inherently a flat matrix (requirement → test case → result →
+// defect), so this uses its own flat query rather than the tree the page
+// renders. Join semantics match /traceability: the latest execution result
+// per library test case, scoped to the milestone when one is given.
+const RESULT_FILL: Record<string, string> = {
+  passed: "C6EFCE",
+  failed: "FFC7CE",
+  blocked: "FFEB9C",
+  "in progress": "DDEBF7",
+};
+const RESULT_FONT: Record<string, string> = {
+  passed: "006100",
+  failed: "9C0006",
+  blocked: "9C6500",
+  "in progress": "1F4E79",
+};
+
+router.get("/traceability/export", async (req, res): Promise<void> => {
+  try {
+    const ctx = getAuthContext(req);
+    if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (!XlsxPopulate) {
+      res.status(500).json({ error: "Excel generator unavailable on the server" });
+      return;
+    }
+
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+    const milestoneIdNum = req.query.milestoneId ? Number(req.query.milestoneId) : null;
+    if (projectId != null && Number.isNaN(projectId)) { res.status(400).json({ error: "Invalid projectId" }); return; }
+    if (milestoneIdNum != null && Number.isNaN(milestoneIdNum)) { res.status(400).json({ error: "Invalid milestoneId" }); return; }
+    if (projectId && accessible !== null && !accessible.includes(projectId)) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let p = 1;
+    if (projectId) { conditions.push(`r.project_id = $${p++}`); params.push(projectId); }
+    else if (accessible !== null) { conditions.push(`r.project_id = ANY($${p++})`); params.push(accessible); }
+    if (milestoneIdNum) { conditions.push(`r.milestone_id = $${p++}`); params.push(milestoneIdNum); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const milestoneParamIdx = p; // for the LATERAL scope below
+    params.push(milestoneIdNum);
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        r.redmine_ticket_id                       AS req_redmine_id,
+        r.title                                   AS req_title,
+        r.module                                  AS req_module,
+        r.priority                                AS req_priority,
+        r.review_status                           AS req_review_status,
+        p.name                                    AS project_name,
+        m.name                                    AS milestone_name,
+        tc.case_id                                AS tc_case_id,
+        tc.title                                  AS tc_title,
+        tc.priority                               AS tc_priority,
+        latest_etc.etc_case_id,
+        latest_etc.result,
+        latest_etc.defect_number,
+        latest_etc.executed_at
+      FROM requirements r
+      LEFT JOIN projects p   ON p.id = r.project_id
+      LEFT JOIN milestones m ON m.id = r.milestone_id
+      LEFT JOIN test_cases tc ON tc.requirement_id = r.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(e.test_case_id, e.case_id) AS etc_case_id,
+               e.result, e.defect_number, e.executed_at
+        FROM execution_test_cases e
+        JOIN execution_files ef ON ef.id = e.execution_file_id
+        WHERE e.library_tc_id = tc.id
+          AND ($${milestoneParamIdx}::int IS NULL OR ef.milestone_id = $${milestoneParamIdx}::int)
+        ORDER BY e.id DESC
+        LIMIT 1
+      ) latest_etc ON true
+      ${where}
+      ORDER BY r.id, tc.id
+      `,
+      params
+    );
+
+    const projectName = rows.find((r) => r.project_name)?.project_name ?? "All projects";
+    const milestoneName = rows.find((r) => r.milestone_name)?.milestone_name ?? null;
+
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const sheet = wb.sheet(0);
+    sheet.name("RTM");
+
+    const HEADERS = [
+      "Redmine ID", "Requirement", "Module", "Req. Priority", "Req. Status",
+      "Test Case ID", "Test Case", "TC Priority", "Execution ID", "Result",
+      "Defect No.", "Executed On",
+    ];
+    const WIDTHS = [13, 46, 18, 13, 14, 16, 46, 12, 16, 13, 13, 14];
+    const lastCol = String.fromCharCode(64 + HEADERS.length); // "L"
+
+    // ── Title block ──────────────────────────────────────────────────────────
+    sheet.range(`A1:${lastCol}1`).merged(true);
+    sheet.cell("A1").value("Requirements Traceability Matrix").style({
+      bold: true, fontSize: 16, fontColor: "FFFFFF", fill: "1F4E79",
+      horizontalAlignment: "center", verticalAlignment: "center",
+    });
+    sheet.row(1).height(28);
+
+    sheet.range(`A2:${lastCol}2`).merged(true);
+    sheet.cell("A2").value(
+      [
+        `Project: ${projectName}`,
+        milestoneName ? `Milestone: ${milestoneName}` : null,
+        `Generated: ${new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+      ].filter(Boolean).join("     |     ")
+    ).style({ italic: true, fontSize: 10, fontColor: "444444", horizontalAlignment: "center" });
+    sheet.row(2).height(18);
+
+    // ── Header row ───────────────────────────────────────────────────────────
+    const HEADER_ROW = 4;
+    HEADERS.forEach((h, i) => {
+      sheet.row(HEADER_ROW).cell(i + 1).value(h).style({
+        bold: true, fontColor: "FFFFFF", fill: "2E75B6",
+        horizontalAlignment: "center", verticalAlignment: "center",
+        wrapText: true, border: true,
+      });
+      sheet.column(i + 1).width(WIDTHS[i]);
+    });
+    sheet.row(HEADER_ROW).height(30);
+
+    // ── Data rows ────────────────────────────────────────────────────────────
+    let rowNum = HEADER_ROW + 1;
+    let covered = 0;
+    for (const r of rows) {
+      const hasTc = !!(r.tc_case_id || r.tc_title);
+      if (hasTc) covered++;
+      const resultRaw = String(r.result ?? (hasTc ? "Not Executed" : "")).trim();
+      const resultKey = resultRaw.toLowerCase();
+
+      const values = [
+        r.req_redmine_id ? `#${r.req_redmine_id}` : "",
+        r.req_title ?? "",
+        r.req_module ?? "",
+        r.req_priority ?? "",
+        r.req_review_status ?? "",
+        r.tc_case_id ?? "",
+        r.tc_title ?? (hasTc ? "" : "⚠ No test case linked"),
+        r.tc_priority ?? "",
+        r.etc_case_id ?? "",
+        resultRaw,
+        r.defect_number ?? "",
+        r.executed_at ? new Date(r.executed_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "",
+      ];
+
+      values.forEach((v, i) => {
+        const cell = sheet.row(rowNum).cell(i + 1);
+        cell.value(v);
+        const style: Record<string, any> = {
+          border: true,
+          verticalAlignment: "top",
+          wrapText: i === 1 || i === 6, // requirement + test case text
+          fontSize: 10,
+        };
+        // Banded rows keep a long matrix readable on screen and in print.
+        if (rowNum % 2 === 1) style.fill = "F2F7FB";
+        if (!hasTc && i === 6) { style.fontColor = "9C0006"; style.italic = true; }
+        if (i === 9 && RESULT_FILL[resultKey]) {
+          style.fill = RESULT_FILL[resultKey];
+          style.fontColor = RESULT_FONT[resultKey];
+          style.bold = true;
+          style.horizontalAlignment = "center";
+        }
+        cell.style(style);
+      });
+      rowNum++;
+    }
+
+    if (rows.length === 0) {
+      sheet.range(`A${rowNum}:${lastCol}${rowNum}`).merged(true);
+      sheet.cell(`A${rowNum}`).value("No requirements found for this selection.").style({
+        italic: true, fontColor: "9C0006", horizontalAlignment: "center", border: true,
+      });
+      rowNum++;
+    }
+
+    // ── Summary footer ───────────────────────────────────────────────────────
+    const summaryRow = rowNum + 1;
+    sheet.cell(`A${summaryRow}`).value("Summary").style({ bold: true, fontSize: 11 });
+    const passed = rows.filter((r) => String(r.result ?? "").toLowerCase() === "passed").length;
+    const failed = rows.filter((r) => String(r.result ?? "").toLowerCase() === "failed").length;
+    sheet.cell(`B${summaryRow}`).value(
+      `${rows.length} row(s)  ·  ${covered} with a linked test case  ·  ${passed} passed  ·  ${failed} failed`
+    ).style({ fontSize: 10, fontColor: "444444" });
+
+    // Keep headers visible while scrolling, and print with gridlines on every
+    // page so a printed RTM stays readable as an audit artifact.
+    sheet.freezePanes(0, HEADER_ROW);
+    try {
+      sheet.printGridLines(true);
+      sheet.printOptions("horizontalCentered", true);
+    } catch { /* older xlsx-populate builds lack these setters */ }
+
+    const buf = await wb.outputAsync("nodebuffer");
+    const safeName = (milestoneName ?? projectName ?? "RTM").replace(/[^\w-]+/g, "_").slice(0, 60);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="RTM_${safeName}.xlsx"`);
+    res.send(Buffer.isBuffer(buf) ? buf : Buffer.from(buf));
+  } catch (err: any) {
+    console.error("[GET /traceability/export]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to export RTM" });
+  }
+});
 
 router.get("/traceability", async (req, res): Promise<void> => {
   try {

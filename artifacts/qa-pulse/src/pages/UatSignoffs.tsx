@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearch } from "wouter";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -127,7 +127,8 @@ ${sectionHead("Authorisation")}
 </body></html>`;
 }
 
-const UPLOAD_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
+// Keep in sync with UPLOAD_ROLES in api-server/src/routes/uat-signoffs.ts
+const UPLOAD_ROLES = ["admin", "qa_member", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
 
 export default function UatSignoffs() {
   const { token, user } = useAuth();
@@ -175,6 +176,31 @@ export default function UatSignoffs() {
     },
     enabled: dialogOpen && !!upProject,
   });
+
+  // Arriving from the QA Pipeline's UAT step (?milestoneId=N) — open the
+  // upload dialog already scoped to that milestone and its project, so the
+  // step's "Upload UAT Documents" button lands on the actual upload form
+  // rather than the unfiltered registry. Runs once on mount.
+  useEffect(() => {
+    const deepLinkMilestoneId = new URLSearchParams(searchString).get("milestoneId");
+    if (!deepLinkMilestoneId) return;
+    let cancelled = false;
+    (async () => {
+      const res = await api(`/milestones/${deepLinkMilestoneId}`, token);
+      if (!res.ok || cancelled) return;
+      const m = await res.json();
+      if (cancelled) return;
+      const projectId = m.projectId ? String(m.projectId) : "";
+      setFilterProject(projectId || "all");
+      setUpProject(projectId);
+      setUpMilestone(String(deepLinkMilestoneId));
+      setNote("");
+      setFile(null);
+      setDialogOpen(true);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openUpload = () => {
     setUpProject(filterProject !== "all" ? filterProject : "");
@@ -363,7 +389,13 @@ export default function UatSignoffs() {
             </div>
             <div className="space-y-1.5">
               <Label>File (max 15 MB)</Label>
-              <Input ref={fileInputRef} type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              <Input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">Supports PDF, Word, JPEG and PNG.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Note (optional)</Label>

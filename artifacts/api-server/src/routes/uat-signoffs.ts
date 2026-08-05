@@ -15,10 +15,14 @@ import { logActivity } from "./_audit";
 const router: IRouter = Router();
 
 // Same write tier as milestones: PM family + QA/FA leadership + admin/cto.
-const UPLOAD_ROLES = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
+// qa_member is included because uploading the signed UAT pack is part of the
+// QA Pipeline's UAT step, which QA members run.
+const UPLOAD_ROLES = ["admin", "qa_member", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
 const MAX_BYTES = 15 * 1024 * 1024;
 
-// GET /uat-signoffs?projectId=N — metadata only, scoped to the caller's projects
+// GET /uat-signoffs?projectId=N&milestoneId=N — metadata only, scoped to the
+// caller's projects. milestoneId narrows to a single milestone's pack, which
+// is what the QA Pipeline's UAT step lists.
 router.get("/uat-signoffs", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -29,6 +33,8 @@ router.get("/uat-signoffs", async (req, res): Promise<void> => {
   if (projectId != null && accessible !== null && !accessible.includes(projectId)) {
     res.status(403).json({ error: "Access denied to this project" }); return;
   }
+  const milestoneId = req.query.milestoneId ? Number(req.query.milestoneId) : null;
+  if (milestoneId != null && Number.isNaN(milestoneId)) { res.status(400).json({ error: "Invalid milestoneId" }); return; }
 
   const rows = await db
     .select({
@@ -53,6 +59,7 @@ router.get("/uat-signoffs", async (req, res): Promise<void> => {
 
   const visible = rows.filter(r =>
     (projectId == null || r.projectId === projectId) &&
+    (milestoneId == null || r.milestoneId === milestoneId) &&
     (accessible === null || accessible.includes(r.projectId)),
   );
   res.json(visible.map(r => ({ ...r, createdAt: r.createdAt.toISOString() })));
@@ -105,9 +112,15 @@ router.get("/uat-signoffs/:id/download", async (req, res): Promise<void> => {
   if (!row) { res.status(404).json({ error: "Sign-off not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, row.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
+  // ?inline=1 lets the browser render PDFs/images in a tab for review instead
+  // of forcing a save — the registry page's own export path still downloads.
+  const inline = req.query.inline === "1" || req.query.inline === "true";
   const buf = Buffer.from(row.dataBase64, "base64");
   res.setHeader("Content-Type", row.mimeType);
-  res.setHeader("Content-Disposition", `attachment; filename="${row.fileName.replace(/"/g, "")}"`);
+  res.setHeader(
+    "Content-Disposition",
+    `${inline ? "inline" : "attachment"}; filename="${row.fileName.replace(/"/g, "")}"`,
+  );
   res.send(buf);
 });
 

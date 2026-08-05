@@ -14,7 +14,7 @@ router.get("/pipeline-settings", async (req, res) => {
     }
     const settings = await db.query.pipelineSettingsTable.findFirst();
     if (!settings) {
-      return res.json({ qaFlowEnabled: false });
+      return res.json({ qaFlowEnabled: false, bddEnabled: false });
     }
     return res.json(settings);
   } catch (error) {
@@ -31,20 +31,24 @@ router.put("/pipeline-settings", async (req, res) => {
       return res.status(403).json({ error: "Only admins can update pipeline settings" });
     }
 
-    const { qaFlowEnabled } = req.body;
-    
-    // Upsert the single row
+    const { qaFlowEnabled, bddEnabled } = req.body;
+
+    // Upsert the single row. Each flag is only written when the caller
+    // actually sent it, so updating one toggle can't silently reset another.
     const existing = await db.query.pipelineSettingsTable.findFirst();
     let updated;
-    
+
     if (existing) {
+      const patch: Partial<typeof pipelineSettingsTable.$inferInsert> = {
+        updatedBy: auth.userId,
+        updatedAt: new Date(),
+      };
+      if (qaFlowEnabled !== undefined) patch.qaFlowEnabled = Boolean(qaFlowEnabled);
+      if (bddEnabled !== undefined) patch.bddEnabled = Boolean(bddEnabled);
+
       [updated] = await db
         .update(pipelineSettingsTable)
-        .set({ 
-          qaFlowEnabled: Boolean(qaFlowEnabled),
-          updatedBy: auth.userId,
-          updatedAt: new Date()
-        })
+        .set(patch)
         .where(eq(pipelineSettingsTable.id, existing.id))
         .returning();
     } else {
@@ -52,6 +56,7 @@ router.put("/pipeline-settings", async (req, res) => {
         .insert(pipelineSettingsTable)
         .values({
           qaFlowEnabled: Boolean(qaFlowEnabled),
+          bddEnabled: Boolean(bddEnabled),
           updatedBy: auth.userId,
         })
         .returning();

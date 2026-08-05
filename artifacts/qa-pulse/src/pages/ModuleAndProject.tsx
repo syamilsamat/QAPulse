@@ -612,6 +612,7 @@ export default function ModuleAndProject() {
   // GLOBAL SETTINGS STATE
   // =========================
   const [qaFlowEnabled, setQaFlowEnabled] = useState(false);
+  const [bddEnabled, setBddEnabled] = useState(false);
   const [globalSettingsLoading, setGlobalSettingsLoading] = useState(false);
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
 
@@ -620,7 +621,10 @@ export default function ModuleAndProject() {
       setGlobalSettingsLoading(true);
       fetch(`${getApiUrl()}/pipeline-settings`, { headers: authHeaders() })
         .then(r => r.json())
-        .then(data => setQaFlowEnabled(data.qaFlowEnabled ?? false))
+        .then(data => {
+          setQaFlowEnabled(data.qaFlowEnabled ?? false);
+          setBddEnabled(data.bddEnabled ?? false);
+        })
         .catch(() => {})
         .finally(() => setGlobalSettingsLoading(false));
     }
@@ -632,7 +636,7 @@ export default function ModuleAndProject() {
       const res = await fetch(`${getApiUrl()}/pipeline-settings`, {
         method: "PUT",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ qaFlowEnabled }),
+        body: JSON.stringify({ qaFlowEnabled, bddEnabled }),
       });
       if (!res.ok) throw new Error("Failed to save settings");
       qc.invalidateQueries({ queryKey: ["pipeline-settings"] });
@@ -1662,9 +1666,24 @@ export default function ModuleAndProject() {
                       If enabled, users will use the 8-step QA pipeline. If disabled, the system reverts to the standard flow.
                     </p>
                   </div>
-                  <Checkbox 
-                    checked={qaFlowEnabled} 
+                  <Checkbox
+                    checked={qaFlowEnabled}
                     onCheckedChange={(checked) => setQaFlowEnabled(!!checked)}
+                    className="h-5 w-5"
+                  />
+                </div>
+                <div className={`flex flex-row items-center justify-between rounded-lg border p-4 ${!qaFlowEnabled ? "opacity-60" : ""}`}>
+                  <div className="space-y-0.5">
+                    <Label className="text-base">Enable BDD (Gherkin) Test Case Generation</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Shows the "UAT BDD to Test Cases" panel in step 7, which turns Given/When/Then scenarios into
+                      regression test cases. Leave off if your team doesn't write Gherkin.
+                    </p>
+                  </div>
+                  <Checkbox
+                    checked={bddEnabled}
+                    onCheckedChange={(checked) => setBddEnabled(!!checked)}
+                    disabled={!qaFlowEnabled}
                     className="h-5 w-5"
                   />
                 </div>

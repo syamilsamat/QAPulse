@@ -671,11 +671,8 @@ export default function QAPipeline() {
                 Next Step <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}
-            {currentStep === 8 && (
-              <Button className="bg-green-600 hover:bg-green-700">
-                Complete Pipeline <CheckCircle2 className="w-4 h-4 ml-2" />
-              </Button>
-            )}
+            {/* Step 8 owns completion via its own "Mark Milestone as DEPLOYED"
+                button, which is gated on every earlier step being done. */}
           </div>
         </Card>
       </div>
