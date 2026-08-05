@@ -31,6 +31,7 @@ const PIPELINE_STEPS = [
 export default function QAPipeline() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const params = useParams();
   const milestoneId = params.milestoneId ? parseInt(params.milestoneId, 10) : null;
   const [currentStep, setCurrentStep] = useState(1);
@@ -57,6 +58,25 @@ export default function QAPipeline() {
       setCurrentStep(milestone.pipelineStep);
     }
   }, [milestone]);
+
+  // Free-roam navigation: any step is reachable directly (no forced
+  // sequential order), so multiple QA members can split work across steps
+  // (e.g. one syncing requirements while another already drafts test cases).
+  // Still persists pipelineStep so the position survives a reload.
+  const goToStep = (step: number) => {
+    setCurrentStep(step);
+    if (!milestoneId) return;
+    fetch(`${getApiUrl()}/milestones/${milestoneId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ pipelineStep: step }),
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] }))
+      .catch(() => {});
+  };
 
   const renderActiveStep = () => {
     if (isLoading) {
@@ -159,8 +179,13 @@ export default function QAPipeline() {
             {PIPELINE_STEPS.map((step) => {
               const isActive = step.id === currentStep;
               const isPast = step.id < currentStep;
+              const isReachable = step.id === 1 || !!milestoneId;
               return (
-                <div key={step.id} className={`flex items-start gap-3 p-2 rounded-lg transition-colors ${isActive ? "bg-primary/10" : "opacity-70"}`}>
+                <div
+                  key={step.id}
+                  onClick={() => isReachable && goToStep(step.id)}
+                  className={`flex items-start gap-3 p-2 rounded-lg transition-colors ${isActive ? "bg-primary/10" : "opacity-70"} ${isReachable ? "cursor-pointer hover:bg-muted" : "cursor-not-allowed"}`}
+                >
                   <div className="mt-0.5">
                     {isPast ? (
                       <CheckCircle2 className="w-5 h-5 text-green-500" />
@@ -191,12 +216,12 @@ export default function QAPipeline() {
           </CardContent>
           <div className="p-6 border-t flex justify-end gap-3 mt-auto">
             {currentStep > 1 && (
-              <Button variant="outline" onClick={() => setCurrentStep(prev => prev - 1)}>
+              <Button variant="outline" onClick={() => goToStep(currentStep - 1)}>
                 Previous Step
               </Button>
             )}
             {currentStep < 8 && milestoneId && (
-              <Button onClick={() => setCurrentStep(prev => prev + 1)}>
+              <Button onClick={() => goToStep(currentStep + 1)}>
                 Next Step <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}

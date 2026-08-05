@@ -26,6 +26,17 @@ function canWrite(role: string) {
   return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(role);
 }
 
+// QA Pipeline milestones (pipelineEnabled: true) are meant to be owned by the
+// whole QA department, not just leads — qa_member/qa_manager can't create or
+// edit regular milestones via canWrite() above, but must be able to drive
+// their own pipeline milestone end to end (sync requirements, advance steps,
+// sign off). Kept narrower than canWrite so non-pipeline milestones (and
+// other roles' write access) are unaffected.
+const QA_PIPELINE_ROLES = ["admin", "cto", "qa_member", "qa_lead", "qa_manager", "hod_qa"];
+function canWritePipeline(role: string, pipelineEnabled: boolean) {
+  return canWrite(role) || (pipelineEnabled && QA_PIPELINE_ROLES.includes(role));
+}
+
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
 const VALID_STATUSES = ["planned", "active", "verified", "uat", "completed", "cancelled"];
 // Matches the "Lessons Learnt Type" dropdown in Bestinet's export template exactly.
@@ -167,7 +178,7 @@ router.get("/milestones/lessons-learned/export", async (req, res): Promise<void>
 router.post("/milestones", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!canWritePipeline(ctx.role, Boolean(req.body.pipelineEnabled))) { res.status(403).json({ error: "Insufficient role" }); return; }
 
   const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds, requiresUat, pipelineEnabled, pipelineStep } = req.body;
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
@@ -297,11 +308,11 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
 router.patch("/milestones/:id", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
   const id = parseInt(req.params.id);
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
   const update: Partial<typeof milestonesTable.$inferInsert> = {};
   if (req.body.name !== undefined) update.name = req.body.name.trim();
@@ -350,6 +361,15 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
       update.completedAt = null;
     }
   }
+  if (req.body.pipelineStep !== undefined) {
+    const step = req.body.pipelineStep == null ? null : Number(req.body.pipelineStep);
+    if (step != null && (!Number.isInteger(step) || step < 1 || step > 8)) {
+      res.status(400).json({ error: "pipelineStep must be an integer between 1 and 8" }); return;
+    }
+    update.pipelineStep = step;
+  }
+  if (req.body.signedOffAt !== undefined) update.signedOffAt = req.body.signedOffAt ? new Date(req.body.signedOffAt) : null;
+  if (req.body.signedOffBy !== undefined) update.signedOffBy = req.body.signedOffBy == null ? null : Number(req.body.signedOffBy);
 
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
   await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone" });

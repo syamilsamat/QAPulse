@@ -35,6 +35,15 @@ const PRIORITY_OPTIONS = [
   { value: "Critical", label: "Critical" },
 ];
 
+const STATUS_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "Active" },
+  { value: "verified", label: "Verified" },
+  { value: "uat", label: "UAT" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
     ...opts,
@@ -56,9 +65,16 @@ export function Step1Milestone() {
   const [form, setForm] = useState({
     name: "",
     type: "cr",
+    status: "planned",
     priority: "none",
     environment: "none",
     targetDate: "",
+    startDate: "",
+    reqTargetDate: "",
+    devTargetDate: "",
+    qaTargetDate: "",
+    uatTargetDate: "",
+    goLiveDate: "",
     description: "",
     requiresUat: false,
   });
@@ -72,7 +88,7 @@ export function Step1Milestone() {
     },
   });
 
-  const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
+  const canWrite = ["admin", "qa_member", "qa_lead", "qa_manager", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
 
   const handleCreate = async () => {
     if (!projectId) {
@@ -92,11 +108,17 @@ export function Step1Milestone() {
           projectId: Number(projectId),
           name: form.name,
           type: form.type,
+          status: form.status,
           priority: form.priority === "none" ? null : form.priority,
           environment: form.environment === "none" ? null : form.environment,
           targetDate: form.targetDate || null,
+          startDate: form.startDate || null,
+          reqTargetDate: form.reqTargetDate || null,
+          devTargetDate: form.devTargetDate || null,
+          qaTargetDate: form.qaTargetDate || null,
+          uatTargetDate: form.uatTargetDate || null,
+          goLiveDate: form.goLiveDate || null,
           description: form.description,
-          status: "planned",
           requiresUat: form.requiresUat,
           pipelineEnabled: true,
           pipelineStep: 1, // Advance to step 1
@@ -157,25 +179,16 @@ export function Step1Milestone() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Target Date (Optional)</Label>
-            <Input 
-              type="date" 
-              value={form.targetDate} 
-              onChange={e => setForm({ ...form, targetDate: e.target.value })} 
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Environment</Label>
-            <Select value={form.environment} onValueChange={v => setForm({ ...form, environment: v })}>
-              <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+            <Label>Status</Label>
+            <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                {ENVIRONMENT_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Priority</Label>
             <Select value={form.priority} onValueChange={v => setForm({ ...form, priority: v })}>
@@ -186,16 +199,63 @@ export function Step1Milestone() {
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2">
+            <Label>Target Date</Label>
+            <Input
+              type="date"
+              value={form.targetDate}
+              onChange={e => setForm({ ...form, targetDate: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Environment</Label>
+          <Select value={form.environment} onValueChange={v => setForm({ ...form, environment: v })}>
+            <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {ENVIRONMENT_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Start</Label>
+              <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Requirements by</Label>
+              <Input type="date" value={form.reqTargetDate} onChange={e => setForm({ ...form, reqTargetDate: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Dev done by</Label>
+              <Input type="date" value={form.devTargetDate} onChange={e => setForm({ ...form, devTargetDate: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">QA done by</Label>
+              <Input type="date" value={form.qaTargetDate} onChange={e => setForm({ ...form, qaTargetDate: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">UAT done by</Label>
+              <Input type="date" value={form.uatTargetDate} onChange={e => setForm({ ...form, uatTargetDate: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Go-Live</Label>
+              <Input type="date" value={form.goLiveDate} onChange={e => setForm({ ...form, goLiveDate: e.target.value })} />
+            </div>
+          </div>
         </div>
         <div className="space-y-2">
           <Label>Description</Label>
-          <Textarea 
-            value={form.description} 
-            onChange={e => setForm({ ...form, description: e.target.value })} 
+          <Textarea
+            value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })}
             placeholder="High level goals for this pipeline run..."
           />
         </div>
-        
+
         <div className="flex flex-row items-center space-x-3 space-y-0 p-4 border rounded-lg bg-muted/50">
           <Checkbox 
             id="uatToggle"
