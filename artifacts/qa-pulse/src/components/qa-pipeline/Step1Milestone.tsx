@@ -156,7 +156,7 @@ export function Step1Milestone() {
           <SearchableSelect
             options={projects.map(p => ({ label: p.name, value: String(p.id) }))}
             value={projectId}
-            onChange={setProjectId}
+            onValueChange={setProjectId}
             placeholder="Select project..."
           />
         </div>
