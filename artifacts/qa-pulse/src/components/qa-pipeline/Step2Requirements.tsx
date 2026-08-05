@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -81,6 +82,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   const [redmineId, setRedmineId] = useState("");
   const [syncing, setSyncing] = useState(false);
@@ -478,7 +480,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                           </div>
                           <button
                             type="button"
-                            onClick={() => window.open(`/requirements/${req.id}`, "_blank")}
+                            onClick={() => setLocation(`/requirements/${req.id}`)}
                             title="Open Requirement Details"
                             className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
                           >
