@@ -36,6 +36,24 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
     enabled: !!milestoneId,
   });
 
+  // Re-syncing a Redmine ticket into a new milestone creates a fresh
+  // requirement row for that milestone (a requirement only ever belongs to
+  // one milestone) rather than reusing whatever requirement row the ticket
+  // was already synced to elsewhere. So a ticket already tested under an
+  // older milestone ends up with two requirement rows sharing the same
+  // redmineTicketId, and the test cases from before stay attached to the old
+  // row. To surface those here too, we widen the match from "this
+  // milestone's requirement ids" to "any requirement (any milestone) whose
+  // redmineTicketId matches one of this milestone's requirements".
+  const { data: allProjectRequirements = [] } = useQuery({
+    queryKey: ["requirements", "project", projectId],
+    queryFn: async () => {
+      const res = await api(`/requirements?projectId=${projectId}`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!projectId,
+  });
+
   // test_cases has no milestoneId column of its own — it's scoped to a
   // milestone indirectly via requirementId. Fetching by projectId (a
   // supported server-side filter) and narrowing to this milestone's
@@ -49,7 +67,16 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
     },
     enabled: !!projectId,
   });
-  const requirementIds = useMemo(() => new Set(requirements.map((r: any) => r.id)), [requirements]);
+  const requirementIds = useMemo(() => {
+    const ticketIds = new Set(
+      requirements.map((r: any) => r.redmineTicketId).filter(Boolean),
+    );
+    const ids = new Set<number>(requirements.map((r: any) => r.id));
+    for (const r of allProjectRequirements as any[]) {
+      if (r.redmineTicketId && ticketIds.has(r.redmineTicketId)) ids.add(r.id);
+    }
+    return ids;
+  }, [requirements, allProjectRequirements]);
   const testCases = useMemo(
     () => projectTestCases.filter((tc: any) => tc.requirementId != null && requirementIds.has(tc.requirementId)),
     [projectTestCases, requirementIds],

@@ -967,13 +967,30 @@ export default function TestCases() {
 
   // A TC's milestone is derived through its requirement (test_cases has no
   // milestoneId column of its own — requirements.milestoneId is the only
-  // link). Every requirement is required to carry a milestone (CR023p3), so
-  // this is a direct lookup, not a tree-expansion like requirementFilterIds.
-  const reqMilestoneById = useMemo(() => {
-    const map = new Map<number, number | null>();
-    for (const r of requirements as any[]) map.set(r.id, r.milestoneId ?? null);
-    return map;
-  }, [requirements]);
+  // link). Every requirement is required to carry a milestone (CR023p3) —
+  // but re-syncing the same Redmine ticket into a *different* milestone
+  // creates a second requirement row for that ticket (a requirement can only
+  // belong to one milestone), leaving older test cases attached to the
+  // original row under the original milestone. So matching purely by
+  // milestoneId misses them; we widen the match to any requirement (in any
+  // milestone) sharing a redmineTicketId with one of this milestone's own
+  // requirements.
+  const milestoneReqIds = useMemo(() => {
+    if (filterMilestone === "all") return null;
+    const targetMilestoneId = Number(filterMilestone);
+    const ticketIds = new Set(
+      (requirements as any[])
+        .filter((r) => r.milestoneId === targetMilestoneId && r.redmineTicketId)
+        .map((r) => r.redmineTicketId),
+    );
+    const ids = new Set<number>();
+    for (const r of requirements as any[]) {
+      if (r.milestoneId === targetMilestoneId || (r.redmineTicketId && ticketIds.has(r.redmineTicketId))) {
+        ids.add(r.id);
+      }
+    }
+    return ids;
+  }, [requirements, filterMilestone]);
 
   const filtered = useMemo(() => {
     // NL mode: filter by AI-returned IDs, preserve AI ranking order
@@ -984,7 +1001,7 @@ export default function TestCases() {
         if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
         if (filterModule !== "all" && (t.module ?? "") !== filterModule) return false;
         if (requirementFilterIds && !requirementFilterIds.has(t.requirementId)) return false;
-        if (filterMilestone !== "all" && reqMilestoneById.get(t.requirementId) !== Number(filterMilestone)) return false;
+        if (milestoneReqIds && !milestoneReqIds.has(t.requirementId)) return false;
         if (filterAI === "ai" && !t.aiAssisted) return false;
         if (filterAI === "manual" && t.aiAssisted) return false;
         return true;
@@ -1000,7 +1017,7 @@ export default function TestCases() {
         return false;
       if (requirementFilterIds && !requirementFilterIds.has(t.requirementId))
         return false;
-      if (filterMilestone !== "all" && reqMilestoneById.get(t.requirementId) !== Number(filterMilestone))
+      if (milestoneReqIds && !milestoneReqIds.has(t.requirementId))
         return false;
       if (filterAI === "ai" && !t.aiAssisted) return false;
       if (filterAI === "manual" && t.aiAssisted) return false;
@@ -1045,7 +1062,7 @@ export default function TestCases() {
     });
 
     return result;
-  }, [testCases, search, filterProject, filterModule, requirementFilterIds, filterMilestone, reqMilestoneById, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
+  }, [testCases, search, filterProject, filterModule, requirementFilterIds, filterMilestone, milestoneReqIds, filterAI, sortBy, nlMode, nlResultIds, nlLoading]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginatedTestCases = filtered.slice(
