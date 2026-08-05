@@ -97,6 +97,7 @@ const NAV_PERMISSION_ITEMS = [
   { key: "nav:admin-search",   label: "Admin Search" },
   { key: "nav:team-hangouts",  label: "Team Hangouts" },
   { key: "nav:configurations", label: "Configuration" },
+  { key: "nav:qa-pipeline",    label: "QA Pipeline" },
   { key: "nav:milestones",     label: "Milestones" },
   { key: "nav:pm-dashboard",   label: "PM Dashboard" },
   { key: "nav:audit-log",      label: "Audit Log" },
@@ -137,6 +138,7 @@ const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
   "nav:defects":        { qa_member: "R", dev_member: "R", qa_lead: "A", qa_manager: "C", fa_lead: "C", fa_member: "C", dev_lead: "C", hod_qa: "I", hod_dev: "I", cto: "I" },
   "nav:resources":      { qa_lead: "R", fa_lead: "R", dev_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", pm_lead: "C", cto: "I" },
   "nav:configurations": { qa_lead: "R", hod_qa: "A", qa_manager: "C", pm_lead: "C", hod_fa: "I", hod_pm: "I", cto: "I" },
+  "nav:qa-pipeline":    { qa_lead: "R", qa_manager: "A", hod_qa: "C", qa_member: "C", admin: "C", cto: "I" },
   "nav:team":           { qa_lead: "R", fa_lead: "R", dev_lead: "R", pm_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", cto: "I" },
   "nav:audit-log":      { admin: "R", cto: "I" },
 };
