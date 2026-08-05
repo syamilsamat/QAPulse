@@ -54,7 +54,7 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
             Execute the approved test cases and monitor real-time AI risk analysis.
           </p>
         </div>
-        <Button onClick={() => setLocation(`/test-cases-execution?milestoneId=${milestoneId}`)}>
+        <Button onClick={() => setLocation("/test-cases/execution")}>
           <PlayCircle className="w-4 h-4 mr-2" />
           Execution Dashboard
         </Button>

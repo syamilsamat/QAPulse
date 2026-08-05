@@ -466,6 +466,9 @@ router.get("/test-cases/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/test-cases/:id", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const params = UpdateTestCaseParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
 

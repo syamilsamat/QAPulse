@@ -1,52 +1,48 @@
+import { useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, List, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle2, XCircle, Clock, FileText, ListChecks, List, RefreshCw, Loader2 } from "lucide-react";
 
-function api(path: string, token: string | null, opts?: RequestInit) {
+function api(path: string, token: string | null) {
   return fetch(`${getApiUrl()}${path}`, {
-    ...opts,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(opts?.headers ?? {}),
     },
   });
 }
 
+// The actual review happens on the Execution Dashboard (each compiled
+// execution file has its own approve/reject flow, with segregation of duties
+// — see PATCH /execution-files/:id/review). This step is a read-only mirror
+// of that status for this milestone's file(s), not a second approval action.
 export function Step4Approval({ milestoneId }: { milestoneId: number }) {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const [, setLocation] = useLocation();
 
-  // Note: the backend `/milestones` API in QAPulse typically returns stats about execution files/test cases.
-  // For this step, we would fetch the test cases and check their reviewStatus.
-  // We'll mock the logic for checking if all are approved.
-  const { data: testCases = [], isLoading, refetch } = useQuery({
-    queryKey: ["execution-testcases", "milestone", milestoneId],
+  const { data: allFiles = [], isLoading, refetch } = useQuery({
+    queryKey: ["execution-files"],
     queryFn: async () => {
-      // Assuming we have an endpoint that returns execution test cases or we query the execution files
-      const res = await api(`/test-cases/execution?milestoneId=${milestoneId}`, token);
-      if (!res.ok) {
-        // Fallback or empty if not implemented yet
-        return [];
-      }
-      return res.json();
+      const res = await api("/execution-files", token);
+      return res.ok ? res.json() : [];
     },
-    enabled: !!milestoneId,
   });
 
-  const total = testCases.length;
-  const approved = testCases.filter((tc: any) => tc.reviewStatus === "approved").length;
-  const pending = testCases.filter((tc: any) => tc.reviewStatus === "pending").length;
-  const rejected = testCases.filter((tc: any) => tc.reviewStatus === "rejected").length;
+  const files = useMemo(
+    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
+    [allFiles, milestoneId],
+  );
 
-  // Temporarily allow advancing regardless of status for demo/testing
+  const total = files.length;
+  const approved = files.filter((f: any) => f.reviewStatus === "approved").length;
+  const rejected = files.filter((f: any) => f.reviewStatus === "rejected").length;
+  const pending = total - approved - rejected; // draft or in_review
   const allApproved = total > 0 && approved === total;
-  
-  const canApprove = ["admin", "qa_manager", "hod_qa", "cto"].includes(user?.role ?? "");
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-8 text-left">
@@ -54,13 +50,73 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
         <div>
           <h3 className="text-xl font-semibold">Test Case Approval Gate</h3>
           <p className="text-muted-foreground mt-1">
-            Test cases must be reviewed and approved by a QA Manager before execution can begin.
+            Execution files must be reviewed and approved on the Execution Dashboard before testing can begin.
           </p>
         </div>
         <Button variant="outline" onClick={() => refetch()}>
           <RefreshCw className="w-4 h-4 mr-2" /> Refresh
         </Button>
       </div>
+
+      {isLoading ? (
+        <Card>
+          <CardContent className="pt-10 pb-10 text-center">
+            <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      ) : total === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="pt-10 pb-10 text-center space-y-2">
+            <ListChecks className="w-8 h-8 mx-auto text-muted-foreground" />
+            <p className="font-medium">No execution file compiled yet</p>
+            <p className="text-sm text-muted-foreground">
+              Go to Step 3 and compile your test cases into an execution file before they can be reviewed here.
+            </p>
+          </CardContent>
+        </Card>
+      ) : allApproved ? (
+        <Card className="border-green-500 bg-green-50 dark:bg-green-950/20">
+          <CardContent className="pt-8 pb-8 text-center space-y-3">
+            <CheckCircle2 className="w-10 h-10 mx-auto text-green-600" />
+            <div>
+              <p className="font-semibold text-lg text-green-700 dark:text-green-400">
+                All Test Cases Approved!
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your test cases have been approved — you may proceed with execution.
+              </p>
+            </div>
+            <Button onClick={() => setLocation("/test-cases/execution")}>
+              <List className="w-4 h-4 mr-2" />
+              Open Execution Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className={rejected > 0 ? "border-red-300" : "border-amber-300"}>
+          <CardContent className="pt-6 pb-6 text-center space-y-2">
+            {rejected > 0 ? (
+              <>
+                <XCircle className="w-8 h-8 mx-auto text-red-500" />
+                <p className="font-medium text-red-600">
+                  {rejected} execution file{rejected > 1 ? "s" : ""} rejected
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Revise the rejected file{rejected > 1 ? "s" : ""} on the Execution Dashboard and resubmit for review.
+                </p>
+              </>
+            ) : (
+              <>
+                <Clock className="w-8 h-8 mx-auto text-amber-500" />
+                <p className="font-medium text-amber-600">Awaiting review</p>
+                <p className="text-sm text-muted-foreground">
+                  {pending} of {total} execution file{total > 1 ? "s" : ""} still need approval on the Execution Dashboard before execution can begin.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-4 gap-4">
         <Card>
@@ -71,37 +127,68 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
         </Card>
         <Card>
           <CardContent className="pt-6 text-center">
+            <Clock className="w-4 h-4 mx-auto mb-1 text-amber-500" />
             <div className="text-3xl font-bold text-amber-500">{pending}</div>
             <div className="text-xs text-muted-foreground mt-1 uppercase">Pending</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6 text-center">
+            <CheckCircle2 className="w-4 h-4 mx-auto mb-1 text-green-500" />
             <div className="text-3xl font-bold text-green-500">{approved}</div>
             <div className="text-xs text-muted-foreground mt-1 uppercase">Approved</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6 text-center">
+            <XCircle className="w-4 h-4 mx-auto mb-1 text-red-500" />
             <div className="text-3xl font-bold text-red-500">{rejected}</div>
             <div className="text-xs text-muted-foreground mt-1 uppercase">Rejected</div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="bg-muted/50 p-6 rounded-lg text-center space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Approvals are managed in the Execution Dashboard.
-          {canApprove && " You have permission to approve test cases."}
-        </p>
-        <Button
-          variant="secondary"
-          onClick={() => setLocation(`/test-cases-execution?milestoneId=${milestoneId}`)}
-        >
-          <List className="w-4 h-4 mr-2" />
-          Open Execution Dashboard
-        </Button>
-      </div>
+      {total > 0 && (
+        <Card>
+          <CardContent className="p-0">
+            <div className="divide-y max-h-80 overflow-auto">
+              {files.map((f: any) => (
+                <div key={f.id} className="p-3 flex items-center justify-between gap-3 hover:bg-muted/50">
+                  <div className="min-w-0 flex-1 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{f.title || `Redmine #${f.redmineTicketId}`}</div>
+                      <div className="text-xs text-muted-foreground">Redmine #{f.redmineTicketId}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {f.reviewStatus === "approved" ? (
+                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                        <CheckCircle2 className="w-3 h-3 mr-1" /> Approved
+                      </Badge>
+                    ) : f.reviewStatus === "rejected" ? (
+                      <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
+                        <XCircle className="w-3 h-3 mr-1" /> Rejected
+                      </Badge>
+                    ) : f.reviewStatus === "in_review" ? (
+                      <Badge variant="outline" className="text-amber-600">
+                        <Clock className="w-3 h-3 mr-1" /> In Review
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        <Clock className="w-3 h-3 mr-1" /> Draft
+                      </Badge>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                      Review
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, TestTube, Wand2 } from "lucide-react";
+import { useMilestoneTestCases } from "./useMilestoneTestCases";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -27,60 +28,7 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
 
   const [tagging, setTagging] = useState(false);
 
-  const { data: requirements = [] } = useQuery({
-    queryKey: ["requirements", "milestone", milestoneId],
-    queryFn: async () => {
-      const res = await api(`/requirements?milestoneId=${milestoneId}`, token);
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!milestoneId,
-  });
-
-  // Re-syncing a Redmine ticket into a new milestone creates a fresh
-  // requirement row for that milestone (a requirement only ever belongs to
-  // one milestone) rather than reusing whatever requirement row the ticket
-  // was already synced to elsewhere. So a ticket already tested under an
-  // older milestone ends up with two requirement rows sharing the same
-  // redmineTicketId, and the test cases from before stay attached to the old
-  // row. To surface those here too, we widen the match from "this
-  // milestone's requirement ids" to "any requirement (any milestone) whose
-  // redmineTicketId matches one of this milestone's requirements".
-  const { data: allProjectRequirements = [] } = useQuery({
-    queryKey: ["requirements", "project", projectId],
-    queryFn: async () => {
-      const res = await api(`/requirements?projectId=${projectId}`, token);
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!projectId,
-  });
-
-  // test_cases has no milestoneId column of its own — it's scoped to a
-  // milestone indirectly via requirementId. Fetching by projectId (a
-  // supported server-side filter) and narrowing to this milestone's
-  // requirement set client-side mirrors exactly how TestCases.tsx itself
-  // scopes test cases to a milestone.
-  const { data: projectTestCases = [], isLoading: loadingTCs } = useQuery({
-    queryKey: ["test-cases", "project", projectId],
-    queryFn: async () => {
-      const res = await api(`/test-cases?projectId=${projectId}`, token);
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!projectId,
-  });
-  const requirementIds = useMemo(() => {
-    const ticketIds = new Set(
-      requirements.map((r: any) => r.redmineTicketId).filter(Boolean),
-    );
-    const ids = new Set<number>(requirements.map((r: any) => r.id));
-    for (const r of allProjectRequirements as any[]) {
-      if (r.redmineTicketId && ticketIds.has(r.redmineTicketId)) ids.add(r.id);
-    }
-    return ids;
-  }, [requirements, allProjectRequirements]);
-  const testCases = useMemo(
-    () => projectTestCases.filter((tc: any) => tc.requirementId != null && requirementIds.has(tc.requirementId)),
-    [projectTestCases, requirementIds],
-  );
+  const { requirements, testCases, isLoading: loadingTCs } = useMilestoneTestCases(milestoneId, projectId);
 
   const handleRiskBasedTagging = async () => {
     setTagging(true);
