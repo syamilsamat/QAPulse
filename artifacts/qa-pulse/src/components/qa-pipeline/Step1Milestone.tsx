@@ -55,13 +55,13 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step1Milestone() {
+export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string } = {}) {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
-  const [projectId, setProjectId] = useState<string>("");
+  const [projectId, setProjectId] = useState<string>(defaultProjectId ?? "");
   const [form, setForm] = useState({
     name: "",
     type: "cr",
