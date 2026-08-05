@@ -714,7 +714,7 @@ export default function Milestones() {
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            This will permanently delete this milestone. Requirements and execution files will keep their milestone_id reference but the milestone will no longer exist.
+            This will permanently delete this milestone. Requirements and execution files linked to it will stay in the system, but will no longer show which milestone they belonged to.
           </p>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>

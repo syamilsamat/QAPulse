@@ -120,7 +120,7 @@ router.get("/requirements", async (req, res): Promise<void> => {
   let reqs = await db.select().from(requirementsTable).orderBy(requirementsTable.createdAt);
 
   if (parsed.success) {
-    const { projectId, assigneeId, status, priority, module, release, search } = parsed.data;
+    const { projectId, milestoneId, assigneeId, status, priority, module, release, search } = parsed.data;
     if (projectId) {
       const ok = accessible === null || accessible.includes(projectId);
       if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
@@ -128,6 +128,7 @@ router.get("/requirements", async (req, res): Promise<void> => {
     } else if (accessible !== null) {
       reqs = reqs.filter(r => r.projectId !== null && accessible.includes(r.projectId));
     }
+    if (milestoneId) reqs = reqs.filter(r => r.milestoneId === milestoneId);
     if (assigneeId) reqs = reqs.filter(r => r.assigneeId === assigneeId);
     if (status) reqs = reqs.filter(r => r.status === status);
     if (priority) reqs = reqs.filter(r => r.priority === priority);

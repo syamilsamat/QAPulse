@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, AlertTriangle, FileDown, Wand2, Search } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +20,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -28,16 +32,44 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number, onNext: () => void }) {
-  const { token, user } = useAuth();
+// Matches the "filtering out Tasks and QA Defects" copy below the sync input.
+const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
+const EXCLUDED_TRACKERS = ["Task", "QA Defect"];
+
+function RiskBadge({ level }: { level: string }) {
+  const colors: Record<string, string> = {
+    low: "bg-green-100 text-green-800 border-green-200",
+    medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    high: "bg-orange-100 text-orange-800 border-orange-200",
+    critical: "bg-red-100 text-red-800 border-red-200",
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${colors[level?.toLowerCase()] ?? colors.medium}`}>
+      {level}
+    </span>
+  );
+}
+
+export function Step2Requirements({ milestoneId, projectId, onNext }: { milestoneId: number, projectId?: number, onNext: () => void }) {
+  const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [redmineId, setRedmineId] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0 });
   const [piiModalOpen, setPiiModalOpen] = useState(false);
   const [piiChecked, setPiiChecked] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [analysisResults, setAnalysisResults] = useState<Record<number, any>>({});
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const [syncSummaryOpen, setSyncSummaryOpen] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<{ id: number; title: string; redmineTicketId: string; isNew: boolean }[]>([]);
 
   // Check if milestone has data prep files (Enhancement 4: Environment Readiness Gate)
   const { data: dataPrepFiles = [], isLoading: loadingFiles } = useQuery({
@@ -50,7 +82,7 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
   });
 
   // Fetch requirements linked to this milestone
-  const { data: requirements = [], isLoading: loadingReqs } = useQuery({
+  const { data: requirements = [], isLoading: loadingReqs } = useQuery<any[]>({
     queryKey: ["requirements", "milestone", milestoneId],
     queryFn: async () => {
       const res = await api(`/requirements?milestoneId=${milestoneId}`, token);
@@ -59,29 +91,123 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
     enabled: !!milestoneId,
   });
 
+  // Smart search (title or Redmine ID) + sort by when it was added.
+  const filteredRequirements = useMemo(() => {
+    let list = requirements;
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((r: any) =>
+        r.title?.toLowerCase().includes(q) || String(r.redmineTicketId ?? "").toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a: any, b: any) => {
+      const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return sortOrder === "newest" ? -diff : diff;
+    });
+  }, [requirements, search, sortOrder]);
+
+  const allFilteredSelected = filteredRequirements.length > 0 && filteredRequirements.every((r: any) => selectedIds.has(r.id));
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filteredRequirements.forEach((r: any) => next.delete(r.id));
+      else filteredRequirements.forEach((r: any) => next.add(r.id));
+      return next;
+    });
+  };
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleExpanded = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Recursively pulls a Redmine ticket + its sub-tickets, creating a
+  // requirement per non-excluded ticket and linking it to this milestone.
+  const processRedmineSync = async (
+    ticketIdToSync: string,
+    parentId: number | undefined,
+    isRoot: boolean,
+    added: { id: number; title: string; redmineTicketId: string; isNew: boolean }[],
+  ): Promise<number | undefined> => {
+    const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(ticketIdToSync)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const data = await resp.json();
+    if (!data.connected || !data.issue) {
+      if (isRoot) throw new Error(`Could not fetch Redmine issue #${ticketIdToSync}`);
+      return undefined;
+    }
+    const issue = data.issue;
+    const fetchedTicketId = String(issue.id);
+
+    if (EXCLUDED_STATUSES.includes(issue.status?.name)) {
+      if (isRoot) throw new Error(`Ticket #${ticketIdToSync} has status "${issue.status?.name}"`);
+      return undefined;
+    }
+
+    let savedId: number | undefined;
+    const isExcludedTracker = EXCLUDED_TRACKERS.includes(issue.tracker?.name);
+    const existing = requirements.find((r: any) => String(r.redmineTicketId) === fetchedTicketId);
+
+    if (!isExcludedTracker) {
+      if (existing) {
+        savedId = existing.id;
+        added.push({ id: existing.id, title: existing.title, redmineTicketId: fetchedTicketId, isNew: false });
+      } else {
+        const priorityMap: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
+        const mappedPriority = priorityMap[issue.priority?.name?.toLowerCase()] || "normal";
+        const res = await api("/requirements", token, {
+          method: "POST",
+          body: JSON.stringify({
+            title: issue.subject,
+            description: issue.description ?? "",
+            priority: mappedPriority,
+            redmineTicketId: fetchedTicketId,
+            tracker: issue.tracker?.name ?? "Task",
+            projectId,
+            milestoneId,
+            parentId,
+            status: "draft",
+          }),
+        });
+        if (res.ok) {
+          const created = await res.json();
+          savedId = created.id;
+          added.push({ id: created.id, title: created.title, redmineTicketId: fetchedTicketId, isNew: true });
+        }
+      }
+    }
+
+    if (Array.isArray(issue.children)) {
+      for (const child of issue.children) {
+        await processRedmineSync(String(child.id), savedId ?? parentId, false, added);
+      }
+    }
+    return savedId;
+  };
+
   const handleSyncRequirements = async () => {
     if (!redmineId.trim()) {
       toast({ variant: "destructive", title: "Parent Redmine ID is required" });
       return;
     }
     setSyncing(true);
+    const added: { id: number; title: string; redmineTicketId: string; isNew: boolean }[] = [];
     try {
-      // In a full implementation, we'd have a specific endpoint that recursively fetches children
-      // but excludes 'Task'/'QA Defect'. For now we use the existing redmine sync flow
-      const res = await api("/redmine/import", token, {
-        method: "POST",
-        body: JSON.stringify({
-          ticketIds: [redmineId.trim()],
-          milestoneId,
-          recursive: true // assuming the backend supports this based on plan
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to sync from Redmine");
-      }
-      toast({ title: "Requirements synced successfully!" });
+      await processRedmineSync(redmineId.trim(), undefined, true, added);
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
+      setSyncSummary(added);
+      setSyncSummaryOpen(true);
+      setRedmineId("");
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
@@ -89,8 +215,11 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
     }
   };
 
-  const handleAIAnalyze = async () => {
-    // Show PII Modal first (Enhancement 10)
+  const handleAIAnalyze = () => {
+    if (selectedIds.size === 0) {
+      toast({ variant: "destructive", title: "Select at least one requirement to analyze" });
+      return;
+    }
     setPiiModalOpen(true);
   };
 
@@ -101,16 +230,32 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
     }
     setPiiModalOpen(false);
     setAnalyzing(true);
+    const ids = Array.from(selectedIds);
+    setAnalyzeProgress({ current: 0, total: ids.length });
     try {
-      const res = await api(`/ai/analyze-milestone-requirements`, token, {
-        method: "POST",
-        body: JSON.stringify({ milestoneId }),
-      });
-      if (!res.ok) throw new Error("Failed to analyze requirements");
+      for (let i = 0; i < ids.length; i++) {
+        const req = requirements.find((r: any) => r.id === ids[i]);
+        if (req) {
+          const res = await api("/ai/analyze-requirement", token, {
+            method: "POST",
+            body: JSON.stringify({
+              requirementId: req.id,
+              title: req.title,
+              description: req.description ?? "",
+              module: req.module ?? "",
+            }),
+          });
+          if (res.ok) {
+            const result = await res.json();
+            setAnalysisResults((prev) => ({ ...prev, [req.id]: result }));
+            setExpandedIds((prev) => new Set(prev).add(req.id));
+          }
+        }
+        setAnalyzeProgress({ current: i + 1, total: ids.length });
+      }
       toast({ title: "AI Analysis Complete!" });
-      queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
     } catch (err: any) {
-      toast({ variant: "destructive", title: err.message });
+      toast({ variant: "destructive", title: err.message ?? "Analysis failed" });
     } finally {
       setAnalyzing(false);
     }
@@ -131,6 +276,8 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
   };
 
   const hasDataPrep = dataPrepFiles.length > 0;
+  const newCount = syncSummary.filter((s) => s.isNew).length;
+  const existingCount = syncSummary.length - newCount;
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-8 text-left">
@@ -147,7 +294,7 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
           <div>
             <h3 className="font-medium text-lg">Environment Readiness Gate</h3>
             <p className="text-sm text-muted-foreground mt-1">
-              {hasDataPrep 
+              {hasDataPrep
                 ? `Passed: ${dataPrepFiles.length} Data Prep file(s) found for this milestone.`
                 : "Warning: No Data Prep files found. Ensure your environment has the required test data before proceeding."}
             </p>
@@ -161,9 +308,9 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
         <div className="flex gap-3">
           <div className="flex-1">
             <Label className="sr-only">Parent Redmine ID</Label>
-            <Input 
-              value={redmineId} 
-              onChange={e => setRedmineId(e.target.value)} 
+            <Input
+              value={redmineId}
+              onChange={e => setRedmineId(e.target.value)}
               placeholder="e.g. 12345 (Parent Epic/Feature ID)"
             />
           </div>
@@ -179,12 +326,32 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
 
       {/* Requirements List & Analysis */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h3 className="text-lg font-medium">2. Analyze Requirements</h3>
-          <Button onClick={handleAIAnalyze} disabled={analyzing || requirements.length === 0} variant="secondary">
+          <Button onClick={handleAIAnalyze} disabled={analyzing || selectedIds.size === 0} variant="secondary">
             {analyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
-            Analyze with AI
+            {analyzing ? `Analyzing ${analyzeProgress.current}/${analyzeProgress.total}…` : `Analyze Selected (${selectedIds.size})`}
           </Button>
+        </div>
+
+        {/* Smart search + sort */}
+        <div className="flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Search by title or Redmine ID…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "newest" | "oldest")}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Latest added</SelectItem>
+              <SelectItem value="oldest">Oldest added</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <Card>
@@ -193,19 +360,95 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
               <div className="p-8 text-center text-muted-foreground"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>
             ) : requirements.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">No requirements synced yet.</div>
+            ) : filteredRequirements.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">No requirements match your search.</div>
             ) : (
-              <div className="divide-y max-h-64 overflow-auto">
-                {requirements.map((req: any) => (
-                  <div key={req.id} className="p-3 flex items-center justify-between hover:bg-muted/50">
-                    <div>
-                      <div className="font-medium">{req.title}</div>
-                      <div className="text-xs text-muted-foreground">Redmine #{req.redmineTicketId}</div>
-                    </div>
-                    {req.aiAnalysisStatus === "completed" && (
-                      <span className="text-xs font-medium text-green-600 bg-green-100 px-2 py-1 rounded">Analyzed</span>
-                    )}
-                  </div>
-                ))}
+              <div>
+                <div className="flex items-center gap-3 p-3 border-b bg-muted/30">
+                  <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAll} />
+                  <span className="text-xs text-muted-foreground">
+                    {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+                  </span>
+                </div>
+                <div className="divide-y max-h-80 overflow-auto">
+                  {filteredRequirements.map((req: any) => {
+                    const result = analysisResults[req.id];
+                    const isExpanded = expandedIds.has(req.id);
+                    return (
+                      <div key={req.id}>
+                        <div className="p-3 flex items-center gap-3 hover:bg-muted/50">
+                          <Checkbox checked={selectedIds.has(req.id)} onCheckedChange={() => toggleSelect(req.id)} />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{req.title}</div>
+                            <div className="text-xs text-muted-foreground">Redmine #{req.redmineTicketId ?? "—"}</div>
+                          </div>
+                          {result && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpanded(req.id)}
+                              className="flex items-center gap-1.5 text-xs font-medium text-green-600 bg-green-100 px-2 py-1 rounded shrink-0"
+                            >
+                              Analyzed {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            </button>
+                          )}
+                        </div>
+                        {result && isExpanded && (
+                          <div className="px-3 pb-3 space-y-2 bg-muted/20">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="text-xs font-medium">Quality Score</span>
+                              <div className="flex items-center gap-2">
+                                <div className="h-1.5 w-24 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full bg-primary rounded-full" style={{ width: `${result.score}%` }} />
+                                </div>
+                                <span className="text-xs font-bold text-primary">{result.score}/100</span>
+                                <RiskBadge level={result.riskLevel} />
+                              </div>
+                            </div>
+                            {result.summary && (
+                              <p className="text-xs text-muted-foreground bg-background rounded p-2">{result.summary}</p>
+                            )}
+                            {result.missingItems?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Missing Items</p>
+                                <ul className="space-y-1">
+                                  {result.missingItems.map((item: string, i: number) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                                      <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" /> {item}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {result.issues?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Issues</p>
+                                <ul className="space-y-1">
+                                  {result.issues.map((issue: any, i: number) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                                      <AlertCircle className="w-3 h-3 text-orange-500 mt-0.5 shrink-0" /> {issue.suggestion ?? issue.description}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {result.questions?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Questions to Clarify</p>
+                                <ul className="space-y-1">
+                                  {result.questions.map((q: string, i: number) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                                      <AlertTriangle className="w-3 h-3 text-yellow-500 mt-0.5 shrink-0" /> {q}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </CardContent>
@@ -232,10 +475,10 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
               Before sending requirements and test data to the AI for analysis, you must confirm that no Personally Identifiable Information (PII) is included.
             </p>
             <div className="flex items-start space-x-3 p-4 border rounded-lg bg-muted/50">
-              <Checkbox 
-                id="pii-check" 
-                checked={piiChecked} 
-                onCheckedChange={(c) => setPiiChecked(!!c)} 
+              <Checkbox
+                id="pii-check"
+                checked={piiChecked}
+                onCheckedChange={(c) => setPiiChecked(!!c)}
               />
               <div className="space-y-1 leading-none mt-0.5">
                 <Label htmlFor="pii-check" className="font-medium">
@@ -249,6 +492,46 @@ export function Step2Requirements({ milestoneId, onNext }: { milestoneId: number
             <Button onClick={confirmAIAnalyze} disabled={!piiChecked}>
               <Wand2 className="w-4 h-4 mr-2" /> Start Analysis
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sync Summary Dialog */}
+      <Dialog open={syncSummaryOpen} onOpenChange={setSyncSummaryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5 text-primary" /> Requirements Synced
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            {syncSummary.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No requirements were added — the ticket may not exist, or it (and all its sub-tickets) were excluded by status/tracker filters.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {newCount} new, {existingCount} already linked — {syncSummary.length} total for this milestone.
+                </p>
+                <div className="divide-y border rounded-lg max-h-72 overflow-auto">
+                  {syncSummary.map((s) => (
+                    <div key={s.id} className="p-2.5 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{s.title}</div>
+                        <div className="text-xs text-muted-foreground">Redmine #{s.redmineTicketId}</div>
+                      </div>
+                      <Badge variant={s.isNew ? "default" : "outline"} className="shrink-0 text-[10px]">
+                        {s.isNew ? "New" : "Already linked"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setSyncSummaryOpen(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

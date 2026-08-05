@@ -256,6 +256,7 @@ export const UpdateProjectResponse = zod.object({
  */
 export const ListRequirementsQueryParams = zod.object({
   projectId: zod.coerce.number().optional(),
+  milestoneId: zod.coerce.number().optional(),
   assigneeId: zod.coerce.number().optional(),
   status: zod.coerce.string().optional(),
   priority: zod.coerce.string().optional(),

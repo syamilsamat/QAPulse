@@ -279,7 +279,7 @@ export default function QAPipeline() {
         );
       case 2:
         return milestoneId ? (
-          <Step2Requirements milestoneId={milestoneId} onNext={() => setCurrentStep(3)} />
+          <Step2Requirements milestoneId={milestoneId} projectId={milestone?.projectId} onNext={() => setCurrentStep(3)} />
         ) : (
           <div>Milestone required.</div>
         );
@@ -577,7 +577,7 @@ export default function QAPipeline() {
               </DialogTitle>
             </DialogHeader>
             <p className="text-sm text-muted-foreground py-2">
-              This will permanently delete this milestone and its pipeline progress. Requirements and execution files will keep their milestone_id reference but the milestone will no longer exist.
+              This will permanently delete this milestone and its pipeline progress. Requirements and execution files linked to it will stay in the system, but will no longer show which milestone they belonged to.
             </p>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDeleteMilestoneId(null)}>Cancel</Button>
