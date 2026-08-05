@@ -38,6 +38,15 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
     [allFiles, milestoneId],
   );
 
+  // Deep-link straight into the file's own execution page when this milestone
+  // has exactly one — the generic list would make QA hunt for it again. With
+  // several files there's no single right target, so fall back to the list
+  // (the per-file rows below link to each one directly).
+  const openExecutionDashboard = () => {
+    if (files.length === 1) setLocation(`/test-cases/execution/${files[0].redmineTicketId}`);
+    else setLocation("/test-cases/execution");
+  };
+
   const total = files.length;
   const approved = files.filter((f: any) => f.reviewStatus === "approved").length;
   const rejected = files.filter((f: any) => f.reviewStatus === "rejected").length;
@@ -86,9 +95,9 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
                 Your test cases have been approved — you may proceed with execution.
               </p>
             </div>
-            <Button onClick={() => setLocation("/test-cases/execution")}>
+            <Button onClick={openExecutionDashboard}>
               <List className="w-4 h-4 mr-2" />
-              Open Execution Dashboard
+              {files.length === 1 ? `Execute #${files[0].redmineTicketId}` : "Open Execution Dashboard"}
             </Button>
           </CardContent>
         </Card>

@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { PlayCircle, ShieldAlert, TrendingUp, FileText, Loader2, RefreshCw } from "lucide-react";
+import { PlayCircle, ShieldAlert, TrendingUp, FileText, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function api(path: string, token: string | null) {
@@ -21,7 +22,10 @@ const EMPTY = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notEx
 
 export function Step5Execution({ milestoneId }: { milestoneId: number }) {
   const { token } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const [assessing, setAssessing] = useState(false);
 
   // Progress lives on execution files, not on this milestone directly. There's
   // no endpoint that aggregates by milestone, so we join client-side the same
@@ -65,8 +69,49 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
   const executed = totals.passed + totals.failed + totals.blocked + totals.inProgress;
   const progressPercent = totals.total > 0 ? Math.round((executed / totals.total) * 100) : 0;
 
-  const releaseRiskScore = totals.failed > 0 ? (totals.failed > 5 ? "High" : "Medium") : "Low";
-  const leakageProbability = totals.failed > 0 ? (totals.failed > 5 ? "85%" : "45%") : "12%";
+  // Release risk / defect leakage are AI-assessed from the real execution
+  // results and persisted, so the numbers survive navigation and can be
+  // re-run on demand. Previously both were hardcoded from a failed-count
+  // threshold and never reflected anything the model actually reasoned about.
+  const { data: assessment, isLoading: loadingAssessment } = useQuery<any>({
+    queryKey: ["execution-risk", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/ai/execution-risk/${milestoneId}`, token);
+      return res.ok ? res.json() : null;
+    },
+    enabled: !!milestoneId,
+  });
+
+  const handleAssess = async () => {
+    setAssessing(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/ai/execution-risk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ milestoneId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "AI assessment unavailable — try again shortly");
+      }
+      toast({ title: "Release risk assessed" });
+      queryClient.invalidateQueries({ queryKey: ["execution-risk", milestoneId] });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: String(err?.message ?? err) });
+    } finally {
+      setAssessing(false);
+    }
+  };
+
+  const riskLabel = assessment?.releaseRisk
+    ? String(assessment.releaseRisk).charAt(0).toUpperCase() + String(assessment.releaseRisk).slice(1)
+    : null;
+  const riskColor = assessment?.releaseRisk === "critical" || assessment?.releaseRisk === "high"
+    ? "text-red-500"
+    : assessment?.releaseRisk === "medium" ? "text-amber-500" : "text-green-500";
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8 text-left">
@@ -81,9 +126,16 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
           <Button variant="outline" onClick={() => { refetchFiles(); refetchProgress(); }}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button onClick={() => setLocation("/test-cases/execution")}>
+          <Button
+            onClick={() => setLocation(
+              files.length === 1
+                ? `/test-cases/execution/${files[0].redmineTicketId}`
+                : "/test-cases/execution",
+            )}
+            disabled={files.length === 0}
+          >
             <PlayCircle className="w-4 h-4 mr-2" />
-            Execution Dashboard
+            {files.length === 1 ? `Execute #${files[0].redmineTicketId}` : "Execution Dashboard"}
           </Button>
         </div>
       </div>
@@ -121,47 +173,99 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
-            <Card className={releaseRiskScore === "High" ? "border-red-500" : ""}>
-              <CardContent className="pt-6 flex gap-4">
-                <div className="mt-1">
-                  <ShieldAlert className={`w-8 h-8 ${
-                    releaseRiskScore === "High" ? "text-red-500" :
-                    releaseRiskScore === "Medium" ? "text-amber-500" : "text-green-500"
-                  }`} />
-                </div>
-                <div>
-                  <h3 className="font-medium text-lg">Release Risk Score</h3>
-                  <p className="text-sm text-muted-foreground mt-1 mb-2">
-                    AI Defect Triage based on similar historical modules.
-                  </p>
-                  <span className={`text-xl font-bold ${
-                    releaseRiskScore === "High" ? "text-red-500" :
-                    releaseRiskScore === "Medium" ? "text-amber-500" : "text-green-500"
-                  }`}>
-                    {releaseRiskScore} Risk
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-6 flex gap-4">
-                <div className="mt-1">
-                  <TrendingUp className="w-8 h-8 text-blue-500" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-lg">Defect Leakage Prediction</h3>
-                  <p className="text-sm text-muted-foreground mt-1 mb-2">
-                    Probability of production defect leakage based on current find-rate.
-                  </p>
-                  <span className="text-xl font-bold text-blue-600">
-                    {leakageProbability}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-violet-500" />
+              <p className="text-sm font-medium">AI Release Readiness</p>
+              {assessment?.createdAt && (
+                <span className="text-xs text-muted-foreground">
+                  assessed {new Date(assessment.createdAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleAssess} disabled={assessing}>
+              {assessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              {assessing ? "Assessing…" : assessment ? "Reassess" : "Assess with AI"}
+            </Button>
           </div>
+
+          {loadingAssessment ? (
+            <Card>
+              <CardContent className="pt-8 pb-8 text-center">
+                <Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          ) : !assessment ? (
+            <Card className="border-dashed">
+              <CardContent className="pt-8 pb-8 text-center space-y-2">
+                <Sparkles className="w-7 h-7 mx-auto text-muted-foreground" />
+                <p className="font-medium">No AI assessment yet</p>
+                <p className="text-sm text-muted-foreground">
+                  Run one to get an AI read on release risk and defect leakage from this milestone's actual execution results.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-6">
+                <Card className={assessment.releaseRisk === "critical" || assessment.releaseRisk === "high" ? "border-red-500" : ""}>
+                  <CardContent className="pt-6 flex gap-4">
+                    <div className="mt-1">
+                      <ShieldAlert className={`w-8 h-8 ${riskColor}`} />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-lg">Release Risk Score</h3>
+                      <span className={`text-xl font-bold ${riskColor}`}>{riskLabel} Risk</span>
+                      {assessment.riskRationale && (
+                        <p className="text-sm text-muted-foreground mt-2">{assessment.riskRationale}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6 flex gap-4">
+                    <div className="mt-1">
+                      <TrendingUp className="w-8 h-8 text-blue-500" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-lg">Defect Leakage Prediction</h3>
+                      <span className="text-xl font-bold text-blue-600">{assessment.leakageProbability}%</span>
+                      {assessment.leakageRationale && (
+                        <p className="text-sm text-muted-foreground mt-2">{assessment.leakageRationale}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {(assessment.factors?.length > 0 || assessment.recommendation) && (
+                <Card>
+                  <CardContent className="pt-6 space-y-3">
+                    {assessment.factors?.length > 0 && (
+                      <div className="space-y-2">
+                        {assessment.factors.map((f: any, i: number) => (
+                          <div key={i} className="flex gap-2 text-sm">
+                            <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${f.weight === "primary" ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                            <span>
+                              <span className="font-medium">{f.signal}</span>
+                              {f.detail && <span className="text-muted-foreground"> — {f.detail}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {assessment.recommendation && (
+                      <div className="pt-1 border-t text-sm">
+                        <span className="font-medium">Recommended next: </span>
+                        <span className="text-muted-foreground">{assessment.recommendation}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
 
           <Card>
             <CardContent className="p-0">

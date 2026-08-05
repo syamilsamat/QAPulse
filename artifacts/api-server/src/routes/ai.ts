@@ -12,9 +12,11 @@ import {
   defectsTable,
   defectLinksTable,
   executionTestCasesTable,
+  executionFilesTable,
   requirementCommentsTable,
   projectsTable,
   milestoneRiskAssessmentsTable,
+  executionRiskAssessmentsTable,
   conversations,
   messages,
   requirementAiSuggestionsTable,
@@ -1315,6 +1317,198 @@ Give at most 3 factors, most important first. Be direct and specific — no hedg
     res.status(201).json(fmtAssessment(row));
   } catch (error) {
     console.error("Milestone risk assessment failed:", error);
+    res.status(502).json({ error: "AI assessment unavailable — try again shortly" });
+  }
+});
+
+// ==========================================
+// EXECUTION RELEASE RISK + DEFECT LEAKAGE
+// ==========================================
+// QA Pipeline step 5's two cards. Judges *release* risk from what execution
+// actually produced (pass/fail/blocked, which priority band the failures sit
+// in, open defects) — as opposed to /ai/milestone-risk above, which judges
+// *delivery* risk from schedule/rework signals. Both persist an append-only
+// history row and the UI renders the latest.
+
+function fmtExecutionRisk(row: typeof executionRiskAssessmentsTable.$inferSelect) {
+  let factors: any[] = [];
+  try {
+    const parsed = row.factors ? JSON.parse(row.factors) : [];
+    if (Array.isArray(parsed)) factors = parsed;
+  } catch { /* stored JSON unreadable — render without factors */ }
+  return {
+    id: row.id,
+    milestoneId: row.milestoneId,
+    releaseRisk: row.releaseRisk,
+    leakageProbability: row.leakageProbability,
+    riskRationale: row.riskRationale,
+    leakageRationale: row.leakageRationale,
+    recommendation: row.recommendation,
+    factors,
+    createdAt: row.createdAt?.toISOString() ?? null,
+  };
+}
+
+async function loadExecutionRiskSnapshot(milestoneId: number) {
+  const files = await db.select().from(executionFilesTable).where(eq(executionFilesTable.milestoneId, milestoneId));
+  const fileIds = files.map((f) => f.id);
+
+  const rows = fileIds.length
+    ? await db.select().from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, fileIds))
+    : [];
+  const testcaseRows = rows.filter((r) => (r.rowType ?? "testcase") !== "group");
+
+  const bucketOf = (result: string | null) => {
+    const v = (result ?? "").trim().toLowerCase();
+    if (v === "passed") return "passed";
+    if (v === "failed") return "failed";
+    if (v === "blocked") return "blocked";
+    if (v === "in progress") return "inProgress";
+    return "notExecuted";
+  };
+  const counts = { passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
+  for (const r of testcaseRows) counts[bucketOf(r.result) as keyof typeof counts]++;
+
+  // Failure severity depends on which risk band the failing cases sit in —
+  // resolved through the library test case each execution row was compiled
+  // from (libraryTcId), since execution rows carry no priority of their own.
+  const libIds = [...new Set(testcaseRows.map((r) => r.libraryTcId).filter((v): v is number => v != null))];
+  const priorityById = new Map<number, string>();
+  if (libIds.length > 0) {
+    const libRows = await db
+      .select({ id: testCasesTable.id, priority: testCasesTable.priority })
+      .from(testCasesTable)
+      .where(inArray(testCasesTable.id, libIds));
+    for (const r of libRows) if (r.priority) priorityById.set(r.id, r.priority);
+  }
+  const failedByPriority: Record<string, number> = {};
+  const failedTitles: string[] = [];
+  for (const r of testcaseRows) {
+    if (bucketOf(r.result) !== "failed") continue;
+    const p = (r.libraryTcId != null ? priorityById.get(r.libraryTcId) : null) ?? "Untagged";
+    failedByPriority[p] = (failedByPriority[p] ?? 0) + 1;
+    if (failedTitles.length < 10) failedTitles.push(`${r.caseName ?? r.testCaseId} (${p})`);
+  }
+
+  const defectRows = await db
+    .select({ status: defectsTable.status, severity: defectsTable.severity, source: defectsTable.source })
+    .from(defectsTable)
+    .where(eq(defectsTable.milestoneId, milestoneId));
+  const openDefects = defectRows.filter((d) => !CLOSED_DEFECT_STATUSES.has((d.status ?? "").toLowerCase()));
+
+  const total = testcaseRows.length;
+  const executed = counts.passed + counts.failed + counts.blocked + counts.inProgress;
+
+  return {
+    projectId: files[0]?.projectId ?? null,
+    snapshot: {
+      executionFiles: files.map((f) => ({
+        redmineTicketId: f.redmineTicketId,
+        title: f.title,
+        reviewStatus: (f as any).reviewStatus ?? "draft",
+      })),
+      testCases: {
+        total,
+        ...counts,
+        executedPct: total > 0 ? Math.round((executed / total) * 100) : 0,
+        passRateOfExecuted: executed > 0 ? Math.round((counts.passed / executed) * 100) : null,
+      },
+      failures: { byPriority: failedByPriority, examples: failedTitles },
+      defects: {
+        total: defectRows.length,
+        open: openDefects.length,
+        criticalOrHighOpen: openDefects.filter((d) => /critical|high/i.test(d.severity ?? "")).length,
+        fromProduction: defectRows.filter((d) => d.source === "production").length,
+      },
+    },
+  };
+}
+
+router.get("/ai/execution-risk/:milestoneId", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const milestoneId = Number(req.params.milestoneId);
+  if (!milestoneId) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+  const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, milestoneId));
+  if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const [row] = await db
+    .select()
+    .from(executionRiskAssessmentsTable)
+    .where(eq(executionRiskAssessmentsTable.milestoneId, milestoneId))
+    .orderBy(desc(executionRiskAssessmentsTable.createdAt))
+    .limit(1);
+
+  res.json(row ? fmtExecutionRisk(row) : null);
+});
+
+router.post("/ai/execution-risk", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const milestoneId = Number(req.body?.milestoneId);
+  if (!milestoneId) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+  const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, milestoneId));
+  if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  try {
+    const { projectId, snapshot } = await loadExecutionRiskSnapshot(milestoneId);
+    if (snapshot.testCases.total === 0) {
+      res.status(400).json({ error: "No compiled test cases to assess yet" });
+      return;
+    }
+
+    const systemPrompt = `You are a senior QA release-readiness analyst.
+You are given PRE-AGGREGATED test execution metrics for one milestone — do not recompute the numbers, synthesize them.
+Judge two things:
+1. releaseRisk — how risky it would be to release now. Weigh: failures concentrated in Critical/High priority cases are far more serious than the same count in Low; blocked cases hide unknown risk; a large notExecuted count means the release is simply unverified; open critical/high defects raise risk sharply.
+2. leakageProbability — the percentage chance (integer 0-100) that defects escape to production. Low coverage of executed tests, unresolved high-severity defects and prior production defects push this up; a high pass rate across fully-executed, priority-tagged cases pushes it down.
+Return exactly this JSON structure, nothing else:
+{ "releaseRisk": "low"|"medium"|"high"|"critical", "leakageProbability": 0-100, "riskRationale": "one sentence citing specific numbers", "leakageRationale": "one sentence citing specific numbers", "factors": [{ "signal": "short name", "detail": "one sentence with the numbers", "weight": "primary"|"secondary" }], "recommendation": "one or two concrete next actions for QA" }
+Give at most 3 factors, most important first. Be direct and specific — no hedging boilerplate.`;
+
+    const raw = await executeAiTask(systemPrompt, JSON.stringify(snapshot), 2048);
+    const parsed = safeParseJSON(raw, null);
+    const leakage = Number(parsed?.leakageProbability);
+    if (!parsed || !RISK_LEVELS.includes(parsed.releaseRisk) || !Number.isFinite(leakage)) {
+      res.status(502).json({ error: "AI assessment unavailable — try again shortly" });
+      return;
+    }
+
+    const [row] = await db.insert(executionRiskAssessmentsTable).values({
+      milestoneId,
+      projectId,
+      releaseRisk: parsed.releaseRisk,
+      leakageProbability: Math.max(0, Math.min(100, Math.round(leakage))),
+      riskRationale: typeof parsed.riskRationale === "string" ? parsed.riskRationale : null,
+      leakageRationale: typeof parsed.leakageRationale === "string" ? parsed.leakageRationale : null,
+      factors: JSON.stringify(Array.isArray(parsed.factors) ? parsed.factors.slice(0, 3) : []),
+      recommendation: typeof parsed.recommendation === "string" ? parsed.recommendation : null,
+      dataSnapshot: JSON.stringify(snapshot),
+      createdBy: ctx.userId,
+    }).returning();
+
+    await logActivity({
+      type: "execution_risk_assessed",
+      description: `Milestone "${milestone.name}" AI release risk: ${parsed.releaseRisk}, leakage ${row.leakageProbability}%`,
+      userId: ctx.userId,
+      entityId: milestoneId,
+      entityType: "milestone",
+      newValue: { releaseRisk: parsed.releaseRisk, leakageProbability: row.leakageProbability },
+    });
+
+    res.status(201).json(fmtExecutionRisk(row));
+  } catch (error) {
+    console.error("Execution risk assessment failed:", error);
     res.status(502).json({ error: "AI assessment unavailable — try again shortly" });
   }
 });

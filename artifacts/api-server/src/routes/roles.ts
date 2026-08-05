@@ -349,6 +349,28 @@ export async function bootstrap() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`);
 
+  // AI release-risk / defect-leakage assessments for a milestone's test
+  // execution (QA Pipeline step 5). Same append-only shape as
+  // milestone_risk_assessments above, but judged from execution results
+  // rather than schedule/rework signals.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS execution_risk_assessments (
+      id SERIAL PRIMARY KEY,
+      milestone_id INTEGER NOT NULL,
+      project_id INTEGER,
+      release_risk TEXT NOT NULL,
+      leakage_probability INTEGER NOT NULL,
+      risk_rationale TEXT,
+      leakage_rationale TEXT,
+      factors TEXT,
+      recommendation TEXT,
+      data_snapshot TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS execution_risk_assessments_milestone_idx ON execution_risk_assessments (milestone_id)`);
+
   // CR068 — editable event log on a requirement (Blocker/Server down/
   // Automation unavailable/custom), date-ranged and closeable via endDate.
   // Replaces the frozen ad-hoc taskEventsTable as what History Trail shows.
