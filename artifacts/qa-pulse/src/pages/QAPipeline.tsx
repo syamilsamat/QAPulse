@@ -40,15 +40,14 @@ export default function QAPipeline() {
     queryKey: ["milestone", milestoneId],
     queryFn: async () => {
       if (!milestoneId) return null;
-      const res = await fetch(`${getApiUrl()}/milestones`, {
+      const res = await fetch(`${getApiUrl()}/milestones/${milestoneId}`, {
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      if (!res.ok) throw new Error("Failed to fetch milestones");
-      const milestones = await res.json();
-      return milestones.find((m: any) => m.id === milestoneId) || null;
+      if (!res.ok) throw new Error("Failed to fetch milestone");
+      return res.json();
     },
     enabled: !!milestoneId,
   });
