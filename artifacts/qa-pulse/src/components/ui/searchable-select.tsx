@@ -20,6 +20,8 @@ export interface SearchableSelectOption {
   value: string;
   label: string;
   badge?: string;
+  /** Extra text (e.g. a Redmine ID) to match against when searching, beyond the visible label. */
+  keywords?: string;
 }
 
 interface SearchableSelectProps {
@@ -76,7 +78,7 @@ export function SearchableSelect({
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
-                  value={option.label}
+                  value={option.keywords ? `${option.label} ${option.keywords}` : option.label}
                   onSelect={() => {
                     onValueChange(option.value);
                     setOpen(false);

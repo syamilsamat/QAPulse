@@ -224,9 +224,9 @@ function AIGenerateDialog({
                       }
                     }
                   }}
-                  options={requirements.map((r: any) => ({ value: String(r.id), label: r.title }))}
+                  options={requirements.map((r: any) => ({ value: String(r.id), label: r.title, keywords: r.redmineTicketId }))}
                   placeholder="Select a requirement..."
-                  searchPlaceholder="Search requirement..."
+                  searchPlaceholder="Search by title or Redmine ID..."
                 />
               </div>
 
