@@ -467,11 +467,11 @@ router.delete("/milestones/:id/assignees/:userId", async (req, res): Promise<voi
 router.delete("/milestones/:id", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
   const id = parseInt(req.params.id);
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
   await db.delete(milestonesTable).where(eq(milestonesTable.id, id));
   await logActivity({ type: "milestone_deleted", description: `Milestone "${m.name}" deleted`, userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone" });

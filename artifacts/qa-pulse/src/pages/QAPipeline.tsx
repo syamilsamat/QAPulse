@@ -8,7 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { Step1Milestone } from "@/components/qa-pipeline/Step1Milestone";
 import { Step2Requirements } from "@/components/qa-pipeline/Step2Requirements";
@@ -50,6 +56,32 @@ function PriorityBadge({ priority }: { priority: string | null }) {
   }
 }
 
+const TYPE_OPTIONS = [
+  { value: "cr", label: "Change Request" },
+  { value: "sprint", label: "Sprint" },
+  { value: "phase", label: "Phase" },
+  { value: "release", label: "Release" },
+];
+const STATUS_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "Active" },
+  { value: "verified", label: "Verified" },
+  { value: "uat", label: "UAT" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+const PRIORITY_OPTIONS = [
+  { value: "Low", label: "Low" },
+  { value: "Medium", label: "Medium" },
+  { value: "High", label: "High" },
+  { value: "Critical", label: "Critical" },
+];
+const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
+
+// Same write-tier as Step1Milestone's create gate — kept in sync so anyone
+// who can start a pipeline milestone can also edit/delete it from here.
+const PIPELINE_WRITE_ROLES = ["admin", "qa_member", "qa_lead", "qa_manager", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
+
 // Placeholder Steps for the 8-step wizard
 const PIPELINE_STEPS = [
   { id: 1, title: "Milestone & UAT", desc: "Create milestone & configure UAT" },
@@ -63,7 +95,7 @@ const PIPELINE_STEPS = [
 ];
 
 export default function QAPipeline() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -101,6 +133,90 @@ export default function QAPipeline() {
     enabled: !milestoneId && pickerProjectId !== "all",
   });
   const pipelineMilestones = projectMilestones.filter((m) => m.pipelineEnabled);
+  const canWritePipelines = PIPELINE_WRITE_ROLES.includes(user?.role ?? "");
+
+  const [editingMilestone, setEditingMilestone] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "", type: "cr", status: "planned", priority: "none", environment: "none",
+    targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "",
+    description: "", requiresUat: false,
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deleteMilestoneId, setDeleteMilestoneId] = useState<number | null>(null);
+
+  const openEditMilestone = (m: any) => {
+    setEditingMilestone(m);
+    setEditForm({
+      name: m.name,
+      type: m.type,
+      status: m.status,
+      priority: m.priority ?? "none",
+      environment: m.environment ?? "none",
+      targetDate: m.targetDate ? m.targetDate.slice(0, 10) : "",
+      startDate: m.startDate ? m.startDate.slice(0, 10) : "",
+      reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
+      devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
+      qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
+      uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
+      goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
+      description: m.description ?? "",
+      requiresUat: !!m.requiresUat,
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMilestone) return;
+    if (!editForm.name.trim()) { toast({ variant: "destructive", title: "Name is required" }); return; }
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/milestones/${editingMilestone.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          type: editForm.type,
+          status: editForm.status,
+          priority: editForm.priority === "none" ? null : editForm.priority,
+          environment: editForm.environment === "none" ? null : editForm.environment,
+          targetDate: editForm.targetDate || null,
+          startDate: editForm.startDate || null,
+          reqTargetDate: editForm.reqTargetDate || null,
+          devTargetDate: editForm.devTargetDate || null,
+          qaTargetDate: editForm.qaTargetDate || null,
+          uatTargetDate: editForm.uatTargetDate || null,
+          goLiveDate: editForm.goLiveDate || null,
+          description: editForm.description.trim() || null,
+          requiresUat: editForm.requiresUat,
+        }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? "Failed to update milestone"); }
+      toast({ title: "Milestone updated" });
+      setEditingMilestone(null);
+      queryClient.invalidateQueries({ queryKey: ["milestones", pickerProjectId] });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteMilestone = async (id: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/milestones/${id}`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Milestone deleted" });
+      setDeleteMilestoneId(null);
+      queryClient.invalidateQueries({ queryKey: ["milestones", pickerProjectId] });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to delete milestone" });
+    }
+  };
 
   const { data: milestone, isLoading } = useQuery({
     queryKey: ["milestone", milestoneId],
@@ -328,11 +444,147 @@ export default function QAPipeline() {
                   <Button size="sm" className="w-full gap-1.5" onClick={() => setLocation(`/qa-pipeline/${m.id}`)}>
                     Open Pipeline <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
+                  {canWritePipelines && (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEditMilestone(m)}>
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteMilestoneId(m.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
           </div>
         )}
+
+        {/* Edit dialog */}
+        <Dialog open={!!editingMilestone} onOpenChange={(open) => !open && setEditingMilestone(null)}>
+          <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Pipeline Milestone</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>Name <span className="text-destructive">*</span></Label>
+                <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <Select value={editForm.type} onValueChange={(v) => setEditForm({ ...editForm, type: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TYPE_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Priority</Label>
+                  <Select value={editForm.priority} onValueChange={(v) => setEditForm({ ...editForm, priority: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not set</SelectItem>
+                      {PRIORITY_OPTIONS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Target Date</Label>
+                  <Input type="date" value={editForm.targetDate} onChange={(e) => setEditForm({ ...editForm, targetDate: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Environment</Label>
+                <Select value={editForm.environment} onValueChange={(v) => setEditForm({ ...editForm, environment: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select environment" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not set</SelectItem>
+                    {ENVIRONMENT_OPTIONS.map((env) => <SelectItem key={env} value={env}>{env}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Start</Label>
+                    <Input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Requirements by</Label>
+                    <Input type="date" value={editForm.reqTargetDate} onChange={(e) => setEditForm({ ...editForm, reqTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Dev done by</Label>
+                    <Input type="date" value={editForm.devTargetDate} onChange={(e) => setEditForm({ ...editForm, devTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">QA done by</Label>
+                    <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">UAT done by</Label>
+                    <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Go-Live</Label>
+                    <Input type="date" value={editForm.goLiveDate} onChange={(e) => setEditForm({ ...editForm, goLiveDate: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Description</Label>
+                <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+              </div>
+              <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
+                <Checkbox
+                  id="editUatToggle"
+                  checked={editForm.requiresUat}
+                  onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked })}
+                />
+                <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setEditingMilestone(null)}>Cancel</Button>
+              <Button onClick={handleSaveEdit} disabled={savingEdit}>
+                {savingEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete confirm */}
+        <Dialog open={deleteMilestoneId !== null} onOpenChange={() => setDeleteMilestoneId(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <Trash2 className="w-4 h-4" /> Delete Pipeline Milestone?
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground py-2">
+              This will permanently delete this milestone and its pipeline progress. Requirements and execution files will keep their milestone_id reference but the milestone will no longer exist.
+            </p>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setDeleteMilestoneId(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => deleteMilestoneId && handleDeleteMilestone(deleteMilestoneId)}>Delete</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
