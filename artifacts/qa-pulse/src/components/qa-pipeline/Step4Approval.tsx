@@ -18,7 +18,6 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 
 export function Step4Approval({ milestoneId }: { milestoneId: number }) {
   const { token, user } = useAuth();
-  const { toast } = useToast();
 
   // Note: the backend `/milestones` API in QAPulse typically returns stats about execution files/test cases.
   // For this step, we would fetch the test cases and check their reviewStatus.
