@@ -96,21 +96,19 @@ export function Step7UAT({ milestoneId }: { milestoneId: number }) {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 text-left">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-xl font-semibold">
-            {bddEnabled ? "UAT Sign-off & BDD Scenarios" : "UAT Sign-off"}
-          </h3>
-          <p className="text-muted-foreground mt-1">
-            {bddEnabled
-              ? "Upload official UAT sign-off documents and optionally convert BDD (Gherkin) scenarios into regression test cases."
-              : "Upload the official UAT sign-off documents for this milestone."}
-          </p>
-        </div>
+    <div className={`w-full max-w-4xl mx-auto space-y-8 ${bddEnabled ? "text-left" : "text-center"}`}>
+      <div>
+        <h3 className="text-xl font-semibold">
+          {bddEnabled ? "UAT Sign-off & BDD Scenarios" : "UAT Sign-off"}
+        </h3>
+        <p className="text-muted-foreground mt-1">
+          {bddEnabled
+            ? "Upload official UAT sign-off documents and optionally convert BDD (Gherkin) scenarios into regression test cases."
+            : "Upload the official UAT sign-off documents for this milestone."}
+        </p>
       </div>
 
-      <div className={bddEnabled ? "grid grid-cols-2 gap-6" : "max-w-md"}>
+      <div className={bddEnabled ? "grid grid-cols-2 gap-6" : "max-w-md mx-auto text-left"}>
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
