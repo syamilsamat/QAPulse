@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, requirementCommentsTable, requirementsTable, usersTable } from "@workspace/db";
-import { getAuthContext } from "../middleware/access";
+import { getAuthContext, canAccessProject } from "../middleware/access";
 import { notifyUser } from "./_notify";
 
 const router: IRouter = Router();
@@ -12,6 +12,12 @@ router.get("/requirements/:id/comments", async (req, res): Promise<void> => {
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const reqId = parseInt(req.params.id);
+  const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, reqId));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+  if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
   const comments = await db.select().from(requirementCommentsTable)
     .where(eq(requirementCommentsTable.requirementId, reqId))
     .orderBy(requirementCommentsTable.createdAt);
@@ -36,6 +42,9 @@ router.post("/requirements/:id/comments", async (req, res): Promise<void> => {
 
   const [req_] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, reqId));
   if (!req_) { res.status(404).json({ error: "Requirement not found" }); return; }
+  if (req_.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, req_.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
 
   const [comment] = await db.insert(requirementCommentsTable).values({
     requirementId: reqId,

@@ -102,6 +102,10 @@ export default function QAPipeline() {
   const params = useParams();
   const milestoneId = params.milestoneId ? parseInt(params.milestoneId, 10) : null;
   const [currentStep, setCurrentStep] = useState(1);
+  // Guards the resume-step effect below to only run once per milestone visit
+  // — otherwise every milestone refetch (e.g. after a deliberate "Previous
+  // Step" click) would keep snapping the user back to Step 2.
+  const [resumedFor, setResumedFor] = useState<number | null>(null);
 
   // Milestone picker — shown whenever no specific milestone is selected, so
   // QA can see which pipeline runs already exist (same project-scoped list +
@@ -235,10 +239,19 @@ export default function QAPipeline() {
   });
 
   useEffect(() => {
-    if (milestone && milestone.pipelineStep) {
+    if (!milestone || resumedFor === milestoneId) return;
+    if (milestone.pipelineStep && milestone.pipelineStep > 1) {
       setCurrentStep(milestone.pipelineStep);
+    } else if (milestone.requirementCount > 0) {
+      // Requirements were already synced even though pipelineStep was never
+      // explicitly advanced past Step 1 (syncing doesn't move the pipeline
+      // position by itself — only "Next"/a sidebar click does). Resume on
+      // Step 2 so the synced list is immediately visible instead of
+      // re-showing the "Milestone Created" screen as if nothing happened.
+      setCurrentStep(2);
     }
-  }, [milestone]);
+    setResumedFor(milestoneId);
+  }, [milestone, milestoneId, resumedFor]);
 
   // Free-roam navigation: any step is reachable directly (no forced
   // sequential order), so multiple QA members can split work across steps
@@ -279,7 +292,7 @@ export default function QAPipeline() {
         );
       case 2:
         return milestoneId ? (
-          <Step2Requirements milestoneId={milestoneId} projectId={milestone?.projectId} onNext={() => setCurrentStep(3)} />
+          <Step2Requirements milestoneId={milestoneId} projectId={milestone?.projectId} />
         ) : (
           <div>Milestone required.</div>
         );

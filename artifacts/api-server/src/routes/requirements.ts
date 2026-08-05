@@ -302,9 +302,16 @@ router.get("/requirements/:id", async (req, res, next): Promise<void> => {
     return;
   }
 
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, params.data.id));
   if (!requirement) {
     res.status(404).json({ error: "Requirement not found" });
+    return;
+  }
+  if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" });
     return;
   }
 

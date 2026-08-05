@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck,
+  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink,
 } from "lucide-react";
 import {
   Dialog,
@@ -77,7 +77,7 @@ function RiskBadge({ level }: { level: string }) {
   );
 }
 
-export function Step2Requirements({ milestoneId, projectId, onNext }: { milestoneId: number, projectId?: number, onNext: () => void }) {
+export function Step2Requirements({ milestoneId, projectId }: { milestoneId: number, projectId?: number }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -369,20 +369,6 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
     }
   };
 
-  const handleProceed = async () => {
-    try {
-      // Advance pipeline step
-      await api(`/milestones/${milestoneId}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ pipelineStep: 3 })
-      });
-      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      onNext();
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to proceed to next step" });
-    }
-  };
-
   const hasDataPrep = dataPrepFiles.length > 0;
   const newCount = syncSummary.filter((s) => s.isNew).length;
   const existingCount = syncSummary.length - newCount;
@@ -490,6 +476,14 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
                             <div className="font-medium truncate">{req.title}</div>
                             <div className="text-xs text-muted-foreground">Redmine #{req.redmineTicketId ?? "—"}</div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => window.open(`/requirements/${req.id}`, "_blank")}
+                            title="Open Requirement Details"
+                            className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
                           {result && (
                             <button
                               type="button"
@@ -606,11 +600,6 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
         </Card>
       </div>
 
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleProceed} disabled={requirements.length === 0} size="lg">
-          Proceed to Step 3
-        </Button>
-      </div>
 
       {/* PII Modal */}
       <Dialog open={piiModalOpen} onOpenChange={setPiiModalOpen}>
