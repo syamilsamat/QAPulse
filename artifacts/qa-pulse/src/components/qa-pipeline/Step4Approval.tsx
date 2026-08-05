@@ -1,11 +1,9 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, CheckCircle2, List, RefreshCw } from "lucide-react";
+import { CheckCircle2, List, RefreshCw } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -18,12 +16,9 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step4Approval({ milestoneId, onNext }: { milestoneId: number, onNext: () => void }) {
+export function Step4Approval({ milestoneId }: { milestoneId: number }) {
   const { token, user } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
-
-  const [advancing, setAdvancing] = useState(false);
 
   // Note: the backend `/milestones` API in QAPulse typically returns stats about execution files/test cases.
   // For this step, we would fetch the test cases and check their reviewStatus.
@@ -51,22 +46,6 @@ export function Step4Approval({ milestoneId, onNext }: { milestoneId: number, on
   const allApproved = total > 0 && approved === total;
   
   const canApprove = ["admin", "qa_manager", "hod_qa", "cto"].includes(user?.role ?? "");
-
-  const handleAdvance = async () => {
-    setAdvancing(true);
-    try {
-      await api(`/milestones/${milestoneId}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ pipelineStep: 5 })
-      });
-      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      onNext();
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to advance" });
-    } finally {
-      setAdvancing(false);
-    }
-  };
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-8 text-left">
@@ -120,13 +99,6 @@ export function Step4Approval({ milestoneId, onNext }: { milestoneId: number, on
         >
           <List className="w-4 h-4 mr-2" />
           Open Execution Dashboard
-        </Button>
-      </div>
-
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleAdvance} disabled={advancing} size="lg">
-          {advancing && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Proceed to Execution (Step 5)
         </Button>
       </div>
     </div>

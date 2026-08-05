@@ -1,11 +1,9 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, ArrowRight, PlayCircle, ShieldAlert, TrendingUp } from "lucide-react";
+import { PlayCircle, ShieldAlert, TrendingUp } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
@@ -19,12 +17,8 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step5Execution({ milestoneId, onNext }: { milestoneId: number, onNext: () => void }) {
-  const { token, user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
-  const [advancing, setAdvancing] = useState(false);
+export function Step5Execution({ milestoneId }: { milestoneId: number }) {
+  const { token } = useAuth();
 
   // Fetch execution test cases
   const { data: testCases = [], isLoading } = useQuery({
@@ -48,22 +42,6 @@ export function Step5Execution({ milestoneId, onNext }: { milestoneId: number, o
   // We'll mock these AI-driven metrics based on the current failed test cases for the UI
   const releaseRiskScore = failed > 0 ? (failed > 5 ? 'High' : 'Medium') : 'Low';
   const leakageProbability = failed > 0 ? (failed > 5 ? '85%' : '45%') : '12%';
-
-  const handleAdvance = async () => {
-    setAdvancing(true);
-    try {
-      await api(`/milestones/${milestoneId}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ pipelineStep: 6 })
-      });
-      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      onNext();
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to advance" });
-    } finally {
-      setAdvancing(false);
-    }
-  };
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8 text-left">
@@ -133,13 +111,6 @@ export function Step5Execution({ milestoneId, onNext }: { milestoneId: number, o
             </div>
           </CardContent>
         </Card>
-      </div>
-
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleAdvance} disabled={advancing} size="lg">
-          {advancing && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Proceed to Sign Off (Step 6) <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
       </div>
     </div>
   );

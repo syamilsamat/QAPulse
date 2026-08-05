@@ -298,27 +298,27 @@ export default function QAPipeline() {
         );
       case 3:
         return milestoneId ? (
-          <Step3TestCases milestoneId={milestoneId} projectId={milestone?.projectId} onNext={() => setCurrentStep(4)} />
+          <Step3TestCases milestoneId={milestoneId} projectId={milestone?.projectId} />
         ) : (
           <div>Milestone required.</div>
         );
       case 4:
         return milestoneId ? (
-          <Step4Approval milestoneId={milestoneId} onNext={() => setCurrentStep(5)} />
+          <Step4Approval milestoneId={milestoneId} />
         ) : (
           <div>Milestone required.</div>
         );
       case 5:
         return milestoneId ? (
-          <Step5Execution milestoneId={milestoneId} onNext={() => setCurrentStep(6)} />
+          <Step5Execution milestoneId={milestoneId} />
         ) : (
           <div>Milestone required.</div>
         );
       case 6:
         return milestoneId ? (
-          <Step6SignOff 
-            milestoneId={milestoneId} 
-            onNext={() => setCurrentStep(7)} 
+          <Step6SignOff
+            milestoneId={milestoneId}
+            onNext={() => setCurrentStep(7)}
             onSkipUat={() => setCurrentStep(8)}
           />
         ) : (
@@ -326,7 +326,7 @@ export default function QAPipeline() {
         );
       case 7:
         return milestoneId ? (
-          <Step7UAT milestoneId={milestoneId} onNext={() => setCurrentStep(8)} />
+          <Step7UAT milestoneId={milestoneId} />
         ) : (
           <div>Milestone required.</div>
         );

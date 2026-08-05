@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2, ArrowRight, Upload, Wand2, BookOpen } from "lucide-react";
+import { Loader2, Upload, Wand2, BookOpen } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -20,12 +20,10 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step7UAT({ milestoneId, onNext }: { milestoneId: number, onNext: () => void }) {
+export function Step7UAT({ milestoneId }: { milestoneId: number }) {
   const { token } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const [advancing, setAdvancing] = useState(false);
   const [gherkinInput, setGherkinInput] = useState("");
   const [generatingBDD, setGeneratingBDD] = useState(false);
 
@@ -57,22 +55,6 @@ export function Step7UAT({ milestoneId, onNext }: { milestoneId: number, onNext:
       toast({ variant: "destructive", title: err.message });
     } finally {
       setGeneratingBDD(false);
-    }
-  };
-
-  const handleAdvance = async () => {
-    setAdvancing(true);
-    try {
-      await api(`/milestones/${milestoneId}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ pipelineStep: 8 })
-      });
-      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      onNext();
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to advance" });
-    } finally {
-      setAdvancing(false);
     }
   };
 
@@ -132,13 +114,6 @@ export function Step7UAT({ milestoneId, onNext }: { milestoneId: number, onNext:
             </Button>
           </CardContent>
         </Card>
-      </div>
-
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleAdvance} disabled={advancing} size="lg">
-          {advancing && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Proceed to Final Step (Step 8) <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
       </div>
     </div>
   );

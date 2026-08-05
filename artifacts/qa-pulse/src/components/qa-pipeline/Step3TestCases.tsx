@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, TestTube, Wand2, ArrowRight, Plus } from "lucide-react";
+import { Loader2, TestTube, Wand2, Plus } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -18,10 +19,11 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step3TestCases({ milestoneId, projectId, onNext }: { milestoneId: number, projectId?: number, onNext: () => void }) {
+export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number, projectId?: number }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   const [tagging, setTagging] = useState(false);
 
@@ -70,19 +72,6 @@ export function Step3TestCases({ milestoneId, projectId, onNext }: { milestoneId
     }
   };
 
-  const handleSendForApproval = async () => {
-    try {
-      await api(`/milestones/${milestoneId}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ pipelineStep: 4 })
-      });
-      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      onNext();
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to send for approval" });
-    }
-  };
-
   // Calculate coverage
   const coveredReqIds = new Set(
     testCases.flatMap((tc: any) => tc.links?.filter((l: any) => l.linkType === "requirement").map((l: any) => l.requirementId) || [])
@@ -121,7 +110,7 @@ export function Step3TestCases({ milestoneId, projectId, onNext }: { milestoneId
       <div className="flex gap-4">
         <Button
           className="flex-1"
-          onClick={() => window.open(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}&createFor=${milestoneId}`, '_blank')}
+          onClick={() => setLocation(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}&createFor=${milestoneId}`)}
         >
           <Plus className="w-4 h-4 mr-2" />
           Create Test Case
@@ -129,7 +118,7 @@ export function Step3TestCases({ milestoneId, projectId, onNext }: { milestoneId
         <Button
           className="flex-1"
           variant="outline"
-          onClick={() => window.open(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}`, '_blank')}
+          onClick={() => setLocation(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}`)}
         >
           <TestTube className="w-4 h-4 mr-2" />
           Manage Test Cases
@@ -175,12 +164,6 @@ export function Step3TestCases({ milestoneId, projectId, onNext }: { milestoneId
           )}
         </CardContent>
       </Card>
-
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleSendForApproval} disabled={testCases.length === 0} size="lg">
-          Send for QA Approval <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
     </div>
   );
 }
