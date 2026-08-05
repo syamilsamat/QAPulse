@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useRoleLabels } from "@/hooks/use-role-labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink, CheckCircle2, Database, UserPlus,
 } from "lucide-react";
@@ -86,6 +88,7 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const { roleLabel } = useRoleLabels();
 
   const [redmineId, setRedmineId] = useState("");
   const [syncing, setSyncing] = useState(false);
@@ -118,6 +121,22 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     },
     enabled: !!milestoneId,
   });
+
+  // One option list shared by all three pickers. `keywords` adds the raw role
+  // slug (so "qa_member" matches as well as "QA Member") and the user id, which
+  // also keeps each cmdk item's match value unique when two people happen to
+  // share a name and role.
+  const assigneeOptions = useMemo(
+    () => [
+      { value: "none", label: "Unassigned" },
+      ...assignableUsers.map((u) => ({
+        value: String(u.id),
+        label: `${u.name} · ${roleLabel(u.role)}`,
+        keywords: `${u.role} ${u.id}`,
+      })),
+    ],
+    [assignableUsers, roleLabel],
+  );
 
   const openAssign = (req: any) => {
     setAssignFor(req);
@@ -815,18 +834,14 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
             ] as const).map(({ key, label }) => (
               <div key={key} className="space-y-1.5">
                 <Label>{label}</Label>
-                <Select
+                <SearchableSelect
                   value={assignForm[key]}
                   onValueChange={(v) => setAssignForm({ ...assignForm, [key]: v })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Unassigned</SelectItem>
-                    {assignableUsers.map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.role}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={assigneeOptions}
+                  placeholder="Unassigned"
+                  searchPlaceholder="Search by name or role…"
+                  emptyText="No matching person."
+                />
               </div>
             ))}
           </div>

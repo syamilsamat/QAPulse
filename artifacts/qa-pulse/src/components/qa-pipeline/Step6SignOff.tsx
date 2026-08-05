@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useRoleLabels } from "@/hooks/use-role-labels";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, CheckCircle2, Signature } from "lucide-react";
@@ -14,14 +15,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-const ROLE_LABEL: Record<string, string> = {
-  admin: "Administrator",
-  cto: "CTO",
-  hod_qa: "Head of QA",
-  qa_manager: "QA Manager",
-  qa_lead: "QA Lead",
-  qa_member: "QA Member",
-};
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -38,6 +31,7 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
   const { token, user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { roleLabel } = useRoleLabels();
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [signingOff, setSigningOff] = useState(false);
@@ -95,7 +89,7 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
   if (isSignedOff) {
     const signedAt = new Date(milestone.signedOffAt);
     const signerName = milestone.signedOffByName ?? "a QA authority";
-    const signerRole = milestone.signedOffByRole ? (ROLE_LABEL[milestone.signedOffByRole] ?? milestone.signedOffByRole) : null;
+    const signerRole = milestone.signedOffByRole ? roleLabel(milestone.signedOffByRole) : null;
 
     return (
       <div className="w-full max-w-2xl mx-auto space-y-6 text-center">
