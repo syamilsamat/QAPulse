@@ -20,7 +20,7 @@ function api(path: string, token: string | null) {
 
 const EMPTY = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
 
-export function Step5Execution({ milestoneId }: { milestoneId: number }) {
+export function Step5Execution({ milestoneId, locked = false }: { milestoneId: number, locked?: boolean }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -193,7 +193,7 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
                 </span>
               )}
             </div>
-            <Button size="sm" variant="outline" className="gap-1.5 w-full sm:w-auto shrink-0" onClick={handleAssess} disabled={assessing}>
+            <Button size="sm" variant="outline" className="gap-1.5 w-full sm:w-auto shrink-0" onClick={handleAssess} disabled={assessing || locked}>
               {assessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               {assessing ? "Assessing…" : assessment ? "Reassess" : "Assess with AI"}
             </Button>

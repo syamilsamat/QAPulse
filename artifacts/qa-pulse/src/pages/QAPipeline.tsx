@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { Step1Milestone } from "@/components/qa-pipeline/Step1Milestone";
 import { Step2Requirements } from "@/components/qa-pipeline/Step2Requirements";
@@ -200,6 +200,9 @@ export default function QAPipeline() {
       toast({ title: "Milestone updated" });
       setEditingMilestone(null);
       queryClient.invalidateQueries({ queryKey: ["milestones", pickerProjectId] });
+      // Also refresh the open pipeline's own copy — the dialog is reachable
+      // from inside a locked pipeline, where this is the query that matters.
+      queryClient.invalidateQueries({ queryKey: ["milestone", editingMilestone.id] });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
@@ -257,9 +260,17 @@ export default function QAPipeline() {
   // sequential order), so multiple QA members can split work across steps
   // (e.g. one syncing requirements while another already drafts test cases).
   // Still persists pipelineStep so the position survives a reload.
+  // A deployed milestone is a closed record: steps 1-8 become read-only so no
+  // one can retro-edit a signed-off pipeline. Milestone dates and details stay
+  // editable via the Edit Milestone dialog.
+  const isLocked = milestone?.status === "completed";
+
   const goToStep = (step: number) => {
     setCurrentStep(step);
     if (!milestoneId) return;
+    // Don't write pipelineStep back onto a closed pipeline — browsing a
+    // completed run shouldn't mutate it.
+    if (isLocked) return;
     fetch(`${getApiUrl()}/milestones/${milestoneId}`, {
       method: "PATCH",
       headers: {
@@ -292,13 +303,13 @@ export default function QAPipeline() {
         );
       case 2:
         return milestoneId ? (
-          <Step2Requirements milestoneId={milestoneId} projectId={milestone?.projectId} />
+          <Step2Requirements milestoneId={milestoneId} projectId={milestone?.projectId} locked={isLocked} />
         ) : (
           <div>Milestone required.</div>
         );
       case 3:
         return milestoneId ? (
-          <Step3TestCases milestoneId={milestoneId} projectId={milestone?.projectId} />
+          <Step3TestCases milestoneId={milestoneId} projectId={milestone?.projectId} locked={isLocked} />
         ) : (
           <div>Milestone required.</div>
         );
@@ -310,7 +321,7 @@ export default function QAPipeline() {
         );
       case 5:
         return milestoneId ? (
-          <Step5Execution milestoneId={milestoneId} />
+          <Step5Execution milestoneId={milestoneId} locked={isLocked} />
         ) : (
           <div>Milestone required.</div>
         );
@@ -318,6 +329,7 @@ export default function QAPipeline() {
         return milestoneId ? (
           <Step6SignOff
             milestoneId={milestoneId}
+            locked={isLocked}
             onNext={() => setCurrentStep(7)}
             onSkipUat={() => setCurrentStep(8)}
           />
@@ -326,7 +338,7 @@ export default function QAPipeline() {
         );
       case 7:
         return milestoneId ? (
-          <Step7UAT milestoneId={milestoneId} />
+          <Step7UAT milestoneId={milestoneId} locked={isLocked} />
         ) : (
           <div>Milestone required.</div>
         );
@@ -348,6 +360,118 @@ export default function QAPipeline() {
         );
     }
   };
+
+  // Shared by both views below: the picker's per-card "Edit" and, for a
+  // completed (locked) pipeline, the "Edit Milestone Details" escape hatch —
+  // milestone dates and details stay editable after the pipeline closes.
+  const editMilestoneDialog = (
+    <Dialog open={!!editingMilestone} onOpenChange={(open) => !open && setEditingMilestone(null)}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Pipeline Milestone</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label>Name <span className="text-destructive">*</span></Label>
+            <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <Select value={editForm.type} onValueChange={(v) => setEditForm({ ...editForm, type: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Priority</Label>
+              <Select value={editForm.priority} onValueChange={(v) => setEditForm({ ...editForm, priority: v })}>
+                <SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {PRIORITY_OPTIONS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Target Date</Label>
+              <Input type="date" value={editForm.targetDate} onChange={(e) => setEditForm({ ...editForm, targetDate: e.target.value })} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Environment</Label>
+            <Select value={editForm.environment} onValueChange={(v) => setEditForm({ ...editForm, environment: v })}>
+              <SelectTrigger><SelectValue placeholder="Select environment" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Not set</SelectItem>
+                {ENVIRONMENT_OPTIONS.map((env) => <SelectItem key={env} value={env}>{env}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Start</Label>
+                <Input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Requirements by</Label>
+                <Input type="date" value={editForm.reqTargetDate} onChange={(e) => setEditForm({ ...editForm, reqTargetDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Dev done by</Label>
+                <Input type="date" value={editForm.devTargetDate} onChange={(e) => setEditForm({ ...editForm, devTargetDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">QA done by</Label>
+                <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">UAT done by</Label>
+                <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Go-Live</Label>
+                <Input type="date" value={editForm.goLiveDate} onChange={(e) => setEditForm({ ...editForm, goLiveDate: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+          </div>
+          <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
+            <Checkbox
+              id="editUatToggle"
+              checked={editForm.requiresUat}
+              onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked })}
+            />
+            <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
+          </div>
+        </div>
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingMilestone(null)}>Cancel</Button>
+          <Button className="w-full sm:w-auto" onClick={handleSaveEdit} disabled={savingEdit}>
+            {savingEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   // No milestone selected yet — show a Milestones-page-style picker (project
   // selector + card grid of existing pipeline runs) instead of always
@@ -442,15 +566,12 @@ export default function QAPipeline() {
                       )}
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded bg-muted/50 p-2 text-center">
-                      <p className="text-lg font-bold">{m.requirementCount ?? 0}</p>
-                      <p className="text-muted-foreground">Requirements</p>
-                    </div>
-                    <div className="rounded bg-muted/50 p-2 text-center">
-                      <p className="text-lg font-bold text-green-600">{m.approvedCount ?? 0}</p>
-                      <p className="text-muted-foreground">Approved</p>
-                    </div>
+                  {/* Requirement approval isn't part of the pipeline flow —
+                      Step 4 approves execution files, not requirements — so an
+                      "Approved" count here was always 0 and misleading. */}
+                  <div className="rounded bg-muted/50 p-2 text-center text-xs">
+                    <p className="text-lg font-bold">{m.requirementCount ?? 0}</p>
+                    <p className="text-muted-foreground">Requirements</p>
                   </div>
                   <Button size="sm" className="w-full gap-1.5" onClick={() => setLocation(`/qa-pipeline/${m.id}`)}>
                     Open Pipeline <ArrowRight className="w-3.5 h-3.5" />
@@ -471,113 +592,7 @@ export default function QAPipeline() {
           </div>
         )}
 
-        {/* Edit dialog */}
-        <Dialog open={!!editingMilestone} onOpenChange={(open) => !open && setEditingMilestone(null)}>
-          <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Pipeline Milestone</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-1.5">
-                <Label>Name <span className="text-destructive">*</span></Label>
-                <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Type</Label>
-                  <Select value={editForm.type} onValueChange={(v) => setEditForm({ ...editForm, type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {TYPE_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Status</Label>
-                  <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Priority</Label>
-                  <Select value={editForm.priority} onValueChange={(v) => setEditForm({ ...editForm, priority: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Not set</SelectItem>
-                      {PRIORITY_OPTIONS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Target Date</Label>
-                  <Input type="date" value={editForm.targetDate} onChange={(e) => setEditForm({ ...editForm, targetDate: e.target.value })} />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Environment</Label>
-                <Select value={editForm.environment} onValueChange={(v) => setEditForm({ ...editForm, environment: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select environment" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Not set</SelectItem>
-                    {ENVIRONMENT_OPTIONS.map((env) => <SelectItem key={env} value={env}>{env}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Start</Label>
-                    <Input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Requirements by</Label>
-                    <Input type="date" value={editForm.reqTargetDate} onChange={(e) => setEditForm({ ...editForm, reqTargetDate: e.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Dev done by</Label>
-                    <Input type="date" value={editForm.devTargetDate} onChange={(e) => setEditForm({ ...editForm, devTargetDate: e.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">QA done by</Label>
-                    <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">UAT done by</Label>
-                    <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Go-Live</Label>
-                    <Input type="date" value={editForm.goLiveDate} onChange={(e) => setEditForm({ ...editForm, goLiveDate: e.target.value })} />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Description</Label>
-                <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
-              </div>
-              <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
-                <Checkbox
-                  id="editUatToggle"
-                  checked={editForm.requiresUat}
-                  onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked })}
-                />
-                <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
-              </div>
-            </div>
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setEditingMilestone(null)}>Cancel</Button>
-              <Button onClick={handleSaveEdit} disabled={savingEdit}>
-                {savingEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {editMilestoneDialog}
 
         {/* Delete confirm */}
         <Dialog open={deleteMilestoneId !== null} onOpenChange={() => setDeleteMilestoneId(null)}>
@@ -662,6 +677,34 @@ export default function QAPipeline() {
             <CardDescription>{PIPELINE_STEPS[currentStep - 1].desc}</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 pt-0">
+            {isLocked && (
+              <div className="mb-6 rounded-lg border border-green-500/40 bg-green-50 dark:bg-green-950/20 p-3 sm:p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <Lock className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                        Pipeline completed — read only
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {milestone?.name} was marked as deployed, so steps 1–8 are locked. You can still review
+                        everything and download artifacts. Milestone dates and details remain editable.
+                      </p>
+                    </div>
+                  </div>
+                  {canWritePipelines && milestone && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto shrink-0"
+                      onClick={() => openEditMilestone(milestone)}
+                    >
+                      <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Milestone Details
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             {renderActiveStep()}
           </CardContent>
           {/* Primary action sits on top on phones (reverse order), inline right
@@ -682,6 +725,8 @@ export default function QAPipeline() {
           </div>
         </Card>
       </div>
+
+      {editMilestoneDialog}
     </div>
   );
 }

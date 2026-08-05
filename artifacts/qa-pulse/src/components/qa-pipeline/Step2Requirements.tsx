@@ -38,10 +38,11 @@ const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 const EXCLUDED_TRACKERS = ["Task", "QA Defect"];
 
 function SuggestionActions({
-  status, busy, onAccept, onIgnore, onSolve,
+  status, busy, locked, onAccept, onIgnore, onSolve,
 }: {
   status: string;
   busy: boolean;
+  locked?: boolean;
   onAccept: () => void;
   onIgnore: () => void;
   onSolve: () => void;
@@ -49,6 +50,8 @@ function SuggestionActions({
   if (status === "accepted") return <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">Accepted</Badge>;
   if (status === "ignored") return <Badge variant="outline" className="text-muted-foreground shrink-0">Ignored</Badge>;
   if (status === "solved") return <Badge className="bg-blue-100 text-blue-700 border-blue-200 shrink-0">Solved</Badge>;
+  // A completed pipeline shows what was still outstanding, but can't triage it.
+  if (locked) return <Badge variant="outline" className="text-muted-foreground shrink-0">Pending</Badge>;
   return (
     <div className="flex flex-wrap gap-1 shrink-0">
       <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" disabled={busy} onClick={onAccept}>
@@ -78,7 +81,7 @@ function RiskBadge({ level }: { level: string }) {
   );
 }
 
-export function Step2Requirements({ milestoneId, projectId }: { milestoneId: number, projectId?: number }) {
+export function Step2Requirements({ milestoneId, projectId, locked = false }: { milestoneId: number, projectId?: number, locked?: boolean }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -458,15 +461,18 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
               value={redmineId}
               onChange={e => setRedmineId(e.target.value)}
               placeholder="e.g. 12345 (Parent Epic/Feature ID)"
+              disabled={locked}
             />
           </div>
-          <Button className="w-full sm:w-auto shrink-0" onClick={handleSyncRequirements} disabled={syncing}>
+          <Button className="w-full sm:w-auto shrink-0" onClick={handleSyncRequirements} disabled={syncing || locked}>
             {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
             Sync Requirements
           </Button>
         </div>
         <p className="text-xs sm:text-sm text-muted-foreground">
-          This will fetch the parent ticket and all sub-tickets recursively, filtering out "Tasks" and "QA Defects".
+          {locked
+            ? "Syncing is disabled — this pipeline is completed and its requirements are final."
+            : 'This will fetch the parent ticket and all sub-tickets recursively, filtering out "Tasks" and "QA Defects".'}
         </p>
       </div>
 
@@ -474,7 +480,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
       <div className="space-y-3 sm:space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
           <h3 className="text-base sm:text-lg font-medium">2. Analyze Requirements</h3>
-          <Button className="w-full sm:w-auto shrink-0" onClick={handleAIAnalyze} disabled={analyzing || selectedIds.size === 0} variant="secondary">
+          <Button className="w-full sm:w-auto shrink-0" onClick={handleAIAnalyze} disabled={analyzing || selectedIds.size === 0 || locked} variant="secondary">
             {analyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
             {analyzing ? `Analyzing ${analyzeProgress.current}/${analyzeProgress.total}…` : `Analyze Selected (${selectedIds.size})`}
           </Button>
@@ -511,9 +517,11 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
             ) : (
               <div>
                 <div className="flex items-center gap-3 p-3 border-b bg-muted/30">
-                  <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAll} />
+                  <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAll} disabled={locked} />
                   <span className="text-xs text-muted-foreground">
-                    {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+                    {locked
+                      ? `${filteredRequirements.length} requirement(s) — read only`
+                      : selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
                   </span>
                 </div>
                 <div className="divide-y max-h-80 overflow-auto">
@@ -529,6 +537,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                             className="mt-1 shrink-0"
                             checked={selectedIds.has(req.id)}
                             onCheckedChange={() => toggleSelect(req.id)}
+                            disabled={locked}
                           />
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm sm:text-base break-words">{req.title}</div>
@@ -585,6 +594,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                                           <SuggestionActions
                                             status={suggestionStatuses[sid] ?? "pending"}
                                             busy={suggestionBusyId === sid}
+                                            locked={locked}
                                             onAccept={() => acceptIntoCriteria(req.id, sid, "Missing Items", item)}
                                             onSolve={() => markSuggestion(sid, "solved")}
                                             onIgnore={() => markSuggestion(sid, "ignored")}
@@ -612,6 +622,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                                           <SuggestionActions
                                             status={suggestionStatuses[sid] ?? "pending"}
                                             busy={suggestionBusyId === sid}
+                                            locked={locked}
                                             onAccept={() => acceptIntoCriteria(req.id, sid, "Issue Suggestions", text)}
                                             onSolve={() => markSuggestion(sid, "solved")}
                                             onIgnore={() => markSuggestion(sid, "ignored")}
@@ -638,6 +649,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                                           <SuggestionActions
                                             status={suggestionStatuses[sid] ?? "pending"}
                                             busy={suggestionBusyId === sid}
+                                            locked={locked}
                                             onAccept={() => acceptIntoDiscussion(req.id, sid, q)}
                                             onSolve={() => markSuggestion(sid, "solved")}
                                             onIgnore={() => markSuggestion(sid, "ignored")}

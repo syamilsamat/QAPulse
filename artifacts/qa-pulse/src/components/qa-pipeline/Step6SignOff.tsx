@@ -34,7 +34,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: number, onNext: () => void, onSkipUat: () => void }) {
+export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }: { milestoneId: number, onNext: () => void, onSkipUat: () => void, locked?: boolean }) {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -173,11 +173,15 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
             <p className="text-sm font-medium">
               Next Step: {milestone?.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone (No UAT Required)"}
             </p>
-            <Button size="lg" className="w-full sm:w-auto whitespace-normal h-auto py-3" onClick={() => setConfirmOpen(true)} disabled={!canSignOff}>
+            <Button size="lg" className="w-full sm:w-auto whitespace-normal h-auto py-3" onClick={() => setConfirmOpen(true)} disabled={!canSignOff || locked}>
               <CheckCircle2 className="w-4 h-4 mr-2 shrink-0" />
               Sign Off Functional Testing
             </Button>
-            {!canSignOff && (
+            {locked ? (
+              <p className="text-xs text-muted-foreground mt-2">
+                This pipeline is completed and closed — sign-off can no longer be recorded.
+              </p>
+            ) : !canSignOff && (
               <p className="text-xs text-muted-foreground mt-2">
                 Only QA Leads, QA Managers, or HODs can provide functional sign-off.
               </p>

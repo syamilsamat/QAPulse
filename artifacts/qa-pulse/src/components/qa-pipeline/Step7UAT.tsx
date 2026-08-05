@@ -27,7 +27,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step7UAT({ milestoneId }: { milestoneId: number }) {
+export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number, locked?: boolean }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -144,12 +144,19 @@ export function Step7UAT({ milestoneId }: { milestoneId: number }) {
                 ))}
               </div>
             )}
-            <Button variant="outline" className="w-full" onClick={() => setLocation(`/uat-signoffs?milestoneId=${milestoneId}`)}>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setLocation(`/uat-signoffs?milestoneId=${milestoneId}`)}
+              disabled={locked}
+            >
               <Upload className="w-4 h-4 mr-2" />
               Upload UAT Documents
             </Button>
             <p className="text-xs text-muted-foreground text-center">
-              Supports PDF, Word, JPEG and PNG (max 15 MB).
+              {locked
+                ? "Uploads are closed — this pipeline is completed."
+                : "Supports PDF, Word, JPEG and PNG (max 15 MB)."}
             </p>
           </CardContent>
         </Card>
@@ -170,9 +177,10 @@ export function Step7UAT({ milestoneId }: { milestoneId: number }) {
                   className="h-32 text-sm font-mono"
                   value={gherkinInput}
                   onChange={(e) => setGherkinInput(e.target.value)}
+                  disabled={locked}
                 />
               </div>
-              <Button variant="secondary" className="w-full" onClick={handleGenerateBDD} disabled={generatingBDD || !gherkinInput.trim()}>
+              <Button variant="secondary" className="w-full" onClick={handleGenerateBDD} disabled={generatingBDD || !gherkinInput.trim() || locked}>
                 {generatingBDD ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
                 Generate AI Test Cases
               </Button>

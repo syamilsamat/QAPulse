@@ -28,7 +28,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number, projectId?: number }) {
+export function Step3TestCases({ milestoneId, projectId, locked = false }: { milestoneId: number, projectId?: number, locked?: boolean }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -215,7 +215,7 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
               <p className="text-sm text-muted-foreground text-center">
                 {submittableFiles.length} execution file{submittableFiles.length > 1 ? "s" : ""} compiled and ready for review
               </p>
-              <Button className="w-full" onClick={handleSubmitForReview} disabled={submitting}>
+              <Button className="w-full" onClick={handleSubmitForReview} disabled={submitting || locked}>
                 {submitting
                   ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting...</>
                   : <><Send className="w-4 h-4 mr-2" /> Submit for Review</>}
@@ -259,20 +259,20 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
           onClick={() => setLocation(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}`)}
         >
           <TestTube className="w-4 h-4 mr-2 shrink-0" />
-          Manage Test Cases
+          {locked ? "View Test Cases" : "Manage Test Cases"}
         </Button>
         <Button
           className="w-full"
           variant="secondary"
           onClick={handleRiskBasedTagging}
-          disabled={tagging || testCases.length === 0}
+          disabled={tagging || testCases.length === 0 || locked}
         >
           {tagging ? <Loader2 className="w-4 h-4 mr-2 animate-spin shrink-0" /> : <Wand2 className="w-4 h-4 mr-2 shrink-0" />}
           Apply Risk-Based Priority (AI)
         </Button>
       </div>
 
-      {selectedIds.size > 0 && (
+      {selectedIds.size > 0 && !locked && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
@@ -302,10 +302,12 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
                   className="mt-0.5 shrink-0"
                   checked={allSelected}
                   onCheckedChange={toggleSelectAll}
-                  disabled={compilableTestCases.length === 0}
+                  disabled={compilableTestCases.length === 0 || locked}
                 />
                 <span className="text-xs sm:text-sm text-muted-foreground">
-                  {compilableTestCases.length === 0
+                  {locked
+                    ? `${sortedTestCases.length} test case(s) — read only`
+                    : compilableTestCases.length === 0
                     ? `All ${sortedTestCases.length} test case(s) already compiled`
                     : `Select all not yet compiled (${compilableTestCases.length}) — ordered by risk priority`}
                 </span>
@@ -325,7 +327,7 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
                           className="mt-0.5 shrink-0"
                           checked={selectedIds.has(tc.id)}
                           onCheckedChange={() => toggleSelect(tc.id)}
-                          disabled={isCompiled}
+                          disabled={isCompiled || locked}
                         />
                         <div className="min-w-0">
                           <span className="text-xs text-muted-foreground">TC-{tc.id}</span>
