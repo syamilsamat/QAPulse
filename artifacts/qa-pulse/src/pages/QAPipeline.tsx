@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock } from "lucide-react";
+import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock, MinusCircle } from "lucide-react";
 import { format } from "date-fns";
 import { Step1Milestone } from "@/components/qa-pipeline/Step1Milestone";
 import { Step2Requirements } from "@/components/qa-pipeline/Step2Requirements";
@@ -639,15 +639,21 @@ export default function QAPipeline() {
               {PIPELINE_STEPS.map((step) => {
                 const isActive = step.id === currentStep;
                 const isPast = step.id < currentStep;
+                // Step 7 doesn't apply when the milestone has no UAT phase —
+                // dim it and say so, but keep it reachable so the step itself
+                // can explain why it's skipped.
+                const notApplicable = step.id === 7 && !!milestone && !milestone.requiresUat;
                 return (
                   <button
                     key={step.id}
                     type="button"
                     onClick={() => goToStep(step.id)}
-                    className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : "opacity-70"}`}
+                    className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : notApplicable ? "opacity-40" : "opacity-70"}`}
                   >
                     <div className="mt-0.5 shrink-0">
-                      {isPast ? (
+                      {notApplicable ? (
+                        <MinusCircle className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />
+                      ) : isPast ? (
                         <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-green-500" />
                       ) : isActive ? (
                         <Circle className="w-4 h-4 md:w-5 md:h-5 fill-primary text-primary" />
@@ -656,10 +662,12 @@ export default function QAPipeline() {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className={`font-medium text-xs md:text-sm ${isActive ? "text-primary" : ""}`}>
+                      <p className={`font-medium text-xs md:text-sm ${isActive ? "text-primary" : ""} ${notApplicable ? "line-through decoration-muted-foreground/50" : ""}`}>
                         {step.id}. {step.title}
                       </p>
-                      <p className="hidden md:block text-xs text-muted-foreground mt-0.5">{step.desc}</p>
+                      <p className="hidden md:block text-xs text-muted-foreground mt-0.5">
+                        {notApplicable ? "Not required for this milestone" : step.desc}
+                      </p>
                     </div>
                   </button>
                 );

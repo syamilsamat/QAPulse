@@ -4,6 +4,7 @@ import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { stripFileExtension } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -242,31 +243,22 @@ export default function UatSignoffs() {
     }
   };
 
+  // Downloads exactly what was uploaded — same bytes, same extension. A .pdf
+  // sign-off comes back as .pdf, a .docx as .docx. (Text sign-offs previously
+  // got re-rendered into a Word .doc here; that changed the file the auditor
+  // receives from the one on record, so the conversion was dropped.
+  // buildSignoffWordHtml is kept below if that export is ever wanted as its
+  // own separate action.)
   const handleDownload = async (s: Signoff) => {
     const res = await api(`/uat-signoffs/${s.id}/download`, token);
     if (!res.ok) { toast({ variant: "destructive", title: "Download failed" }); return; }
 
-    // Text sign-offs are exported as a designed, Word-openable acceptance
-    // document; anything already a proper file (PDF, Word, …) streams as-is.
-    const isText = s.mimeType.startsWith("text/") || /\.txt$/i.test(s.fileName);
-    let blob: Blob;
-    let downloadName: string;
-    if (isText) {
-      const content = await res.text();
-      blob = new Blob([buildSignoffWordHtml(s, content)], { type: "application/msword" });
-      downloadName = `${s.fileName.replace(/\.[^.]+$/, "")}.doc`;
-    } else {
-      blob = await res.blob();
-      downloadName = s.fileName;
-    }
-
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = downloadName;
+    a.download = s.fileName; // full stored name, extension included
     a.click();
     URL.revokeObjectURL(url);
-    if (isText) toast({ title: "Sign-off exported as Word (.doc)" });
   };
 
   const handleDelete = async (s: Signoff) => {
@@ -334,8 +326,10 @@ export default function UatSignoffs() {
               {signoffs.map((s) => (
                 <tr key={s.id} id={highlightRowId(s.id)} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-3 py-2.5">
-
-                    <p className="font-medium">{s.fileName}</p>
+                    {/* Extension hidden for readability; `title` keeps the real
+                        stored name available on hover, and Download still uses
+                        it verbatim. */}
+                    <p className="font-medium" title={s.fileName}>{stripFileExtension(s.fileName)}</p>
                     <p className="text-xs text-muted-foreground">{fmtSize(s.sizeBytes)}{s.note ? ` · ${s.note}` : ""}</p>
                   </td>
                   <td className="px-3 py-2.5">{s.projectName}</td>
