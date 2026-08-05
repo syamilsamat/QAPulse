@@ -55,10 +55,22 @@ export const requirementsTable = pgTable("requirements", {
   // people at the start instead, so for requirements in a pipeline milestone
   // these explicit values take precedence on the board.
   //
+  // Arrays because more than one person per department is normal — two testers
+  // splitting a requirement, a dev pair, an FA plus a reviewer. Same
+  // `integer(...).array()` shape as tasksTable.assigneeIds.
+  //
   // Deliberately separate from devAssigneeId (CR030 dev handoff): writing that
   // column would half-enter its state machine (devStatus/devAssignedAt) and
   // requires FA approval first, which a freshly-synced requirement doesn't
   // have. These are plain labels of accountability, no workflow attached.
+  pipelineFaIds: integer("pipeline_fa_ids").array(),
+  pipelineDevIds: integer("pipeline_dev_ids").array(),
+  pipelineQaIds: integer("pipeline_qa_ids").array(),
+  // Superseded by the *_ids arrays above; nothing reads these any more.
+  // Still declared so `drizzle-kit push` — which runs non-interactively under
+  // `set -e` in scripts/post-merge.sh — never tries to drop a column and stall
+  // the deploy on a confirmation prompt. Safe to delete once you're ready to
+  // run the drop by hand (see the note in roles.ts bootstrap).
   pipelineFaId: integer("pipeline_fa_id"),
   pipelineDevId: integer("pipeline_dev_id"),
   pipelineQaId: integer("pipeline_qa_id"),

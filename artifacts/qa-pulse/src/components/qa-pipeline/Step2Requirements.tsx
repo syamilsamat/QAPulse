@@ -12,9 +12,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import {
-  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink, CheckCircle2, Database, UserPlus,
+  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink, UserPlus,
 } from "lucide-react";
 import {
   Dialog,
@@ -110,7 +110,7 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   // the Tasks board shows real names instead of the dashes it falls back to
   // before dev handoff and QA PIC assignment have happened.
   const [assignFor, setAssignFor] = useState<any | null>(null);
-  const [assignForm, setAssignForm] = useState({ fa: "none", dev: "none", qa: "none" });
+  const [assignForm, setAssignForm] = useState<{ fa: string[]; dev: string[]; qa: string[] }>({ fa: [], dev: [], qa: [] });
   const [savingAssign, setSavingAssign] = useState(false);
 
   const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
@@ -127,23 +127,20 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   // also keeps each cmdk item's match value unique when two people happen to
   // share a name and role.
   const assigneeOptions = useMemo(
-    () => [
-      { value: "none", label: "Unassigned" },
-      ...assignableUsers.map((u) => ({
-        value: String(u.id),
-        label: `${u.name} · ${roleLabel(u.role)}`,
-        keywords: `${u.role} ${u.id}`,
-      })),
-    ],
+    () => assignableUsers.map((u) => ({
+      value: String(u.id),
+      label: `${u.name} · ${roleLabel(u.role)}`,
+      keywords: `${u.role} ${u.id}`,
+    })),
     [assignableUsers, roleLabel],
   );
 
   const openAssign = (req: any) => {
     setAssignFor(req);
     setAssignForm({
-      fa: req.pipelineFaId ? String(req.pipelineFaId) : "none",
-      dev: req.pipelineDevId ? String(req.pipelineDevId) : "none",
-      qa: req.pipelineQaId ? String(req.pipelineQaId) : "none",
+      fa: ((req.pipelineFaIds ?? []) as number[]).map(String),
+      dev: ((req.pipelineDevIds ?? []) as number[]).map(String),
+      qa: ((req.pipelineQaIds ?? []) as number[]).map(String),
     });
   };
 
@@ -151,13 +148,13 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     if (!assignFor) return;
     setSavingAssign(true);
     try {
-      const toId = (v: string) => (v === "none" ? null : Number(v));
+      const toIds = (vals: string[]) => vals.map(Number).filter(Number.isInteger);
       const res = await api(`/requirements/${assignFor.id}/pipeline-assignees`, token, {
         method: "PATCH",
         body: JSON.stringify({
-          pipelineFaId: toId(assignForm.fa),
-          pipelineDevId: toId(assignForm.dev),
-          pipelineQaId: toId(assignForm.qa),
+          pipelineFaIds: toIds(assignForm.fa),
+          pipelineDevIds: toIds(assignForm.dev),
+          pipelineQaIds: toIds(assignForm.qa),
         }),
       });
       if (!res.ok) {
@@ -180,32 +177,6 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   // last /ai/analyze-requirement response reported.
   const [suggestionStatuses, setSuggestionStatuses] = useState<Record<number, string>>({});
   const [suggestionBusyId, setSuggestionBusyId] = useState<number | null>(null);
-
-  // Environment Readiness Gate — has anyone prepared test data for this
-  // project yet?
-  //
-  // Data-prep files (CR070) are uploaded against milestones of type
-  // 'data_prep' — the upload UI only exists for that type — so they never hang
-  // off a pipeline milestone (cr/sprint/phase/release). This gate therefore
-  // scopes to the *project*, not to this milestone. `GET /milestones` already
-  // rolls up dataPrepFileCount per milestone, so no extra endpoint is needed.
-  const { data: projectMilestones = [], isLoading: loadingFiles } = useQuery<any[]>({
-    queryKey: ["milestones", "project", projectId],
-    queryFn: async () => {
-      const res = await api(`/milestones?projectId=${projectId}`, token);
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!projectId,
-  });
-
-  const dataPrepSources = useMemo(
-    () => (projectMilestones as any[]).filter((m) => (m.dataPrepFileCount ?? 0) > 0),
-    [projectMilestones],
-  );
-  const dataPrepFileCount = useMemo(
-    () => dataPrepSources.reduce((sum, m) => sum + (m.dataPrepFileCount ?? 0), 0),
-    [dataPrepSources],
-  );
 
   // Fetch requirements linked to this milestone
   const { data: requirements = [], isLoading: loadingReqs } = useQuery<any[]>({
@@ -462,63 +433,11 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     }
   };
 
-  const hasDataPrep = dataPrepFileCount > 0;
   const newCount = syncSummary.filter((s) => s.isNew).length;
   const existingCount = syncSummary.length - newCount;
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-left">
-      {/* Environment Readiness Gate — an advisory check that prepared test
-          data exists for this project before test cases get written. */}
-      <Card className={`border-l-4 ${loadingFiles ? "border-l-muted" : hasDataPrep ? "border-l-green-500" : "border-l-amber-500"}`}>
-        <CardContent className="p-4 sm:p-6 flex gap-3 sm:gap-4">
-          <div className="mt-0.5 shrink-0">
-            {loadingFiles ? (
-              <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground animate-spin" />
-            ) : hasDataPrep ? (
-              <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-green-500" />
-            ) : (
-              <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500" />
-            )}
-          </div>
-          <div className="min-w-0 space-y-1">
-            <h3 className="font-medium text-base sm:text-lg">Environment Readiness Gate</h3>
-            {loadingFiles ? (
-              <p className="text-sm text-muted-foreground">Checking this project for prepared test data…</p>
-            ) : hasDataPrep ? (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  Ready — {dataPrepFileCount} data prep file{dataPrepFileCount !== 1 ? "s" : ""} on record for this project.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  From {dataPrepSources.map((m) => m.name).join(", ")}. Confirm the dataset is loaded into your test
-                  environment before executing.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  No prepared test data found for this project. You can still continue — this is a reminder, not a
-                  blocker — but confirm your environment has the data these test cases will need.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Test data is tracked as a <strong>Data Prep</strong> milestone on the Milestones page, where QA
-                  uploads the prepared dataset.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => setLocation("/milestones")}
-                >
-                  <Database className="w-3.5 h-3.5 mr-1.5" /> Open Milestones
-                </Button>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Sync Requirements */}
       <div className="space-y-3 sm:space-y-4">
         <h3 className="text-base sm:text-lg font-medium">1. Pull Requirements from Redmine</h3>
@@ -616,14 +535,14 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
                             <div className="text-xs text-muted-foreground mt-0.5">Redmine #{req.redmineTicketId ?? "—"}</div>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
                               {(["FA", "Dev", "QA"] as const).map((dept) => {
-                                const name = dept === "FA" ? req.pipelineFaName
-                                  : dept === "Dev" ? req.pipelineDevName
-                                  : req.pipelineQaName;
+                                const names: string[] = (dept === "FA" ? req.pipelineFaNames
+                                  : dept === "Dev" ? req.pipelineDevNames
+                                  : req.pipelineQaNames) ?? [];
                                 return (
                                   <span key={dept} className="text-muted-foreground">
                                     {dept}:{" "}
-                                    {name
-                                      ? <span className="text-foreground font-medium">{name}</span>
+                                    {names.length > 0
+                                      ? <span className="text-foreground font-medium">{names.join(", ")}</span>
                                       : <span className="italic">unassigned</span>}
                                   </span>
                                 );
@@ -819,8 +738,9 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
               <p className="text-xs text-muted-foreground">Redmine #{assignFor?.redmineTicketId ?? "—"}</p>
             </div>
             <p className="text-xs text-muted-foreground">
-              Name who owns this requirement in each department. These names appear in the Assignee column on the
-              Tasks page. Anyone left unassigned falls back to whoever the system can infer from the workflow.
+              Name everyone who owns this requirement in each department — pick as many people as you need. These
+              names appear in the Assignee column on the Tasks page. A department left empty falls back to whoever
+              the system can infer from the workflow.
             </p>
             {assignableUsers.length === 0 && (
               <p className="text-xs text-amber-600">
@@ -834,9 +754,9 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
             ] as const).map(({ key, label }) => (
               <div key={key} className="space-y-1.5">
                 <Label>{label}</Label>
-                <SearchableSelect
-                  value={assignForm[key]}
-                  onValueChange={(v) => setAssignForm({ ...assignForm, [key]: v })}
+                <SearchableMultiSelect
+                  values={assignForm[key]}
+                  onValuesChange={(vals) => setAssignForm((prev) => ({ ...prev, [key]: vals }))}
                   options={assigneeOptions}
                   placeholder="Unassigned"
                   searchPlaceholder="Search by name or role…"

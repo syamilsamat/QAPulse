@@ -265,10 +265,31 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
 
   // QA Pipeline — per-department owners named in Step 2, used by the Tasks
-  // board for requirements in a pipeline milestone.
+  // board for requirements in a pipeline milestone. Arrays: several people per
+  // department is normal. No FK on an array column (Postgres can't) — the
+  // route validates each id against users before writing.
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_fa_ids INTEGER[]`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_dev_ids INTEGER[]`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_qa_ids INTEGER[]`);
+  // These three single-owner columns were the first cut of the above and are
+  // no longer read. Kept (not dropped) so a non-interactive drizzle push can't
+  // stall on a destructive-change prompt. Once you're happy, retire them with:
+  //   ALTER TABLE requirements
+  //     DROP COLUMN IF EXISTS pipeline_fa_id,
+  //     DROP COLUMN IF EXISTS pipeline_dev_id,
+  //     DROP COLUMN IF EXISTS pipeline_qa_id;
+  // and delete the matching fields from lib/db's requirements schema.
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_fa_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_dev_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_qa_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  // Carry over anything already assigned under the single-owner columns.
+  await pool.query(`
+    UPDATE requirements SET
+      pipeline_fa_ids  = COALESCE(pipeline_fa_ids,  CASE WHEN pipeline_fa_id  IS NOT NULL THEN ARRAY[pipeline_fa_id]  END),
+      pipeline_dev_ids = COALESCE(pipeline_dev_ids, CASE WHEN pipeline_dev_id IS NOT NULL THEN ARRAY[pipeline_dev_id] END),
+      pipeline_qa_ids  = COALESCE(pipeline_qa_ids,  CASE WHEN pipeline_qa_id  IS NOT NULL THEN ARRAY[pipeline_qa_id]  END)
+    WHERE pipeline_fa_id IS NOT NULL OR pipeline_dev_id IS NOT NULL OR pipeline_qa_id IS NOT NULL
+  `);
 
   // CR022 Part 2 — discussion thread
   await pool.query(`
