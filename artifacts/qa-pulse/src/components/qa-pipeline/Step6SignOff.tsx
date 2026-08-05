@@ -5,7 +5,7 @@ import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, CheckCircle2, Signature } from "lucide-react";
+import { Loader2, CheckCircle2, Signature, ArrowRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: "Administrator",
+  cto: "CTO",
+  hod_qa: "Head of QA",
+  qa_manager: "QA Manager",
+  qa_lead: "QA Lead",
+  qa_member: "QA Member",
+};
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -33,13 +42,14 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [signingOff, setSigningOff] = useState(false);
 
-  const { data: milestone, isLoading } = useQuery({
+  // GET /milestones requires a projectId and 400s without one — the previous
+  // version fetched the whole list unscoped and only ever worked by sharing
+  // this query key with the parent page's cache.
+  const { data: milestone, isLoading } = useQuery<any>({
     queryKey: ["milestone", milestoneId],
     queryFn: async () => {
-      const res = await api(`/milestones`, token);
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.find((m: any) => m.id === milestoneId);
+      const res = await api(`/milestones/${milestoneId}`, token);
+      return res.ok ? res.json() : null;
     },
     enabled: !!milestoneId,
   });
@@ -48,36 +58,101 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
     setSigningOff(true);
     try {
       const nextStep = milestone?.requiresUat ? 7 : 8;
-      
-      await api(`/milestones/${milestoneId}`, token, {
+
+      const res = await api(`/milestones/${milestoneId}`, token, {
         method: "PATCH",
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           pipelineStep: nextStep,
           signedOffAt: new Date().toISOString(),
           signedOffBy: user?.id,
-        })
+        }),
       });
-      
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to sign off");
+      }
+
       queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
       setConfirmOpen(false);
-      toast({ title: "Functional Testing Signed Off!" });
-      
-      if (nextStep === 8) {
-        onSkipUat();
-      } else {
-        onNext();
-      }
-    } catch (err) {
-      toast({ variant: "destructive", title: "Failed to sign off" });
+      toast({ title: "Functional testing signed off" });
+
+      if (nextStep === 8) onSkipUat();
+      else onNext();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Failed to sign off", description: String(err?.message ?? err) });
     } finally {
       setSigningOff(false);
     }
   };
 
   const canSignOff = ["admin", "qa_lead", "qa_manager", "hod_qa", "cto"].includes(user?.role ?? "");
+  const isSignedOff = !!milestone?.signedOffAt;
 
   if (isLoading) {
     return <div className="p-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+  }
+
+  if (isSignedOff) {
+    const signedAt = new Date(milestone.signedOffAt);
+    const signerName = milestone.signedOffByName ?? "a QA authority";
+    const signerRole = milestone.signedOffByRole ? (ROLE_LABEL[milestone.signedOffByRole] ?? milestone.signedOffByRole) : null;
+
+    return (
+      <div className="w-full max-w-2xl mx-auto space-y-6 text-center">
+        <div className="flex flex-col items-center justify-center p-8 space-y-4">
+          <div className="w-16 h-16 bg-green-100 dark:bg-green-950/40 rounded-full flex items-center justify-center">
+            <CheckCircle2 className="w-8 h-8 text-green-600" />
+          </div>
+          <h3 className="text-2xl font-bold">Functional Testing Signed Off</h3>
+          <p className="text-muted-foreground max-w-md">
+            {signerName} formally confirmed that functional testing is complete for{" "}
+            <span className="font-medium text-foreground">{milestone.name}</span> — test cases were executed and
+            critical defects resolved.
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="pt-6 pb-6 text-left">
+            <p className="text-xs font-semibold uppercase text-muted-foreground mb-4">Sign-off record</p>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Signed off by</dt>
+                <dd className="font-medium mt-0.5">
+                  {signerName}
+                  {signerRole && <span className="text-muted-foreground font-normal"> · {signerRole}</span>}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Signed off on</dt>
+                <dd className="font-medium mt-0.5">
+                  {signedAt.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}
+                  <span className="text-muted-foreground font-normal">
+                    {" "}at {signedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Milestone</dt>
+                <dd className="font-medium mt-0.5">{milestone.name}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">What happens next</dt>
+                <dd className="font-medium mt-0.5">
+                  {milestone.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone — no UAT required"}
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-center">
+          <Button onClick={() => (milestone.requiresUat ? onNext() : onSkipUat())}>
+            {milestone.requiresUat ? "Continue to UAT Sign-offs" : "Continue to Update Milestone"}
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -116,12 +191,13 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
           <DialogHeader>
             <DialogTitle>Confirm Sign Off</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 text-left">
             <p className="text-sm text-muted-foreground mb-4">
               Are you sure you want to sign off functional testing for milestone <strong>{milestone?.name}</strong>?
             </p>
             <p className="text-sm">
-              This will officially close the functional testing phase and record your signature.
+              This closes the functional testing phase and records your name and the current date and time against
+              this milestone as the formal approver.
             </p>
           </div>
           <DialogFooter>

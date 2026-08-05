@@ -294,8 +294,23 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   const dataFiles = await db.select({ id: dataPrepFilesTable.id })
     .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
 
+  // Resolve the sign-off signer so the pipeline's sign-off step can name who
+  // approved it — fmt() only carries the raw user id.
+  let signedOffByName: string | null = null;
+  let signedOffByRole: string | null = null;
+  if (m.signedOffBy) {
+    const [signer] = await db
+      .select({ name: usersTable.name, role: usersTable.role })
+      .from(usersTable)
+      .where(eq(usersTable.id, m.signedOffBy));
+    signedOffByName = signer?.name ?? null;
+    signedOffByRole = signer?.role ?? null;
+  }
+
   res.json({
     ...fmt(m),
+    signedOffByName,
+    signedOffByRole,
     requirementCount: reqs.length,
     approvedCount: reqs.filter(r => r.reviewStatus === "approved").length,
     executionFileCount: execFiles.filter(f => f.fileType === "qa").length,
