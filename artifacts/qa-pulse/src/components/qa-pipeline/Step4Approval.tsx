@@ -21,7 +21,7 @@ function api(path: string, token: string | null) {
 // execution file has its own approve/reject flow, with segregation of duties
 // — see PATCH /execution-files/:id/review). This step is a read-only mirror
 // of that status for this milestone's file(s), not a second approval action.
-export function Step4Approval({ milestoneId }: { milestoneId: number }) {
+export function Step4Approval({ milestoneId, locked = false }: { milestoneId: number, locked?: boolean }) {
   const { token } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -95,7 +95,7 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
                 Your test cases have been approved — you may proceed with execution.
               </p>
             </div>
-            <Button className="w-full sm:w-auto" onClick={openExecutionDashboard}>
+            <Button className="w-full sm:w-auto" onClick={openExecutionDashboard} disabled={locked}>
               <List className="w-4 h-4 mr-2 shrink-0" />
               {files.length === 1 ? `Execute #${files[0].redmineTicketId}` : "Open Execution Dashboard"}
             </Button>
@@ -158,7 +158,12 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
                         <Clock className="w-3 h-3 mr-1" /> Draft
                       </Badge>
                     )}
-                    <Button size="sm" variant="outline" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}
+                      disabled={locked}
+                    >
                       Review
                     </Button>
                   </div>

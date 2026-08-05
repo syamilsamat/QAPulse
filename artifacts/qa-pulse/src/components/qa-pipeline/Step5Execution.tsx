@@ -126,6 +126,8 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => { refetchFiles(); refetchProgress(); }}>
             <RefreshCw className="w-4 h-4 mr-2 shrink-0" /> Refresh
           </Button>
+          {/* Disabled once the pipeline closes — this navigates into the
+              Execution Dashboard, where results can still be edited. */}
           <Button
             className="flex-1 sm:flex-none"
             onClick={() => setLocation(
@@ -133,7 +135,7 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
                 ? `/test-cases/execution/${files[0].redmineTicketId}`
                 : "/test-cases/execution",
             )}
-            disabled={files.length === 0}
+            disabled={files.length === 0 || locked}
           >
             <PlayCircle className="w-4 h-4 mr-2 shrink-0" />
             {files.length === 1 ? `Execute #${files[0].redmineTicketId}` : "Execution Dashboard"}
@@ -297,7 +299,13 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
                       </div>
                       <div className="flex items-center gap-3 shrink-0 pl-6 sm:pl-0">
                         <span className="text-sm font-medium tabular-nums">{pct}%</span>
-                        <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 sm:flex-none"
+                          onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}
+                          disabled={locked}
+                        >
                           Execute
                         </Button>
                       </div>

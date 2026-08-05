@@ -315,7 +315,7 @@ export default function QAPipeline() {
         );
       case 4:
         return milestoneId ? (
-          <Step4Approval milestoneId={milestoneId} />
+          <Step4Approval milestoneId={milestoneId} locked={isLocked} />
         ) : (
           <div>Milestone required.</div>
         );

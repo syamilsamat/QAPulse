@@ -264,6 +264,12 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
 
+  // QA Pipeline — per-department owners named in Step 2, used by the Tasks
+  // board for requirements in a pipeline milestone.
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_fa_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_dev_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS pipeline_qa_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+
   // CR022 Part 2 — discussion thread
   await pool.query(`
     CREATE TABLE IF NOT EXISTS requirement_comments (

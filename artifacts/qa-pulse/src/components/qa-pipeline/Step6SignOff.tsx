@@ -5,7 +5,7 @@ import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, CheckCircle2, Signature, ArrowRight } from "lucide-react";
+import { Loader2, CheckCircle2, Signature } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -145,12 +145,9 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
           </CardContent>
         </Card>
 
-        <div className="flex justify-center">
-          <Button className="w-full sm:w-auto" onClick={() => (milestone.requiresUat ? onNext() : onSkipUat())}>
-            {milestone.requiresUat ? "Continue to UAT Sign-offs" : "Continue to Update Milestone"}
-            <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
-          </Button>
-        </div>
+        {/* No "Continue to…" button here — the wizard footer's "Next Step"
+            already advances, and two buttons doing the same thing is noise.
+            Signing off still auto-advances via handleSignOff. */}
       </div>
     );
   }

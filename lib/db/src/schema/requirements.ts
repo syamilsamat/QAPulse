@@ -47,6 +47,21 @@ export const requirementsTable = pgTable("requirements", {
   blockedReason: text("blocked_reason"),
   blockedAt: timestamp("blocked_at", { withTimezone: true }),
   blockedBy: integer("blocked_by"),
+  // QA Pipeline — per-department owners assigned up front in Step 2.
+  //
+  // The Tasks board normally *derives* FA/Dev/QA names from workflow events
+  // (author + approver, the dev-handoff assignee, the execution file's QA PIC),
+  // which only fill in as the work progresses. A pipeline milestone names its
+  // people at the start instead, so for requirements in a pipeline milestone
+  // these explicit values take precedence on the board.
+  //
+  // Deliberately separate from devAssigneeId (CR030 dev handoff): writing that
+  // column would half-enter its state machine (devStatus/devAssignedAt) and
+  // requires FA approval first, which a freshly-synced requirement doesn't
+  // have. These are plain labels of accountability, no workflow attached.
+  pipelineFaId: integer("pipeline_fa_id"),
+  pipelineDevId: integer("pipeline_dev_id"),
+  pipelineQaId: integer("pipeline_qa_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

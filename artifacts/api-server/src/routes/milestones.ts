@@ -419,10 +419,13 @@ router.get("/milestones/:id/assignees", async (req, res): Promise<void> => {
 router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
   const id = parseInt(req.params.id);
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  // canWritePipeline, not canWrite: QA Pipeline Step 2 lets a qa_member name
+  // the FA/Dev/QA owner per requirement, and qa_member isn't in canWrite — the
+  // lead-tier gate would leave them with an empty picker on their own pipeline.
+  if (!canWritePipeline(ctx.role, Boolean(m.pipelineEnabled))) { res.status(403).json({ error: "Insufficient role" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
   const rows = await db

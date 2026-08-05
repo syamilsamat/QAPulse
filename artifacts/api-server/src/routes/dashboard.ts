@@ -952,6 +952,9 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
         reviewStatus: requirementsTable.reviewStatus,
         devStatus: requirementsTable.devStatus,
         projectId: requirementsTable.projectId,
+        pipelineFaId: requirementsTable.pipelineFaId,
+        pipelineDevId: requirementsTable.pipelineDevId,
+        pipelineQaId: requirementsTable.pipelineQaId,
       })
       .from(requirementsTable)
       .where(inArray(requirementsTable.id, reqIds));
@@ -1037,7 +1040,21 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
       const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
       const devAll = [...new Set([devAssignedByName, devAssigneeName].filter((n): n is string => !!n))];
       const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
-      const assignee = `FA: ${fmtNames(faAll)} · Dev: ${fmtNames(devAll)} · QA: ${fmtNames(qaAll)}`;
+
+      // A QA Pipeline milestone names its FA/Dev/QA owners up front in Step 2,
+      // rather than letting them accrue from workflow events. Where such an
+      // explicit owner exists it wins for that department — it's a direct
+      // statement of who's accountable, not an inference. Departments left
+      // unassigned still fall back to the derived names above, so a partially
+      // staffed pipeline doesn't lose the information it does have.
+      const pipelineFaName = info.pipelineFaId != null ? usersById.get(info.pipelineFaId)?.name ?? null : null;
+      const pipelineDevName = info.pipelineDevId != null ? usersById.get(info.pipelineDevId)?.name ?? null : null;
+      const pipelineQaName = info.pipelineQaId != null ? usersById.get(info.pipelineQaId)?.name ?? null : null;
+      const assignee = [
+        `FA: ${pipelineFaName ?? fmtNames(faAll)}`,
+        `Dev: ${pipelineDevName ?? fmtNames(devAll)}`,
+        `QA: ${pipelineQaName ?? fmtNames(qaAll)}`,
+      ].join(" · ");
       let progress: number;
       if (phase === "develop") progress = devProgress;
       else if (phase === "qa") progress = qaProgress;

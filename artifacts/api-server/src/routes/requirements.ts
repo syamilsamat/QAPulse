@@ -55,6 +55,20 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     const [blockedByUser] = await db.select().from(usersTable).where(eq(usersTable.id, (req as any).blockedBy));
     blockedByName = blockedByUser?.name ?? null;
   }
+
+  // QA Pipeline per-department owners — resolved in one query since these are
+  // usually all set (or all null) together.
+  const pipelineIds = [(req as any).pipelineFaId, (req as any).pipelineDevId, (req as any).pipelineQaId]
+    .filter((v): v is number => typeof v === "number");
+  const pipelineNameById = new Map<number, string>();
+  if (pipelineIds.length > 0) {
+    const rows = await db
+      .select({ id: usersTable.id, name: usersTable.name })
+      .from(usersTable)
+      .where(inArray(usersTable.id, [...new Set(pipelineIds)]));
+    for (const r of rows) pipelineNameById.set(r.id, r.name);
+  }
+  const nameOf = (id: unknown) => (typeof id === "number" ? pipelineNameById.get(id) ?? null : null);
   if (req.projectId) {
     const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, req.projectId));
     projectName = project?.name ?? null;
@@ -105,6 +119,13 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     blockedAt: (req as any).blockedAt ? new Date((req as any).blockedAt).toISOString() : null,
     blockedBy: (req as any).blockedBy ?? null,
     blockedByName,
+    // QA Pipeline — per-department owners named in Step 2
+    pipelineFaId: (req as any).pipelineFaId ?? null,
+    pipelineDevId: (req as any).pipelineDevId ?? null,
+    pipelineQaId: (req as any).pipelineQaId ?? null,
+    pipelineFaName: nameOf((req as any).pipelineFaId),
+    pipelineDevName: nameOf((req as any).pipelineDevId),
+    pipelineQaName: nameOf((req as any).pipelineQaId),
     createdAt: req.createdAt.toISOString(),
     updatedAt: req.updatedAt.toISOString(),
   };
@@ -1806,6 +1827,88 @@ router.delete("/requirements/attachments/:attachmentId", async (req, res): Promi
   fs.promises.unlink(path.join(UPLOADS_DIR, attachment.storagePath)).catch(() => {});
 
   res.sendStatus(204);
+});
+
+// ─── QA Pipeline per-department owners ───────────────────────────────────────
+// PATCH /requirements/:id/pipeline-assignees { pipelineFaId?, pipelineDevId?, pipelineQaId? }
+//
+// Named in QA Pipeline Step 2 and surfaced by the Tasks board. Its own endpoint
+// rather than the generic PATCH because that one gates on author/assignee — too
+// narrow here, since any QA on the pipeline needs to staff the work, not just
+// whoever happened to run the Redmine sync. Send null to clear a slot; omit a
+// key to leave it untouched.
+const PIPELINE_ASSIGN_ROLES = [
+  "admin", "cto", "qa_member", "qa_lead", "qa_manager", "hod_qa",
+  "fa_lead", "hod_fa", "hod_pm", "pm_lead", "pm_member",
+];
+
+router.patch("/requirements/:id/pipeline-assignees", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!PIPELINE_ASSIGN_ROLES.includes(ctx.role)) {
+    res.status(403).json({ error: "Insufficient role to assign pipeline owners" }); return;
+  }
+
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid requirement id" }); return; }
+
+  const [existing] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Requirement not found" }); return; }
+  if (existing.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, existing.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const KEYS = ["pipelineFaId", "pipelineDevId", "pipelineQaId"] as const;
+  const update: Record<string, number | null> = {};
+  for (const key of KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(req.body, key)) continue;
+    const raw = req.body[key];
+    if (raw === null || raw === "") { update[key] = null; continue; }
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed)) { res.status(400).json({ error: `Invalid ${key}` }); return; }
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, parsed));
+    if (!user) { res.status(400).json({ error: `No such user for ${key}` }); return; }
+    update[key] = parsed;
+  }
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: "Nothing to update" }); return;
+  }
+
+  const [updated] = await db.update(requirementsTable)
+    .set(update)
+    .where(eq(requirementsTable.id, id))
+    .returning();
+
+  await logActivity({
+    type: "requirement_pipeline_assignees",
+    description: `Pipeline owners updated on "${updated.title}"`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "requirement",
+    oldValue: {
+      pipelineFaId: (existing as any).pipelineFaId ?? null,
+      pipelineDevId: (existing as any).pipelineDevId ?? null,
+      pipelineQaId: (existing as any).pipelineQaId ?? null,
+    },
+    newValue: update,
+  });
+
+  // Let each newly-named owner know they're on the hook.
+  for (const key of KEYS) {
+    const next = update[key];
+    if (next == null || next === (existing as any)[key]) continue;
+    await notifyUser(
+      next,
+      "Assigned on a QA Pipeline requirement",
+      `You are named as the ${key === "pipelineFaId" ? "FA" : key === "pipelineDevId" ? "Dev" : "QA"} owner for "${updated.title}".`,
+      "requirement",
+      "requirement",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+  }
+
+  res.json(await formatRequirement(updated));
 });
 
 export default router;

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink, CheckCircle2, Database,
+  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink, CheckCircle2, Database, UserPlus,
 } from "lucide-react";
 import {
   Dialog,
@@ -102,6 +102,59 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
 
   const [syncSummaryOpen, setSyncSummaryOpen] = useState(false);
   const [syncSummary, setSyncSummary] = useState<{ id: number; title: string; redmineTicketId: string; isNew: boolean }[]>([]);
+
+  // Per-department owners (FA / Dev / QA) for one requirement. Named here so
+  // the Tasks board shows real names instead of the dashes it falls back to
+  // before dev handoff and QA PIC assignment have happened.
+  const [assignFor, setAssignFor] = useState<any | null>(null);
+  const [assignForm, setAssignForm] = useState({ fa: "none", dev: "none", qa: "none" });
+  const [savingAssign, setSavingAssign] = useState(false);
+
+  const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["milestone-assignable-users", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/milestones/${milestoneId}/assignable-users`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!milestoneId,
+  });
+
+  const openAssign = (req: any) => {
+    setAssignFor(req);
+    setAssignForm({
+      fa: req.pipelineFaId ? String(req.pipelineFaId) : "none",
+      dev: req.pipelineDevId ? String(req.pipelineDevId) : "none",
+      qa: req.pipelineQaId ? String(req.pipelineQaId) : "none",
+    });
+  };
+
+  const handleSaveAssign = async () => {
+    if (!assignFor) return;
+    setSavingAssign(true);
+    try {
+      const toId = (v: string) => (v === "none" ? null : Number(v));
+      const res = await api(`/requirements/${assignFor.id}/pipeline-assignees`, token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          pipelineFaId: toId(assignForm.fa),
+          pipelineDevId: toId(assignForm.dev),
+          pipelineQaId: toId(assignForm.qa),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to save assignees");
+      }
+      toast({ title: "Owners updated", description: "These names now show on the Tasks page." });
+      setAssignFor(null);
+      queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
+      queryClient.invalidateQueries({ queryKey: ["task-board"] });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Could not save", description: String(err?.message ?? err) });
+    } finally {
+      setSavingAssign(false);
+    }
+  };
 
   // Per-suggestion triage (accept/ignore/solved), keyed by the persisted
   // requirement_ai_suggestions row id — overlays onto whatever status the
@@ -542,6 +595,30 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm sm:text-base break-words">{req.title}</div>
                             <div className="text-xs text-muted-foreground mt-0.5">Redmine #{req.redmineTicketId ?? "—"}</div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
+                              {(["FA", "Dev", "QA"] as const).map((dept) => {
+                                const name = dept === "FA" ? req.pipelineFaName
+                                  : dept === "Dev" ? req.pipelineDevName
+                                  : req.pipelineQaName;
+                                return (
+                                  <span key={dept} className="text-muted-foreground">
+                                    {dept}:{" "}
+                                    {name
+                                      ? <span className="text-foreground font-medium">{name}</span>
+                                      : <span className="italic">unassigned</span>}
+                                  </span>
+                                );
+                              })}
+                              {!locked && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAssign(req)}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
+                                >
+                                  <UserPlus className="w-3 h-3" /> Assign
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             <button
@@ -704,6 +781,59 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
             <Button variant="outline" onClick={() => setPiiModalOpen(false)}>Cancel</Button>
             <Button onClick={confirmAIAnalyze} disabled={!piiChecked}>
               <Wand2 className="w-4 h-4 mr-2" /> Start Analysis
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Per-requirement department owners */}
+      <Dialog open={!!assignFor} onOpenChange={(open) => !open && setAssignFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-primary" /> Assign Owners
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-md bg-muted/50 p-2.5">
+              <p className="text-sm font-medium break-words">{assignFor?.title}</p>
+              <p className="text-xs text-muted-foreground">Redmine #{assignFor?.redmineTicketId ?? "—"}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Name who owns this requirement in each department. These names appear in the Assignee column on the
+              Tasks page. Anyone left unassigned falls back to whoever the system can infer from the workflow.
+            </p>
+            {assignableUsers.length === 0 && (
+              <p className="text-xs text-amber-600">
+                No assignable users found — people must be members of this project before they can be named.
+              </p>
+            )}
+            {([
+              { key: "fa", label: "FA (Functional Analyst)" },
+              { key: "dev", label: "Dev (Developer)" },
+              { key: "qa", label: "QA (Tester)" },
+            ] as const).map(({ key, label }) => (
+              <div key={key} className="space-y-1.5">
+                <Label>{label}</Label>
+                <Select
+                  value={assignForm[key]}
+                  onValueChange={(v) => setAssignForm({ ...assignForm, [key]: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {assignableUsers.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.role}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setAssignFor(null)}>Cancel</Button>
+            <Button className="w-full sm:w-auto" onClick={handleSaveAssign} disabled={savingAssign}>
+              {savingAssign && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save Owners
             </Button>
           </DialogFooter>
         </DialogContent>
