@@ -57,6 +57,18 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
     },
   });
 
+  // Step 7 uploads sign-off *documents* into uat_signoffs. The milestone's
+  // `uatFileCount` is a different thing entirely — UAT execution files
+  // (fileType 'uat' in execution_files) — so it can't be used as this gate.
+  const { data: uatSignoffs = [], isLoading: loadingUat } = useQuery({
+    queryKey: ["uat-signoffs", "milestone", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/uat-signoffs?milestoneId=${milestoneId}`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!milestoneId,
+  });
+
   const files = useMemo(
     () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
     [allFiles, milestoneId],
@@ -73,7 +85,7 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
     }, { total: 0, executed: 0, notExecuted: 0 });
   }, [files, progressMap]);
 
-  const checksLoading = loadingMilestone || loadingFiles || loadingProgress;
+  const checksLoading = loadingMilestone || loadingFiles || loadingProgress || loadingUat;
 
   // Each earlier step has to have actually produced something before the
   // milestone can be closed — otherwise a pipeline could be marked DEPLOYED
@@ -129,17 +141,18 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
     ];
     // UAT is only a gate when the milestone was configured to require it.
     if (milestone.requiresUat) {
+      const uatCount = (uatSignoffs as any[]).length;
       list.push({
         step: 7,
         label: "UAT sign-off document uploaded",
-        ok: (milestone.uatFileCount ?? 0) > 0,
-        detail: (milestone.uatFileCount ?? 0) > 0
-          ? `${milestone.uatFileCount} UAT document(s) on record`
+        ok: uatCount > 0,
+        detail: uatCount > 0
+          ? `${uatCount} UAT document(s) on record`
           : "No UAT sign-off document uploaded",
       });
     }
     return list;
-  }, [milestone, files, execTotals]);
+  }, [milestone, files, execTotals, uatSignoffs]);
 
   const outstanding = checks.filter((c) => !c.ok);
   const allComplete = checks.length > 0 && outstanding.length === 0;
