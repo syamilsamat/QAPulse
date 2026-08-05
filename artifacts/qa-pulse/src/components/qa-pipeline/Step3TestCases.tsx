@@ -6,7 +6,7 @@ import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, TestTube, Wand2, Plus } from "lucide-react";
+import { Loader2, TestTube, Wand2 } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -110,14 +110,6 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
       <div className="flex gap-4">
         <Button
           className="flex-1"
-          onClick={() => setLocation(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}&createFor=${milestoneId}`)}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Create Test Case
-        </Button>
-        <Button
-          className="flex-1"
-          variant="outline"
           onClick={() => setLocation(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}`)}
         >
           <TestTube className="w-4 h-4 mr-2" />

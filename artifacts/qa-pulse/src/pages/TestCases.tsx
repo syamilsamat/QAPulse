@@ -1143,19 +1143,6 @@ export default function TestCases() {
     setDialogOpen(true);
   };
 
-  // Deep link from the QA Pipeline's "Create Test Case" button (?createFor=
-  // milestoneId) — jump straight into the create dialog instead of leaving
-  // QA to find the "New Case" button themselves, pre-scoped to the pipeline's
-  // project. Runs once on mount only.
-  useEffect(() => {
-    const params = new URLSearchParams(searchString);
-    if (!params.get("createFor")) return;
-    openCreate();
-    const pid = params.get("projectId");
-    if (pid) setForm((f) => ({ ...f, projectId: Number(pid) }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const openEdit = (tc: any) => {
     setEditingTC(tc);
     setForm({
