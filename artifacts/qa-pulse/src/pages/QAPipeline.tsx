@@ -179,12 +179,11 @@ export default function QAPipeline() {
             {PIPELINE_STEPS.map((step) => {
               const isActive = step.id === currentStep;
               const isPast = step.id < currentStep;
-              const isReachable = step.id === 1 || !!milestoneId;
               return (
                 <div
                   key={step.id}
-                  onClick={() => isReachable && goToStep(step.id)}
-                  className={`flex items-start gap-3 p-2 rounded-lg transition-colors ${isActive ? "bg-primary/10" : "opacity-70"} ${isReachable ? "cursor-pointer hover:bg-muted" : "cursor-not-allowed"}`}
+                  onClick={() => goToStep(step.id)}
+                  className={`flex items-start gap-3 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors ${isActive ? "bg-primary/10" : "opacity-70"}`}
                 >
                   <div className="mt-0.5">
                     {isPast ? (
