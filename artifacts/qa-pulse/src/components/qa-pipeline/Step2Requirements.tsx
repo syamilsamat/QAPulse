@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp,
+  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -35,6 +35,33 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 // Matches the "filtering out Tasks and QA Defects" copy below the sync input.
 const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 const EXCLUDED_TRACKERS = ["Task", "QA Defect"];
+
+function SuggestionActions({
+  status, busy, onAccept, onIgnore, onSolve,
+}: {
+  status: string;
+  busy: boolean;
+  onAccept: () => void;
+  onIgnore: () => void;
+  onSolve: () => void;
+}) {
+  if (status === "accepted") return <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">Accepted</Badge>;
+  if (status === "ignored") return <Badge variant="outline" className="text-muted-foreground shrink-0">Ignored</Badge>;
+  if (status === "solved") return <Badge className="bg-blue-100 text-blue-700 border-blue-200 shrink-0">Solved</Badge>;
+  return (
+    <div className="flex gap-1 shrink-0">
+      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1" disabled={busy} onClick={onAccept}>
+        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Accept
+      </Button>
+      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1" disabled={busy} onClick={onSolve}>
+        <CheckCheck className="w-3 h-3" /> Solved
+      </Button>
+      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 text-muted-foreground" disabled={busy} onClick={onIgnore}>
+        <Ban className="w-3 h-3" /> Ignore
+      </Button>
+    </div>
+  );
+}
 
 function RiskBadge({ level }: { level: string }) {
   const colors: Record<string, string> = {
@@ -70,6 +97,12 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
 
   const [syncSummaryOpen, setSyncSummaryOpen] = useState(false);
   const [syncSummary, setSyncSummary] = useState<{ id: number; title: string; redmineTicketId: string; isNew: boolean }[]>([]);
+
+  // Per-suggestion triage (accept/ignore/solved), keyed by the persisted
+  // requirement_ai_suggestions row id — overlays onto whatever status the
+  // last /ai/analyze-requirement response reported.
+  const [suggestionStatuses, setSuggestionStatuses] = useState<Record<number, string>>({});
+  const [suggestionBusyId, setSuggestionBusyId] = useState<number | null>(null);
 
   // Check if milestone has data prep files (Enhancement 4: Environment Readiness Gate)
   const { data: dataPrepFiles = [], isLoading: loadingFiles } = useQuery({
@@ -249,6 +282,16 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
             const result = await res.json();
             setAnalysisResults((prev) => ({ ...prev, [req.id]: result }));
             setExpandedIds((prev) => new Set(prev).add(req.id));
+            const statuses = result.suggestionStatus;
+            if (statuses) {
+              setSuggestionStatuses((prev) => {
+                const next = { ...prev };
+                for (const group of [statuses.missingItems, statuses.issues, statuses.questions]) {
+                  for (const s of group ?? []) next[s.id] = s.status;
+                }
+                return next;
+              });
+            }
           }
         }
         setAnalyzeProgress({ current: i + 1, total: ids.length });
@@ -258,6 +301,71 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
       toast({ variant: "destructive", title: err.message ?? "Analysis failed" });
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const criterionText = (label: string, text: string) => `${label}: ${text.trim()}`;
+
+  const patchSuggestionStatus = async (suggestionId: number, status: string) => {
+    const res = await api(`/ai/requirement-suggestions/${suggestionId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error("Failed to update suggestion");
+    setSuggestionStatuses((prev) => ({ ...prev, [suggestionId]: status }));
+  };
+
+  // "Accept" on a Missing Item / Issue writes it into the requirement's
+  // Acceptance Criteria (same mechanism as the full Requirement Detail
+  // page), then marks the suggestion accepted so it won't resurface.
+  const acceptIntoCriteria = async (reqId: number, suggestionId: number, label: string, text: string) => {
+    setSuggestionBusyId(suggestionId);
+    try {
+      const req = requirements.find((r: any) => r.id === reqId);
+      const current: string[] = Array.isArray(req?.acceptanceCriteria) ? req.acceptanceCriteria : [];
+      const updated = [...current, criterionText(label, text)];
+      const res = await api(`/requirements/${reqId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
+      });
+      if (!res.ok) throw new Error("Failed to add to acceptance criteria");
+      await patchSuggestionStatus(suggestionId, "accepted");
+      queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
+      toast({ title: "Added to acceptance criteria" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Failed to accept suggestion" });
+    } finally {
+      setSuggestionBusyId(null);
+    }
+  };
+
+  // "Accept" on a Question posts it into the requirement's Discussion thread
+  // instead — it's something the FA/leads need to answer, not a criterion.
+  const acceptIntoDiscussion = async (reqId: number, suggestionId: number, question: string) => {
+    setSuggestionBusyId(suggestionId);
+    try {
+      const res = await api(`/requirements/${reqId}/comments`, token, {
+        method: "POST",
+        body: JSON.stringify({ body: `Clarification needed: ${question.trim()}` }),
+      });
+      if (!res.ok) throw new Error("Failed to post comment");
+      await patchSuggestionStatus(suggestionId, "accepted");
+      toast({ title: "Posted to Discussion" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Failed to accept question" });
+    } finally {
+      setSuggestionBusyId(null);
+    }
+  };
+
+  const markSuggestion = async (suggestionId: number, status: "ignored" | "solved") => {
+    setSuggestionBusyId(suggestionId);
+    try {
+      await patchSuggestionStatus(suggestionId, status);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Failed to update suggestion" });
+    } finally {
+      setSuggestionBusyId(null);
     }
   };
 
@@ -410,36 +518,79 @@ export function Step2Requirements({ milestoneId, projectId, onNext }: { mileston
                             {result.missingItems?.length > 0 && (
                               <div>
                                 <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Missing Items</p>
-                                <ul className="space-y-1">
-                                  {result.missingItems.map((item: string, i: number) => (
-                                    <li key={i} className="flex items-start gap-1.5 text-xs">
-                                      <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" /> {item}
-                                    </li>
-                                  ))}
+                                <ul className="space-y-1.5">
+                                  {result.missingItems.map((item: string, i: number) => {
+                                    const sid = result.suggestionStatus?.missingItems?.[i]?.id;
+                                    return (
+                                      <li key={i} className="flex items-start justify-between gap-2 text-xs">
+                                        <span className="flex items-start gap-1.5 flex-1">
+                                          <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" /> {item}
+                                        </span>
+                                        {sid && (
+                                          <SuggestionActions
+                                            status={suggestionStatuses[sid] ?? "pending"}
+                                            busy={suggestionBusyId === sid}
+                                            onAccept={() => acceptIntoCriteria(req.id, sid, "Missing Items", item)}
+                                            onSolve={() => markSuggestion(sid, "solved")}
+                                            onIgnore={() => markSuggestion(sid, "ignored")}
+                                          />
+                                        )}
+                                      </li>
+                                    );
+                                  })}
                                 </ul>
                               </div>
                             )}
                             {result.issues?.length > 0 && (
                               <div>
                                 <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Issues</p>
-                                <ul className="space-y-1">
-                                  {result.issues.map((issue: any, i: number) => (
-                                    <li key={i} className="flex items-start gap-1.5 text-xs">
-                                      <AlertCircle className="w-3 h-3 text-orange-500 mt-0.5 shrink-0" /> {issue.suggestion ?? issue.description}
-                                    </li>
-                                  ))}
+                                <ul className="space-y-1.5">
+                                  {result.issues.map((issue: any, i: number) => {
+                                    const sid = result.suggestionStatus?.issues?.[i]?.id;
+                                    const text = issue.suggestion ?? issue.description;
+                                    return (
+                                      <li key={i} className="flex items-start justify-between gap-2 text-xs">
+                                        <span className="flex items-start gap-1.5 flex-1">
+                                          <AlertCircle className="w-3 h-3 text-orange-500 mt-0.5 shrink-0" /> {text}
+                                        </span>
+                                        {sid && (
+                                          <SuggestionActions
+                                            status={suggestionStatuses[sid] ?? "pending"}
+                                            busy={suggestionBusyId === sid}
+                                            onAccept={() => acceptIntoCriteria(req.id, sid, "Issue Suggestions", text)}
+                                            onSolve={() => markSuggestion(sid, "solved")}
+                                            onIgnore={() => markSuggestion(sid, "ignored")}
+                                          />
+                                        )}
+                                      </li>
+                                    );
+                                  })}
                                 </ul>
                               </div>
                             )}
                             {result.questions?.length > 0 && (
                               <div>
                                 <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Questions to Clarify</p>
-                                <ul className="space-y-1">
-                                  {result.questions.map((q: string, i: number) => (
-                                    <li key={i} className="flex items-start gap-1.5 text-xs">
-                                      <AlertTriangle className="w-3 h-3 text-yellow-500 mt-0.5 shrink-0" /> {q}
-                                    </li>
-                                  ))}
+                                <ul className="space-y-1.5">
+                                  {result.questions.map((q: string, i: number) => {
+                                    const sid = result.suggestionStatus?.questions?.[i]?.id;
+                                    return (
+                                      <li key={i} className="flex items-start justify-between gap-2 text-xs">
+                                        <span className="flex items-start gap-1.5 flex-1">
+                                          <AlertTriangle className="w-3 h-3 text-yellow-500 mt-0.5 shrink-0" /> {q}
+                                        </span>
+                                        {sid && (
+                                          <SuggestionActions
+                                            status={suggestionStatuses[sid] ?? "pending"}
+                                            busy={suggestionBusyId === sid}
+                                            onAccept={() => acceptIntoDiscussion(req.id, sid, q)}
+                                            onSolve={() => markSuggestion(sid, "solved")}
+                                            onIgnore={() => markSuggestion(sid, "ignored")}
+                                          />
+                                        )}
+                                      </li>
+                                    );
+                                  })}
                                 </ul>
                               </div>
                             )}

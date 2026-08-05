@@ -27,3 +27,4 @@ export * from "./milestone-risk-assessments";
 export * from "./conversations";
 export * from "./messages";
 export * from "./pipeline-settings";
+export * from "./requirement-ai-suggestions";

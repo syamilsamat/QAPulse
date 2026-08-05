@@ -275,6 +275,23 @@ export async function bootstrap() {
     )
   `);
 
+  // AI Requirement Analyzer suggestion triage — persists accept/ignore/solved
+  // decisions per suggestion so re-running the analyzer doesn't re-surface
+  // items already handled.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS requirement_ai_suggestions (
+      id SERIAL PRIMARY KEY,
+      requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      suggestion_text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      updated_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS requirement_ai_suggestions_req_idx ON requirement_ai_suggestions (requirement_id)`);
+
   // CR033p2 — Risk Register. Found-and-fixed during CR037 (2026-07-15): this
   // table existed only via drizzle-kit push, so a brand-new database's
   // bootstrap never created it and the PM Dashboard Risk Register would 500.

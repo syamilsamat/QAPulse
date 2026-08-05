@@ -17,6 +17,7 @@ import {
   milestoneRiskAssessmentsTable,
   conversations,
   messages,
+  requirementAiSuggestionsTable,
 } from "@workspace/db";
 import { GoogleGenAI } from "@google/genai";
 import { logActivity } from "./_audit";
@@ -224,6 +225,42 @@ async function executeAiTask(
   }
 }
 
+const normalizeSuggestionText = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
+// Matches each freshly-generated suggestion against previously-seen ones for
+// this requirement (by normalized text): a suggestion already accepted/
+// ignored/solved is dropped so re-running the analyzer doesn't re-surface
+// something the team already triaged, while a brand-new or still-pending one
+// is kept (and persisted so a later run recognizes it too).
+async function reconcileSuggestions<T>(
+  requirementId: number,
+  kind: string,
+  items: T[],
+  textOf: (item: T) => string,
+  existing: (typeof requirementAiSuggestionsTable.$inferSelect)[],
+): Promise<{ kept: T[]; statuses: { id: number; status: string }[] }> {
+  const kept: T[] = [];
+  const statuses: { id: number; status: string }[] = [];
+  for (const item of items) {
+    const text = textOf(item);
+    if (!text) continue;
+    const match = existing.find((s) => s.kind === kind && normalizeSuggestionText(s.suggestionText) === normalizeSuggestionText(text));
+    if (match) {
+      if (match.status !== "pending") continue; // already handled — don't resurface
+      kept.push(item);
+      statuses.push({ id: match.id, status: match.status });
+    } else {
+      const [created] = await db.insert(requirementAiSuggestionsTable)
+        .values({ requirementId, kind, suggestionText: text, status: "pending" })
+        .returning();
+      kept.push(item);
+      statuses.push({ id: created.id, status: created.status });
+      existing.push(created);
+    }
+  }
+  return { kept, statuses };
+}
+
 // ==========================================
 // 1. ANALYZE REQUIREMENT
 // ==========================================
@@ -272,6 +309,22 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
     const content = await executeAiTask(systemPrompt, userPrompt);
     const result = safeParseJSON(content, fallback);
 
+    // Drop suggestions already triaged (accepted/ignored/solved) on a prior
+    // run, and persist whatever's left (new + still-pending) so the next
+    // run recognizes them too.
+    if (requirementId) {
+      const reqIdNum = Number(requirementId);
+      const existing = await db.select().from(requirementAiSuggestionsTable)
+        .where(eq(requirementAiSuggestionsTable.requirementId, reqIdNum));
+      const missing = await reconcileSuggestions(reqIdNum, "missing_item", result.missingItems ?? [], (t: string) => t, existing);
+      const questions = await reconcileSuggestions(reqIdNum, "question", result.questions ?? [], (t: string) => t, existing);
+      const issues = await reconcileSuggestions(reqIdNum, "issue", result.issues ?? [], (i: any) => i.suggestion ?? i.description ?? "", existing);
+      result.missingItems = missing.kept;
+      result.questions = questions.kept;
+      result.issues = issues.kept;
+      (result as any).suggestionStatus = { missingItems: missing.statuses, questions: questions.statuses, issues: issues.statuses };
+    }
+
     // CR023p2.4 — log each analyzer run to the requirement's History so past
     // results stay reviewable without re-running the AI.
     if (requirementId) {
@@ -296,6 +349,35 @@ router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
     console.error("Analyze Req Error:", error);
     res.json(fallback);
   }
+});
+
+const SUGGESTION_STATUSES = ["pending", "accepted", "ignored", "solved"];
+
+// PATCH /ai/requirement-suggestions/:id — triage a single AI suggestion
+// (accept/ignore/solve/reset to pending). Accepting the requirement-data side
+// effect (append to Acceptance Criteria, or post a Discussion comment for a
+// question) is the caller's responsibility before calling this — this only
+// records the decision so the next analyzer run doesn't re-suggest it.
+router.patch("/ai/requirement-suggestions/:id", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  const { status } = req.body;
+  if (!SUGGESTION_STATUSES.includes(status)) {
+    res.status(400).json({ error: `status must be one of ${SUGGESTION_STATUSES.join(", ")}` });
+    return;
+  }
+
+  const [existing] = await db.select().from(requirementAiSuggestionsTable).where(eq(requirementAiSuggestionsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Suggestion not found" }); return; }
+
+  const [updated] = await db.update(requirementAiSuggestionsTable)
+    .set({ status, updatedBy: (ctx as any).id ?? ctx.userId })
+    .where(eq(requirementAiSuggestionsTable.id, id))
+    .returning();
+
+  res.json({ id: updated.id, status: updated.status });
 });
 
 // ==========================================
