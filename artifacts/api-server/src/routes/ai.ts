@@ -1707,6 +1707,14 @@ router.post("/ai/analyze-milestone-requirements", async (req, res): Promise<void
 });
 
 // 2. Risk-Based Testing Priority Tagging (Enhancement 7 / Step 3)
+//
+// testCasesTable has no milestoneId column of its own — a test case is
+// scoped to a milestone indirectly via its requirementId, the same join
+// every other milestone-scoped test-case view in this codebase uses (see
+// TestCases.tsx's reqMilestoneById). Previously this mistakenly tagged
+// executionTestCasesTable rows (a different table entirely — per-execution
+// results, not the reusable library) with a RANDOM priority; that produced
+// output uncorrelated with any real risk assessment.
 router.post("/ai/tag-risk-priority", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1715,22 +1723,35 @@ router.post("/ai/tag-risk-priority", async (req, res): Promise<void> => {
   if (!milestoneId) { res.status(400).json({ error: "Missing milestoneId" }); return; }
 
   try {
-    // We fetch execution test cases or regular test cases linked to this milestone
-    // Because TestCasesTable doesn't have a direct milestoneId, we might link via requirements or a join table.
-    // For this mock, we'll update the executionTestCasesTable priorities.
-    const execTCs = await db.select().from(executionTestCasesTable).where(eq(executionTestCasesTable.milestoneId, milestoneId));
-    
-    // Distribute risk priorities randomly for demo
-    const priorities = ["Critical", "High", "Medium", "Low"];
-    
-    for (const tc of execTCs) {
-      const p = priorities[Math.floor(Math.random() * priorities.length)];
-      await db.update(executionTestCasesTable)
-        .set({ priority: p })
-        .where(eq(executionTestCasesTable.id, tc.id));
+    const reqRows = await db.select({ id: requirementsTable.id })
+      .from(requirementsTable)
+      .where(eq(requirementsTable.milestoneId, Number(milestoneId)));
+    const reqIds = reqRows.map((r) => r.id);
+    if (reqIds.length === 0) { res.json({ success: true, message: "No test cases to tag.", tagged: 0 }); return; }
+
+    const tcs = await db.select().from(testCasesTable).where(inArray(testCasesTable.requirementId, reqIds));
+    if (tcs.length === 0) { res.json({ success: true, message: "No test cases to tag.", tagged: 0 }); return; }
+
+    const systemPrompt = `You are a senior QA analyst applying Risk-Based Testing (RBT). For each test case listed, assign a priority — Critical, High, Medium, or Low — based on the business risk and likely impact of that scenario failing in production.
+       Return exactly this JSON structure: { "priorities": [{"id": number, "priority": "Critical"|"High"|"Medium"|"Low"}] }`;
+    const userPrompt = `Test cases:\n${tcs.map((tc) => `#${tc.id}: ${tc.title}${tc.objective ? ` — ${tc.objective}` : ""}`).join("\n")}\n\nAssign a priority to every test case listed above and return ONLY JSON.`;
+
+    const content = await executeAiTask(systemPrompt, userPrompt);
+    const parsed = safeParseJSON(content, { priorities: [] });
+    const rawPriorities: { id: number; priority: string }[] = Array.isArray(parsed?.priorities) ? parsed.priorities : [];
+    const priorityById = new Map<number, string>(rawPriorities.map((p) => [Number(p.id), String(p.priority)]));
+
+    const VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"];
+    let tagged = 0;
+    for (const tc of tcs) {
+      const priority: string | undefined = priorityById.get(tc.id);
+      if (priority && VALID_PRIORITIES.includes(priority)) {
+        await db.update(testCasesTable).set({ priority }).where(eq(testCasesTable.id, tc.id));
+        tagged++;
+      }
     }
 
-    res.json({ success: true, message: "Risk priorities assigned." });
+    res.json({ success: true, message: `Risk priorities assigned to ${tagged} test case(s).`, tagged });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

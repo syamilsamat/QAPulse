@@ -298,7 +298,7 @@ export default function QAPipeline() {
         );
       case 3:
         return milestoneId ? (
-          <Step3TestCases milestoneId={milestoneId} onNext={() => setCurrentStep(4)} />
+          <Step3TestCases milestoneId={milestoneId} projectId={milestone?.projectId} onNext={() => setCurrentStep(4)} />
         ) : (
           <div>Milestone required.</div>
         );

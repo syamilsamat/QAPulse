@@ -13,6 +13,8 @@ export const testCasesTable = pgTable("test_cases", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   objective: text("objective"),
+  type: text("type"),
+  priority: text("priority"), // Risk-Based Testing priority: Critical | High | Medium | Low
   preconditions: text("preconditions"),
   testSteps: text("test_steps"),
   expectedResult: text("expected_result"),

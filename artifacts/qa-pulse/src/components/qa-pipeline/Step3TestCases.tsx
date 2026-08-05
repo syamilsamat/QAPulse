@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, TestTube, Wand2, ArrowRight } from "lucide-react";
+import { Loader2, TestTube, Wand2, ArrowRight, Plus } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -18,21 +18,12 @@ function api(path: string, token: string | null, opts?: RequestInit) {
   });
 }
 
-export function Step3TestCases({ milestoneId, onNext }: { milestoneId: number, onNext: () => void }) {
+export function Step3TestCases({ milestoneId, projectId, onNext }: { milestoneId: number, projectId?: number, onNext: () => void }) {
   const { token } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [tagging, setTagging] = useState(false);
-
-  const { data: testCases = [], isLoading: loadingTCs } = useQuery({
-    queryKey: ["test-cases", "milestone", milestoneId],
-    queryFn: async () => {
-      const res = await api(`/test-cases?milestoneId=${milestoneId}`, token);
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!milestoneId,
-  });
 
   const { data: requirements = [] } = useQuery({
     queryKey: ["requirements", "milestone", milestoneId],
@@ -43,6 +34,25 @@ export function Step3TestCases({ milestoneId, onNext }: { milestoneId: number, o
     enabled: !!milestoneId,
   });
 
+  // test_cases has no milestoneId column of its own — it's scoped to a
+  // milestone indirectly via requirementId. Fetching by projectId (a
+  // supported server-side filter) and narrowing to this milestone's
+  // requirement set client-side mirrors exactly how TestCases.tsx itself
+  // scopes test cases to a milestone.
+  const { data: projectTestCases = [], isLoading: loadingTCs } = useQuery({
+    queryKey: ["test-cases", "project", projectId],
+    queryFn: async () => {
+      const res = await api(`/test-cases?projectId=${projectId}`, token);
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!projectId,
+  });
+  const requirementIds = useMemo(() => new Set(requirements.map((r: any) => r.id)), [requirements]);
+  const testCases = useMemo(
+    () => projectTestCases.filter((tc: any) => tc.requirementId != null && requirementIds.has(tc.requirementId)),
+    [projectTestCases, requirementIds],
+  );
+
   const handleRiskBasedTagging = async () => {
     setTagging(true);
     try {
@@ -52,7 +62,7 @@ export function Step3TestCases({ milestoneId, onNext }: { milestoneId: number, o
       });
       if (!res.ok) throw new Error("Failed to tag risk priority");
       toast({ title: "Risk Priorities Assigned!" });
-      queryClient.invalidateQueries({ queryKey: ["test-cases", "milestone", milestoneId] });
+      queryClient.invalidateQueries({ queryKey: ["test-cases", "project", projectId] });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
@@ -109,18 +119,25 @@ export function Step3TestCases({ milestoneId, onNext }: { milestoneId: number, o
       </div>
 
       <div className="flex gap-4">
-        <Button 
-          className="flex-1" 
-          variant="outline" 
-          onClick={() => window.open(`/test-cases?milestoneId=${milestoneId}`, '_blank')}
+        <Button
+          className="flex-1"
+          onClick={() => window.open(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}&createFor=${milestoneId}`, '_blank')}
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Create Test Case
+        </Button>
+        <Button
+          className="flex-1"
+          variant="outline"
+          onClick={() => window.open(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}`, '_blank')}
         >
           <TestTube className="w-4 h-4 mr-2" />
           Manage Test Cases
         </Button>
-        <Button 
-          className="flex-1" 
-          variant="secondary" 
-          onClick={handleRiskBasedTagging} 
+        <Button
+          className="flex-1"
+          variant="secondary"
+          onClick={handleRiskBasedTagging}
           disabled={tagging || testCases.length === 0}
         >
           {tagging ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
