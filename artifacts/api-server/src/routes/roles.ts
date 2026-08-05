@@ -37,6 +37,7 @@ export const ALL_NAV_KEYS = [
   "nav:admin-search",
   "nav:team-hangouts",
   "nav:configurations",
+  "nav:qa-pipeline", // QA Pipeline flow — gated further at runtime by the pipeline_settings.qa_flow_enabled toggle
   "nav:milestones",
   "nav:pm-dashboard", // CR014 Part 3
   "nav:audit-log", // CR011 — admin-only; endpoint is also role-gated server-side
@@ -51,13 +52,13 @@ export const ALL_NAV_KEYS = [
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin:      ALL_NAV_KEYS,
   cto:        ALL_NAV_KEYS,
-  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
+  hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
   hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:resources"],
   hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
-  qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
-  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
-  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
+  qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
+  qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
+  qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:qa-pipeline", "nav:milestones", "nav:defects"],
   fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register", "nav:defects"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
@@ -459,6 +460,21 @@ export async function bootstrap() {
     if (!rows[0]) continue;
     await pool.query(
       `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:qa-analytics') ON CONFLICT DO NOTHING`,
+      [rows[0].id]
+    );
+  }
+
+  // nav:qa-pipeline for qa_member/qa_lead/qa_manager/hod_qa — narrow
+  // single-key backfill for the QA Pipeline flow (admin/cto already covered
+  // by the "always have every nav key" loop above). The nav item itself is
+  // additionally gated at runtime by pipeline_settings.qa_flow_enabled.
+  for (const roleName of ["qa_member", "qa_lead", "qa_manager", "hod_qa"]) {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM roles WHERE name = $1`, [roleName]
+    );
+    if (!rows[0]) continue;
+    await pool.query(
+      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:qa-pipeline') ON CONFLICT DO NOTHING`,
       [rows[0].id]
     );
   }
