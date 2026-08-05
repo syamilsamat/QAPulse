@@ -99,12 +99,12 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
 
     return (
       <div className="w-full max-w-2xl mx-auto space-y-6 text-center">
-        <div className="flex flex-col items-center justify-center p-8 space-y-4">
-          <div className="w-16 h-16 bg-green-100 dark:bg-green-950/40 rounded-full flex items-center justify-center">
-            <CheckCircle2 className="w-8 h-8 text-green-600" />
+        <div className="flex flex-col items-center justify-center py-6 sm:p-8 space-y-3 sm:space-y-4">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 bg-green-100 dark:bg-green-950/40 rounded-full flex items-center justify-center">
+            <CheckCircle2 className="w-7 h-7 sm:w-8 sm:h-8 text-green-600" />
           </div>
-          <h3 className="text-2xl font-bold">Functional Testing Signed Off</h3>
-          <p className="text-muted-foreground max-w-md">
+          <h3 className="text-xl sm:text-2xl font-bold">Functional Testing Signed Off</h3>
+          <p className="text-sm sm:text-base text-muted-foreground max-w-md">
             {signerName} formally confirmed that functional testing is complete for{" "}
             <span className="font-medium text-foreground">{milestone.name}</span> — test cases were executed and
             critical defects resolved.
@@ -112,7 +112,7 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
         </div>
 
         <Card>
-          <CardContent className="pt-6 pb-6 text-left">
+          <CardContent className="p-4 sm:pt-6 sm:pb-6 text-left">
             <p className="text-xs font-semibold uppercase text-muted-foreground mb-4">Sign-off record</p>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
@@ -146,9 +146,9 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
         </Card>
 
         <div className="flex justify-center">
-          <Button onClick={() => (milestone.requiresUat ? onNext() : onSkipUat())}>
+          <Button className="w-full sm:w-auto" onClick={() => (milestone.requiresUat ? onNext() : onSkipUat())}>
             {milestone.requiresUat ? "Continue to UAT Sign-offs" : "Continue to Update Milestone"}
-            <ArrowRight className="w-4 h-4 ml-2" />
+            <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
           </Button>
         </div>
       </div>
@@ -156,25 +156,25 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat }: { milestoneId: 
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-8 text-center">
-      <div className="flex flex-col items-center justify-center p-8 space-y-4">
-        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-          <Signature className="w-8 h-8 text-blue-600" />
+    <div className="w-full max-w-2xl mx-auto space-y-6 sm:space-y-8 text-center">
+      <div className="flex flex-col items-center justify-center py-6 sm:p-8 space-y-3 sm:space-y-4">
+        <div className="w-14 h-14 sm:w-16 sm:h-16 bg-blue-100 rounded-full flex items-center justify-center">
+          <Signature className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" />
         </div>
-        <h3 className="text-2xl font-bold">Functional Testing Sign Off</h3>
-        <p className="text-muted-foreground max-w-md">
+        <h3 className="text-xl sm:text-2xl font-bold">Functional Testing Sign Off</h3>
+        <p className="text-sm sm:text-base text-muted-foreground max-w-md">
           By signing off, you confirm that all functional testing has been completed, test cases have been executed, and all critical defects are resolved.
         </p>
       </div>
 
       <Card>
-        <CardContent className="pt-6 pb-6 bg-muted/30">
+        <CardContent className="p-4 sm:pt-6 sm:pb-6 bg-muted/30">
           <div className="flex flex-col items-center gap-4">
             <p className="text-sm font-medium">
               Next Step: {milestone?.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone (No UAT Required)"}
             </p>
-            <Button size="lg" onClick={() => setConfirmOpen(true)} disabled={!canSignOff}>
-              <CheckCircle2 className="w-4 h-4 mr-2" />
+            <Button size="lg" className="w-full sm:w-auto whitespace-normal h-auto py-3" onClick={() => setConfirmOpen(true)} disabled={!canSignOff}>
+              <CheckCircle2 className="w-4 h-4 mr-2 shrink-0" />
               Sign Off Functional Testing
             </Button>
             {!canSignOff && (

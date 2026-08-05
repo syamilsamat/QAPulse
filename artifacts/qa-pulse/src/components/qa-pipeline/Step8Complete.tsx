@@ -230,17 +230,17 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-8 text-center">
-      <div className="flex flex-col items-center justify-center p-8 space-y-4">
-        <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-2 ${allComplete || isCompleted ? "bg-green-100" : "bg-muted"}`}>
+    <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-center">
+      <div className="flex flex-col items-center justify-center py-6 sm:p-8 space-y-3 sm:space-y-4">
+        <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-1 sm:mb-2 ${allComplete || isCompleted ? "bg-green-100" : "bg-muted"}`}>
           {allComplete || isCompleted
-            ? <PartyPopper className="w-10 h-10 text-green-600" />
-            : <ClipboardList className="w-10 h-10 text-muted-foreground" />}
+            ? <PartyPopper className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />
+            : <ClipboardList className="w-8 h-8 sm:w-10 sm:h-10 text-muted-foreground" />}
         </div>
-        <h3 className="text-3xl font-bold">
+        <h3 className="text-2xl sm:text-3xl font-bold">
           {isCompleted ? "Milestone Deployed" : allComplete ? "Ready for Deployment" : "Not Ready for Deployment"}
         </h3>
-        <p className="text-muted-foreground max-w-md">
+        <p className="text-sm sm:text-base text-muted-foreground max-w-md">
           {isCompleted ? (
             <>Milestone <strong>{milestone?.name}</strong> has been marked as deployed and the pipeline is closed.</>
           ) : allComplete ? (
@@ -263,19 +263,19 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
         </Card>
       ) : !isCompleted && (
         <Card className={allComplete ? "border-green-500" : "border-amber-300"}>
-          <CardContent className="pt-6 pb-6 text-left">
+          <CardContent className="p-4 sm:pt-6 sm:pb-6 text-left">
             <p className="text-xs font-semibold uppercase text-muted-foreground mb-4">Pipeline readiness</p>
             <ul className="space-y-3">
               {checks.map((c) => (
-                <li key={c.step} className="flex items-start gap-3 text-sm">
+                <li key={c.step} className="flex items-start gap-2.5 sm:gap-3 text-sm">
                   {c.ok
                     ? <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
                     : <XCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />}
-                  <div>
+                  <div className="min-w-0">
                     <span className={c.ok ? "" : "font-medium"}>
                       Step {c.step} — {c.label}
                     </span>
-                    <p className="text-xs text-muted-foreground">{c.detail}</p>
+                    <p className="text-xs text-muted-foreground break-words">{c.detail}</p>
                   </div>
                 </li>
               ))}
@@ -284,12 +284,12 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
         </Card>
       )}
 
-      <div className="grid grid-cols-2 gap-6 text-left">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 text-left">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Traceability Matrix</CardTitle>
+          <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-3">
+            <CardTitle className="text-base sm:text-lg">Traceability Matrix</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="p-4 sm:p-6 pt-0 space-y-3 sm:space-y-4">
             <p className="text-sm text-muted-foreground">
               Your audit trail in one spreadsheet — every requirement mapped to its test cases, execution
               results and linked defects, with gaps in coverage flagged. Formatted and print-ready for
@@ -308,10 +308,10 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Release Notes</CardTitle>
+          <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-3">
+            <CardTitle className="text-base sm:text-lg">Release Notes</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="p-4 sm:p-6 pt-0 space-y-3 sm:space-y-4">
             <p className="text-sm text-muted-foreground">
               AI turns this milestone's delivered requirements and resolved defects into a polished,
               business-ready document — what's new, what's fixed, and what users need to know.
@@ -329,17 +329,17 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
         </Card>
       </div>
 
-      <div className="pt-8 space-y-3">
+      <div className="pt-4 sm:pt-8 space-y-3">
         <Button
           size="lg"
-          className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-lg px-8 py-6"
+          className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-base sm:text-lg px-6 sm:px-8 h-auto py-4 sm:py-6 whitespace-normal"
           onClick={handleComplete}
           disabled={completing || checksLoading || isCompleted || !allComplete}
         >
           {completing ? (
-            <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+            <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 animate-spin shrink-0" />
           ) : (
-            <CheckCircle2 className="w-6 h-6 mr-2" />
+            <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" />
           )}
           {isCompleted ? "Pipeline Completed" : "Mark Milestone as DEPLOYED"}
         </Button>

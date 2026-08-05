@@ -96,19 +96,19 @@ export function Step7UAT({ milestoneId }: { milestoneId: number }) {
   };
 
   return (
-    <div className={`w-full max-w-4xl mx-auto space-y-8 ${bddEnabled ? "text-left" : "text-center"}`}>
+    <div className={`w-full max-w-4xl mx-auto space-y-6 sm:space-y-8 ${bddEnabled ? "text-left" : "text-center"}`}>
       <div>
-        <h3 className="text-xl font-semibold">
+        <h3 className="text-lg sm:text-xl font-semibold">
           {bddEnabled ? "UAT Sign-off & BDD Scenarios" : "UAT Sign-off"}
         </h3>
-        <p className="text-muted-foreground mt-1">
+        <p className="text-sm sm:text-base text-muted-foreground mt-1">
           {bddEnabled
             ? "Upload official UAT sign-off documents and optionally convert BDD (Gherkin) scenarios into regression test cases."
             : "Upload the official UAT sign-off documents for this milestone."}
         </p>
       </div>
 
-      <div className={bddEnabled ? "grid grid-cols-2 gap-6" : "max-w-md mx-auto text-left"}>
+      <div className={bddEnabled ? "grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6" : "max-w-md mx-auto text-left"}>
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -124,20 +124,20 @@ export function Step7UAT({ milestoneId }: { milestoneId: number }) {
                 No UAT sign-off documents uploaded for this milestone yet.
               </p>
             ) : (
-              <div className="border rounded-md divide-y max-h-56 overflow-auto">
+              <div className="border rounded-md divide-y max-h-56 overflow-y-auto overflow-x-hidden">
                 {(uatFiles as any[]).map((f) => (
-                  <div key={f.id} className="p-2.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div key={f.id} className="p-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2">
+                    <div className="min-w-0 flex items-start gap-2">
+                      <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{f.fileName}</p>
+                        <p className="text-sm font-medium break-all">{f.fileName}</p>
                         <p className="text-xs text-muted-foreground">
                           {f.uploaderName ?? "Unknown"} · {new Date(f.createdAt).toLocaleDateString()}
                           {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
                         </p>
                       </div>
                     </div>
-                    <Button size="sm" variant="ghost" className="shrink-0" onClick={() => handleReview(f)}>
+                    <Button size="sm" variant="ghost" className="shrink-0 self-start sm:self-auto -ml-1 sm:ml-0" onClick={() => handleReview(f)}>
                       <Eye className="w-3.5 h-3.5 mr-1" /> Review
                     </Button>
                   </div>

@@ -168,7 +168,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             placeholder="e.g. Sprint 42 / Release v2.1"
           />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Type</Label>
             <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
@@ -188,7 +188,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             </Select>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Priority</Label>
             <Select value={form.priority} onValueChange={v => setForm({ ...form, priority: v })}>
@@ -220,7 +220,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
         </div>
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Start</Label>
               <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />

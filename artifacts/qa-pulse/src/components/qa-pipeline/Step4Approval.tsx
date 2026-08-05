@@ -54,15 +54,15 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
   const allApproved = total > 0 && approved === total;
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-8 text-left">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-xl font-semibold">Test Case Approval Gate</h3>
-          <p className="text-muted-foreground mt-1">
+    <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-left">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl font-semibold">Test Case Approval Gate</h3>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">
             Execution files must be reviewed and approved on the Execution Dashboard before testing can begin.
           </p>
         </div>
-        <Button variant="outline" onClick={() => refetch()}>
+        <Button variant="outline" className="w-full sm:w-auto shrink-0" onClick={() => refetch()}>
           <RefreshCw className="w-4 h-4 mr-2" /> Refresh
         </Button>
       </div>
@@ -95,8 +95,8 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
                 Your test cases have been approved — you may proceed with execution.
               </p>
             </div>
-            <Button onClick={openExecutionDashboard}>
-              <List className="w-4 h-4 mr-2" />
+            <Button className="w-full sm:w-auto" onClick={openExecutionDashboard}>
+              <List className="w-4 h-4 mr-2 shrink-0" />
               {files.length === 1 ? `Execute #${files[0].redmineTicketId}` : "Open Execution Dashboard"}
             </Button>
           </CardContent>
@@ -130,17 +130,17 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
       {total > 0 && (
         <Card>
           <CardContent className="p-0">
-            <div className="divide-y max-h-80 overflow-auto">
+            <div className="divide-y max-h-80 overflow-y-auto overflow-x-hidden">
               {files.map((f: any) => (
-                <div key={f.id} className="p-3 flex items-center justify-between gap-3 hover:bg-muted/50">
-                  <div className="min-w-0 flex-1 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div key={f.id} className="p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 hover:bg-muted/50">
+                  <div className="min-w-0 flex-1 flex items-start gap-2">
+                    <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{f.title || `Redmine #${f.redmineTicketId}`}</div>
+                      <div className="font-medium text-sm sm:text-base break-words">{f.title || `Redmine #${f.redmineTicketId}`}</div>
                       <div className="text-xs text-muted-foreground">Redmine #{f.redmineTicketId}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 pl-6 sm:pl-0">
                     {f.reviewStatus === "approved" ? (
                       <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
                         <CheckCircle2 className="w-3 h-3 mr-1" /> Approved

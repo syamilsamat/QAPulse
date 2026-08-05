@@ -280,8 +280,8 @@ export default function QAPipeline() {
     switch (currentStep) {
       case 1:
         return milestoneId ? (
-          <div className="p-12 text-center">
-            <h2 className="text-xl font-semibold mb-2">Milestone Created!</h2>
+          <div className="py-8 sm:py-12 text-center">
+            <h2 className="text-lg sm:text-xl font-semibold mb-2">Milestone Created!</h2>
             <p className="text-muted-foreground">
               Milestone <strong>{milestone?.name}</strong> is configured for the QA Pipeline.
               Proceed to Step 2 to sync requirements.
@@ -354,30 +354,28 @@ export default function QAPipeline() {
   // landing on a blank create form, so QA can see what's already in flight.
   if (!milestoneId) {
     return (
-      <div className="container mx-auto p-6 max-w-6xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <Rocket className="w-8 h-8 text-blue-600" />
-              QA Deployment Pipeline
-            </h1>
-            <p className="text-muted-foreground mt-2">
-              Guided end-to-end workflow from requirements to production deployment.
-            </p>
-          </div>
+      <div className="container mx-auto p-4 sm:p-6 max-w-6xl space-y-4 sm:space-y-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
+            <Rocket className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
+            QA Deployment Pipeline
+          </h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1.5 sm:mt-2">
+            Guided end-to-end workflow from requirements to production deployment.
+          </p>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <SearchableSelect
             value={pickerProjectId}
             onValueChange={(v) => { setPickerProjectId(v); setShowCreateForm(false); }}
             options={[{ value: "all", label: "Select a project…" }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
             placeholder="Select project"
             searchPlaceholder="Search projects…"
-            className="w-64"
+            className="w-full sm:w-64"
           />
           {pickerProjectId !== "all" && (
-            <Button variant={showCreateForm ? "outline" : "default"} className="gap-2" onClick={() => setShowCreateForm((v) => !v)}>
+            <Button variant={showCreateForm ? "outline" : "default"} className="gap-2 w-full sm:w-auto" onClick={() => setShowCreateForm((v) => !v)}>
               {showCreateForm ? (<><ArrowLeft className="w-4 h-4" /> Back to Pipelines</>) : (<><Plus className="w-4 h-4" /> Start New Pipeline</>)}
             </Button>
           )}
@@ -603,71 +601,79 @@ export default function QAPipeline() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Rocket className="w-8 h-8 text-blue-600" />
-            QA Deployment Pipeline
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Guided end-to-end workflow from requirements to production deployment.
-          </p>
-        </div>
+    <div className="container mx-auto p-4 sm:p-6 max-w-6xl space-y-4 sm:space-y-6">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
+          <Rocket className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
+          QA Deployment Pipeline
+        </h1>
+        <p className="text-sm sm:text-base text-muted-foreground mt-1.5 sm:mt-2">
+          Guided end-to-end workflow from requirements to production deployment.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* Stepper Sidebar */}
-        <Card className="md:col-span-1 h-fit">
-          <CardHeader>
-            <CardTitle className="text-lg">Pipeline Steps</CardTitle>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
+        {/* Stepper — a swipeable strip of compact pills on phones, the full
+            vertical list with descriptions from md up. */}
+        <Card className="md:col-span-1 h-fit min-w-0">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base sm:text-lg">Pipeline Steps</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {PIPELINE_STEPS.map((step) => {
-              const isActive = step.id === currentStep;
-              const isPast = step.id < currentStep;
-              return (
-                <div
-                  key={step.id}
-                  onClick={() => goToStep(step.id)}
-                  className={`flex items-start gap-3 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors ${isActive ? "bg-primary/10" : "opacity-70"}`}
-                >
-                  <div className="mt-0.5">
-                    {isPast ? (
-                      <CheckCircle2 className="w-5 h-5 text-green-500" />
-                    ) : isActive ? (
-                      <Circle className="w-5 h-5 fill-primary text-primary" />
-                    ) : (
-                      <Circle className="w-5 h-5 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div>
-                    <p className={`font-medium text-sm ${isActive ? "text-primary" : ""}`}>{step.id}. {step.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
-                  </div>
-                </div>
-              );
-            })}
+          <CardContent className="pb-4">
+            <div className="flex md:flex-col gap-2 md:gap-3 overflow-x-auto md:overflow-x-visible -mx-1 px-1 pb-2 md:pb-0 snap-x">
+              {PIPELINE_STEPS.map((step) => {
+                const isActive = step.id === currentStep;
+                const isPast = step.id < currentStep;
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    onClick={() => goToStep(step.id)}
+                    className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : "opacity-70"}`}
+                  >
+                    <div className="mt-0.5 shrink-0">
+                      {isPast ? (
+                        <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-green-500" />
+                      ) : isActive ? (
+                        <Circle className="w-4 h-4 md:w-5 md:h-5 fill-primary text-primary" />
+                      ) : (
+                        <Circle className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`font-medium text-xs md:text-sm ${isActive ? "text-primary" : ""}`}>
+                        {step.id}. {step.title}
+                      </p>
+                      <p className="hidden md:block text-xs text-muted-foreground mt-0.5">{step.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
 
         {/* Active Step Panel */}
-        <Card className="md:col-span-3 min-h-[500px] flex flex-col">
-          <CardHeader>
-            <CardTitle>Step {currentStep}: {PIPELINE_STEPS[currentStep - 1].title}</CardTitle>
+        <Card className="md:col-span-3 min-h-[500px] flex flex-col min-w-0">
+          <CardHeader className="p-4 sm:p-6 pb-3 sm:pb-4">
+            <CardTitle className="text-lg sm:text-xl">
+              Step {currentStep}: {PIPELINE_STEPS[currentStep - 1].title}
+            </CardTitle>
             <CardDescription>{PIPELINE_STEPS[currentStep - 1].desc}</CardDescription>
           </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto">
+          <CardContent className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 pt-0">
             {renderActiveStep()}
           </CardContent>
-          <div className="p-6 border-t flex justify-end gap-3 mt-auto">
+          {/* Primary action sits on top on phones (reverse order), inline right
+              on larger screens. */}
+          <div className="p-4 sm:p-6 border-t flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3 mt-auto">
             {currentStep > 1 && (
-              <Button variant="outline" onClick={() => goToStep(currentStep - 1)}>
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => goToStep(currentStep - 1)}>
                 Previous Step
               </Button>
             )}
             {currentStep < 8 && milestoneId && (
-              <Button onClick={() => goToStep(currentStep + 1)}>
+              <Button className="w-full sm:w-auto" onClick={() => goToStep(currentStep + 1)}>
                 Next Step <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}

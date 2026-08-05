@@ -579,6 +579,16 @@ const NAV_ITEMS: NavItem[] = [
     section: "Delivery Flow",
   },
   {
+    href: "/qa-pipeline",
+    label: "QA Pipeline",
+    icon: Rocket,
+    activeColor: "text-blue-600",
+    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
+    permKey: "nav:qa-pipeline",
+    section: "Delivery Flow",
+    isPipelineFlow: true,
+  },
+  {
     href: "/milestones",
     label: "Milestones",
     icon: ScrollText,
@@ -619,16 +629,6 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"],
     permKey: "nav:defects",
     section: "Delivery Flow",
-  },
-  {
-    href: "/qa-pipeline",
-    label: "QA Pipeline",
-    icon: Rocket,
-    activeColor: "text-blue-600",
-    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
-    permKey: "nav:qa-pipeline",
-    section: "Delivery Flow",
-    isPipelineFlow: true,
   },
   {
     href: "/tasks",

@@ -253,10 +253,10 @@ export function CompileToExecutionDialog({
               <p className="text-sm text-muted-foreground">
                 Compiling <strong>{count}</strong> test case{count !== 1 ? "s" : ""} into an execution file.
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   onClick={handleChooseExisting}
-                  className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all text-center"
+                  className="flex flex-col items-center gap-3 p-4 sm:p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all text-center"
                 >
                   <FolderOpen className="w-8 h-8 text-muted-foreground" />
                   <div>
@@ -266,7 +266,7 @@ export function CompileToExecutionDialog({
                 </button>
                 <button
                   onClick={() => setStep("new")}
-                  className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all text-center"
+                  className="flex flex-col items-center gap-3 p-4 sm:p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all text-center"
                 >
                   <Plus className="w-8 h-8 text-muted-foreground" />
                   <div>

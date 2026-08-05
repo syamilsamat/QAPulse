@@ -193,17 +193,15 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
     : 0;
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-8 text-left">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-xl font-semibold">Test Case Generation &amp; Coverage</h3>
-          <p className="text-muted-foreground mt-1">
-            Create test cases based on synced requirements, apply Risk-Based Testing (RBT) priority, then compile them for execution.
-          </p>
-        </div>
+    <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-left">
+      <div>
+        <h3 className="text-lg sm:text-xl font-semibold">Test Case Generation &amp; Coverage</h3>
+        <p className="text-sm sm:text-base text-muted-foreground mt-1">
+          Create test cases based on synced requirements, apply Risk-Based Testing (RBT) priority, then compile them for execution.
+        </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         {milestoneFiles.length === 0 ? (
           <Card>
             <CardContent className="pt-6 text-center">
@@ -253,36 +251,38 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
         </Card>
       </div>
 
-      <div className="flex gap-4">
+      {/* Grid rather than flex-1 side by side — these labels are long enough
+          to wrap into unreadable slivers on a phone. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Button
-          className="flex-1"
+          className="w-full"
           onClick={() => setLocation(`/test-cases?milestoneId=${milestoneId}&projectId=${projectId ?? ""}`)}
         >
-          <TestTube className="w-4 h-4 mr-2" />
+          <TestTube className="w-4 h-4 mr-2 shrink-0" />
           Manage Test Cases
         </Button>
         <Button
-          className="flex-1"
+          className="w-full"
           variant="secondary"
           onClick={handleRiskBasedTagging}
           disabled={tagging || testCases.length === 0}
         >
-          {tagging ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
+          {tagging ? <Loader2 className="w-4 h-4 mr-2 animate-spin shrink-0" /> : <Wand2 className="w-4 h-4 mr-2 shrink-0" />}
           Apply Risk-Based Priority (AI)
         </Button>
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
             <span><strong>{selectedIds.size}</strong> test case{selectedIds.size !== 1 ? "s" : ""} selected</span>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" onClick={() => setCompileOpen(true)}>
-              <PackagePlus className="w-3.5 h-3.5 mr-1" /> Compile for Execution
+          <div className="flex items-center gap-2 sm:ml-auto">
+            <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setCompileOpen(true)}>
+              <PackagePlus className="w-3.5 h-3.5 mr-1 shrink-0" /> Compile for Execution
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+            <Button size="sm" variant="ghost" className="shrink-0" onClick={() => setSelectedIds(new Set())}>
               <X className="w-3.5 h-3.5 mr-1" /> Clear
             </Button>
           </div>
@@ -297,36 +297,42 @@ export function Step3TestCases({ milestoneId, projectId }: { milestoneId: number
             <div className="p-8 text-center text-muted-foreground">No test cases found. Click "Manage Test Cases" to create some.</div>
           ) : (
             <>
-              <div className="p-3 border-b flex items-center gap-3 bg-muted/30">
+              <div className="p-3 border-b flex items-start gap-3 bg-muted/30">
                 <Checkbox
+                  className="mt-0.5 shrink-0"
                   checked={allSelected}
                   onCheckedChange={toggleSelectAll}
                   disabled={compilableTestCases.length === 0}
                 />
-                <span className="text-sm text-muted-foreground">
+                <span className="text-xs sm:text-sm text-muted-foreground">
                   {compilableTestCases.length === 0
                     ? `All ${sortedTestCases.length} test case(s) already compiled`
                     : `Select all not yet compiled (${compilableTestCases.length}) — ordered by risk priority`}
                 </span>
               </div>
-              <div className="divide-y max-h-64 overflow-auto">
+              {/* Badges drop below the title on phones (indented to line up
+                  past the checkbox) instead of squeezing it to "TC-…". */}
+              <div className="divide-y max-h-64 sm:max-h-72 overflow-y-auto overflow-x-hidden">
                 {sortedTestCases.map((tc: any) => {
                   const isCompiled = compiledIds.has(tc.id);
                   return (
                     <div
                       key={tc.id}
-                      className={`p-3 flex items-center justify-between gap-3 ${isCompiled ? "opacity-60" : "hover:bg-muted/50"}`}
+                      className={`p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 ${isCompiled ? "opacity-60" : "hover:bg-muted/50"}`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
                         <Checkbox
+                          className="mt-0.5 shrink-0"
                           checked={selectedIds.has(tc.id)}
                           onCheckedChange={() => toggleSelect(tc.id)}
                           disabled={isCompiled}
                         />
-                        <span className="text-sm text-muted-foreground shrink-0">TC-{tc.id}</span>
-                        <span className="font-medium truncate">{tc.title}</span>
+                        <div className="min-w-0">
+                          <span className="text-xs text-muted-foreground">TC-{tc.id}</span>
+                          <p className="font-medium text-sm sm:text-base break-words">{tc.title}</p>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 pl-7 sm:pl-0">
                         {isCompiled && (
                           <span className="text-xs px-2 py-1 rounded font-medium bg-green-100 text-green-700 inline-flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" /> Compiled

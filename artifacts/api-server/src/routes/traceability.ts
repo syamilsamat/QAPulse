@@ -117,6 +117,14 @@ const RESULT_FILL: Record<string, string> = {
   blocked: "FFEB9C",
   "in progress": "DDEBF7",
 };
+// Raw DB values are lowercase/snake_case ("normal", "in_review"); an RTM is an
+// audit artifact, so present them as labels.
+const titleCase = (v: unknown): string => {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  return s.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 const RESULT_FONT: Record<string, string> = {
   passed: "006100",
   failed: "9C0006",
@@ -173,7 +181,21 @@ router.get("/traceability/export", async (req, res): Promise<void> => {
       FROM requirements r
       LEFT JOIN projects p   ON p.id = r.project_id
       LEFT JOIN milestones m ON m.id = r.milestone_id
-      LEFT JOIN test_cases tc ON tc.requirement_id = r.id
+      -- Re-syncing the same Redmine ticket into another milestone creates a
+      -- second requirement row, while the test cases stay attached to the row
+      -- they were written against. Matching on r.id alone therefore reports
+      -- "no test case linked" for the newer milestone, so coverage is widened
+      -- across sibling rows sharing the ticket within the same project.
+      LEFT JOIN test_cases tc
+        ON tc.requirement_id = r.id
+        OR (
+          r.redmine_ticket_id IS NOT NULL
+          AND tc.requirement_id IN (
+            SELECT sib.id FROM requirements sib
+            WHERE sib.redmine_ticket_id = r.redmine_ticket_id
+              AND sib.project_id = r.project_id
+          )
+        )
       LEFT JOIN LATERAL (
         SELECT COALESCE(e.test_case_id, e.case_id) AS etc_case_id,
                e.result, e.defect_number, e.executed_at
@@ -248,13 +270,13 @@ router.get("/traceability/export", async (req, res): Promise<void> => {
         r.req_redmine_id ? `#${r.req_redmine_id}` : "",
         r.req_title ?? "",
         r.req_module ?? "",
-        r.req_priority ?? "",
-        r.req_review_status ?? "",
+        titleCase(r.req_priority),
+        titleCase(r.req_review_status),
         r.tc_case_id ?? "",
         r.tc_title ?? (hasTc ? "" : "⚠ No test case linked"),
-        r.tc_priority ?? "",
+        titleCase(r.tc_priority),
         r.etc_case_id ?? "",
-        resultRaw,
+        titleCase(resultRaw),
         r.defect_number ?? "",
         r.executed_at ? new Date(r.executed_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "",
       ];
@@ -394,6 +416,40 @@ router.get("/traceability", async (req, res): Promise<void> => {
     }
 
     const reqIds = Array.from(nodes.keys());
+
+    // Re-syncing a Redmine ticket into another milestone creates a second
+    // requirement row, but its test cases stay attached to the row they were
+    // written against — so looking them up by the in-scope row's id alone
+    // reports zero coverage. Widen the *lookup* (never the tree itself) to
+    // sibling rows sharing the ticket within the same project, and map every
+    // sibling id back to the node(s) it should credit. With no duplicate rows
+    // this resolves to exactly `reqIds`, leaving behaviour unchanged.
+    const nodesByLookupId = new Map<number, ReqNode[]>();
+    for (const [id, node] of nodes) nodesByLookupId.set(id, [node]);
+    if (reqIds.length > 0) {
+      const { rows: siblingRows } = await pool.query(
+        `
+        SELECT r.id AS req_id, sib.id AS sibling_id
+        FROM requirements r
+        JOIN requirements sib
+          ON sib.redmine_ticket_id = r.redmine_ticket_id
+         AND sib.project_id = r.project_id
+        WHERE r.id = ANY($1::int[])
+          AND r.redmine_ticket_id IS NOT NULL
+          AND sib.id <> r.id
+        `,
+        [reqIds]
+      );
+      for (const row of siblingRows) {
+        const node = nodes.get(row.req_id);
+        if (!node) continue;
+        const bucket = nodesByLookupId.get(row.sibling_id);
+        if (!bucket) nodesByLookupId.set(row.sibling_id, [node]);
+        else if (!bucket.includes(node)) bucket.push(node);
+      }
+    }
+    const lookupReqIds = Array.from(nodesByLookupId.keys());
+
     if (reqIds.length > 0) {
       // Library TCs linked to any requirement in the set, with their latest
       // execution result (if the TC was ever pulled into an execution file).
@@ -422,12 +478,10 @@ router.get("/traceability", async (req, res): Promise<void> => {
         WHERE tc.requirement_id = ANY($1)
         ORDER BY tc.id
         `,
-        [reqIds, milestoneIdNum]
+        [lookupReqIds, milestoneIdNum]
       );
 
       for (const row of libRows) {
-        const node = nodes.get(row.requirement_id);
-        if (!node) continue;
         const results: TcResult[] =
           row.result !== null || row.etc_case_id !== null || row.executed_at !== null || row.defect_number !== null
             ? [{
@@ -436,16 +490,18 @@ router.get("/traceability", async (req, res): Promise<void> => {
                 executedAt: row.executed_at ? new Date(row.executed_at).toISOString() : null,
               }]
             : [];
-        node.testCases.push({
-          key: `lib:${row.tc_id}`,
-          tcId: row.tc_id,
-          source: "library",
-          tcCaseId: row.tc_case_id,
-          etcCaseId: row.etc_case_id ?? null,
-          tcTitle: row.tc_title,
-          displayCaseId: row.etc_case_id ?? row.tc_case_id ?? `#${row.tc_id}`,
-          results,
-        });
+        for (const node of nodesByLookupId.get(row.requirement_id) ?? []) {
+          node.testCases.push({
+            key: `lib:${row.tc_id}`,
+            tcId: row.tc_id,
+            source: "library",
+            tcCaseId: row.tc_case_id,
+            etcCaseId: row.etc_case_id ?? null,
+            tcTitle: row.tc_title,
+            displayCaseId: row.etc_case_id ?? row.tc_case_id ?? `#${row.tc_id}`,
+            results,
+          });
+        }
       }
 
       // Execution-file rows linked directly to a requirement (same dedupe
@@ -466,37 +522,37 @@ router.get("/traceability", async (req, res): Promise<void> => {
           AND ($2::int IS NULL OR ef.milestone_id = $2::int)
         ORDER BY e.id
         `,
-        [reqIds, milestoneIdNum]
+        [lookupReqIds, milestoneIdNum]
       );
 
       for (const row of execRows) {
-        const node = nodes.get(row.requirement_id);
-        if (!node) continue;
         const key = row.library_tc_id != null ? `lib:${row.library_tc_id}` : `exec:${row.etc_id}`;
         const result: TcResult = {
           result: row.result,
           defectNumber: row.defect_number,
           executedAt: row.executed_at ? new Date(row.executed_at).toISOString() : null,
         };
-        const existing = node.testCases.find((t) => t.key === key);
-        if (existing) {
-          // Same TC seen again (library link or an earlier execution file):
-          // keep the newer execution result as the latest.
-          existing.results = [result];
-          existing.etcCaseId = row.etc_case_id ?? existing.etcCaseId;
-          existing.displayCaseId = existing.etcCaseId ?? existing.tcCaseId ?? existing.displayCaseId;
-          continue;
+        for (const node of nodesByLookupId.get(row.requirement_id) ?? []) {
+          const existing = node.testCases.find((t) => t.key === key);
+          if (existing) {
+            // Same TC seen again (library link or an earlier execution file):
+            // keep the newer execution result as the latest.
+            existing.results = [result];
+            existing.etcCaseId = row.etc_case_id ?? existing.etcCaseId;
+            existing.displayCaseId = existing.etcCaseId ?? existing.tcCaseId ?? existing.displayCaseId;
+            continue;
+          }
+          node.testCases.push({
+            key,
+            tcId: row.etc_id,
+            source: "execution",
+            tcCaseId: null,
+            etcCaseId: row.etc_case_id ?? null,
+            tcTitle: row.case_name ?? null,
+            displayCaseId: row.etc_case_id ?? `#${row.etc_id}`,
+            results: [result],
+          });
         }
-        node.testCases.push({
-          key,
-          tcId: row.etc_id,
-          source: "execution",
-          tcCaseId: null,
-          etcCaseId: row.etc_case_id ?? null,
-          tcTitle: row.case_name ?? null,
-          displayCaseId: row.etc_case_id ?? `#${row.etc_id}`,
-          results: [result],
-        });
       }
     }
 

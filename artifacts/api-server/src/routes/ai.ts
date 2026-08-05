@@ -171,21 +171,29 @@ async function runOpenRouterCascade(
 async function callFallbackAI(
   systemPrompt: string,
   userPrompt: string,
+  requireJson = true,
 ): Promise<string> {
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
   ];
-  return await runOpenRouterCascade(messages, true);
+  return await runOpenRouterCascade(messages, requireJson);
 }
 
 /**
  * Core AI Router Executor with Intelligent Failover Logic
+ *
+ * `expectJson` defaults to true because almost every task here parses the
+ * reply as JSON. Pass false for prose tasks (e.g. release notes): forcing JSON
+ * mode on a prompt that asks for Markdown makes the model refuse outright and
+ * return that refusal as a JSON string, which then gets rendered as the
+ * "document".
  */
 async function executeAiTask(
   systemPrompt: string,
   userPrompt: string,
   maxTokens = 8192,
+  expectJson = true,
 ): Promise<string> {
   try {
     console.log("ℹ️ Attempting primary pipeline execution via Gemini...");
@@ -195,7 +203,7 @@ async function executeAiTask(
       config: {
         systemInstruction: systemPrompt,
         maxOutputTokens: maxTokens,
-        responseMimeType: "application/json",
+        ...(expectJson ? { responseMimeType: "application/json" } : {}),
       },
     });
     return response.text ?? "";
@@ -217,7 +225,7 @@ async function executeAiTask(
       console.warn(
         `⚠️ Gemini pipeline choked (Status: ${error.status || "Unknown"}). Engaging OpenRouter cascade network...`,
       );
-      return await callFallbackAI(systemPrompt, userPrompt);
+      return await callFallbackAI(systemPrompt, userPrompt, expectJson);
     } else {
       console.error(
         "❌ Aborting task execution. Gemini encountered unrecoverable layout mutation:",
@@ -2003,6 +2011,39 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Returns publishable Markdown, or null when the model didn't actually produce
+// release notes. Two failure modes are worth catching before we render a PDF:
+// a reply wrapped as a JSON string literal (a leftover from JSON mode), and a
+// refusal / apology, which otherwise ends up typeset as the document itself.
+function normalizeReleaseNotesReply(raw: string): string | null {
+  let text = (raw ?? "").trim();
+  if (!text) return null;
+
+  // JSON-mode leftovers: `"# Release Notes…\n\n…"` or `{"content":"…"}`.
+  if (text.startsWith('"') || text.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === "string") text = parsed.trim();
+      else if (parsed && typeof parsed.content === "string") text = parsed.content.trim();
+      else if (parsed && typeof parsed.markdown === "string") text = parsed.markdown.trim();
+    } catch { /* not JSON — treat as plain text */ }
+  }
+
+  text = text.replace(/^```(?:markdown|md)?\s*/i, "").replace(/\s*```$/, "").trim();
+  if (!text) return null;
+
+  if (/^(i'?m sorry|i am sorry|i cannot|i can'?t|sorry,|as an ai\b|unfortunately, i)/i.test(text)) {
+    console.warn("[release-notes] model refused:", text.slice(0, 200));
+    return null;
+  }
+  // Every valid draft opens with the "# Release Notes — …" heading.
+  if (!/^#\s+/m.test(text)) {
+    console.warn("[release-notes] reply has no headings:", text.slice(0, 200));
+    return null;
+  }
+  return text;
+}
+
 // Minimal Markdown → HTML for the fixed structure the prompt above produces
 // (headings, bullets, bold, paragraphs). Deliberately not a full parser.
 function releaseNotesMarkdownToHtml(md: string): string {
@@ -2167,7 +2208,15 @@ Rules: professional and warm, never marketing hype. Never invent features, fixes
         : ["- (none recorded)"]),
     ].join("\n");
 
-    const markdown = await executeAiTask(systemPrompt, userPrompt, 3072);
+    // Prose task, not JSON — see executeAiTask's `expectJson`.
+    const raw = await executeAiTask(systemPrompt, userPrompt, 8192, false);
+    const markdown = normalizeReleaseNotesReply(raw);
+    if (!markdown) {
+      res.status(502).json({
+        error: "The AI returned an unusable release notes draft. Please try again.",
+      });
+      return;
+    }
 
     if (format === "pdf") {
       const pdf = await releaseNotesPdf(markdown, {

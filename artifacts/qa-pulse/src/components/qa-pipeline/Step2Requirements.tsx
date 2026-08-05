@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink,
+  Loader2, AlertTriangle, FileDown, Wand2, Search, XCircle, AlertCircle, ChevronDown, ChevronUp, Check, Ban, CheckCheck, ExternalLink, CheckCircle2, Database,
 } from "lucide-react";
 import {
   Dialog,
@@ -50,14 +50,14 @@ function SuggestionActions({
   if (status === "ignored") return <Badge variant="outline" className="text-muted-foreground shrink-0">Ignored</Badge>;
   if (status === "solved") return <Badge className="bg-blue-100 text-blue-700 border-blue-200 shrink-0">Solved</Badge>;
   return (
-    <div className="flex gap-1 shrink-0">
-      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1" disabled={busy} onClick={onAccept}>
+    <div className="flex flex-wrap gap-1 shrink-0">
+      <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" disabled={busy} onClick={onAccept}>
         {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Accept
       </Button>
-      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1" disabled={busy} onClick={onSolve}>
+      <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" disabled={busy} onClick={onSolve}>
         <CheckCheck className="w-3 h-3" /> Solved
       </Button>
-      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 text-muted-foreground" disabled={busy} onClick={onIgnore}>
+      <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground" disabled={busy} onClick={onIgnore}>
         <Ban className="w-3 h-3" /> Ignore
       </Button>
     </div>
@@ -106,15 +106,31 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
   const [suggestionStatuses, setSuggestionStatuses] = useState<Record<number, string>>({});
   const [suggestionBusyId, setSuggestionBusyId] = useState<number | null>(null);
 
-  // Check if milestone has data prep files (Enhancement 4: Environment Readiness Gate)
-  const { data: dataPrepFiles = [], isLoading: loadingFiles } = useQuery({
-    queryKey: ["data-prep-files", milestoneId],
+  // Environment Readiness Gate — has anyone prepared test data for this
+  // project yet?
+  //
+  // Data-prep files (CR070) are uploaded against milestones of type
+  // 'data_prep' — the upload UI only exists for that type — so they never hang
+  // off a pipeline milestone (cr/sprint/phase/release). This gate therefore
+  // scopes to the *project*, not to this milestone. `GET /milestones` already
+  // rolls up dataPrepFileCount per milestone, so no extra endpoint is needed.
+  const { data: projectMilestones = [], isLoading: loadingFiles } = useQuery<any[]>({
+    queryKey: ["milestones", "project", projectId],
     queryFn: async () => {
-      const res = await api(`/milestones/${milestoneId}/data-prep`, token);
+      const res = await api(`/milestones?projectId=${projectId}`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: !!milestoneId,
+    enabled: !!projectId,
   });
+
+  const dataPrepSources = useMemo(
+    () => (projectMilestones as any[]).filter((m) => (m.dataPrepFileCount ?? 0) > 0),
+    [projectMilestones],
+  );
+  const dataPrepFileCount = useMemo(
+    () => dataPrepSources.reduce((sum, m) => sum + (m.dataPrepFileCount ?? 0), 0),
+    [dataPrepSources],
+  );
 
   // Fetch requirements linked to this milestone
   const { data: requirements = [], isLoading: loadingReqs } = useQuery<any[]>({
@@ -371,68 +387,102 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
     }
   };
 
-  const hasDataPrep = dataPrepFiles.length > 0;
+  const hasDataPrep = dataPrepFileCount > 0;
   const newCount = syncSummary.filter((s) => s.isNew).length;
   const existingCount = syncSummary.length - newCount;
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-8 text-left">
-      {/* Environment Readiness Gate */}
-      <Card className={`border-l-4 ${hasDataPrep ? 'border-l-green-500' : 'border-l-amber-500'}`}>
-        <CardContent className="pt-6 flex gap-4">
-          <div className="mt-1">
-            {hasDataPrep ? (
-              <FileDown className="w-6 h-6 text-green-500" />
+    <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-left">
+      {/* Environment Readiness Gate — an advisory check that prepared test
+          data exists for this project before test cases get written. */}
+      <Card className={`border-l-4 ${loadingFiles ? "border-l-muted" : hasDataPrep ? "border-l-green-500" : "border-l-amber-500"}`}>
+        <CardContent className="p-4 sm:p-6 flex gap-3 sm:gap-4">
+          <div className="mt-0.5 shrink-0">
+            {loadingFiles ? (
+              <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground animate-spin" />
+            ) : hasDataPrep ? (
+              <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-green-500" />
             ) : (
-              <AlertTriangle className="w-6 h-6 text-amber-500" />
+              <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500" />
             )}
           </div>
-          <div>
-            <h3 className="font-medium text-lg">Environment Readiness Gate</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              {hasDataPrep
-                ? `Passed: ${dataPrepFiles.length} Data Prep file(s) found for this milestone.`
-                : "Warning: No Data Prep files found. Ensure your environment has the required test data before proceeding."}
-            </p>
+          <div className="min-w-0 space-y-1">
+            <h3 className="font-medium text-base sm:text-lg">Environment Readiness Gate</h3>
+            {loadingFiles ? (
+              <p className="text-sm text-muted-foreground">Checking this project for prepared test data…</p>
+            ) : hasDataPrep ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Ready — {dataPrepFileCount} data prep file{dataPrepFileCount !== 1 ? "s" : ""} on record for this project.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  From {dataPrepSources.map((m) => m.name).join(", ")}. Confirm the dataset is loaded into your test
+                  environment before executing.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  No prepared test data found for this project. You can still continue — this is a reminder, not a
+                  blocker — but confirm your environment has the data these test cases will need.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Test data is tracked as a <strong>Data Prep</strong> milestone on the Milestones page, where QA
+                  uploads the prepared dataset.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => setLocation("/milestones")}
+                >
+                  <Database className="w-3.5 h-3.5 mr-1.5" /> Open Milestones
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
 
       {/* Sync Requirements */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-medium">1. Pull Requirements from Redmine</h3>
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <Label className="sr-only">Parent Redmine ID</Label>
+      <div className="space-y-3 sm:space-y-4">
+        <h3 className="text-base sm:text-lg font-medium">1. Pull Requirements from Redmine</h3>
+        {/* Stacked on phones — side by side the button's intrinsic width
+            collapsed the input to nothing. */}
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+          <div className="flex-1 min-w-0">
+            <Label htmlFor="parentRedmineId" className="sr-only">Parent Redmine ID</Label>
             <Input
+              id="parentRedmineId"
+              inputMode="numeric"
               value={redmineId}
               onChange={e => setRedmineId(e.target.value)}
               placeholder="e.g. 12345 (Parent Epic/Feature ID)"
             />
           </div>
-          <Button onClick={handleSyncRequirements} disabled={syncing}>
+          <Button className="w-full sm:w-auto shrink-0" onClick={handleSyncRequirements} disabled={syncing}>
             {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
             Sync Requirements
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs sm:text-sm text-muted-foreground">
           This will fetch the parent ticket and all sub-tickets recursively, filtering out "Tasks" and "QA Defects".
         </p>
       </div>
 
       {/* Requirements List & Analysis */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="text-lg font-medium">2. Analyze Requirements</h3>
-          <Button onClick={handleAIAnalyze} disabled={analyzing || selectedIds.size === 0} variant="secondary">
+      <div className="space-y-3 sm:space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+          <h3 className="text-base sm:text-lg font-medium">2. Analyze Requirements</h3>
+          <Button className="w-full sm:w-auto shrink-0" onClick={handleAIAnalyze} disabled={analyzing || selectedIds.size === 0} variant="secondary">
             {analyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
             {analyzing ? `Analyzing ${analyzeProgress.current}/${analyzeProgress.total}…` : `Analyze Selected (${selectedIds.size})`}
           </Button>
         </div>
 
         {/* Smart search + sort */}
-        <div className="flex gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[220px]">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
             <Input
               className="pl-8"
@@ -442,7 +492,7 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
             />
           </div>
           <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "newest" | "oldest")}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-40 shrink-0"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="newest">Latest added</SelectItem>
               <SelectItem value="oldest">Oldest added</SelectItem>
@@ -472,29 +522,38 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                     const isExpanded = expandedIds.has(req.id);
                     return (
                       <div key={req.id}>
-                        <div className="p-3 flex items-center gap-3 hover:bg-muted/50">
-                          <Checkbox checked={selectedIds.has(req.id)} onCheckedChange={() => toggleSelect(req.id)} />
+                        {/* Title wraps rather than truncating — on a phone a
+                            truncated requirement title is unreadable. */}
+                        <div className="p-3 flex items-start gap-2.5 sm:gap-3 hover:bg-muted/50">
+                          <Checkbox
+                            className="mt-1 shrink-0"
+                            checked={selectedIds.has(req.id)}
+                            onCheckedChange={() => toggleSelect(req.id)}
+                          />
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">{req.title}</div>
-                            <div className="text-xs text-muted-foreground">Redmine #{req.redmineTicketId ?? "—"}</div>
+                            <div className="font-medium text-sm sm:text-base break-words">{req.title}</div>
+                            <div className="text-xs text-muted-foreground mt-0.5">Redmine #{req.redmineTicketId ?? "—"}</div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setLocation(`/requirements/${req.id}`)}
-                            title="Open Requirement Details"
-                            className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </button>
-                          {result && (
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              onClick={() => toggleExpanded(req.id)}
-                              className="flex items-center gap-1.5 text-xs font-medium text-green-600 bg-green-100 px-2 py-1 rounded shrink-0"
+                              onClick={() => setLocation(`/requirements/${req.id}`)}
+                              title="Open Requirement Details"
+                              className="p-2 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
                             >
-                              Analyzed {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              <ExternalLink className="w-4 h-4" />
                             </button>
-                          )}
+                            {result && (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpanded(req.id)}
+                                className="flex items-center gap-1 text-xs font-medium text-green-600 bg-green-100 px-2 py-1.5 rounded"
+                              >
+                                <span className="hidden sm:inline">Analyzed</span>
+                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
                         {result && isExpanded && (
                           <div className="px-3 pb-3 space-y-2 bg-muted/20">
@@ -518,8 +577,8 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                                   {result.missingItems.map((item: string, i: number) => {
                                     const sid = result.suggestionStatus?.missingItems?.[i]?.id;
                                     return (
-                                      <li key={i} className="flex items-start justify-between gap-2 text-xs">
-                                        <span className="flex items-start gap-1.5 flex-1">
+                                      <li key={i} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1.5 sm:gap-2 text-xs">
+                                        <span className="flex items-start gap-1.5 flex-1 min-w-0 break-words">
                                           <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" /> {item}
                                         </span>
                                         {sid && (
@@ -545,8 +604,8 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                                     const sid = result.suggestionStatus?.issues?.[i]?.id;
                                     const text = issue.suggestion ?? issue.description;
                                     return (
-                                      <li key={i} className="flex items-start justify-between gap-2 text-xs">
-                                        <span className="flex items-start gap-1.5 flex-1">
+                                      <li key={i} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1.5 sm:gap-2 text-xs">
+                                        <span className="flex items-start gap-1.5 flex-1 min-w-0 break-words">
                                           <AlertCircle className="w-3 h-3 text-orange-500 mt-0.5 shrink-0" /> {text}
                                         </span>
                                         {sid && (
@@ -571,8 +630,8 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                                   {result.questions.map((q: string, i: number) => {
                                     const sid = result.suggestionStatus?.questions?.[i]?.id;
                                     return (
-                                      <li key={i} className="flex items-start justify-between gap-2 text-xs">
-                                        <span className="flex items-start gap-1.5 flex-1">
+                                      <li key={i} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1.5 sm:gap-2 text-xs">
+                                        <span className="flex items-start gap-1.5 flex-1 min-w-0 break-words">
                                           <AlertTriangle className="w-3 h-3 text-yellow-500 mt-0.5 shrink-0" /> {q}
                                         </span>
                                         {sid && (
@@ -658,9 +717,9 @@ export function Step2Requirements({ milestoneId, projectId }: { milestoneId: num
                 </p>
                 <div className="divide-y border rounded-lg max-h-72 overflow-auto">
                   {syncSummary.map((s) => (
-                    <div key={s.id} className="p-2.5 flex items-center justify-between gap-2">
+                    <div key={s.id} className="p-2.5 flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">{s.title}</div>
+                        <div className="text-sm font-medium break-words">{s.title}</div>
                         <div className="text-xs text-muted-foreground">Redmine #{s.redmineTicketId}</div>
                       </div>
                       <Badge variant={s.isNew ? "default" : "outline"} className="shrink-0 text-[10px]">

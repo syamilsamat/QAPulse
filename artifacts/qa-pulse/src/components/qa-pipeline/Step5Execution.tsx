@@ -114,19 +114,20 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
     : assessment?.releaseRisk === "medium" ? "text-amber-500" : "text-green-500";
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 text-left">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-xl font-semibold">Test Execution</h3>
-          <p className="text-muted-foreground mt-1">
+    <div className="w-full max-w-4xl mx-auto space-y-6 sm:space-y-8 text-left">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl font-semibold">Test Execution</h3>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">
             Live progress from the Execution Dashboard, with AI risk analysis.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { refetchFiles(); refetchProgress(); }}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => { refetchFiles(); refetchProgress(); }}>
+            <RefreshCw className="w-4 h-4 mr-2 shrink-0" /> Refresh
           </Button>
           <Button
+            className="flex-1 sm:flex-none"
             onClick={() => setLocation(
               files.length === 1
                 ? `/test-cases/execution/${files[0].redmineTicketId}`
@@ -134,7 +135,7 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
             )}
             disabled={files.length === 0}
           >
-            <PlayCircle className="w-4 h-4 mr-2" />
+            <PlayCircle className="w-4 h-4 mr-2 shrink-0" />
             {files.length === 1 ? `Execute #${files[0].redmineTicketId}` : "Execution Dashboard"}
           </Button>
         </div>
@@ -164,18 +165,27 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
               <span>{progressPercent}%</span>
             </div>
             <Progress value={progressPercent} className="h-3" />
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span className="text-green-600">{totals.passed} Passed</span>
-              <span className="text-red-600">{totals.failed} Failed</span>
-              <span className="text-amber-600">{totals.blocked} Blocked</span>
-              <span>{totals.notExecuted} Not Executed</span>
-              <span>{totals.total} Total</span>
+            {/* Number-over-label cells: the old single inline row wrapped
+                mid-word ("0 Not / Executed") at phone widths. */}
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center">
+              {[
+                { value: totals.passed, label: "Passed", color: "text-green-600" },
+                { value: totals.failed, label: "Failed", color: "text-red-600" },
+                { value: totals.blocked, label: "Blocked", color: "text-amber-600" },
+                { value: totals.notExecuted, label: "Not Executed", color: "" },
+                { value: totals.total, label: "Total", color: "" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-md bg-muted/40 py-2 px-1">
+                  <div className={`text-base sm:text-lg font-semibold tabular-nums ${s.color}`}>{s.value}</div>
+                  <div className="text-[11px] sm:text-xs text-muted-foreground leading-tight">{s.label}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-violet-500" />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <Sparkles className="w-4 h-4 text-violet-500 shrink-0" />
               <p className="text-sm font-medium">AI Release Readiness</p>
               {assessment?.createdAt && (
                 <span className="text-xs text-muted-foreground">
@@ -183,7 +193,7 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
                 </span>
               )}
             </div>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleAssess} disabled={assessing}>
+            <Button size="sm" variant="outline" className="gap-1.5 w-full sm:w-auto shrink-0" onClick={handleAssess} disabled={assessing}>
               {assessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               {assessing ? "Assessing…" : assessment ? "Reassess" : "Assess with AI"}
             </Button>
@@ -207,32 +217,32 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
             </Card>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                 <Card className={assessment.releaseRisk === "critical" || assessment.releaseRisk === "high" ? "border-red-500" : ""}>
-                  <CardContent className="pt-6 flex gap-4">
-                    <div className="mt-1">
-                      <ShieldAlert className={`w-8 h-8 ${riskColor}`} />
+                  <CardContent className="p-4 sm:pt-6 flex gap-3 sm:gap-4">
+                    <div className="mt-0.5 shrink-0">
+                      <ShieldAlert className={`w-7 h-7 sm:w-8 sm:h-8 ${riskColor}`} />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-lg">Release Risk Score</h3>
-                      <span className={`text-xl font-bold ${riskColor}`}>{riskLabel} Risk</span>
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-base sm:text-lg">Release Risk Score</h3>
+                      <span className={`text-lg sm:text-xl font-bold ${riskColor}`}>{riskLabel} Risk</span>
                       {assessment.riskRationale && (
-                        <p className="text-sm text-muted-foreground mt-2">{assessment.riskRationale}</p>
+                        <p className="text-sm text-muted-foreground mt-2 break-words">{assessment.riskRationale}</p>
                       )}
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card>
-                  <CardContent className="pt-6 flex gap-4">
-                    <div className="mt-1">
-                      <TrendingUp className="w-8 h-8 text-blue-500" />
+                  <CardContent className="p-4 sm:pt-6 flex gap-3 sm:gap-4">
+                    <div className="mt-0.5 shrink-0">
+                      <TrendingUp className="w-7 h-7 sm:w-8 sm:h-8 text-blue-500" />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-lg">Defect Leakage Prediction</h3>
-                      <span className="text-xl font-bold text-blue-600">{assessment.leakageProbability}%</span>
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-base sm:text-lg">Defect Leakage Prediction</h3>
+                      <span className="text-lg sm:text-xl font-bold text-blue-600">{assessment.leakageProbability}%</span>
                       {assessment.leakageRationale && (
-                        <p className="text-sm text-muted-foreground mt-2">{assessment.leakageRationale}</p>
+                        <p className="text-sm text-muted-foreground mt-2 break-words">{assessment.leakageRationale}</p>
                       )}
                     </div>
                   </CardContent>
@@ -269,25 +279,25 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
 
           <Card>
             <CardContent className="p-0">
-              <div className="divide-y max-h-72 overflow-auto">
+              <div className="divide-y max-h-72 overflow-y-auto overflow-x-hidden">
                 {files.map((f: any) => {
                   const p = progressMap[f.redmineTicketId] ?? EMPTY;
                   const done = p.passed + p.failed + p.blocked + p.inProgress;
                   const pct = p.total > 0 ? Math.round((done / p.total) * 100) : 0;
                   return (
-                    <div key={f.id} className="p-3 flex items-center justify-between gap-3 hover:bg-muted/50">
-                      <div className="min-w-0 flex-1 flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div key={f.id} className="p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 hover:bg-muted/50">
+                      <div className="min-w-0 flex-1 flex items-start gap-2">
+                        <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                         <div className="min-w-0">
-                          <div className="font-medium truncate">{f.title || `Redmine #${f.redmineTicketId}`}</div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="font-medium text-sm sm:text-base break-words">{f.title || `Redmine #${f.redmineTicketId}`}</div>
+                          <div className="text-xs text-muted-foreground break-words">
                             #{f.redmineTicketId} · {p.passed} passed · {p.failed} failed · {p.total} total
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-3 shrink-0 pl-6 sm:pl-0">
                         <span className="text-sm font-medium tabular-nums">{pct}%</span>
-                        <Button size="sm" variant="outline" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
+                        <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
                           Execute
                         </Button>
                       </div>
