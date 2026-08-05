@@ -199,7 +199,6 @@ const tcGenResponseSchema: Schema = {
         type: Type.OBJECT,
         properties: {
           title: { type: Type.STRING },
-          redmineUserStory: { type: Type.STRING },
           tracker: { type: Type.STRING },
           scenario: { type: Type.STRING },
           preconditions: { type: Type.STRING },
@@ -227,6 +226,9 @@ async function generateForRequirement(
     useTemplateOnly?: boolean;
   },
 ): Promise<{ testCases: any[]; error?: string }> {
+  const [reqRow] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, req.id));
+  const actualRedmineTicketId = reqRow?.redmineTicketId ?? null;
+
   let existingContext = "";
   try {
     const existingCases = await db.select().from(testCasesTable).where(eq(testCasesTable.requirementId, req.id)).limit(30);
@@ -272,6 +274,10 @@ async function generateForRequirement(
   const testCases = (parsed.testCases ?? []).map((tc: any) => {
     if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
     else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
+    // The AI has no way to know the real Redmine ticket — it was only ever
+    // given this requirement's internal DB id, and would otherwise invent a
+    // number. Always use the requirement's actual redmineTicketId instead.
+    tc.redmineUserStory = actualRedmineTicketId;
     return tc;
   });
   return { testCases };

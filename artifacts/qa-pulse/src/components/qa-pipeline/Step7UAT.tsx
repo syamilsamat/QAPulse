@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -23,6 +24,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 export function Step7UAT({ milestoneId }: { milestoneId: number }) {
   const { token } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const [gherkinInput, setGherkinInput] = useState("");
   const [generatingBDD, setGeneratingBDD] = useState(false);
@@ -85,7 +87,7 @@ export function Step7UAT({ milestoneId }: { milestoneId: number }) {
                 ? `${uatFiles.length} UAT file(s) uploaded.`
                 : "No UAT files uploaded yet."}
             </div>
-            <Button variant="outline" className="w-full" onClick={() => window.open(`/uat-signoffs?milestoneId=${milestoneId}`, '_blank')}>
+            <Button variant="outline" className="w-full" onClick={() => setLocation(`/uat-signoffs?milestoneId=${milestoneId}`)}>
               Manage UAT Documents
             </Button>
           </CardContent>

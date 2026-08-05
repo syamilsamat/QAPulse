@@ -1,3 +1,4 @@
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -19,6 +20,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 
 export function Step5Execution({ milestoneId }: { milestoneId: number }) {
   const { token } = useAuth();
+  const [, setLocation] = useLocation();
 
   // Fetch execution test cases
   const { data: testCases = [], isLoading } = useQuery({
@@ -52,7 +54,7 @@ export function Step5Execution({ milestoneId }: { milestoneId: number }) {
             Execute the approved test cases and monitor real-time AI risk analysis.
           </p>
         </div>
-        <Button onClick={() => window.open(`/test-cases-execution?milestoneId=${milestoneId}`, '_blank')}>
+        <Button onClick={() => setLocation(`/test-cases-execution?milestoneId=${milestoneId}`)}>
           <PlayCircle className="w-4 h-4 mr-2" />
           Execution Dashboard
         </Button>

@@ -1,3 +1,4 @@
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -18,6 +19,7 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 
 export function Step4Approval({ milestoneId }: { milestoneId: number }) {
   const { token, user } = useAuth();
+  const [, setLocation] = useLocation();
 
   // Note: the backend `/milestones` API in QAPulse typically returns stats about execution files/test cases.
   // For this step, we would fetch the test cases and check their reviewStatus.
@@ -92,9 +94,9 @@ export function Step4Approval({ milestoneId }: { milestoneId: number }) {
           Approvals are managed in the Execution Dashboard.
           {canApprove && " You have permission to approve test cases."}
         </p>
-        <Button 
-          variant="secondary" 
-          onClick={() => window.open(`/test-cases-execution?milestoneId=${milestoneId}`, '_blank')}
+        <Button
+          variant="secondary"
+          onClick={() => setLocation(`/test-cases-execution?milestoneId=${milestoneId}`)}
         >
           <List className="w-4 h-4 mr-2" />
           Open Execution Dashboard

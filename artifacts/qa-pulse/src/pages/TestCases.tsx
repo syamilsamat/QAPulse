@@ -1507,9 +1507,9 @@ export default function TestCases() {
             <TableCell className={cellPy}>
               {tc.tags ? (
                 <div className="flex flex-wrap gap-1">
-                  {tc.tags.split(",").slice(0, 2).map((tag: string) => (
+                  {tc.tags.split(",").map((tag: string) => tag.trim()).filter(Boolean).map((tag: string) => (
                     <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap">
-                      {tag.trim()}
+                      {tag}
                     </span>
                   ))}
                 </div>
