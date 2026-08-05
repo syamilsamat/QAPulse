@@ -27,7 +27,7 @@ router.get("/pipeline-settings", async (req, res) => {
 router.put("/pipeline-settings", async (req, res) => {
   try {
     const auth = getAuthContext(req);
-    if (!auth || auth.user.role !== "admin") {
+    if (!auth || auth.role !== "admin") {
       return res.status(403).json({ error: "Only admins can update pipeline settings" });
     }
 
@@ -42,7 +42,7 @@ router.put("/pipeline-settings", async (req, res) => {
         .update(pipelineSettingsTable)
         .set({ 
           qaFlowEnabled: Boolean(qaFlowEnabled),
-          updatedBy: auth.user.id,
+          updatedBy: auth.userId,
           updatedAt: new Date()
         })
         .where(eq(pipelineSettingsTable.id, existing.id))
@@ -52,7 +52,7 @@ router.put("/pipeline-settings", async (req, res) => {
         .insert(pipelineSettingsTable)
         .values({
           qaFlowEnabled: Boolean(qaFlowEnabled),
-          updatedBy: auth.user.id,
+          updatedBy: auth.userId,
         })
         .returning();
     }
