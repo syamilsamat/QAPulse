@@ -503,11 +503,11 @@ export default function Milestones() {
 
       {/* Create/Edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-md w-[calc(100%-1.5rem)] sm:w-full max-h-[90dvh] flex flex-col p-0 gap-0">
+          <DialogHeader className="shrink-0 border-b px-4 sm:px-6 py-4 pr-12 text-left">
             <DialogTitle>{editing ? "Edit Milestone" : "New Milestone"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 px-4 sm:px-6 py-4">
             <div className="space-y-1.5">
               <Label>Name <span className="text-destructive">*</span></Label>
               <Input
@@ -516,7 +516,7 @@ export default function Milestones() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Type</Label>
                 <Select value={form.type} onValueChange={handleTypeChange}>
@@ -536,7 +536,7 @@ export default function Milestones() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Priority</Label>
                 <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
@@ -577,7 +577,7 @@ export default function Milestones() {
             {form.type !== "data_prep" && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs">Start</Label>
                     <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
@@ -614,7 +614,7 @@ export default function Milestones() {
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   rows={6}
-                  className="font-mono text-xs"
+                  className="font-mono text-xs resize-y"
                 />
               </div>
             )}
@@ -687,10 +687,10 @@ export default function Milestones() {
             )}
             {form.status === "completed" && (
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label>Lessons Learned</Label>
                   <Select value={form.lessonsLearnedType} onValueChange={(v) => setForm({ ...form, lessonsLearnedType: v })}>
-                    <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
+                    <SelectTrigger className="h-8 w-full sm:w-44 text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Not classified</SelectItem>
                       {LESSON_TYPE_OPTIONS.map((o) => (
@@ -704,13 +704,14 @@ export default function Milestones() {
                   value={form.lessonsLearned}
                   onChange={(e) => setForm({ ...form, lessonsLearned: e.target.value })}
                   rows={4}
+                  className="resize-y"
                 />
               </div>
             )}
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>
+          <DialogFooter className="shrink-0 gap-2 border-t bg-background px-4 sm:px-6 py-4">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button className="w-full sm:w-auto" onClick={handleSave} disabled={saving}>
               {saving ? "Saving…" : editing ? "Save Changes" : "Create"}
             </Button>
           </DialogFooter>
@@ -719,8 +720,8 @@ export default function Milestones() {
 
       {/* Delete confirm */}
       <Dialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
+        <DialogContent className="max-w-sm w-[calc(100%-1.5rem)] sm:w-full">
+          <DialogHeader className="pr-8 text-left">
             <DialogTitle className="text-destructive flex items-center gap-2">
               <Trash2 className="w-4 h-4" /> Delete Milestone?
             </DialogTitle>
@@ -729,8 +730,8 @@ export default function Milestones() {
             This will permanently delete this milestone. Requirements and execution files linked to it will stay in the system, but will no longer show which milestone they belonged to.
           </p>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteId && handleDelete(deleteId)}>Delete</Button>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" className="w-full sm:w-auto" onClick={() => deleteId && handleDelete(deleteId)}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
