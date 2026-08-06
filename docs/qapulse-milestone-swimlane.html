@@ -1,4 +1,4 @@
-<title>QAPulse — QA Deployment Pipeline Swimlane</title>
+<title>QAPulse — Two Delivery Pipelines</title>
 <style>
   :root{
     --bg:#F5F6F8;
@@ -9,7 +9,10 @@
     --border:#DCE1E8;
     --border-soft:#E9ECF1;
 
-    --rail-qa:#2F5FA8;    --tint-qa:#EAF1FC;
+    --rail-pmo:#2F5FA8;   --tint-pmo:#EAF1FC;
+    --rail-fa:#6E4FC9;    --tint-fa:#F1ECFC;
+    --rail-dev:#B5651D;   --tint-dev:#FBF0E4;
+    --rail-qa:#137A63;    --tint-qa:#E7F6F1;
     --rail-ai:#0E7A8C;    --tint-ai:#E4F6F9;
     --rail-lead:#B5651D;  --tint-lead:#FBF0E4;
     --rail-gate:#B23A48;  --tint-gate:#FBEBEC;
@@ -18,6 +21,9 @@
     --edge-warn:#C1435A;
     --edge-ok:#178571;
     --edge-retry:#B9862B;
+
+    --accentA:#2F5FA8;
+    --accentB:#137A63;
 
     --shadow: 0 1px 2px rgba(20,26,36,.04), 0 6px 16px -8px rgba(20,26,36,.10);
   }
@@ -32,15 +38,21 @@
       --border:#26303D;
       --border-soft:#1C2530;
 
-      --rail-qa:#6C9BEA;   --tint-qa:#152234;
-      --rail-ai:#5FD3E8;   --tint-ai:#0F323C;
-      --rail-lead:#E3A15C; --tint-lead:#2B2013;
-      --rail-gate:#E58A97; --tint-gate:#2C1A1D;
+      --rail-pmo:#6C9BEA;   --tint-pmo:#152234;
+      --rail-fa:#B79CF0;    --tint-fa:#211C34;
+      --rail-dev:#E3A15C;   --tint-dev:#2B2013;
+      --rail-qa:#4FC79F;    --tint-qa:#122822;
+      --rail-ai:#5FD3E8;    --tint-ai:#0F323C;
+      --rail-lead:#E3A15C;  --tint-lead:#2B2013;
+      --rail-gate:#E58A97;  --tint-gate:#2C1A1D;
 
       --edge-flow:#5B6675;
       --edge-warn:#E58A97;
       --edge-ok:#4FC79F;
       --edge-retry:#E3C15C;
+
+      --accentA:#6C9BEA;
+      --accentB:#4FC79F;
 
       --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.55);
     }
@@ -48,21 +60,29 @@
   :root[data-theme="dark"]{
     --bg:#0D1218; --canvas-bg:#131A22; --ink:#E8ECF1; --muted:#93A0B0; --faint:#66707F;
     --border:#26303D; --border-soft:#1C2530;
-    --rail-qa:#6C9BEA; --tint-qa:#152234;
+    --rail-pmo:#6C9BEA; --tint-pmo:#152234;
+    --rail-fa:#B79CF0; --tint-fa:#211C34;
+    --rail-dev:#E3A15C; --tint-dev:#2B2013;
+    --rail-qa:#4FC79F; --tint-qa:#122822;
     --rail-ai:#5FD3E8; --tint-ai:#0F323C;
     --rail-lead:#E3A15C; --tint-lead:#2B2013;
     --rail-gate:#E58A97; --tint-gate:#2C1A1D;
     --edge-flow:#5B6675; --edge-warn:#E58A97; --edge-ok:#4FC79F; --edge-retry:#E3C15C;
+    --accentA:#6C9BEA; --accentB:#4FC79F;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.55);
   }
   :root[data-theme="light"]{
     --bg:#F5F6F8; --canvas-bg:#FFFFFF; --ink:#1B222C; --muted:#5B6472; --faint:#8A93A0;
     --border:#DCE1E8; --border-soft:#E9ECF1;
-    --rail-qa:#2F5FA8; --tint-qa:#EAF1FC;
+    --rail-pmo:#2F5FA8; --tint-pmo:#EAF1FC;
+    --rail-fa:#6E4FC9; --tint-fa:#F1ECFC;
+    --rail-dev:#B5651D; --tint-dev:#FBF0E4;
+    --rail-qa:#137A63; --tint-qa:#E7F6F1;
     --rail-ai:#0E7A8C; --tint-ai:#E4F6F9;
     --rail-lead:#B5651D; --tint-lead:#FBF0E4;
     --rail-gate:#B23A48; --tint-gate:#FBEBEC;
     --edge-flow:#8792A2; --edge-warn:#C1435A; --edge-ok:#178571; --edge-retry:#B9862B;
+    --accentA:#2F5FA8; --accentB:#137A63;
     --shadow: 0 1px 2px rgba(20,26,36,.04), 0 6px 16px -8px rgba(20,26,36,.10);
   }
 
@@ -72,59 +92,117 @@
     background:var(--bg);
     color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-    padding:28px 20px 48px;
+    padding:28px 20px 56px;
     -webkit-font-smoothing:antialiased;
   }
 
-  .wrap{max-width:1480px;margin:0 auto;}
+  .wrap{max-width:1520px;margin:0 auto;}
 
   header.page{
-    display:flex;
-    flex-wrap:wrap;
-    align-items:flex-end;
-    justify-content:space-between;
-    gap:18px;
-    margin-bottom:20px;
-    padding-bottom:18px;
+    margin-bottom:22px;
+    padding-bottom:20px;
     border-bottom:1px solid var(--border);
   }
-  .titleblock .eyebrow{
+  .eyebrow{
     font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
     font-size:11px;
     letter-spacing:.11em;
     text-transform:uppercase;
-    color:var(--rail-ai);
+    color:var(--muted);
     font-weight:600;
     margin:0 0 6px;
   }
   h1{
-    font-size:26px;
+    font-size:27px;
     line-height:1.15;
     letter-spacing:-.01em;
     font-weight:800;
-    margin:0 0 6px;
+    margin:0 0 10px;
     text-wrap:balance;
   }
-  .titleblock p{
+  header.page > p{
     margin:0;
     color:var(--muted);
-    font-size:14px;
-    max-width:64ch;
+    font-size:14.5px;
+    max-width:76ch;
+    line-height:1.55;
   }
-  .meta{
-    font-size:12px;
+
+  /* Comparison strip */
+  .compare{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:14px;
+    margin:20px 0 8px;
+  }
+  @media (max-width: 720px){ .compare{grid-template-columns:1fr;} }
+  .compare .card{
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--canvas-bg);
+    padding:16px 18px;
+    box-shadow:var(--shadow);
+    position:relative;
+    overflow:hidden;
+  }
+  .compare .card::before{
+    content:"";
+    position:absolute;left:0;top:0;bottom:0;width:4px;
+  }
+  .compare .card.a::before{background:var(--accentA);}
+  .compare .card.b::before{background:var(--accentB);}
+  .compare .card h2{
+    font-size:15px;
+    margin:0 0 4px;
+    font-weight:800;
+  }
+  .compare .card .flag{
+    font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
+    font-size:10.5px;
     color:var(--faint);
-    text-align:right;
-    line-height:1.6;
+    margin:0 0 10px;
   }
-  .meta strong{color:var(--muted);font-weight:600;}
+  .compare .card p{
+    margin:0 0 8px;
+    font-size:13px;
+    line-height:1.55;
+    color:var(--muted);
+  }
+  .compare .card ul{
+    margin:0;
+    padding-left:18px;
+    font-size:12.5px;
+    line-height:1.65;
+    color:var(--muted);
+  }
+  .compare .card strong{color:var(--ink);}
+
+  /* Section headers between the two boards */
+  section.diagram{margin-top:34px;}
+  section.diagram .stitle{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin-bottom:12px;
+  }
+  section.diagram .stitle h2{
+    font-size:18px;
+    margin:0;
+    font-weight:800;
+    letter-spacing:-.005em;
+  }
+  section.diagram .stitle .tag{
+    font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
+    font-size:11px;
+    color:var(--faint);
+  }
 
   .legend{
     display:flex;
     flex-wrap:wrap;
     gap:10px 22px;
     align-items:center;
-    margin-bottom:18px;
+    margin-bottom:14px;
     font-size:12px;
     color:var(--muted);
   }
@@ -155,11 +233,11 @@
   }
   .grid{
     display:grid;
-    grid-template-columns: 168px repeat(17, 196px);
-    grid-template-rows: repeat(3, minmax(126px,auto)) 40px 40px;
     position:relative;
     z-index:2;
   }
+  .gridA{ grid-template-columns: 168px repeat(10, 200px); grid-template-rows: repeat(4, minmax(120px,auto)) 38px; }
+  .gridB{ grid-template-columns: 168px repeat(17, 196px); grid-template-rows: repeat(3, minmax(126px,auto)) 38px 38px; }
 
   .lane-label{
     position:sticky;
@@ -193,6 +271,9 @@
     font-weight:500;
     margin-top:2px;
   }
+  .lane-label.pmo{--rail:var(--rail-pmo);}
+  .lane-label.fa{--rail:var(--rail-fa);}
+  .lane-label.dev{--rail:var(--rail-dev);}
   .lane-label.qa{--rail:var(--rail-qa);}
   .lane-label.ai{--rail:var(--rail-ai);}
   .lane-label.lead{--rail:var(--rail-lead);}
@@ -226,7 +307,7 @@
   }
   .ribbon-bar .fill{
     position:absolute;
-    inset:8px 10px;
+    inset:6px 10px;
     border-radius:8px;
     background:repeating-linear-gradient(90deg, var(--tint) 0 26px, transparent 26px 30px);
     opacity:.9;
@@ -234,19 +315,19 @@
   .ribbon-bar .cap{
     position:relative;
     margin-left:14px;
-    font-size:11.5px;
+    font-size:11px;
     color:var(--muted);
     font-style:italic;
     white-space:nowrap;
   }
-  .ribbon-bar.nav .fill{--tint:var(--tint-qa);}
-  .ribbon-bar.owners .fill{--tint:var(--tint-lead);}
+  .ribbon-bar.t1 .fill{--tint:var(--tint-gate);}
+  .ribbon-bar.t2 .fill{--tint:var(--tint-pmo);}
 
   .node{
     position:relative;
     z-index:3;
-    margin:14px 12px;
-    padding:12px 13px 11px;
+    margin:12px 12px;
+    padding:11px 12px 10px;
     border-radius:11px;
     border:1px solid var(--border);
     background:var(--canvas-bg);
@@ -262,6 +343,9 @@
     border-radius:11px 0 0 11px;
     background:var(--rail);
   }
+  .node[data-lane="pmo"]{--rail:var(--rail-pmo);}
+  .node[data-lane="fa"]{--rail:var(--rail-fa);}
+  .node[data-lane="dev"]{--rail:var(--rail-dev);}
   .node[data-lane="qa"]{--rail:var(--rail-qa);}
   .node[data-lane="ai"]{--rail:var(--rail-ai);}
   .node[data-lane="lead"]{--rail:var(--rail-lead);}
@@ -299,13 +383,16 @@
     margin-right:5px;
   }
   .chip.status{background:var(--tint);color:var(--rail);}
+  .node[data-lane="pmo"] .chip.status{--tint:var(--tint-pmo);}
+  .node[data-lane="fa"] .chip.status{--tint:var(--tint-fa);}
+  .node[data-lane="dev"] .chip.status{--tint:var(--tint-dev);}
   .node[data-lane="qa"] .chip.status{--tint:var(--tint-qa);}
   .node[data-lane="ai"] .chip.status{--tint:var(--tint-ai);}
   .node[data-lane="lead"] .chip.status{--tint:var(--tint-lead);}
 
   .node.gate{
-    width:172px;
-    height:172px;
+    width:160px;
+    height:160px;
     margin:auto 12px;
     display:flex;
     align-items:center;
@@ -317,10 +404,7 @@
     border-color:transparent;
   }
   .node.gate::before{display:none;}
-  .node.gate .inner{
-    max-width:122px;
-    text-align:center;
-  }
+  .node.gate .inner{max-width:114px;text-align:center;}
   .node.gate .step{color:var(--rail-gate);}
   .node.gate h3{font-size:12px;color:var(--rail-gate);margin:2px 0 3px;line-height:1.25;}
   .node.gate p{font-size:10px;margin:0;color:var(--muted);}
@@ -340,10 +424,12 @@
   .elabel-bg{fill:var(--canvas-bg);opacity:.94;}
 
   footer.note{
-    margin-top:16px;
+    margin-top:26px;
     font-size:11.5px;
     color:var(--faint);
     line-height:1.6;
+    border-top:1px solid var(--border);
+    padding-top:16px;
   }
   footer.note code{
     font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
@@ -355,188 +441,279 @@
 
 <div class="wrap">
   <header class="page">
-    <div class="titleblock">
-      <p class="eyebrow">QAPulse · QA Deployment Pipeline</p>
-      <h1>Pipeline Swimlane — Milestone to Deployed</h1>
-      <p>The 8-step guided pipeline QA runs end-to-end for one milestone: sync requirements, build and approve test cases, execute, sign off, and deploy. Any step is reachable directly — this isn't a strict waterfall.</p>
-    </div>
-    <div class="meta">
-      <div><strong>Source:</strong> <code>QAPipeline.tsx</code> + <code>Step1</code>–<code>Step8</code></div>
-      <div><strong>Access:</strong> qa_member · qa_lead/qa_manager/hod_qa · admin/cto</div>
-    </div>
+    <p class="eyebrow">QAPulse · Delivery Flows</p>
+    <h1>Two Delivery Pipelines, Not One</h1>
+    <p>Every milestone runs through exactly one of two independent flows, decided by a single flag — <code style="font-family:ui-monospace,monospace;background:var(--border-soft);padding:1px 5px;border-radius:4px;">pipelineEnabled</code>. They share the same underlying tables (requirements, execution files, defects) but different owners, gates, and UI.</p>
   </header>
 
-  <div class="legend">
-    <div class="group">
-      <span class="swatch"><i style="background:var(--rail-qa)"></i>QA (pipeline operator)</span>
-      <span class="swatch"><i style="background:var(--rail-lead)"></i>QA Lead / Manager / HOD (approval authority)</span>
-      <span class="swatch"><i style="background:var(--rail-ai)"></i>AI assist</span>
-      <span class="swatch"><i style="background:var(--rail-gate)"></i>Deploy gate</span>
+  <div class="compare">
+    <div class="card a">
+      <h2>Classic Delivery Flow</h2>
+      <p class="flag">pipelineEnabled: false · Requirements / Tasks / Execution Dashboard / Milestones pages</p>
+      <p>The original multi‑department process. An FA authors and a peer FA approves each requirement before a Dev Lead can even assign it — segregation of duties enforced server‑side.</p>
+      <ul>
+        <li><strong>Owned by:</strong> Lead‑tier across departments (<code>canWrite</code>: admin, qa_lead, fa_lead, hod_qa, hod_fa, hod_pm, pm_lead, pm_member, cto)</li>
+        <li><strong>Requirements:</strong> hand‑authored, peer‑reviewed, segregation of duties</li>
+        <li><strong>Closure:</strong> a Lead manually sets status to Completed</li>
+      </ul>
     </div>
-    <div class="group">
-      <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-flow)" stroke-width="2"/></svg> hand‑off</span>
-      <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-ok)" stroke-width="2"/></svg> approved / proceed</span>
-      <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-warn)" stroke-width="2" stroke-dasharray="4 3"/></svg> rejected / revise</span>
+    <div class="card b">
+      <h2>QA Pipeline</h2>
+      <p class="flag">pipelineEnabled: true · /qa-pipeline guided 8‑step wizard</p>
+      <p>A single QA‑owned wizard. Requirements are synced straight from Redmine — no FA authoring or peer review step — and closure is gated by a live, re‑checked readiness checklist instead of a manual toggle.</p>
+      <ul>
+        <li><strong>Owned by:</strong> QA department (qa_member, qa_lead, qa_manager, hod_qa, admin, cto)</li>
+        <li><strong>Requirements:</strong> synced from Redmine, AI‑analyzed, no peer FA review</li>
+        <li><strong>Closure:</strong> 7 gates re‑checked live; "Mark as DEPLOYED" is disabled until all pass</li>
+      </ul>
     </div>
   </div>
 
-  <div class="board">
-    <div class="canvas" id="canvas">
-      <div class="grid" id="grid">
-
-        <div class="lane-row-bg" style="grid-row:1;"></div>
-        <div class="lane-row-bg" style="grid-row:2;"></div>
-        <div class="lane-row-bg" style="grid-row:3;"></div>
-
-        <div class="lane-label qa" style="grid-row:1;"><span><span class="lt">QA</span><span class="ls">Runs the pipeline steps</span></span></div>
-        <div class="lane-label ai" style="grid-row:2;"><span><span class="lt">AI Assist</span><span class="ls">Analysis, scoring &amp; drafting</span></span></div>
-        <div class="lane-label lead" style="grid-row:3;"><span><span class="lt">Approval Authority</span><span class="ls">QA Lead / Manager / HOD</span></span></div>
-
-        <div class="ribbon-label" style="grid-row:4;">Navigation</div>
-        <div class="ribbon-label" style="grid-row:5;">Owner tags</div>
-        <div class="ribbon-bar nav" style="grid-row:4;"><div class="fill"></div><span class="cap">free‑roam: every step is reachable directly from the sidebar — steps 1‑8 lock read‑only once the milestone is DEPLOYED</span></div>
-        <div class="ribbon-bar owners" style="grid-row:5;"><div class="fill"></div><span class="cap">per‑requirement FA · Dev · QA owners (set in Step 2) surface as Assignees on the Tasks board — informational, not a gate</span></div>
-
-        <!-- Nodes -->
-        <div class="node" id="n1" data-lane="qa" style="grid-column:2;grid-row:1;">
-          <span class="step">STEP 1</span><h3>Create Milestone</h3>
-          <p>Type, phase target dates, environment ENV1–ENV6, "Requires UAT?" toggle.</p>
-          <span class="chip status">planned</span>
-        </div>
-
-        <div class="node" id="n2" data-lane="qa" style="grid-column:3;grid-row:1;">
-          <span class="step">STEP 2</span><h3>Sync Requirements</h3>
-          <p>Pulls a Redmine ticket and its sub‑tickets recursively into linked requirements.</p>
-        </div>
-
-        <div class="node" id="n3" data-lane="ai" style="grid-column:4;grid-row:2;">
-          <span class="step">STEP 2</span><h3>AI Analyze</h3>
-          <p>Quality score, risk level, missing items — gated behind a PII confirmation.</p>
-        </div>
-
-        <div class="node" id="n4" data-lane="qa" style="grid-column:5;grid-row:1;">
-          <span class="step">STEP 2</span><h3>Assign Owners</h3>
-          <p>Tag FA / Dev / QA owners per requirement for the Tasks board.</p>
-        </div>
-
-        <div class="node" id="n5" data-lane="qa" style="grid-column:6;grid-row:1;">
-          <span class="step">STEP 3</span><h3>Draft Test Cases</h3>
-          <p>Write test cases against the synced, AI‑analyzed requirements.</p>
-        </div>
-
-        <div class="node" id="n6" data-lane="ai" style="grid-column:7;grid-row:2;">
-          <span class="step">STEP 3</span><h3>Risk‑Based Priority</h3>
-          <p>AI reorders test cases highest‑risk‑first before compilation.</p>
-        </div>
-
-        <div class="node" id="n7" data-lane="qa" style="grid-column:8;grid-row:1;">
-          <span class="step">STEP 3</span><h3>Compile &amp; Submit</h3>
-          <p>Compile selected TCs into an execution file, submit for review.</p>
-          <span class="chip status">in_review</span>
-        </div>
-
-        <div class="node" id="n8" data-lane="lead" style="grid-column:9;grid-row:3;">
-          <span class="step">STEP 4</span><h3>Approve Execution File</h3>
-          <p>Any QA reviewer except the submitter — segregation of duties is enforced.</p>
-          <span class="chip status">approved</span>
-        </div>
-
-        <div class="node" id="n9" data-lane="qa" style="grid-column:10;grid-row:1;">
-          <span class="step">STEP 5</span><h3>Execute &amp; Log Defects</h3>
-          <p>Run on the Execution Dashboard: Passed / Failed / Blocked, defects raised.</p>
-        </div>
-
-        <div class="node" id="n10" data-lane="ai" style="grid-column:11;grid-row:2;">
-          <span class="step">STEP 5</span><h3>Release‑Risk Assessment</h3>
-          <p>AI reads the real results and predicts release risk &amp; defect leakage.</p>
-        </div>
-
-        <div class="node" id="n11" data-lane="lead" style="grid-column:12;grid-row:3;">
-          <span class="step">STEP 6</span><h3>Sign Off Functional Testing</h3>
-          <p>Formal confirmation that testing is done and critical defects are resolved.</p>
-          <span class="chip status">signedOffAt</span>
-        </div>
-
-        <div class="node" id="n12" data-lane="qa" style="grid-column:13;grid-row:1;">
-          <span class="step">STEP 7</span><h3>Upload UAT Sign‑offs</h3>
-          <p>Official UAT documents — only when the milestone requires UAT.</p>
-        </div>
-
-        <div class="node" id="n13" data-lane="ai" style="grid-column:14;grid-row:2;">
-          <span class="step">STEP 7</span><h3>BDD → Test Cases</h3>
-          <p>Optional: turn Gherkin scenarios into regression test cases.</p>
-        </div>
-
-        <div class="node" id="n14" data-lane="qa" style="grid-column:15;grid-row:1;">
-          <span class="step">STEP 8</span><h3>Readiness Checklist</h3>
-          <p>7 gates re‑checked live — requirements through UAT sign‑off.</p>
-        </div>
-
-        <div class="node" id="n15" data-lane="qa" style="grid-column:16;grid-row:1;">
-          <span class="step">STEP 8</span><h3>RTM &amp; Release Notes</h3>
-          <p>Export the traceability matrix; AI drafts the release notes PDF.</p>
-        </div>
-
-        <div class="node gate" id="n16" data-lane="qa" style="grid-column:17;grid-row:1;">
-          <div class="inner">
-            <span class="step">STEP 8</span>
-            <h3>All 7 gates met?</h3>
-            <p>Blocks deploy until every earlier step is done</p>
-          </div>
-        </div>
-
-        <div class="node" id="n17" data-lane="qa" style="grid-column:18;grid-row:1;">
-          <span class="step">STEP 8</span><h3>Mark as DEPLOYED</h3>
-          <p>Milestone closes; steps 1–8 become read‑only.</p>
-          <span class="chip status">completed</span>
-        </div>
-
+  <section class="diagram">
+    <div class="stitle">
+      <h2>A · Classic Delivery Flow</h2>
+      <span class="tag">requirements.ts · milestones.ts · tasks.ts</span>
+    </div>
+    <div class="legend">
+      <div class="group">
+        <span class="swatch"><i style="background:var(--rail-pmo)"></i>PMO / PM Lead</span>
+        <span class="swatch"><i style="background:var(--rail-fa)"></i>Functional Analyst</span>
+        <span class="swatch"><i style="background:var(--rail-dev)"></i>Development</span>
+        <span class="swatch"><i style="background:var(--rail-qa)"></i>QA</span>
       </div>
-      <svg class="connectors" id="connectors"></svg>
+      <div class="group">
+        <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-flow)" stroke-width="2"/></svg> hand‑off</span>
+        <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-ok)" stroke-width="2"/></svg> approved / proceed</span>
+        <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-warn)" stroke-width="2" stroke-dasharray="4 3"/></svg> rejected / sent back</span>
+      </div>
     </div>
-  </div>
+
+    <div class="board">
+      <div class="canvas" id="canvasA">
+        <div class="grid gridA" id="gridA">
+          <div class="lane-row-bg" style="grid-row:1;"></div>
+          <div class="lane-row-bg" style="grid-row:2;"></div>
+          <div class="lane-row-bg" style="grid-row:3;"></div>
+          <div class="lane-row-bg" style="grid-row:4;"></div>
+
+          <div class="lane-label pmo" style="grid-row:1;"><span><span class="lt">PMO / PM Lead</span><span class="ls">Plans &amp; closes the milestone</span></span></div>
+          <div class="lane-label fa" style="grid-row:2;"><span><span class="lt">Functional Analyst</span><span class="ls">Authors &amp; peer‑approves</span></span></div>
+          <div class="lane-label dev" style="grid-row:3;"><span><span class="lt">Development</span><span class="ls">Builds against approved reqs</span></span></div>
+          <div class="lane-label qa" style="grid-row:4;"><span><span class="lt">QA</span><span class="ls">Tests &amp; can return work</span></span></div>
+
+          <div class="ribbon-label" style="grid-row:5;">Continuous</div>
+          <div class="ribbon-bar t1" style="grid-row:5;"><div class="fill"></div><span class="cap">a requirement can be flagged <code style="background:none;">isBlocked</code> by FA/PM at any point, freezing dev hand‑off until cleared — independent of the steps below</span></div>
+
+          <div class="node" id="a1" data-lane="pmo" style="grid-column:2;grid-row:1;">
+            <span class="step">1</span><h3>Create Milestone</h3>
+            <p>Lead‑tier only, any department. <code style="background:none;">pipelineEnabled: false</code>.</p>
+            <span class="chip status">planned</span>
+          </div>
+
+          <div class="node" id="a2" data-lane="fa" style="grid-column:3;grid-row:2;">
+            <span class="step">2</span><h3>Author Requirement</h3>
+            <p>Title, module, priority, acceptance criteria.</p>
+            <span class="chip status">draft</span>
+          </div>
+
+          <div class="node" id="a3" data-lane="fa" style="grid-column:4;grid-row:2;">
+            <span class="step">3</span><h3>Submit for Review</h3>
+            <p>Notifies FA‑review‑tier users on the project, author excluded.</p>
+            <span class="chip status">in_review</span>
+          </div>
+
+          <div class="node" id="a4" data-lane="fa" style="grid-column:5;grid-row:2;">
+            <span class="step">4</span><h3>Peer Approval</h3>
+            <p>A different FA approves — the author can never review their own requirement.</p>
+            <span class="chip status">approved</span>
+          </div>
+
+          <div class="node" id="a5" data-lane="dev" style="grid-column:6;grid-row:3;">
+            <span class="step">5</span><h3>Assign in Dev Queue</h3>
+            <p>Lead‑tier only. Requirement must already be FA‑approved.</p>
+            <span class="chip status">assigned</span>
+          </div>
+
+          <div class="node" id="a6" data-lane="dev" style="grid-column:7;grid-row:3;">
+            <span class="step">6</span><h3>Build</h3>
+            <p>Assignee (or a Lead) moves it through the build.</p>
+            <span class="chip status">ready_for_qa</span>
+          </div>
+
+          <div class="node" id="a7" data-lane="qa" style="grid-column:8;grid-row:4;">
+            <span class="step">7</span><h3>Test &amp; Execute</h3>
+            <p>Test cases written and run on the Execution Dashboard; defects raised, fixed, retested.</p>
+          </div>
+
+          <div class="node" id="a8" data-lane="qa" style="grid-column:9;grid-row:4;">
+            <span class="step">8</span><h3>UAT (if required)</h3>
+            <p>A separate UAT‑type execution file, run when the milestone needs it.</p>
+          </div>
+
+          <div class="node" id="a9" data-lane="pmo" style="grid-column:10;grid-row:1;">
+            <span class="step">9</span><h3>Close Milestone</h3>
+            <p>A Lead sets status to Completed and logs Lessons Learned.</p>
+            <span class="chip status">completed</span>
+          </div>
+
+        </div>
+        <svg class="connectors" id="connA"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="diagram">
+    <div class="stitle">
+      <h2>B · QA Pipeline</h2>
+      <span class="tag">QAPipeline.tsx · Step1–Step8 · computePipelineState()</span>
+    </div>
+    <div class="legend">
+      <div class="group">
+        <span class="swatch"><i style="background:var(--rail-qa)"></i>QA (pipeline operator)</span>
+        <span class="swatch"><i style="background:var(--rail-lead)"></i>QA Lead / Manager / HOD (approval authority)</span>
+        <span class="swatch"><i style="background:var(--rail-ai)"></i>AI assist</span>
+        <span class="swatch"><i style="background:var(--rail-gate)"></i>Deploy gate</span>
+      </div>
+      <div class="group">
+        <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-flow)" stroke-width="2"/></svg> hand‑off</span>
+        <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-ok)" stroke-width="2"/></svg> approved / proceed</span>
+        <span class="line-key"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--edge-warn)" stroke-width="2" stroke-dasharray="4 3"/></svg> rejected / revise</span>
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="canvas" id="canvasB">
+        <div class="grid gridB" id="gridB">
+          <div class="lane-row-bg" style="grid-row:1;"></div>
+          <div class="lane-row-bg" style="grid-row:2;"></div>
+          <div class="lane-row-bg" style="grid-row:3;"></div>
+
+          <div class="lane-label qa" style="grid-row:1;"><span><span class="lt">QA</span><span class="ls">Runs the pipeline steps</span></span></div>
+          <div class="lane-label ai" style="grid-row:2;"><span><span class="lt">AI Assist</span><span class="ls">Analysis, scoring &amp; drafting</span></span></div>
+          <div class="lane-label lead" style="grid-row:3;"><span><span class="lt">Approval Authority</span><span class="ls">QA Lead / Manager / HOD</span></span></div>
+
+          <div class="ribbon-label" style="grid-row:4;">Navigation</div>
+          <div class="ribbon-label" style="grid-row:5;">Owner tags</div>
+          <div class="ribbon-bar t1" style="grid-row:4;"><div class="fill"></div><span class="cap">free‑roam: every step is reachable directly from the sidebar — steps 1‑8 lock read‑only once the milestone is DEPLOYED</span></div>
+          <div class="ribbon-bar t2" style="grid-row:5;"><div class="fill"></div><span class="cap">per‑requirement FA · Dev · QA owners (set in Step 2) surface as Assignees on the Tasks board — informational, not a gate</span></div>
+
+          <div class="node" id="b1" data-lane="qa" style="grid-column:2;grid-row:1;">
+            <span class="step">STEP 1</span><h3>Create Milestone</h3>
+            <p>Type, phase target dates, environment ENV1–ENV6, "Requires UAT?" toggle.</p>
+            <span class="chip status">planned</span>
+          </div>
+
+          <div class="node" id="b2" data-lane="qa" style="grid-column:3;grid-row:1;">
+            <span class="step">STEP 2</span><h3>Sync Requirements</h3>
+            <p>Pulls a Redmine ticket and its sub‑tickets recursively into linked requirements.</p>
+          </div>
+
+          <div class="node" id="b3" data-lane="ai" style="grid-column:4;grid-row:2;">
+            <span class="step">STEP 2</span><h3>AI Analyze</h3>
+            <p>Quality score, risk level, missing items — gated behind a PII confirmation.</p>
+          </div>
+
+          <div class="node" id="b4" data-lane="qa" style="grid-column:5;grid-row:1;">
+            <span class="step">STEP 2</span><h3>Assign Owners</h3>
+            <p>Tag FA / Dev / QA owners per requirement for the Tasks board.</p>
+          </div>
+
+          <div class="node" id="b5" data-lane="qa" style="grid-column:6;grid-row:1;">
+            <span class="step">STEP 3</span><h3>Draft Test Cases</h3>
+            <p>Write test cases against the synced, AI‑analyzed requirements.</p>
+          </div>
+
+          <div class="node" id="b6" data-lane="ai" style="grid-column:7;grid-row:2;">
+            <span class="step">STEP 3</span><h3>Risk‑Based Priority</h3>
+            <p>AI reorders test cases highest‑risk‑first before compilation.</p>
+          </div>
+
+          <div class="node" id="b7" data-lane="qa" style="grid-column:8;grid-row:1;">
+            <span class="step">STEP 3</span><h3>Compile &amp; Submit</h3>
+            <p>Compile selected TCs into an execution file, submit for review.</p>
+            <span class="chip status">in_review</span>
+          </div>
+
+          <div class="node" id="b8" data-lane="lead" style="grid-column:9;grid-row:3;">
+            <span class="step">STEP 4</span><h3>Approve Execution File</h3>
+            <p>Any QA reviewer except the submitter — segregation of duties is enforced.</p>
+            <span class="chip status">approved</span>
+          </div>
+
+          <div class="node" id="b9" data-lane="qa" style="grid-column:10;grid-row:1;">
+            <span class="step">STEP 5</span><h3>Execute &amp; Log Defects</h3>
+            <p>Run on the Execution Dashboard: Passed / Failed / Blocked, defects raised.</p>
+          </div>
+
+          <div class="node" id="b10" data-lane="ai" style="grid-column:11;grid-row:2;">
+            <span class="step">STEP 5</span><h3>Release‑Risk Assessment</h3>
+            <p>AI reads the real results and predicts release risk &amp; defect leakage.</p>
+          </div>
+
+          <div class="node" id="b11" data-lane="lead" style="grid-column:12;grid-row:3;">
+            <span class="step">STEP 6</span><h3>Sign Off Functional Testing</h3>
+            <p>Formal confirmation that testing is done and critical defects are resolved.</p>
+            <span class="chip status">signedOffAt</span>
+          </div>
+
+          <div class="node" id="b12" data-lane="qa" style="grid-column:13;grid-row:1;">
+            <span class="step">STEP 7</span><h3>Upload UAT Sign‑offs</h3>
+            <p>Official UAT documents — only when the milestone requires UAT.</p>
+          </div>
+
+          <div class="node" id="b13" data-lane="ai" style="grid-column:14;grid-row:2;">
+            <span class="step">STEP 7</span><h3>BDD → Test Cases</h3>
+            <p>Optional: turn Gherkin scenarios into regression test cases.</p>
+          </div>
+
+          <div class="node" id="b14" data-lane="qa" style="grid-column:15;grid-row:1;">
+            <span class="step">STEP 8</span><h3>Readiness Checklist</h3>
+            <p>7 gates re‑checked live — requirements through UAT sign‑off.</p>
+          </div>
+
+          <div class="node" id="b15" data-lane="qa" style="grid-column:16;grid-row:1;">
+            <span class="step">STEP 8</span><h3>RTM &amp; Release Notes</h3>
+            <p>Export the traceability matrix; AI drafts the release notes PDF.</p>
+          </div>
+
+          <div class="node gate" id="b16" data-lane="qa" style="grid-column:17;grid-row:1;">
+            <div class="inner">
+              <span class="step">STEP 8</span>
+              <h3>All 7 gates met?</h3>
+              <p>Blocks deploy until every earlier step is done</p>
+            </div>
+          </div>
+
+          <div class="node" id="b17" data-lane="qa" style="grid-column:18;grid-row:1;">
+            <span class="step">STEP 8</span><h3>Mark as DEPLOYED</h3>
+            <p>Milestone closes; steps 1–8 become read‑only.</p>
+            <span class="chip status">completed</span>
+          </div>
+
+        </div>
+        <svg class="connectors" id="connB"></svg>
+      </div>
+    </div>
+  </section>
 
   <footer class="note">
-    Source: <code>artifacts/qa-pulse/src/pages/QAPipeline.tsx</code>, <code>src/components/qa-pipeline/Step1–8*.tsx</code>, and the shared readiness gates in <code>computePipelineState()</code> (<code>artifacts/api-server/src/routes/dashboard.ts</code>) — the same seven checks Step 8's checklist and the Tasks board both read from. Execution-file review follows <code>draft → in_review → approved/rejected</code> with segregation of duties (a submitter cannot approve their own file); the milestone closes as <code>status: completed</code> when marked deployed.
+    Source: <code>artifacts/api-server/src/routes/requirements.ts</code>, <code>milestones.ts</code>, <code>test-execution.ts</code> for diagram A; <code>artifacts/qa-pulse/src/pages/QAPipeline.tsx</code>, <code>src/components/qa-pipeline/Step1–8*.tsx</code>, and <code>computePipelineState()</code> (<code>artifacts/api-server/src/routes/dashboard.ts</code>) for diagram B. Both flows share the same execution‑file and defect infrastructure (<code>draft → in_review → approved/rejected</code>, <code>Not Executed → In Progress → Passed/Failed/Blocked</code>) — what differs is who authors requirements, who's allowed to act at each step, and how (or whether) closure is gated.
   </footer>
 </div>
 
 <script>
 (function(){
-  var edges = [
-    {from:'n1',  to:'n2'},
-    {from:'n2',  to:'n3'},
-    {from:'n3',  to:'n4'},
-    {from:'n4',  to:'n5'},
-    {from:'n5',  to:'n6'},
-    {from:'n6',  to:'n7'},
-    {from:'n7',  to:'n8'},
-    {from:'n8',  to:'n9',  kind:'ok',   label:'approved'},
-    {from:'n8',  to:'n7',  kind:'warn', label:'rejected — revise & resubmit'},
-    {from:'n9',  to:'n10'},
-    {from:'n10', to:'n11'},
-    {from:'n11', to:'n12', kind:'ok',   label:'requires UAT'},
-    {from:'n11', to:'n14', kind:'flow', label:'no UAT — skip to Step 8', duck:true},
-    {from:'n12', to:'n13'},
-    {from:'n13', to:'n14'},
-    {from:'n14', to:'n15'},
-    {from:'n15', to:'n16'},
-    {from:'n16', to:'n17', kind:'ok',   label:'all gates met'}
-  ];
-
   var NS = 'http://www.w3.org/2000/svg';
-
   function el(tag, attrs){
     var e = document.createElementNS(NS, tag);
     for (var k in attrs) e.setAttribute(k, attrs[k]);
     return e;
   }
-
   function ensureDefs(svg){
     var defs = el('defs', {});
     ['flow','ok','warn','retry'].forEach(function(kind){
       var m = el('marker', {
-        id: 'arrow-' + kind,
+        id: 'arrow-' + kind + '-' + svg.id,
         viewBox: '0 0 10 10',
         refX: 8.5, refY: 5,
         markerWidth: 7, markerHeight: 7,
@@ -548,7 +725,6 @@
     });
     svg.appendChild(defs);
   }
-
   function colorVar(kind){
     switch(kind){
       case 'ok': return 'var(--edge-ok)';
@@ -558,86 +734,123 @@
     }
   }
 
-  function draw(){
-    var canvas = document.getElementById('canvas');
-    var svg = document.getElementById('connectors');
-    var cRect = canvas.getBoundingClientRect();
+  function makeBoard(canvasId, svgId, edges){
+    function draw(){
+      var canvas = document.getElementById(canvasId);
+      var svg = document.getElementById(svgId);
+      if (!canvas || !svg) return;
+      var cRect = canvas.getBoundingClientRect();
 
-    svg.setAttribute('width', canvas.scrollWidth);
-    svg.setAttribute('height', canvas.scrollHeight);
-    svg.innerHTML = '';
-    ensureDefs(svg);
+      svg.setAttribute('width', canvas.scrollWidth);
+      svg.setAttribute('height', canvas.scrollHeight);
+      svg.innerHTML = '';
+      ensureDefs(svg);
 
-    edges.forEach(function(e){
-      var a = document.getElementById(e.from).getBoundingClientRect();
-      var b = document.getElementById(e.to).getBoundingClientRect();
-      var kind = e.kind || 'flow';
-      var stroke = colorVar(kind);
+      edges.forEach(function(e){
+        var aEl = document.getElementById(e.from), bEl = document.getElementById(e.to);
+        if (!aEl || !bEl) return;
+        var a = aEl.getBoundingClientRect();
+        var b = bEl.getBoundingClientRect();
+        var kind = e.kind || 'flow';
+        var stroke = colorVar(kind);
 
-      var ax = a.left - cRect.left, ay = a.top - cRect.top, aw = a.width, ah = a.height;
-      var bx = b.left - cRect.left, by = b.top - cRect.top, bw = b.width, bh = b.height;
+        var ax = a.left - cRect.left, ay = a.top - cRect.top, aw = a.width, ah = a.height;
+        var bx = b.left - cRect.left, by = b.top - cRect.top, bw = b.width, bh = b.height;
 
-      var forward = (bx >= ax);
-      var sameRow = Math.abs((ay + ah/2) - (by + bh/2)) < 2;
-      var gapPx = bx - (ax + aw);
-      var pathD, lx, ly;
+        var forward = (bx >= ax);
+        var sameRow = Math.abs((ay + ah/2) - (by + bh/2)) < 2;
+        var gapPx = bx - (ax + aw);
+        var pathD, lx, ly;
 
-      if (forward && (e.duck || (sameRow && gapPx > 220))){
-        // Route under any intervening cards instead of crossing through them
-        // (e.g. a lane-skipping hand-off, or same-lane nodes several columns
-        // apart).
-        var sx1 = ax + aw, sy1 = ay + ah/2;
-        var tx1 = bx, ty1 = by + bh/2;
-        var under = ay + ah + 20;
-        pathD = 'M ' + sx1 + ' ' + sy1 + ' L ' + sx1 + ' ' + under + ' L ' + tx1 + ' ' + under + ' L ' + tx1 + ' ' + (ty1+1);
-        lx = (sx1 + tx1) / 2; ly = under;
-      } else if (forward){
-        var sx = ax + aw, sy = ay + ah/2;
-        var tx = bx, ty = by + bh/2;
-        var midx = sx + (tx - sx) / 2;
-        pathD = 'M ' + sx + ' ' + sy + ' L ' + midx + ' ' + sy + ' L ' + midx + ' ' + ty + ' L ' + (tx-1) + ' ' + ty;
-        lx = midx; ly = (sy + ty) / 2;
-      } else {
-        var depth = 26 + (e.loop || 1) * 30;
-        var sx2 = ax + aw/2, sy2 = ay + ah;
-        var tx2 = bx + bw/2, ty2 = by + bh;
-        var dipY = Math.max(sy2, ty2) + depth;
-        pathD = 'M ' + sx2 + ' ' + sy2 + ' L ' + sx2 + ' ' + dipY + ' L ' + tx2 + ' ' + dipY + ' L ' + tx2 + ' ' + (ty2+1);
-        lx = (sx2 + tx2) / 2; ly = dipY;
-      }
+        if (forward && (e.duck || (sameRow && gapPx > 220))){
+          var sx1 = ax + aw, sy1 = ay + ah/2;
+          var tx1 = bx, ty1 = by + bh/2;
+          var under = ay + ah + 20;
+          pathD = 'M ' + sx1 + ' ' + sy1 + ' L ' + sx1 + ' ' + under + ' L ' + tx1 + ' ' + under + ' L ' + tx1 + ' ' + (ty1+1);
+          lx = (sx1 + tx1) / 2; ly = under;
+        } else if (forward){
+          var sx = ax + aw, sy = ay + ah/2;
+          var tx = bx, ty = by + bh/2;
+          var midx = sx + (tx - sx) / 2;
+          pathD = 'M ' + sx + ' ' + sy + ' L ' + midx + ' ' + sy + ' L ' + midx + ' ' + ty + ' L ' + (tx-1) + ' ' + ty;
+          lx = midx; ly = (sy + ty) / 2;
+        } else {
+          var depth = 26 + (e.loop || 1) * 30;
+          var sx2 = ax + aw/2, sy2 = ay + ah;
+          var tx2 = bx + bw/2, ty2 = by + bh;
+          var dipY = Math.max(sy2, ty2) + depth;
+          pathD = 'M ' + sx2 + ' ' + sy2 + ' L ' + sx2 + ' ' + dipY + ' L ' + tx2 + ' ' + dipY + ' L ' + tx2 + ' ' + (ty2+1);
+          lx = (sx2 + tx2) / 2; ly = dipY;
+        }
 
-      var path = el('path', {
-        d: pathD,
-        fill: 'none',
-        stroke: stroke,
-        'stroke-width': 2,
-        'stroke-linejoin': 'round',
-        'stroke-linecap': 'round',
-        'marker-end': 'url(#arrow-' + kind + ')'
-      });
-      if (kind === 'warn') path.setAttribute('stroke-dasharray', '5 4');
-      svg.appendChild(path);
-
-      if (e.label){
-        var padX = 5, txt = e.label;
-        var t = el('text', {x:lx, y:ly, 'text-anchor':'middle', class:'elabel', fill: stroke, dy:'0.32em'});
-        t.textContent = txt;
-        var approxW = txt.length * 5.6 + padX*2;
-        var bgRect = el('rect', {
-          x: lx - approxW/2, y: ly - 8, width: approxW, height: 15, rx: 4,
-          class: 'elabel-bg', stroke: stroke, 'stroke-width': 0.75
+        var path = el('path', {
+          d: pathD, fill: 'none', stroke: stroke, 'stroke-width': 2,
+          'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+          'marker-end': 'url(#arrow-' + kind + '-' + svg.id + ')'
         });
-        svg.appendChild(bgRect);
-        svg.appendChild(t);
-      }
-    });
+        if (kind === 'warn' || kind === 'retry') path.setAttribute('stroke-dasharray', '5 4');
+        svg.appendChild(path);
+
+        if (e.label){
+          var padX = 5, txt = e.label;
+          var t = el('text', {x:lx, y:ly, 'text-anchor':'middle', class:'elabel', fill: stroke, dy:'0.32em'});
+          t.textContent = txt;
+          var approxW = txt.length * 5.6 + padX*2;
+          var bgRect = el('rect', {
+            x: lx - approxW/2, y: ly - 8, width: approxW, height: 15, rx: 4,
+            class: 'elabel-bg', stroke: stroke, 'stroke-width': 0.75
+          });
+          svg.appendChild(bgRect);
+          svg.appendChild(t);
+        }
+      });
+    }
+    return draw;
   }
 
-  window.addEventListener('load', draw);
-  window.addEventListener('resize', draw);
-  if (document.readyState === 'complete') draw();
+  var edgesA = [
+    {from:'a1', to:'a2'},
+    {from:'a2', to:'a3'},
+    {from:'a3', to:'a4'},
+    {from:'a4', to:'a2', kind:'warn', label:'rejected — revise & resubmit', loop:1},
+    {from:'a4', to:'a5', kind:'ok', label:'approved'},
+    {from:'a5', to:'a6'},
+    {from:'a6', to:'a7'},
+    {from:'a7', to:'a6', kind:'warn', label:'return_to_dev — QA: not actually done', loop:1},
+    {from:'a7', to:'a8', kind:'ok', label:'SIT complete'},
+    {from:'a8', to:'a9', kind:'ok'}
+  ];
 
-  var mo = new MutationObserver(draw);
+  var edgesB = [
+    {from:'b1',  to:'b2'},
+    {from:'b2',  to:'b3'},
+    {from:'b3',  to:'b4'},
+    {from:'b4',  to:'b5'},
+    {from:'b5',  to:'b6'},
+    {from:'b6',  to:'b7'},
+    {from:'b7',  to:'b8'},
+    {from:'b8',  to:'b9',  kind:'ok',   label:'approved'},
+    {from:'b8',  to:'b7',  kind:'warn', label:'rejected — revise & resubmit'},
+    {from:'b9',  to:'b10'},
+    {from:'b10', to:'b11'},
+    {from:'b11', to:'b12', kind:'ok',   label:'requires UAT'},
+    {from:'b11', to:'b14', kind:'flow', label:'no UAT — skip to Step 8', duck:true},
+    {from:'b12', to:'b13'},
+    {from:'b13', to:'b14'},
+    {from:'b14', to:'b15'},
+    {from:'b15', to:'b16'},
+    {from:'b16', to:'b17', kind:'ok',   label:'all gates met'}
+  ];
+
+  var drawA = makeBoard('canvasA', 'connA', edgesA);
+  var drawB = makeBoard('canvasB', 'connB', edgesB);
+  function drawAll(){ drawA(); drawB(); }
+
+  window.addEventListener('load', drawAll);
+  window.addEventListener('resize', drawAll);
+  if (document.readyState === 'complete') drawAll();
+
+  var mo = new MutationObserver(drawAll);
   mo.observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
 })();
 </script>
