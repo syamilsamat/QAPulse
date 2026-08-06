@@ -18,20 +18,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Open Pull Request using GitHub CLI
+      - name: Push main to a sync branch on Autoraimix/QAPulse
         env:
           # The built-in GITHUB_TOKEN is scoped to this repo only, so it can't
-          # see a different repo owned by another account (Autoraimix/QAPulse)
-          # — gh pr create fails with "Could not resolve to a Repository" and
-          # the fallback below silently swallowed that every run. UPSTREAM_PAT
-          # is a fine-grained PAT from an account with pull-request write
-          # access to Autoraimix/QAPulse (Settings → Secrets and variables →
-          # Actions on this repo).
+          # see a different repo owned by another account (Autoraimix/QAPulse).
+          # UPSTREAM_PAT is a PAT from an account with push access there
+          # (Settings → Secrets and variables → Actions on this repo).
           GH_TOKEN: ${{ secrets.UPSTREAM_PAT }}
         run: |
+          git push "https://x-access-token:${GH_TOKEN}@github.com/Autoraimix/QAPulse.git" \
+            "HEAD:refs/heads/sync/from-syamilsamat" --force
+
+      - name: Open Pull Request using GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_PAT }}
+        run: |
+          # `--head owner:branch` (cross-repo) only works when GitHub has a
+          # registered fork link between the two repos, which this pair
+          # doesn't have — it fails with "Head repository can't be blank" /
+          # "not all refs are readable" even with a valid token. Using a
+          # same-repo branch (pushed above) as the head sidesteps that: it
+          # only needs push access to Autoraimix/QAPulse, not a fork edge.
           gh pr create \
             --repo "Autoraimix/QAPulse" \
-            --head "syamilsamat:main" \
+            --head "sync/from-syamilsamat" \
             --base "main" \
             --title "SAS: fix/improve code" \
             --body "Automated code improvement sync from syamil." || echo "PR already exists or no changes to sync."
