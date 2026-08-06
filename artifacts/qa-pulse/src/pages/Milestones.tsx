@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
+import { useRoleLabels } from "@/hooks/use-role-labels";
 import {
   Plus,
   Pencil,
@@ -205,6 +206,7 @@ export default function Milestones() {
   });
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
+  const { roleLabel } = useRoleLabels();
 
   const [exportingLessons, setExportingLessons] = useState(false);
   const handleExportLessonsLearned = async () => {
@@ -638,7 +640,7 @@ export default function Milestones() {
                   </SelectTrigger>
                   <SelectContent>
                     {newAssignableUsers.filter((u) => !pendingAssignees.some((a) => a.id === u.id)).map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.role}</SelectItem>
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {roleLabel(u.role)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -667,7 +669,7 @@ export default function Milestones() {
                   </SelectTrigger>
                   <SelectContent>
                     {assignableUsers.filter((u) => !assignees.some((a) => a.userId === u.id)).map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.role}</SelectItem>
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {roleLabel(u.role)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
