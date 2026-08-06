@@ -366,11 +366,11 @@ export default function QAPipeline() {
   // milestone dates and details stay editable after the pipeline closes.
   const editMilestoneDialog = (
     <Dialog open={!!editingMilestone} onOpenChange={(open) => !open && setEditingMilestone(null)}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-md w-[calc(100%-1.5rem)] sm:w-full max-h-[90dvh] flex flex-col p-0 gap-0">
+        <DialogHeader className="shrink-0 border-b px-4 sm:px-6 py-4 pr-12 text-left">
           <DialogTitle>Edit Pipeline Milestone</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 px-4 sm:px-6 py-4">
           <div className="space-y-1.5">
             <Label>Name <span className="text-destructive">*</span></Label>
             <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
@@ -452,7 +452,7 @@ export default function QAPipeline() {
           </div>
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+            <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="resize-y" />
           </div>
           <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
             <Checkbox
@@ -463,7 +463,7 @@ export default function QAPipeline() {
             <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
           </div>
         </div>
-        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+        <DialogFooter className="shrink-0 flex-col-reverse sm:flex-row gap-2 border-t bg-background px-4 sm:px-6 py-4">
           <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingMilestone(null)}>Cancel</Button>
           <Button className="w-full sm:w-auto" onClick={handleSaveEdit} disabled={savingEdit}>
             {savingEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
