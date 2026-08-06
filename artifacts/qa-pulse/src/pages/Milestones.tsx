@@ -634,16 +634,21 @@ export default function Milestones() {
                   ))}
                   {pendingAssignees.length === 0 && <span className="text-xs text-muted-foreground">No one assigned yet.</span>}
                 </div>
-                <Select value={pendingAssigneePick} onValueChange={addPendingAssignee}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Add project member…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {newAssignableUsers.filter((u) => !pendingAssignees.some((a) => a.id === u.id)).map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {roleLabel(u.role)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={pendingAssigneePick}
+                  onValueChange={addPendingAssignee}
+                  options={newAssignableUsers
+                    .filter((u) => !pendingAssignees.some((a) => a.id === u.id))
+                    .map((u) => ({
+                      value: String(u.id),
+                      label: `${u.name} · ${roleLabel(u.role)}`,
+                      keywords: u.role,
+                    }))}
+                  placeholder="Add project member…"
+                  searchPlaceholder="Search by name or role…"
+                  emptyText="No matching members."
+                  className="h-8 text-xs"
+                />
               </div>
             )}
             {editing && form.type === "data_prep" && <DataPrepFilesSection milestone={editing} token={token} canWrite={canWrite} userId={user?.id} />}
@@ -663,16 +668,21 @@ export default function Milestones() {
                   ))}
                   {assignees.length === 0 && <span className="text-xs text-muted-foreground">No one assigned yet.</span>}
                 </div>
-                <Select value={assigneePick} onValueChange={addAssignee}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Add project member…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {assignableUsers.filter((u) => !assignees.some((a) => a.userId === u.id)).map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>{u.name} · {roleLabel(u.role)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={assigneePick}
+                  onValueChange={addAssignee}
+                  options={assignableUsers
+                    .filter((u) => !assignees.some((a) => a.userId === u.id))
+                    .map((u) => ({
+                      value: String(u.id),
+                      label: `${u.name} · ${roleLabel(u.role)}`,
+                      keywords: u.role,
+                    }))}
+                  placeholder="Add project member…"
+                  searchPlaceholder="Search by name or role…"
+                  emptyText="No matching members."
+                  className="h-8 text-xs"
+                />
               </div>
             )}
             {form.status === "completed" && (
