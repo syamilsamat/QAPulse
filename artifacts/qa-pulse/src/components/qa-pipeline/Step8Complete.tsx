@@ -316,7 +316,7 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
               AI turns this milestone's delivered requirements and resolved defects into a polished,
               business-ready document — what's new, what's fixed, and what users need to know.
             </p>
-            <Button variant="secondary" className="w-full" onClick={handleGenerateReleaseNotes} disabled={generatingNotes || !hasRequirements}>
+            <Button variant="outline" className="w-full" onClick={handleGenerateReleaseNotes} disabled={generatingNotes || !hasRequirements}>
               {generatingNotes ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
               {generatingNotes ? "Drafting…" : "Draft Release Notes (AI)"}
             </Button>
