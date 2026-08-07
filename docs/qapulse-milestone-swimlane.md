@@ -92,9 +92,26 @@ flowchart LR
     n16 -- all gates met --> n17
 ```
 
+## QA Pipeline — Step 8's 7 readiness gates
+
+Re-derived live every time Step 8 is viewed — the same checks the Tasks board's pipeline-state computation reads from, so the two screens can't disagree:
+
+| # | Gate |
+|---|---|
+| 1 | Requirements synced (`requirementCount > 0`) |
+| 2 | Test cases compiled for execution (an execution file exists) |
+| 3 | Test cases approved (every execution file `reviewStatus === approved`) |
+| 4 | Test execution finished (no rows left `Not Executed`) |
+| 5 | Functional testing signed off (`signedOffAt` set) |
+| 6 | UAT sign-off document uploaded (only when `requiresUat`) |
+| 7 | Deployed (`status === completed`) |
+
+Named per-requirement owners (FA · Dev · QA, set in Step 2) are **not** pipeline actors — they're tags that surface as Assignees on the Tasks board for visibility, not a gate any step checks.
+
 ## Behaviors worth calling out
 
 - **Segregation of duties on both flows.** Classic: the author of a requirement can never peer-approve it. Pipeline: any QA reviewer can approve/reject an execution file except the one who submitted it.
-- **Only the QA Pipeline has a live readiness gate.** Classic closure is a Lead manually flipping a status dropdown to Completed; the Pipeline's Step 8 re-derives 7 gates from real data every time it's viewed and disables deploy until all pass.
+- **Only the QA Pipeline has a live readiness gate.** Classic closure is a Lead manually flipping a status dropdown to Completed; the Pipeline's Step 8 re-derives the 7 gates above every time it's viewed and disables deploy until all pass.
 - **Only the Classic flow has FA authorship and peer review.** The Pipeline syncs requirements straight from Redmine — there's no draft/in_review/approved cycle for the requirement text itself, only for the compiled execution file.
 - **`return_to_dev` (Classic) has no Pipeline equivalent.** QA can send a `ready_for_qa` requirement back to `in_progress` if the build isn't actually done — a loop that doesn't exist in the guided wizard.
+- **Pipeline navigation is free-roam.** Every step (1–8) is reachable directly from the sidebar, not strictly in order — `pipelineStep` persists so position survives a reload. Step 6 is a hard role gate (`qa_lead`/`qa_manager`/`hod_qa`/`admin`/`cto` only); Step 7 is conditional on the "Requires UAT Sign-off?" toggle from Step 1. Once "Mark as DEPLOYED" is clicked, all 8 steps lock read-only.
