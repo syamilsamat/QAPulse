@@ -6,7 +6,7 @@ import { getAuthContext } from "../middleware/access";
 const router: IRouter = Router();
 
 // GET /pipeline-settings
-router.get("/pipeline-settings", async (req, res) => {
+router.get("/pipeline-settings", async (req, res): Promise<void> => {
   try {
     const auth = getAuthContext(req);
     if (!auth) {
@@ -24,7 +24,7 @@ router.get("/pipeline-settings", async (req, res) => {
 });
 
 // PUT /pipeline-settings
-router.put("/pipeline-settings", async (req, res) => {
+router.put("/pipeline-settings", async (req, res): Promise<void> => {
   try {
     const auth = getAuthContext(req);
     if (!auth || auth.role !== "admin") {

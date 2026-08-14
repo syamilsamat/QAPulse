@@ -199,10 +199,8 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
   const { id } = params.data;
   const now = new Date();
 
-  const tasks = await db
-    .select()
-    .from(tasksTable)
-    .where(eq(tasksTable.assigneeId, id));
+  const allTasks = await db.select().from(tasksTable);
+  const tasks = allTasks.filter((t) => t.assigneeIds?.includes(id));
 
   const tasksCompleted = tasks.filter((t) => t.status === "released_to_production").length;
   const tasksPending = tasks.filter((t) =>

@@ -111,7 +111,7 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
       clearTimeout(timeoutId); // Clear timeout if response is received
 
       if (response.ok) {
-        const data = await response.json() as any;
+        const data: any = await response.json() as any;
         if (data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
           console.log(`✅ Success with Fallback Node: ${model}`);
           return data.choices[0].message.content;

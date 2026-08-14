@@ -83,7 +83,7 @@ Keep each text field under 20 words.`;
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model: "meta-llama/llama-3.2-3b-instruct:free", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 2048, response_format: { type: "json_object" } }),
         });
-        const d = await resp.json();
+        const d: any = await resp.json();
         content = d.choices?.[0]?.message?.content ?? "";
         console.log(`[runCapaAI] OpenRouter response length=${content.length}`);
       }
@@ -152,7 +152,7 @@ Return ONLY valid JSON: { "classifications": [{ "id": <number>, "category": "<ca
             response_format: { type: "json_object" },
           }),
         });
-        const d = await resp.json();
+        const d: any = await resp.json();
         content = d.choices?.[0]?.message?.content ?? "";
         console.log(`[runParetoAI] OpenRouter response length=${content.length}`);
       }

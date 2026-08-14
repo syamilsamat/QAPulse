@@ -81,7 +81,7 @@ router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> =
       }
       throw new Error(`Redmine API returned status: ${response.status}`);
     }
-    const data = await response.json();
+    const data: any = await response.json();
     const apiIssue = data.issue;
     res.json({
       connected: true,
@@ -156,7 +156,7 @@ router.post("/redmine/sync-projects", async (req, res): Promise<void> => {
       if (!response.ok) {
         throw new Error(`Redmine API returned status: ${response.status}`);
       }
-      const data = await response.json();
+      const data: any = await response.json();
       allProjects = allProjects.concat(data.projects ?? []);
       if (allProjects.length >= data.total_count || (data.projects ?? []).length < limit) break;
       offset += limit;
@@ -285,7 +285,7 @@ router.get("/redmine/trackers", async (req, res): Promise<void> => {
     const apiKey = await resolveApiKey(req);
     const response = await redmineFetch("/trackers.json", apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data = await response.json();
+    const data: any = await response.json();
     res.json(data.trackers ?? []);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch trackers: ${err.message}` });
@@ -300,7 +300,7 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
     const apiKey = await resolveApiKey(req);
     const response = await redmineFetch(`/projects/${projectId}/memberships.json?limit=100`, apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data = await response.json();
+    const data: any = await response.json();
     const members = (data.memberships ?? [])
       .filter((m: any) => m.user)
       .map((m: any) => ({ id: m.user.id, name: m.user.name }));
@@ -324,7 +324,7 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
     if (project_id) url += `&project_id=${encodeURIComponent(project_id)}`;
     const response = await redmineFetch(url, apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data = await response.json();
+    const data: any = await response.json();
     res.json(data.issues ?? []);
   } catch (err: any) {
     res.status(500).json({ error: `Search failed: ${err.message}` });
@@ -416,7 +416,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       throw new Error(`Redmine returned ${response.status}: ${errBody}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     res.status(201).json({ id: data.issue.id, url: `${getBaseUrl()}/issues/${data.issue.id}` });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to create issue: ${err.message}` });

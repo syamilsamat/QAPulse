@@ -1473,7 +1473,7 @@ export async function resolveApiKeyFromToken(authHeader: string | undefined): Pr
   if (!authHeader?.startsWith("Bearer ")) return process.env.REDMINE_API_KEY ?? "";
   try {
     const payload = verifyToken(authHeader.slice(7));
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId));
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.id));
     if (user?.redmineApiKey?.trim()) return user.redmineApiKey.trim();
   } catch {}
   return process.env.REDMINE_API_KEY ?? "";

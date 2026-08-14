@@ -504,7 +504,7 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
       )) as [any[], any];
 
       for (const row of reopenRows) {
-        reopenCounts[row.issue_id] = Number(row.reopen_count);
+        reopenCounts[(row as any).issue_id] = Number(row.reopen_count);
       }
     }
 
@@ -572,7 +572,7 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
   try {
     const issueData = await safeJson(`${baseUrl}/issues/${issueId}.json`);
     if (!issueData?.issue) return null;
-    const main = issueData.issue;
+    const main = (issueData as any).issue;
 
     const childData = await safeJson(
       `${baseUrl}/issues.json?parent_id=${issueId}&limit=100&status_id=*`,
@@ -608,7 +608,7 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
           const detailedIssue = await safeJson(`${baseUrl}/issues/${d.id}.json?include=journals`);
 
           if (detailedIssue?.issue?.journals) {
-            for (const j of detailedIssue.issue.journals) {
+            for (const j of (detailedIssue as any).issue.journals) {
               if (j.details) {
                 for (const det of j.details) {
                   // status_id = '8' is ReOpen
@@ -679,7 +679,7 @@ async function reportFromLocalDB(issueId: string): Promise<Record<string, unknow
     status: t.status,
     priority: "Normal",
     category: "Bug",
-    assignee: getName(t.assigneeId),
+    assignee: getName(t.assigneeIds),
     createdOn: t.createdAt.toISOString(),
     reopenedCount: t.status.toLowerCase().includes("reopen") ? 1 : 0
   }));
@@ -717,7 +717,7 @@ router.get("/verdict-report/report", async (req, res): Promise<void> => {
       ...testData,
       defects: defectData.defects,
       activeDefects: defectData.activeDefects,
-      issueSubject: defectData.issueSubject || testData.issueSubject,
+      issueSubject: (defectData as any).issueSubject || (testData as any).issueSubject,
       projectName: defectData.projectName || testData.projectName,
       trackerName: (defectData as any).trackerName || (testData as any).trackerName || "",
       source: "app_dashboard",
@@ -1160,7 +1160,7 @@ function buildEmailHtml(
       <div class="summary-card" style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
         <div class="summary-title" style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
         <div class="summary-sub" style="font-size:12px;color:#6b7280;margin-bottom:10px;">as of ${generatedAt}</div>
-        <div class="summary-id" style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${d.issueSubject ? ` — ${d.issueSubject}` : ""}</div>
+        <div class="summary-id" style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${(d as any).issueSubject ? ` — ${(d as any).issueSubject}` : ""}</div>
         ${d.projectName ? `<div class="summary-sub" style="font-size:12px;color:#6b7280;margin-bottom:2px;">Project: ${d.projectName}</div>` : ""}
         <div class="muted-text" style="font-size:12px;color:#9ca3af;">Redmine #${redmineId}</div>
       </div>
@@ -1652,7 +1652,7 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         console.warn("[send-verdict] document register lookup failed:", err);
       }
 
-      const xlsxBuffer = await buildTestCaseExcel(testCases, {
+      const xlsxBuffer = await buildTestCaseExcel(testCases as any, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",

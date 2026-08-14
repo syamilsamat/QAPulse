@@ -218,7 +218,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     pipelineStep: pipelineStep ? Number(pipelineStep) : null,
   }).returning();
 
-  await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: ctx.id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
+  await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: (ctx as any).id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
 
   // CR045 — FAs on this project kick off requirement writing when a milestone
   // opens, so they're the ones told about it (lead + member; HODs excluded
@@ -371,7 +371,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     // it moves away again, same pattern as requirements' approvedAt/rejectedAt.
     if (req.body.status === "completed" && m.status !== "completed") {
       update.completedAt = new Date();
-      if (!m.closedBy) update.closedBy = ctx.id ?? ctx.userId;
+      if (!m.closedBy) update.closedBy = (ctx as any).id ?? ctx.userId;
     } else if (req.body.status !== "completed" && m.status === "completed") {
       update.completedAt = null;
     }
@@ -387,7 +387,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.signedOffBy !== undefined) update.signedOffBy = req.body.signedOffBy == null ? null : Number(req.body.signedOffBy);
 
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
-  await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone" });
+  await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   res.json(fmt(updated));
 });
 
@@ -492,7 +492,7 @@ router.delete("/milestones/:id", async (req, res): Promise<void> => {
   if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
 
   await db.delete(milestonesTable).where(eq(milestonesTable.id, id));
-  await logActivity({ type: "milestone_deleted", description: `Milestone "${m.name}" deleted`, userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone" });
+  await logActivity({ type: "milestone_deleted", description: `Milestone "${m.name}" deleted`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   res.sendStatus(204);
 });
 
@@ -527,8 +527,8 @@ router.patch("/milestones/:id/review", async (req, res): Promise<void> => {
 
   await logActivity({
     type: action === "approve" ? "milestone_approved" : "milestone_rejected",
-    description: `Milestone "${m.name}" ${action === "approve" ? "signed off" : "rejected"} by user #${ctx.id ?? ctx.userId}`,
-    userId: ctx.id ?? ctx.userId, entityId: id, entityType: "milestone",
+    description: `Milestone "${m.name}" ${action === "approve" ? "signed off" : "rejected"} by user #${(ctx as any).id ?? ctx.userId}`,
+    userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone",
   });
 
   res.json({ ...fmt(updated), warning: outstandingFailures > 0 ? `${outstandingFailures} UAT test case(s) still failing` : null });

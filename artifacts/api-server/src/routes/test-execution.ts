@@ -360,7 +360,7 @@ router.post("/trackers/sync", async (req, res): Promise<void> => {
 
     const response = await fetch(`${redmineUrl}/trackers.json`, { headers });
     if (!response.ok) throw new Error(`Redmine returned ${response.status}`);
-    const data = await response.json();
+    const data: any = await response.json();
     const redmineTrackers: { id: number; name: string }[] = data.trackers ?? [];
 
     for (const t of redmineTrackers) {
@@ -1565,7 +1565,7 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     // CR006: AI-generated CAPA items
     const capaItems = await runCapaAI(ticketId, testCases);
 
-    const buffer = await buildTestCaseExcel(testCases, {
+    const buffer = await buildTestCaseExcel(testCases as any, {
       redmineId: ticketId,
       issueType: typeLabel,
       issueSubject: issueSubject || file?.title || "",

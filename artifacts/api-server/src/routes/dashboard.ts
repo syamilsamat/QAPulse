@@ -1446,7 +1446,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       requirements = requirements.filter(r => r.projectId === projectId);
     }
     if (userId) {
-      tasks = tasks.filter(t => t.assigneeId === userId);
+      tasks = tasks.filter(t => t.assigneeIds?.includes(userId));
       testCases = testCases.filter(tc => tc.authorId === userId);
     }
   }
@@ -1514,7 +1514,7 @@ router.get("/dashboard/team", async (req, res): Promise<void> => {
   const allProjects = await db.select().from(projectsTable);
 
   const memberStats = users.filter(u => u.role === "qa_member" || u.role === "qa_lead").map(user => {
-    const userTasks = allTasks.filter(t => t.assigneeId === user.id);
+    const userTasks = allTasks.filter(t => t.assigneeIds?.includes(user.id));
     const userTestCases = allTestCases.filter(tc => tc.authorId === user.id);
 
     return {
@@ -1548,7 +1548,7 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
   let allTasks = await db.select().from(tasksTable);
 
   if (userId) {
-    allTasks = allTasks.filter((t) => t.assigneeId === userId);
+    allTasks = allTasks.filter((t) => t.assigneeIds?.includes(userId));
   }
 
   const now = new Date();
