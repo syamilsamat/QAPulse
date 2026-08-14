@@ -376,7 +376,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
           },
         );
         if (!uploadRes.ok) throw new Error(`File upload failed: ${uploadRes.status}`);
-        const uploadData = await uploadRes.json();
+        const uploadData: any = await uploadRes.json();
         uploadTokens.push({ token: uploadData.upload.token, filename, content_type: contentType });
       }
     }

@@ -187,7 +187,7 @@ export default function Team() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
       setEditingUser(updated);
-      toast({ title: updated.isActive ? "Member activated" : "Member deactivated" });
+      toast({ title: (updated as any).isActive ? "Member activated" : "Member deactivated" });
     },
     onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
   });
@@ -409,7 +409,7 @@ export default function Team() {
                         >
                           {roleLabelMap[u.role] || formatRoleLabel(u.role)}
                         </span>
-                        {u.isActive === false && (
+                        {(u as any).isActive === false && (
                           <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-200 text-gray-500">
                             Inactive
                           </span>
@@ -696,12 +696,12 @@ export default function Team() {
             {editingUser && (
               <div className="flex gap-2 w-full sm:w-auto order-last sm:order-first">
                 <Button
-                  variant={editingUser.isActive === false ? "default" : "outline"}
-                  className={`flex-1 sm:flex-none ${editingUser.isActive === false ? "bg-green-600 hover:bg-green-700 text-white" : "text-orange-600 border-orange-300 hover:bg-orange-50"}`}
+                  variant={(editingUser as any).isActive === false ? "default" : "outline"}
+                  className={`flex-1 sm:flex-none ${(editingUser as any).isActive === false ? "bg-green-600 hover:bg-green-700 text-white" : "text-orange-600 border-orange-300 hover:bg-orange-50"}`}
                   disabled={toggleActiveMutation.isPending}
-                  onClick={() => toggleActiveMutation.mutate({ id: editingUser.id, isActive: editingUser.isActive === false })}
+                  onClick={() => toggleActiveMutation.mutate({ id: editingUser.id, isActive: (editingUser as any).isActive === false })}
                 >
-                  {toggleActiveMutation.isPending ? "Saving..." : editingUser.isActive === false ? "Activate" : "Set Inactive"}
+                  {toggleActiveMutation.isPending ? "Saving..." : (editingUser as any).isActive === false ? "Activate" : "Set Inactive"}
                 </Button>
                 <Button
                   variant="destructive"

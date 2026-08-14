@@ -6,7 +6,7 @@ import { getAuthContext } from "../middleware/access";
 const router: IRouter = Router();
 
 // GET /pipeline-settings
-router.get("/pipeline-settings", async (req, res): Promise<void> => {
+router.get("/pipeline-settings", async (req, res) => {
   try {
     const auth = getAuthContext(req);
     if (!auth) {
@@ -19,12 +19,12 @@ router.get("/pipeline-settings", async (req, res): Promise<void> => {
     return res.json(settings);
   } catch (error) {
     console.error("Error fetching pipeline settings:", error);
-    res.status(500).json({ error: "Failed to fetch pipeline settings" });
+    return res.status(500).json({ error: "Failed to fetch pipeline settings" });
   }
 });
 
 // PUT /pipeline-settings
-router.put("/pipeline-settings", async (req, res): Promise<void> => {
+router.put("/pipeline-settings", async (req, res) => {
   try {
     const auth = getAuthContext(req);
     if (!auth || auth.role !== "admin") {
@@ -62,10 +62,10 @@ router.put("/pipeline-settings", async (req, res): Promise<void> => {
         .returning();
     }
 
-    res.json(updated);
+    return res.json(updated);
   } catch (error) {
     console.error("Error updating pipeline settings:", error);
-    res.status(500).json({ error: "Failed to update pipeline settings" });
+    return res.status(500).json({ error: "Failed to update pipeline settings" });
   }
 });
 

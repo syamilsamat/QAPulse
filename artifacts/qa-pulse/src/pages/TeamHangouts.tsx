@@ -320,7 +320,7 @@ function EventCard({
   onDelete: (e: SocialEvent) => void;
 }) {
   const cfg = EVENT_TYPE_CONFIG[event.eventType] ?? EVENT_TYPE_CONFIG.other;
-  const Icon = cfg.icon;
+  const Icon = cfg.icon as any;
   const isCreator = event.createdBy === currentUserId;
 
   return (

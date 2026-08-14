@@ -427,7 +427,7 @@ export default function TraceabilityMatrix() {
   };
 
   // ─── Recursive requirement rows ───────────────────────────────────────────
-  const renderReqRows = (req: TraceabilityRow, depth: number, index: number): JSX.Element => {
+  const renderReqRows = (req: TraceabilityRow, depth: number, index: number): React.ReactNode => {
     // CR017 target #3 — an out-of-milestone ancestor exists purely to show
     // context for an in-sprint descendant, so it's always expanded (not
     // independently collapsible) and its rollup is already scoped to just

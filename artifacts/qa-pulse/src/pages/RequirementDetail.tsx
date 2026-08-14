@@ -369,7 +369,7 @@ export default function RequirementDetail() {
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     fetch(url, { headers }).then(res => res.blob()).then(blob => {
       const objectUrl = URL.createObjectURL(blob);
       a.href = objectUrl;

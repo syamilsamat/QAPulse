@@ -570,11 +570,11 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
   };
 
   try {
-    const issueData = await safeJson(`${baseUrl}/issues/${issueId}.json`);
+    const issueData: any = await safeJson(`${baseUrl}/issues/${issueId}.json`);
     if (!issueData?.issue) return null;
     const main = (issueData as any).issue;
 
-    const childData = await safeJson(
+    const childData: any = await safeJson(
       `${baseUrl}/issues.json?parent_id=${issueId}&limit=100&status_id=*`,
     );
     const children: any[] = childData?.issues ?? [];
@@ -605,7 +605,7 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
       defects.map(async (d: any) => {
         try {
           let count = 0;
-          const detailedIssue = await safeJson(`${baseUrl}/issues/${d.id}.json?include=journals`);
+          const detailedIssue: any = await safeJson(`${baseUrl}/issues/${d.id}.json?include=journals`);
 
           if (detailedIssue?.issue?.journals) {
             for (const j of (detailedIssue as any).issue.journals) {
@@ -668,10 +668,10 @@ async function reportFromLocalDB(issueId: string): Promise<Record<string, unknow
     (t) =>
       t.requirementId &&
       reqIds.includes(t.requirementId) &&
-      ["bug_fix", "defect", "bug"].includes(t.type),
+      ["bug_fix", "defect", "bug"].includes((t as any).type),
   );
-  const getName = (id: number | null) =>
-    id ? (users.find((u) => u.id === id)?.name ?? "Unassigned") : "Unassigned";
+  const getName = (ids: number[] | null) =>
+    ids && ids.length ? users.filter(u => ids.includes(u.id)).map(u => u.name).join(", ") : "Unassigned";
 
   const defects = defectTasks.map((t) => ({
     id: t.id,

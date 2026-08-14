@@ -793,7 +793,7 @@ export default function TestCasesExecution() {
       if (req.projectId) updatedForm.projectId = String(req.projectId);
       // Auto-fill module: find execution module matching the requirement's module name
       if (req.module) {
-        const matchedMod = modules.find(m => m.name.toLowerCase() === req.module.toLowerCase());
+        const matchedMod = modules.find(m => m.name.toLowerCase() === req.module?.toLowerCase());
         if (matchedMod && !updatedForm.selectedModules.includes(matchedMod.id)) {
           updatedForm.selectedModules = [matchedMod.id];
         }
@@ -1231,7 +1231,7 @@ export default function TestCasesExecution() {
                     <TableCell className="border-r border-border">
                       <div className="flex flex-col gap-1 items-start">
                         <span>{getTaskForFile(f)?.name || f.title || "—"}</span>
-                        {reviewStatusBadge(f.reviewStatus)}
+                        {reviewStatusBadge((f as any).reviewStatus)}
                       </div>
                     </TableCell>
                     <TableCell className="border-r border-border">{f.qaPic || "—"}</TableCell>
@@ -1298,12 +1298,12 @@ export default function TestCasesExecution() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {(!f.reviewStatus || f.reviewStatus === "draft" || f.reviewStatus === "rejected") && (
+                            {(!(f as any).reviewStatus || (f as any).reviewStatus === "draft" || (f as any).reviewStatus === "rejected") && (
                               <DropdownMenuItem onClick={() => handleReviewAction(f.id, "submit")}>
                                 <Clock className="w-4 h-4 mr-2" /> Submit for Review
                               </DropdownMenuItem>
                             )}
-                            {f.reviewStatus === "in_review" && canReview && (f as any).qaPicSetBy !== user?.id && (f as any).qaPic !== user?.name && (
+                            {(f as any).reviewStatus === "in_review" && canReview && (f as any).qaPicSetBy !== user?.id && (f as any).qaPic !== user?.name && (
                               <>
                                 <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(f.id, "approve")}>
                                   <CheckCircle className="w-4 h-4 mr-2" /> Approve

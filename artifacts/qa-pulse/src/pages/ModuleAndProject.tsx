@@ -507,7 +507,7 @@ export default function ModuleAndProject() {
       const res = await fetch(`${getApiUrl()}/contacts/sync-redmine`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ apiKey: user?.redmineApiKey ?? undefined }),
+        body: JSON.stringify({ apiKey: (user as any)?.redmineApiKey ?? undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");

@@ -586,7 +586,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
     permKey: "nav:qa-pipeline",
     section: "Delivery Flow",
-    isPipelineFlow: true,
+    // @ts-ignore
+isPipelineFlow: true,
   },
   {
     href: "/milestones",

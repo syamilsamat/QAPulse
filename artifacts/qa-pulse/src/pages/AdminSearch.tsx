@@ -132,7 +132,7 @@ export default function AdminSearch() {
     return res.json();
   };
 
-  const handleSuccess = (queryKey: string[], message: string) => {
+  const handleSuccess = (queryKey: readonly any[], message: string) => {
     queryClient.invalidateQueries({ queryKey });
     setDeleteDialogOpen(false);
     setEditDialogOpen(false);

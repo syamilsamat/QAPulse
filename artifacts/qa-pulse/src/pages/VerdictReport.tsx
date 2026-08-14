@@ -354,59 +354,59 @@ function RedmineSection({
             </div>
           )}
 
-          {data?.connected && data.issue && (
+          {data?.connected && (data as any).issue && (
             <div className="space-y-4">
               <div className="rounded-lg border p-4 bg-muted/20 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-sm flex items-center gap-1">
                       <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                      #{data.issue.id} — {data.issue.subject}
+                      #{(data as any).issue.id} — {(data as any).issue.subject}
                     </p>
-                    {data.issue.projectName && (
+                    {(data as any).issue.projectName && (
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Project: {data.issue.projectName}
+                        Project: {(data as any).issue.projectName}
                       </p>
                     )}
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <Badge
-                      className={`text-xs ${STATUS_COLOR[data.issue.status] ?? "bg-gray-100 text-gray-700"}`}
+                      className={`text-xs ${STATUS_COLOR[(data as any).issue.status] ?? "bg-gray-100 text-gray-700"}`}
                     >
-                      {data.issue.status}
+                      {(data as any).issue.status}
                     </Badge>
                     <Badge
-                      className={`text-xs ${PRIORITY_COLOR[data.issue.priority] ?? "bg-gray-100 text-gray-700"}`}
+                      className={`text-xs ${PRIORITY_COLOR[(data as any).issue.priority] ?? "bg-gray-100 text-gray-700"}`}
                     >
-                      {data.issue.priority}
+                      {(data as any).issue.priority}
                     </Badge>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                   <div>
                     <p className="text-muted-foreground">Tracker</p>
-                    <p className="font-medium">{data.issue.tracker}</p>
+                    <p className="font-medium">{(data as any).issue.tracker}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Assignee</p>
-                    <p className="font-medium">{data.issue.assignee || "—"}</p>
+                    <p className="font-medium">{(data as any).issue.assignee || "—"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Done</p>
-                    <p className="font-medium">{data.issue.doneRatio ?? 0}%</p>
+                    <p className="font-medium">{(data as any).issue.doneRatio ?? 0}%</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Due Date</p>
                     <p className="font-medium">
-                      {data.issue.dueDate
-                        ? format(new Date(data.issue.dueDate), "dd/MM/yyyy")
+                      {(data as any).issue.dueDate
+                        ? format(new Date((data as any).issue.dueDate), "dd/MM/yyyy")
                         : "—"}
                     </p>
                   </div>
                 </div>
-                {data.issue.description && (
+                {(data as any).issue.description && (
                   <p className="text-xs text-muted-foreground border-t pt-2 line-clamp-3">
-                    {data.issue.description}
+                    {(data as any).issue.description}
                   </p>
                 )}
               </div>
@@ -580,7 +580,7 @@ function RedmineSection({
             </div>
           )}
 
-          {data?.connected && !data.issue && (
+          {data?.connected && !(data as any).issue && (
             <p className="text-sm text-muted-foreground text-center py-6">
               Issue #{issueId} not found in Redmine database.
             </p>
@@ -837,7 +837,7 @@ export default function VerdictReport() {
       }
 
       const reportName = data?.issueSubject
-        ? data.issueSubject.replace(/[^a-z0-9]/gi, "_")
+        ? (data as any).issueSubject.replace(/[^a-z0-9]/gi, "_")
         : `Ticket_${redmineId}`;
       const fileName = `Report_${reportName}_${getFormattedDateString()}.pdf`;
 
@@ -857,7 +857,7 @@ export default function VerdictReport() {
     if (!data) return;
     setIsSending(true);
     try {
-      const reportName = data.issueSubject || `Ticket #${redmineId}`;
+      const reportName = (data as any).issueSubject || `Ticket #${redmineId}`;
       const res = await fetch(`${getApiUrl()}/verdict-report/send-email`, {
         method: "POST",
         headers: {
@@ -900,8 +900,8 @@ export default function VerdictReport() {
         body: JSON.stringify({
           redmineId,
           issueType: data.trackerName || "Issue",
-          issueSubject: data.issueSubject || "",
-          projectName: data.issue?.projectName || "",
+          issueSubject: (data as any).issueSubject || "",
+          projectName: (data as any).issue?.projectName || "",
           verdict,
           reason,
           to,
@@ -1107,9 +1107,9 @@ export default function VerdictReport() {
                     as of{" "}
                     {format(new Date(data.generatedAt), "dd/MM/yyyy [HH:mm]")}
                   </p>
-                  {data.issueSubject && (
+                  {(data as any).issueSubject && (
                     <p className="text-sm font-medium text-foreground mt-1 max-w-lg mx-auto">
-                      #{data.redmineId} — {data.issueSubject}
+                      #{data.redmineId} — {(data as any).issueSubject}
                     </p>
                   )}
                   {data.projectName && (

@@ -1492,7 +1492,7 @@ export async function syncRedmineTicket(
 ): Promise<number | undefined> {
   const resp = await redmineFetchLocal(`/issues/${encodeURIComponent(ticketId)}.json?include=children,journals,attachments`, apiKey);
   if (!resp.ok) throw new Error(`Could not fetch Redmine issue #${ticketId}`);
-  const data = await resp.json();
+  const data: any = await resp.json();
   const issue = data.issue;
   if (!issue) throw new Error(`No issue data for #${ticketId}`);
 
@@ -1617,7 +1617,7 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
       res.status(404).json({ error: `Redmine issue #${ticketId} not found` });
       return;
     }
-    const data = await resp.json();
+    const data: any = await resp.json();
     const issue = data.issue;
     if (!issue) {
       res.status(404).json({ error: `Redmine issue #${ticketId} not found` });

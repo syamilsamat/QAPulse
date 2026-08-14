@@ -612,7 +612,7 @@ const DesktopTableRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
+    const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
 
     if (row.rowType === "group") {
       return (
@@ -937,7 +937,7 @@ const MobileCardRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
+    const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
 
     return (
       <Card
@@ -1261,9 +1261,9 @@ export default function TestCasesExecutionProgressPage() {
   const [linkingMilestone, setLinkingMilestone] = useState(false);
 
   // Dirty tracking — only changed rows go out on auto-save
-  const [dirtyRowIds, setDirtyRowIds] = useState<Set<string | number>>(new Set());
+  const [dirtyRowIds, setDirtyRowIds] = useState<Set<any>>(new Set());
   const [deletedDbIds, setDeletedDbIds] = useState<Set<number>>(new Set());
-  const dirtyRowIdsRef = useRef<Set<string | number>>(new Set());
+  const dirtyRowIdsRef = useRef<Set<any>>(new Set());
   const deletedDbIdsRef = useRef<Set<number>>(new Set());
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1448,7 +1448,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileProjectId(file?.projectId ?? null);
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
-        setCurrentFileReviewStatus(file?.reviewStatus ?? null);
+        setCurrentFileReviewStatus((file as any)?.reviewStatus ?? null);
         setCurrentFileRejectionReason((file as any)?.rejectionReason ?? null);
         setCurrentFileQaPicSetBy((file as any)?.qaPicSetBy ?? null);
         setCurrentFileQaPic(file?.qaPic ?? null);
@@ -1572,7 +1572,7 @@ export default function TestCasesExecutionProgressPage() {
     const row = createEmptyRow();
     if (availableModules.length === 1) row.moduleName = availableModules[0].name;
     setData((prev) => [...prev, row]);
-    setDirtyRowIds((prev) => new Set([...prev, row.id]));
+    setDirtyRowIds((prev) => new Set([...prev, row.id as string]));
     setHasUnsavedChanges(true);
   };
 
@@ -1580,14 +1580,14 @@ export default function TestCasesExecutionProgressPage() {
     const row = { ...createEmptyRow(), rowType: "group" as const };
     if (availableModules.length === 1) row.moduleName = availableModules[0].name;
     setData((prev) => [...prev, row]);
-    setDirtyRowIds((prev) => new Set([...prev, row.id]));
+    setDirtyRowIds((prev) => new Set([...prev, row.id as string]));
     setHasUnsavedChanges(true);
   };
 
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
       // Update ref immediately so blur-save and polling see it without waiting for useEffect
-      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id]);
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
       setDirtyRowIds(dirtyRowIdsRef.current);
       if (field === "result") {
         const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
@@ -1843,7 +1843,7 @@ export default function TestCasesExecutionProgressPage() {
       dataRef.current = updated;
       return updated;
     });
-    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id]);
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
     setDirtyRowIds(dirtyRowIdsRef.current);
     setSaveStatus("saving");
     try {
@@ -2913,17 +2913,17 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
-      {currentFileReviewStatus && currentFileReviewStatus !== "approved" && (
+      {((window as any).currentFileReviewStatus || '') && ((window as any).currentFileReviewStatus || '') !== "approved" && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
               <p className="font-semibold text-sm">Execution is Locked</p>
               <p className="text-xs text-amber-700 mt-1">
-                This execution file is currently in <strong>{currentFileReviewStatus.replace("_", " ")}</strong> status. 
+                This execution file is currently in <strong>{((window as any).currentFileReviewStatus || '').replace("_", " ")}</strong> status. 
                 You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
               </p>
-              {currentFileReviewStatus === "rejected" && currentFileRejectionReason && (
+              {((window as any).currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
                 <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
                   <strong>Rejection Reason:</strong> <br/>
                   <span className="whitespace-pre-wrap">{currentFileRejectionReason}</span>
@@ -2931,7 +2931,7 @@ export default function TestCasesExecutionProgressPage() {
               )}
             </div>
           </div>
-          {currentFileReviewStatus === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
+          {((window as any).currentFileReviewStatus || '') === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
                 <XCircle className="w-4 h-4 mr-2" /> Reject
@@ -3424,7 +3424,7 @@ export default function TestCasesExecutionProgressPage() {
               const isQaMember = currentUser?.role === "qa_member";
               const isAssignedToMe = row.qaPic === currentUser?.name;
               const isUnassigned = !row.qaPic;
-              const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
+              const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
               const steps = parseLines(row.testSteps);
               const expectations = parseLines(row.expectedResult);
@@ -3718,7 +3718,7 @@ export default function TestCasesExecutionProgressPage() {
                         const isQaMember = currentUser?.role === "qa_member";
                         const isAssignedToMe = row.qaPic === currentUser?.name;
                         const isUnassigned = !row.qaPic;
-                        const canEdit = (!isQaMember || isAssignedToMe) && currentFileReviewStatus === "approved";
+                        const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
                         if (row.rowType === "group") {
                           return (
                             <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">

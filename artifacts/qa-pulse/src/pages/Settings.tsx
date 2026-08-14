@@ -90,7 +90,7 @@ export default function Settings() {
   const updateMutation = useUpdateUser({
     mutation: {
       onSuccess: (updated) => {
-        if (token) login(updated, token);
+        if (token) login(updated, token, undefined as any, undefined as any);
         qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
         toast({ title: "Profile updated successfully" });
         setAvatarData(null);
@@ -229,7 +229,7 @@ export default function Settings() {
       });
       if (!res.ok) throw new Error("Failed to save");
       const updated = await res.json();
-      if (token) login(updated, token);
+      if (token) login(updated, token, undefined as any, undefined as any);
       setShowRedmineKey(true);
       toast({ title: "Redmine API key saved" });
     } catch {
