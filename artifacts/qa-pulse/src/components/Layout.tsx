@@ -928,7 +928,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           className={`flex-1 ${show ? "px-2" : "px-3"} space-y-1 overflow-y-auto`}
         >
           {visibleNavItems.map((item, idx) => {
-            const Icon = item.icon;
+            const Icon = item.icon as any;
             const badge = item.showBadge ? unreadCount : 0;
             const isParentActive =
               location === item.href ||
@@ -1002,7 +1002,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {item.subItems && !show && (
                   <div className="ml-5 mt-1 flex flex-col space-y-0.5 border-l-2 border-muted/30 pl-2">
                     {item.subItems.map((sub) => {
-                      const SubIcon = sub.icon;
+                      const SubIcon = sub.icon as any;
                       return (
                         <Link key={sub.href} href={sub.href}>
                           <div
@@ -1131,7 +1131,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </Link>
               {activeItem.subItems.map((sub) => {
-                const SubIcon = sub.icon;
+                const SubIcon = sub.icon as any;
                 const isActive = location === sub.href;
                 return (
                   <Link key={sub.href} href={sub.href}>

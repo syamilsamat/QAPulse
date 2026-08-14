@@ -421,7 +421,7 @@ export default function Requirements() {
       const addDescendants = (// @ts-ignore
 parentId: number) => {
         for (const r of requirements) {
-          if (r.parentId === parentId && !toInclude.has(r.id)) {
+          if ((r as any).parentId === parentId && !toInclude.has(r.id)) {
             toInclude.add(r.id);
             addDescendants(r.id);
           }

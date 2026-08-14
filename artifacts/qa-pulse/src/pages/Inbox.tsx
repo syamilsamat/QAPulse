@@ -54,7 +54,7 @@ const ENTITY_FILTERS: { label: string; entityTypes: string[] | null }[] = [
 
 function NotifIcon({ type }: { type: string }) {
   const cfg = TYPE_CONFIG[type] ?? TYPE_CONFIG.info;
-  const Icon = cfg.icon;
+  const Icon = cfg.icon as any;
   return (
     <div className={`p-2 rounded-full ${cfg.bg} shrink-0`}>
       <Icon className={`w-4 h-4 ${cfg.color}`} />

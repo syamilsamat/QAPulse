@@ -64,7 +64,7 @@ export function resolveNotifRoute(entityType: string | null, entityId: number | 
 
 function NotifIcon({ type, size = "sm" }: { type: string; size?: "sm" | "xs" }) {
   const cfg = TYPE_CONFIG[type] ?? TYPE_CONFIG.info;
-  const Icon = cfg.icon;
+  const Icon = cfg.icon as any;
   const pad = size === "xs" ? "p-1" : "p-1.5";
   const iconSize = size === "xs" ? "w-3 h-3" : "w-3.5 h-3.5";
   return (
