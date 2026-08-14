@@ -11,6 +11,8 @@
   "private": true,
   "devDependencies": {
     "@types/pg": "^8.20.0",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@types/three": "0.180.0",
     "@types/xlsx": "^0.0.36",
     "prettier": "^3.8.1",
