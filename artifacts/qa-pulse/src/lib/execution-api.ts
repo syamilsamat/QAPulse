@@ -441,6 +441,7 @@ export const registerLocalDefect = async (payload: {
   defectCategory?: string;
   executionTcId?: number | null;
   assigneeName?: string;
+  tracker?: string;
 }): Promise<void> => {
   await fetch("/api/defects/register", {
     method: "POST",

@@ -371,7 +371,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName, defectCategory,
       assigneeId, assigneeName, complexity, targetedStartDate, targetedCompletionDate,
-      source, milestoneId,
+      source, milestoneId, tracker,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -476,6 +476,7 @@ router.post("/defects", async (req, res): Promise<void> => {
         reporterId: actorId,
         source: isRequirementDefect ? "requirement" : "qa",
         foundIn: foundIn ?? (isRequirementDefect ? "Development" : "SIT"),
+        tracker: trackerName ?? null,
         defectCategory: categoryAllowed ? defectCategory : null,
         syncStatus: isRequirementDefect ? "not_applicable" : "pending",
         // CR045 — a QA defect created with an assignee picked in the dialog
@@ -608,7 +609,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName } = req.body ?? {};
+    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, tracker } = req.body ?? {};
     if (!redmineId || !title) {
       res.status(400).json({ error: "redmineId and title are required" });
       return;
@@ -683,6 +684,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
             syncStatus: "synced",
             source: "qa",
             foundIn,
+            tracker: typeof tracker === "string" ? tracker : null,
             defectCategory: categoryAllowed ? defectCategory : null,
             statusSyncedAt: null,
             assigneeId: localAssigneeId,

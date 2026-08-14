@@ -273,6 +273,7 @@ export default function DefectCreationModal({
         defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
         assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
+        tracker: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
       }).catch(() => {});
       onDefectCreated({
         redmineIssueId: result.id.toString(),
@@ -486,12 +487,22 @@ export default function DefectCreationModal({
               </div>
 
               <div className="space-y-1.5">
-                <Label>Tracker</Label>
-                <Input
-                  value={trackers.find((t) => t.id === qaDefectTrackerId)?.name ?? "QA Defect"}
-                  disabled
-                  className="bg-muted/50"
-                />
+                <Label>Tracker <span className="text-destructive">*</span></Label>
+                <Select
+                  value={qaDefectTrackerId?.toString() ?? ""}
+                  onValueChange={(v) => setQaDefectTrackerId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select tracker..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {trackers.map((t) => (
+                      <SelectItem key={t.id} value={t.id.toString()}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

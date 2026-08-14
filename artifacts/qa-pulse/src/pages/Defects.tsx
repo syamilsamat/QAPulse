@@ -1517,6 +1517,7 @@ function NewDefectDialog({
           ...form,
           assigneeId: selectedAssigneeId,
           assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
+          trackerName: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
           complexity,
           targetedStartDate: targetedStartDate || undefined,
           targetedCompletionDate: targetedCompletionDate || undefined,
@@ -1681,7 +1682,17 @@ function NewDefectDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Tracker</Label>
-                <Input value={trackers.find((t) => t.id === qaDefectTrackerId)?.name ?? "QA Defect"} disabled className="bg-muted/50" />
+                <Select
+                  value={qaDefectTrackerId?.toString() ?? ""}
+                  onValueChange={(v) => setQaDefectTrackerId(Number(v))}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select tracker..." /></SelectTrigger>
+                  <SelectContent>
+                    {trackers.map((t) => (
+                      <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
