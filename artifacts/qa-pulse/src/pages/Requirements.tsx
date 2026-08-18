@@ -318,7 +318,7 @@ export default function Requirements() {
     openCreateChild(parentReq);
   }, [searchString, requirements]);
 
-  const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
+  const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa", "qa_manager"];
   const canReview = FA_REVIEW_ROLES.includes(user?.role ?? "");
 
   // Edit permission mirrors the backend check in PATCH /requirements/:id:

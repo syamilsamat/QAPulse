@@ -695,14 +695,14 @@ router.delete("/requirements/:id", async (req, res): Promise<void> => {
 
 // ─── FA Review Workflow (CR014 Part 4) ───────────────────────────────────────
 
-const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
+const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa", "qa_manager"];
 
 // GET /requirements/review-queue — My Review Queue for FA roles
 router.get("/requirements/review-queue", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const isLead = ["fa_lead", "hod_fa", "hod_qa", "admin"].includes(ctx.role);
+  const isLead = ["fa_lead", "hod_fa", "hod_qa", "admin", "qa_manager"].includes(ctx.role);
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
 
   // "Waiting on my review" — in_review, not authored by me
@@ -808,7 +808,8 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
     }).catch(() => {});
   }
 
-  // Notify on approve: author + assignee ("routine progress", no PM needed)
+  // Notify on approve: author + assignee + the milestone's PM (so the PM
+  // knows to move on to Assign Owners)
   // Notify on reject: author + assignee + the milestone's PM ("needs visibility because of a stall")
   if (action === "approve" || action === "reject") {
     const title = action === "approve" ? "Requirement approved" : "Requirement rejected";
@@ -821,7 +822,7 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
     if (createdBy) recipients.add(createdBy);
     if (req_.assigneeId) recipients.add(req_.assigneeId);
 
-    if (action === "reject" && req_.milestoneId) {
+    if (req_.milestoneId) {
       const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, req_.milestoneId));
       if (milestone?.createdBy) recipients.add(milestone.createdBy);
     }
