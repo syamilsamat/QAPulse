@@ -1451,12 +1451,18 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     }
   }
 
+  // "released_to_production" and "done" both mean the task is finished —
+  // the overdue check only ever excluded the former, so a 100%-complete
+  // task sitting at "done" past its due date was counted as overdue right
+  // alongside genuinely stalled work.
+  const CLOSED_TASK_STATUSES = ["released_to_production", "done"];
+
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === "released_to_production").length;
   const pendingTasks = tasks.filter(t => ["uat", "sit"].includes(t.status)).length;
   const blockedTasks = tasks.filter(t => t.status === "blocked").length;
   const overdueTasks = tasks.filter(t => {
-    if (t.status === "released_to_production" || !t.dueDate) return false;
+    if (CLOSED_TASK_STATUSES.includes(t.status) || !t.dueDate) return false;
     return new Date(t.dueDate) < now;
   }).length;
 
@@ -1472,7 +1478,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const blockedOrOverdueTasks = tasks
     .filter(t => {
       if (t.status === "blocked") return true;
-      if (t.status === "released_to_production" || !t.dueDate) return false;
+      if (CLOSED_TASK_STATUSES.includes(t.status) || !t.dueDate) return false;
       return new Date(t.dueDate) < now;
     })
     .map(t => ({
@@ -1481,7 +1487,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       name: t.name,
       status: t.status,
       dueDate: t.dueDate,
-      isOverdue: t.status !== "released_to_production" && !!t.dueDate && new Date(t.dueDate) < now,
+      isOverdue: !CLOSED_TASK_STATUSES.includes(t.status) && !!t.dueDate && new Date(t.dueDate) < now,
     }));
 
   // Pending task details (UAT / SIT)
