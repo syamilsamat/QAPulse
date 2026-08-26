@@ -456,6 +456,37 @@ router.get("/test-cases/:id/executions", async (req, res): Promise<void> => {
   );
 });
 
+// GET /test-cases/review-queue — "waiting on my review" (in_review, not
+// authored by me) + "awaiting my revision" (rejected, authored by me).
+// Mirrors GET /execution-files/review-queue. Registered before the
+// GET /test-cases/:id route below so "review-queue" is never swallowed as
+// an :id. The frontend has been calling this endpoint since it was built —
+// it just 404'd until now, silently falling back to an empty queue.
+router.get("/test-cases/review-queue", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const all = await db.select().from(testCasesTable);
+  const scoped = all.filter((t) => accessible === null || (t.projectId != null && accessible.includes(t.projectId)));
+
+  const waitingOnMe = scoped.filter((t) => t.reviewStatus === "in_review" && t.authorId !== ctx.userId);
+  const awaitingMyRevision = scoped.filter((t) => t.reviewStatus === "rejected" && t.authorId === ctx.userId);
+
+  function withMeta(rows: typeof all) {
+    return rows.map((t) => ({
+      id: t.id,
+      title: t.title,
+      projectId: t.projectId,
+      requirementId: t.requirementId,
+      reviewStatus: t.reviewStatus,
+      updatedAt: t.updatedAt.toISOString(),
+    }));
+  }
+
+  res.json({ waitingOnMe: withMeta(waitingOnMe), awaitingMyRevision: withMeta(awaitingMyRevision) });
+});
+
 router.get("/test-cases/:id", async (req, res): Promise<void> => {
   const params = GetTestCaseParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
@@ -492,6 +523,101 @@ router.patch("/test-cases/:id", async (req, res): Promise<void> => {
   }
 
   res.json(await formatTestCase(tc));
+});
+
+// PATCH /test-cases/:id/review — action: 'submit' | 'approve' | 'reject'.
+// Peer review of the library test case's own content — separate from, and
+// unrelated to, an execution file's review (approved-to-execute) or a
+// requirement's FA review. Same segregation-of-duties + role gate pattern
+// as those two endpoints (requirements.ts, test-execution.ts).
+router.patch("/test-cases/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!QA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA role required for review actions" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [tc] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, id));
+  if (!tc) { res.status(404).json({ error: "Test case not found" }); return; }
+
+  if (tc.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, tc.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const { action, comment } = req.body ?? {};
+  if (!["submit", "approve", "reject"].includes(action)) {
+    res.status(400).json({ error: "action must be submit, approve, or reject" }); return;
+  }
+
+  // Segregation of duties: the author can't peer-review their own test case
+  if ((action === "approve" || action === "reject") && tc.authorId === ctx.userId) {
+    res.status(403).json({ error: `You cannot ${action} a test case you authored` }); return;
+  }
+
+  const now = new Date();
+  const update: Record<string, any> = {};
+
+  if (action === "submit") {
+    update.reviewStatus = "in_review";
+    update.rejectedBy = null;
+    update.rejectedAt = null;
+  } else if (action === "approve") {
+    update.reviewStatus = "approved";
+    update.approvedBy = ctx.userId;
+    update.approvedAt = now;
+    update.rejectedBy = null;
+    update.rejectedAt = null;
+  } else {
+    update.reviewStatus = "rejected";
+    update.rejectedBy = ctx.userId;
+    update.rejectedAt = now;
+  }
+
+  const [updated] = await db.update(testCasesTable).set(update).where(eq(testCasesTable.id, id)).returning();
+
+  await logActivity({
+    type: `test_case_${action}`,
+    description: `Test case "${tc.title}" ${action === "submit" ? "submitted for peer review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "test_case",
+    oldValue: { reviewStatus: tc.reviewStatus ?? "draft" },
+    newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
+  });
+
+  if (action === "submit" && tc.projectId != null) {
+    await notifyRolesInProject({
+      roles: QA_REVIEW_ROLES,
+      projectId: tc.projectId,
+      module: tc.module,
+      title: "Test case submitted for peer review",
+      message: `"${tc.title}" is waiting on your review.`,
+      type: "review_request",
+      entityType: "test_case",
+      entityId: id,
+      actorId: ctx.userId,
+      excludeUserIds: tc.authorId != null ? [tc.authorId] : [],
+    }).catch(() => {});
+  }
+
+  if ((action === "approve" || action === "reject") && tc.authorId) {
+    const title = action === "approve" ? "Test case approved" : "Test case rejected";
+    const msg = action === "approve"
+      ? `Your test case "${tc.title}" has been approved.`
+      : `Test case "${tc.title}" was rejected${comment ? `: ${comment}` : ""}.`;
+    await notifyUser(
+      tc.authorId,
+      title,
+      msg,
+      action === "approve" ? "review_approved" : "review_rejected",
+      "test_case",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+  }
+
+  res.json(await formatTestCase(updated));
 });
 
 router.delete("/test-cases/:id", async (req, res): Promise<void> => {

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useSearch, useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   listTestCases,
   getListTestCasesQueryKey,
@@ -763,6 +763,34 @@ export default function TestCases() {
     refetchInterval: 60000,
   });
 
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: number; action: "submit" | "approve" | "reject" }) => {
+      const res = await fetch(`${getApiUrl()}/test-cases/${id}/review`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Failed to ${action} test case`);
+      }
+      return res.json();
+    },
+    onSuccess: (_data, { action }) => {
+      queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ["test-cases-review-queue"] });
+      toast({
+        title: action === "submit" ? "Submitted for peer review" : action === "approve" ? "Test case approved" : "Test case rejected",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Review action failed", description: err?.message, variant: "destructive" });
+    },
+  });
+
   const [compileOpen, setCompileOpen] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -1310,6 +1338,36 @@ export default function TestCases() {
     }
   };
 
+  // Peer-review status of the library test case itself — separate from an
+  // execution file's own reviewStatus badge (TestCasesExecution.tsx). Draft
+  // is the default/no-op state so it's left unbadged, same convention as
+  // the execution file list uses for its own "draft" status.
+  const reviewStatusBadge = (status?: string | null) => {
+    if (!status || status === "draft") return null;
+    if (status === "in_review") {
+      return (
+        <Badge variant="outline" className="text-[9px] h-4 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400 shrink-0">
+          In Review
+        </Badge>
+      );
+    }
+    if (status === "approved") {
+      return (
+        <Badge variant="outline" className="text-[9px] h-4 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 shrink-0">
+          Approved
+        </Badge>
+      );
+    }
+    if (status === "rejected") {
+      return (
+        <Badge variant="outline" className="text-[9px] h-4 border-red-300 text-red-700 dark:border-red-700 dark:text-red-400 shrink-0">
+          Rejected
+        </Badge>
+      );
+    }
+    return null;
+  };
+
   const tcTableRow = (tc: any) => {
     const cellPy = viewMode === "compact" ? "py-1.5" : "py-3";
     return (
@@ -1357,7 +1415,7 @@ export default function TestCases() {
                   Requirement Revised
                 </Badge>
               )}
-
+              {reviewStatusBadge(tc.reviewStatus)}
             </div>
           </TableCell>
           {viewMode === "comfy" && (
@@ -1420,6 +1478,51 @@ export default function TestCases() {
                   <DetailItem label="Expected Result" value={tc.expectedResult} highlight />
                   <DetailItem label="Additional / Comments / Issues" value={tc.comments} />
                 </div>
+
+                {/* Peer review of this library test case's own content —
+                    separate from the execution file's own approval gate. */}
+                {tc.reviewStatus === "in_review" && canReview && tc.authorId !== user?.id && (
+                  <div className="lg:col-span-2 flex items-center gap-2 pt-4 border-t">
+                    <span className="text-xs text-amber-700 dark:text-amber-400 mr-auto">
+                      Pending your peer review
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
+                      disabled={reviewMutation.isPending}
+                      onClick={() => reviewMutation.mutate({ id: tc.id, action: "reject" })}
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                      disabled={reviewMutation.isPending}
+                      onClick={() => reviewMutation.mutate({ id: tc.id, action: "approve" })}
+                    >
+                      Approve
+                    </Button>
+                  </div>
+                )}
+                {(!tc.reviewStatus || tc.reviewStatus === "draft" || tc.reviewStatus === "rejected") && tc.authorId === user?.id && (
+                  <div className="lg:col-span-2 flex items-center gap-2 pt-4 border-t">
+                    {tc.reviewStatus === "rejected" && (
+                      <span className="text-xs text-red-600 dark:text-red-400 mr-auto">
+                        Rejected — revise and resubmit
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs ml-auto"
+                      disabled={reviewMutation.isPending}
+                      onClick={() => reviewMutation.mutate({ id: tc.id, action: "submit" })}
+                    >
+                      Submit for Peer Review
+                    </Button>
+                  </div>
+                )}
               </div>
             </TableCell>
           </TableRow>
@@ -1463,6 +1566,46 @@ export default function TestCases() {
           </div>
         </div>
       </div>
+
+      {canReview && reviewQueue && (reviewQueue.waitingOnMe.length > 0 || reviewQueue.awaitingMyRevision.length > 0) && (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2">
+          <p className="text-xs font-medium text-amber-800 dark:text-amber-400 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" /> Peer Review Queue
+          </p>
+          {reviewQueue.waitingOnMe.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Waiting on my review ({reviewQueue.waitingOnMe.length})</p>
+              <div className="space-y-1">
+                {reviewQueue.waitingOnMe.slice(0, 5).map((t: any) => (
+                  <button
+                    key={t.id}
+                    className="w-full text-left text-sm bg-white dark:bg-background rounded px-2 py-1 border border-amber-100 dark:border-amber-900 hover:underline truncate block"
+                    onClick={() => { setSearch(""); setCurrentPage(1); setExpandedId(t.id); }}
+                  >
+                    {t.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {reviewQueue.awaitingMyRevision.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Rejected — awaiting my revision ({reviewQueue.awaitingMyRevision.length})</p>
+              <div className="space-y-1">
+                {reviewQueue.awaitingMyRevision.slice(0, 5).map((t: any) => (
+                  <button
+                    key={t.id}
+                    className="w-full text-left text-sm bg-white dark:bg-background rounded px-2 py-1 border border-red-100 dark:border-red-900 hover:underline truncate block"
+                    onClick={() => { setSearch(""); setCurrentPage(1); setExpandedId(t.id); }}
+                  >
+                    {t.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {selectedIds.size > 0 && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">

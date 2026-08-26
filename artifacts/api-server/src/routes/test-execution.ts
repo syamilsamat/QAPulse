@@ -1029,16 +1029,22 @@ router.get(
       }
 
       // CR023p4 — flag rows whose library test case's linked requirement was
-      // revised since this execution instance last acknowledged a revision
+      // revised since this execution instance last acknowledged a revision.
+      // Same lookup also carries the library test case's own peer-review
+      // status, so a row whose test case is still mid peer-review can show
+      // a soft warning (not a hard lock — see reviewStatusBadge on
+      // TestCasesExecutionProgressPage.tsx) without a second query.
       const libTcIds = [...new Set(testCases.map((t) => t.libraryTcId).filter((v): v is number => v != null))];
       const revisedMap = new Map<number, Date>();
+      const libReviewStatusMap = new Map<number, string>();
       if (libTcIds.length > 0) {
         const revisedRows = await db
-          .select({ id: testCasesTable.id, requirementRevisedAt: testCasesTable.requirementRevisedAt })
+          .select({ id: testCasesTable.id, requirementRevisedAt: testCasesTable.requirementRevisedAt, reviewStatus: testCasesTable.reviewStatus })
           .from(testCasesTable)
           .where(inArray(testCasesTable.id, libTcIds));
         for (const row of revisedRows) {
           if (row.requirementRevisedAt) revisedMap.set(row.id, row.requirementRevisedAt);
+          if (row.reviewStatus) libReviewStatusMap.set(row.id, row.reviewStatus);
         }
       }
 
@@ -1048,12 +1054,14 @@ router.get(
           const revisedAt = t.libraryTcId != null ? revisedMap.get(t.libraryTcId) : undefined;
           const reviewAcknowledgedAt = (t as any).reviewAcknowledgedAt ?? null;
           const alertRevised = !!revisedAt && (!reviewAcknowledgedAt || new Date(reviewAcknowledgedAt) < revisedAt);
+          const libraryReviewStatus = t.libraryTcId != null ? libReviewStatusMap.get(t.libraryTcId) ?? null : null;
           return {
             id: t.id,
             moduleName: t.moduleName,
             caseId: t.caseId,
             testCaseId: t.testCaseId,
             libraryTcId: t.libraryTcId,
+            libraryReviewStatus,
             userStory: t.userStory,
             requirementId: t.requirementId,
             tracker: (t as any).tracker,
