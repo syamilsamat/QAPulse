@@ -1512,13 +1512,19 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     }
   }
 
-  const isPending = (phase: string) => phase === "qa" || phase === "uat";
+  // A completed milestone's requirement isn't "pending" no matter which
+  // phase it last sat in — same "completed beats phase" precedence the
+  // weekly-trend bucketing already uses. Without this, a requirement that
+  // finished cleanly (e.g. reached UAT, then its milestone closed) was
+  // double-counted as both completed and pending.
+  const isPending = (r: (typeof taskRows)[number]) =>
+    r.milestoneStatus !== "completed" && (r.phase === "qa" || r.phase === "uat");
   const isOverdueRow = (r: (typeof taskRows)[number]) =>
     r.milestoneStatus !== "completed" && !!r.dueDate && new Date(r.dueDate) < now;
 
   const totalTasks = taskRows.length;
   const completedTasks = taskRows.filter(r => r.milestoneStatus === "completed").length;
-  const pendingTasks = taskRows.filter(r => isPending(r.phase)).length;
+  const pendingTasks = taskRows.filter(isPending).length;
   const blockedTasks = taskRows.filter(r => r.isBlocked).length;
   const overdueTasks = taskRows.filter(isOverdueRow).length;
 
@@ -1542,9 +1548,9 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       isOverdue: isOverdueRow(r),
     }));
 
-  // Pending task details (QA / UAT phase)
+  // Pending task details (QA / UAT phase, milestone still open)
   const pendingTasksList = taskRows
-    .filter(r => isPending(r.phase))
+    .filter(isPending)
     .map(r => ({ id: r.requirementId, requirementId: r.requirementId, name: r.title, status: r.phaseLabel, dueDate: r.dueDate ?? null }));
 
   res.json({
