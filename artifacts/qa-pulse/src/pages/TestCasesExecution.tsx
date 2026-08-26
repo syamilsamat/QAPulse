@@ -749,14 +749,20 @@ export default function TestCasesExecution() {
     return files.filter(f => {
       if (!(f.redmineTicketId.includes(search) || f.title?.toLowerCase().includes(q))) return false;
       const prog = progress[f.redmineTicketId];
+      // "Completed" means every row actually passed — a Failed, Blocked, or
+      // still-In Progress row means the file isn't done, no matter how many
+      // rows have *some* result recorded.
       if (resultFilter === "completed") {
-        return !!prog && prog.total > 0 && (prog.passed + prog.failed + prog.blocked + prog.inProgress) === prog.total;
+        return !!prog && prog.total > 0 && prog.passed === prog.total;
       }
       if (resultFilter === "has_failures") return !!prog && (prog.failed > 0 || prog.blocked > 0);
+      // "In Progress" is everything that isn't fully passed and isn't
+      // untouched — partial execution, a full pass/fail mix, all-blocked,
+      // whatever: anything with at least one recorded result short of a
+      // clean 100% pass.
       if (resultFilter === "in_progress") {
-        return !!prog && prog.total > 0 &&
-          (prog.passed + prog.failed + prog.blocked + prog.inProgress) > 0 &&
-          (prog.passed + prog.failed + prog.blocked + prog.inProgress) < prog.total;
+        return !!prog && prog.total > 0 && prog.passed < prog.total &&
+          (prog.passed + prog.failed + prog.blocked + prog.inProgress) > 0;
       }
       if (resultFilter === "not_started") return !prog || prog.total === 0 || (prog.passed + prog.failed + prog.blocked + prog.inProgress) === 0;
       return true;
