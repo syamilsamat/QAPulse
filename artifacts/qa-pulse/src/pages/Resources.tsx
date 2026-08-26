@@ -31,7 +31,7 @@ interface ResourceRow {
   role: string;
   department: string | null;
   projects: ProjectRef[];
-  signal: "execution_pic" | "requirement_author" | "task" | null;
+  signal: "execution_pic" | "requirement_author" | "dev_assignee" | "milestone_owner" | null;
   activeMilestones: MilestoneRef[];
   hasNoActiveMilestone: boolean;
   closedMilestones: MilestoneRef[];
@@ -68,7 +68,8 @@ const DEPT_CLASS: Record<string, string> = {
 const SIGNAL_LABEL: Record<string, string> = {
   execution_pic: "via QA PIC",
   requirement_author: "via authored requirement",
-  task: "via task",
+  dev_assignee: "via dev assignment",
+  milestone_owner: "via milestone ownership",
 };
 const ACTIVE_CHIP_CLASS = "bg-green-100 text-green-700 border-green-200 dark:bg-green-950/60 dark:text-green-400 dark:border-green-900";
 

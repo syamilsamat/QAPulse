@@ -117,9 +117,6 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
     ? await db.select().from(tasksTable).where(inArray(tasksTable.projectId, projectIds))
     : [];
 
-  const now = new Date();
-  const isOpenTask = (t: typeof tasksTable.$inferSelect) => t.status !== "done" && t.status !== "released_to_production";
-  const isOverdueTask = (t: typeof tasksTable.$inferSelect) => isOpenTask(t) && !!t.dueDate && new Date(t.dueDate) < now;
 
   // CR055 — QA/FA have no task-based hours estimate (see the utilization %
   // comment below), so instead of leaving them off the Capacity table
@@ -149,6 +146,19 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
         .from(requirementsTable)
         .where(and(inArray(requirementsTable.projectId, projectIds), inArray(requirementsTable.reviewStatus, ["draft", "rejected"])))
     : [];
+  // Dev: requirements currently assigned to them that haven't reached
+  // ready_for_qa yet — same "still-open work item" idea as the QA/FA rows
+  // above, replacing the old open-task-assignment signal now that tasksTable
+  // is empty (nothing in the real product writes to it any more). Filtered
+  // to open ones in JS below (isOpenDevAssignment), same style as
+  // isOpenTask/isPendingTc elsewhere in this handler.
+  const devAssignedReqRows = projectIds.length
+    ? await db.select({ projectId: requirementsTable.projectId, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus })
+        .from(requirementsTable)
+        .where(inArray(requirementsTable.projectId, projectIds))
+    : [];
+  const isOpenDevAssignment = (r: { devAssigneeId: number | null; devStatus: string | null }) =>
+    r.devAssigneeId != null && r.devStatus !== "ready_for_qa";
 
   const resultProjects = projects.map(project => {
     const projectMilestones = milestones.filter(m => m.projectId === project.id);
@@ -211,14 +221,15 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
       return capacityByUser.get(uid)!;
     };
 
-    for (const t of projectTasks) {
-      if (!isOpenTask(t)) continue;
-      for (const uid of t.assigneeIds ?? []) {
-        const entry = getOrInit(uid);
-        entry.openTaskCount++;
-        entry.estimatedHours += t.estimatedHours ?? 0;
-        if (isOverdueTask(t)) entry.overdueTaskCount++;
-      }
+    // Dev: open (not yet ready_for_qa) requirement assignments in this
+    // project. No due-date-comparable field here (a requirement's own
+    // dev-phase target date lives on its milestone, not per-assignment), so
+    // estimatedHours/overdueTaskCount stay 0 for this signal — same as the
+    // QA/FA open-item counts just below, which never carried an hours
+    // estimate either.
+    for (const row of devAssignedReqRows) {
+      if (row.projectId !== project.id || !isOpenDevAssignment(row)) continue;
+      getOrInit(row.devAssigneeId!).openTaskCount++;
     }
 
     // CR055 — QA: still-pending test case rows they're PIC on, in this
@@ -1358,8 +1369,10 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   }
 
   // ── FA signal: authored requirement, active = not yet approved ─────────────
+  // Also carries devAssigneeId/devStatus for the Dev signal just below —
+  // one query instead of two, same requirement rows either way.
   const reqRows = allTrackedMilestoneIds.length
-    ? await db.select({ createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus })
+    ? await db.select({ createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus })
         .from(requirementsTable).where(inArray(requirementsTable.milestoneId, allTrackedMilestoneIds))
     : [];
   const faActiveByUser = new Map<number, Set<number>>();
@@ -1375,23 +1388,35 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
     }
   }
 
-  // ── Dev/PM signal: open (non-done) task assignment ─────────────────────────
-  const taskRows = allTrackedMilestoneIds.length
-    ? await db.select({ assigneeIds: tasksTable.assigneeIds, milestoneId: tasksTable.milestoneId, status: tasksTable.status })
-        .from(tasksTable).where(inArray(tasksTable.milestoneId, allTrackedMilestoneIds))
-    : [];
-  const taskActiveByUser = new Map<number, Set<number>>();
-  const taskClosedByUser = new Map<number, Set<number>>();
-  for (const row of taskRows) {
-    if (row.milestoneId == null) continue;
-    for (const uid of row.assigneeIds ?? []) {
-      if (activeMilestoneIds.has(row.milestoneId) && row.status !== "done") {
-        if (!taskActiveByUser.has(uid)) taskActiveByUser.set(uid, new Set());
-        taskActiveByUser.get(uid)!.add(row.milestoneId);
-      } else if (closedMilestoneIds.has(row.milestoneId)) {
-        if (!taskClosedByUser.has(uid)) taskClosedByUser.set(uid, new Set());
-        taskClosedByUser.get(uid)!.add(row.milestoneId);
-      }
+  // ── Dev signal: requirement dev-assignment, active = not yet ready_for_qa ──
+  // Replaces the old open-task-assignment signal — tasksTable is empty in
+  // real usage (nothing in the product writes to it any more; see
+  // computeTaskBoardRows in the /dashboard/task-board section above).
+  const devActiveByUser = new Map<number, Set<number>>();
+  const devClosedByUser = new Map<number, Set<number>>();
+  for (const row of reqRows) {
+    if (row.devAssigneeId == null || row.milestoneId == null) continue;
+    if (activeMilestoneIds.has(row.milestoneId) && row.devStatus !== "ready_for_qa") {
+      if (!devActiveByUser.has(row.devAssigneeId)) devActiveByUser.set(row.devAssigneeId, new Set());
+      devActiveByUser.get(row.devAssigneeId)!.add(row.milestoneId);
+    } else if (closedMilestoneIds.has(row.milestoneId)) {
+      if (!devClosedByUser.has(row.devAssigneeId)) devClosedByUser.set(row.devAssigneeId, new Set());
+      devClosedByUser.get(row.devAssigneeId)!.add(row.milestoneId);
+    }
+  }
+
+  // ── PM signal: milestone ownership (createdBy) — a PM's real, tracked tie
+  // to a milestone in this schema, replacing the same tasksTable dependency.
+  const pmActiveByUser = new Map<number, Set<number>>();
+  const pmClosedByUser = new Map<number, Set<number>>();
+  for (const m of milestones) {
+    if (m.createdBy == null) continue;
+    if (activeMilestoneIds.has(m.id)) {
+      if (!pmActiveByUser.has(m.createdBy)) pmActiveByUser.set(m.createdBy, new Set());
+      pmActiveByUser.get(m.createdBy)!.add(m.id);
+    } else if (closedMilestoneIds.has(m.id)) {
+      if (!pmClosedByUser.has(m.createdBy)) pmClosedByUser.set(m.createdBy, new Set());
+      pmClosedByUser.get(m.createdBy)!.add(m.id);
     }
   }
 
@@ -1415,14 +1440,16 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   const result = candidates.flatMap(u => {
     let activeIds: Set<number> | undefined;
     let closedIds: Set<number> | undefined;
-    let signal: "execution_pic" | "requirement_author" | "task" | null = null;
+    let signal: "execution_pic" | "requirement_author" | "dev_assignee" | "milestone_owner" | null = null;
 
     if (u.department === "qa") {
       activeIds = qaActiveByName.get(u.name); closedIds = qaClosedByName.get(u.name); signal = "execution_pic";
     } else if (u.department === "fa") {
       activeIds = faActiveByUser.get(u.userId); closedIds = faClosedByUser.get(u.userId); signal = "requirement_author";
-    } else if (u.department === "dev" || u.department === "pm") {
-      activeIds = taskActiveByUser.get(u.userId); closedIds = taskClosedByUser.get(u.userId); signal = "task";
+    } else if (u.department === "dev") {
+      activeIds = devActiveByUser.get(u.userId); closedIds = devClosedByUser.get(u.userId); signal = "dev_assignee";
+    } else if (u.department === "pm") {
+      activeIds = pmActiveByUser.get(u.userId); closedIds = pmClosedByUser.get(u.userId); signal = "milestone_owner";
     }
 
     if ((!activeIds || activeIds.size === 0) && (!closedIds || closedIds.size === 0)) return [];
@@ -1537,27 +1564,51 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   });
 });
 
+// NOTE: not currently called by any frontend page (checked — no reference
+// to memberStats/tasksByProject anywhere in artifacts/qa-pulse/src). Fixed
+// anyway for consistency with the other dashboard routes, in case something
+// starts consuming it later, but there's no UI regression risk either way.
 router.get("/dashboard/team", async (req, res): Promise<void> => {
-  const now = new Date();
   const users = await db.select().from(usersTable);
-  const allTasks = await db.select().from(tasksTable);
   const allTestCases = await db.select().from(testCasesTable);
   const allProjects = await db.select().from(projectsTable);
 
+  // QA member "tasks" here are the execution rows they're PIC on — the real
+  // unit of QA work in this app — replacing tasksTable (empty; nothing in
+  // the product writes to it). File-level qaPic wins over the per-row one,
+  // same precedence computeTaskBoardRows uses for the same field pair.
+  const execRows = await db
+    .select({
+      projectId: executionFilesTable.projectId,
+      filePic: executionFilesTable.qaPic,
+      rowPic: executionTestCasesTable.qaPic,
+      result: executionTestCasesTable.result,
+      rowType: executionTestCasesTable.rowType,
+    })
+    .from(executionTestCasesTable)
+    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId));
+
+  const nameToUserId = new Map<string, number>(users.map(u => [u.name.toLowerCase(), u.id]));
+  const normResult = (r: string | null) => (r ?? "").trim().toLowerCase();
+
   const memberStats = users.filter(u => u.role === "qa_member" || u.role === "qa_lead").map(user => {
-    const userTasks = allTasks.filter(t => t.assigneeIds?.includes(user.id));
+    const userExecRows = execRows.filter(r => {
+      if (r.rowType === "group") return false;
+      const pic = r.filePic || r.rowPic;
+      return pic ? nameToUserId.get(pic.trim().toLowerCase()) === user.id : false;
+    });
     const userTestCases = allTestCases.filter(tc => tc.authorId === user.id);
 
     return {
       userId: user.id,
       userName: user.name,
-      completed: userTasks.filter(t => t.status === "released_to_production").length,
-      pending: userTasks.filter(t => ["uat", "sit"].includes(t.status)).length,
-      blocked: userTasks.filter(t => t.status === "blocked").length,
-      overdue: userTasks.filter(t => {
-        if (t.status === "released_to_production" || !t.dueDate) return false;
-        return new Date(t.dueDate) < now;
-      }).length,
+      completed: userExecRows.filter(r => normResult(r.result) === "passed").length,
+      pending: userExecRows.filter(r => !normResult(r.result) || normResult(r.result) === "not executed").length,
+      blocked: userExecRows.filter(r => normResult(r.result) === "blocked").length,
+      // Repurposed from "past due date" (tasksTable had one, execution rows
+      // don't) to "failed and still unresolved" — the closest real signal
+      // this data actually has for "needs follow-up."
+      overdue: userExecRows.filter(r => normResult(r.result) === "failed").length,
       testCasesCreated: userTestCases.length,
     };
   });
@@ -1565,7 +1616,7 @@ router.get("/dashboard/team", async (req, res): Promise<void> => {
   const projectCounts = allProjects.map(p => ({
     projectId: p.id,
     projectName: p.name,
-    count: allTasks.filter(t => t.projectId === p.id).length,
+    count: execRows.filter(r => r.projectId === p.id && r.rowType !== "group").length,
   }));
 
   res.json({ memberStats, tasksByProject: projectCounts });
