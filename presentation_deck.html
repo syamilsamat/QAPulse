@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QMPulse — Executive Presentation Deck</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #04070f;
+      color: #f8fafc;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .slide {
+      display: none;
+      opacity: 0;
+      transform: translateY(12px) scale(0.99);
+      transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .slide.active {
+      display: flex;
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.035);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 1rem;
+    }
+    .glass-card:hover {
+      border-color: rgba(20, 184, 166, 0.4);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .glow-teal {
+      box-shadow: 0 0 40px -10px rgba(20, 184, 166, 0.3);
+    }
+    .pulse-dot {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    /* Custom scrollbar for speaker notes */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(20, 184, 166, 0.3); border-radius: 3px; }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between p-6 sm:p-8 bg-[#04070f] relative overflow-hidden">
+
+  <!-- Subtle WebGL-like radial glows -->
+  <div class="pointer-events-none absolute -top-40 -left-40 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl"></div>
+  <div class="pointer-events-none absolute -bottom-40 -right-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
+
+  <!-- Top Bar: Logo & Deck Progress -->
+  <header class="flex items-center justify-between z-20 shrink-0 pb-4 border-b border-white/5">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-sky-500 flex items-center justify-center text-[#04070f] font-black text-sm">
+        QP
+      </div>
+      <div>
+        <span class="font-bold tracking-tight text-white text-base">QMPulse</span>
+        <span class="text-xs text-teal-400 mono ml-2 px-2 py-0.5 rounded bg-teal-950/60 border border-teal-500/30">C-SUITE PITCH</span>
+      </div>
+    </div>
+
+    <!-- Slide Indicators -->
+    <div class="flex items-center gap-2" id="dotsContainer"></div>
+
+    <!-- Quick Tools -->
+    <div class="flex items-center gap-3">
+      <button onclick="toggleNotes()" id="notesBtn" class="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-teal-400"></span> Speaker Notes (N)
+      </button>
+      <button onclick="toggleFullscreen()" class="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all">
+        Full Screen (F)
+      </button>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- SLIDE CONTAINER -->
+  <!-- ========================================================================= -->
+  <main class="flex-1 flex items-center justify-center my-auto relative z-10 w-full max-w-7xl mx-auto py-4">
+
+    <!-- SLIDE 1: Title Slide -->
+    <div class="slide active flex-col items-center text-center justify-center w-full max-w-5xl" data-notes="Good morning Executive Leadership. Today I am proud to present QMPulse—our unified Quality Management & Delivery Governance platform. QMPulse unifies the entire delivery chain: from business requirements authored by Functional Analysts, through development and QA test execution, to real-time PMO oversight and automated sign-off. It provides 100% traceability, ensures audit compliance, and accelerates testing with built-in AI.">
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-400/10 border border-teal-400/30 text-teal-300 text-xs font-semibold uppercase tracking-wider mb-6">
+        <span class="w-2 h-2 rounded-full bg-teal-400 pulse-dot"></span>
+        Executive Strategy & Delivery Transformation
+      </div>
+      <h1 class="text-5xl sm:text-7xl font-extrabold tracking-tight leading-[1.1] mb-6">
+        From First Requirement <br/>
+        <span class="bg-gradient-to-r from-teal-300 via-cyan-300 to-sky-400 bg-clip-text text-transparent">
+          to Final Verdict.
+        </span>
+      </h1>
+      <p class="text-lg sm:text-xl text-slate-300 max-w-3xl leading-relaxed mb-10">
+        QMPulse bridges PMO, Functional Analysts, Developers, and QA into a single, automated, Redmine-synced and AI-accelerated delivery ecosystem.
+      </p>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full">
+        <div class="glass-card p-4 text-center">
+          <div class="text-3xl font-extrabold text-teal-300">100%</div>
+          <div class="text-xs text-slate-400 mt-1">End-to-End Traceability</div>
+        </div>
+        <div class="glass-card p-4 text-center">
+          <div class="text-3xl font-extrabold text-cyan-300">8 Beats</div>
+          <div class="text-xs text-slate-400 mt-1">Unified Milestone Lifecycle</div>
+        </div>
+        <div class="glass-card p-4 text-center">
+          <div class="text-3xl font-extrabold text-indigo-300">15 Roles</div>
+          <div class="text-xs text-slate-400 mt-1">Strict RBAC Governance</div>
+        </div>
+        <div class="glass-card p-4 text-center">
+          <div class="text-3xl font-extrabold text-emerald-300">1 Source</div>
+          <div class="text-xs text-slate-400 mt-1">Single Living Truth</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 2: Problem vs Solution -->
+    <div class="slide flex-col justify-center w-full" data-notes="Why traditional enterprise delivery breaks down: PMOs track in isolated tools, developers work in Redmine, FAs write docs in Confluence/Word, and QA runs test cases in spreadsheets. This leads to version skew, untracked defects, and eleventh-hour release panic. QMPulse solves this by establishing one continuous pulse—keeping Redmine as the core system of record while supercharging it with automated workflows, AI assistance, and instant executive analytics.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Strategic Context</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">The Delivery Dilemma vs. The Unified Pulse</h2>
+      <p class="text-sm text-slate-400 mb-8">Bridging the gap between strategy, specification, coding, and quality verification.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- The Problem -->
+        <div class="glass-card p-6 border-red-500/20 bg-red-950/10">
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded bg-red-500/10 text-red-400 text-xs font-bold uppercase tracking-wider mb-4 border border-red-500/20">
+            ✕ Current Industry Friction
+          </div>
+          <div class="space-y-4 text-sm text-slate-300">
+            <div class="flex gap-3">
+              <span class="text-red-400 font-bold shrink-0">01</span>
+              <div><b class="text-white">Fragmented Tool Silos:</b> PMO, FAs, Devs, and QA work in disconnected systems with zero continuous synchronization.</div>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-red-400 font-bold shrink-0">02</span>
+              <div><b class="text-white">Spreadsheet & Email Chaos:</b> Test execution, coverage matrices, and defect lists are shared over email attachments with zero version control.</div>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-red-400 font-bold shrink-0">03</span>
+              <div><b class="text-white">Untracked Defect Drift:</b> Defects found during testing are often disconnected from original requirements, creating rework loops.</div>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-red-400 font-bold shrink-0">04</span>
+              <div><b class="text-white">Blind Leadership Oversight:</b> Executives lack real-time SPI, first-pass yield, and release readiness data until it is too late.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- The Solution -->
+        <div class="glass-card p-6 border-teal-500/30 bg-teal-950/10 glow-teal">
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded bg-teal-500/10 text-teal-400 text-xs font-bold uppercase tracking-wider mb-4 border border-teal-500/20">
+            ✓ The QMPulse Transformation
+          </div>
+          <div class="space-y-4 text-sm text-slate-300">
+            <div class="flex gap-3">
+              <span class="text-teal-400 font-bold shrink-0">01</span>
+              <div><b class="text-white">One Synchronized Pulse:</b> Single shared living workspace orchestrating PMO, FA, Dev, QA, and Executives simultaneously.</div>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-teal-400 font-bold shrink-0">02</span>
+              <div><b class="text-white">Native Two-Way Redmine Sync:</b> Live bi-directional integration ensures existing Redmine data and workflows are preserved and enhanced.</div>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-teal-400 font-bold shrink-0">03</span>
+              <div><b class="text-white">AI-Accelerated Quality Hub:</b> Google GenAI analyzes requirements for ambiguities and auto-generates complete test suites in seconds.</div>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-teal-400 font-bold shrink-0">04</span>
+              <div><b class="text-white">Single Pane of Glass:</b> Real-time Schedule Performance Index (SPI), stability trends, and one-click PMO verdict reporting.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: 5 Stakeholders / Personas -->
+    <div class="slide flex-col justify-center w-full" data-notes="Here is how QMPulse aligns every team in this room: PMO opens milestones and tracks SPI in real time. Functional Analysts author specs with AI gap analysis and enforce segregation of duties. Developers pick up approved specs with full context and flip tickets to 'For QA Test'. QA teams write test cases during build phase and auto-raise Redmine defects upon test failure. And Leadership gets a single-screen pulse of release readiness and quality stability.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Stakeholder Alignment</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Five Teams. One Shared Source of Truth.</h2>
+      <p class="text-sm text-slate-400 mb-8">Purpose-built views and governed permissions for every role in the delivery organization.</p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <!-- PMO -->
+        <div class="glass-card p-5 border-purple-500/30 flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-mono uppercase text-purple-400 font-bold mb-1">Project & PMO</div>
+            <h3 class="text-base font-bold text-white mb-2">Own the Milestone</h3>
+            <ul class="text-xs text-slate-300 space-y-2">
+              <li>• Scope & capacity planning</li>
+              <li>• Live SPI & slippage tracking</li>
+              <li>• Environment management</li>
+              <li>• Dynamic risk register</li>
+            </ul>
+          </div>
+          <div class="mt-4 pt-3 border-t border-white/5 text-[11px] text-purple-300 font-mono">Role: PMO Lead</div>
+        </div>
+
+        <!-- FA -->
+        <div class="glass-card p-5 border-indigo-500/30 flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-mono uppercase text-indigo-400 font-bold mb-1">Functional Analysts</div>
+            <h3 class="text-base font-bold text-white mb-2">Sharper Specs</h3>
+            <ul class="text-xs text-slate-300 space-y-2">
+              <li>• Structured requirements</li>
+              <li>• AI gap & ambiguity analyzer</li>
+              <li>• Strict peer-review gate</li>
+              <li>• Zero self-approval enforcement</li>
+            </ul>
+          </div>
+          <div class="mt-4 pt-3 border-t border-white/5 text-[11px] text-indigo-300 font-mono">Role: Lead FA</div>
+        </div>
+
+        <!-- Dev -->
+        <div class="glass-card p-5 border-cyan-500/30 flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-mono uppercase text-cyan-400 font-bold mb-1">Developers</div>
+            <h3 class="text-base font-bold text-white mb-2">Build in Context</h3>
+            <ul class="text-xs text-slate-300 space-y-2">
+              <li>• Approved specs with context</li>
+              <li>• 1-click status flip to QA</li>
+              <li>• Full ticket hierarchy sync</li>
+              <li>• Direct Redmine issue links</li>
+            </ul>
+          </div>
+          <div class="mt-4 pt-3 border-t border-white/5 text-[11px] text-cyan-300 font-mono">Role: Dev Team</div>
+        </div>
+
+        <!-- QA -->
+        <div class="glass-card p-5 border-teal-500/30 flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-mono uppercase text-teal-400 font-bold mb-1">QA Engineers</div>
+            <h3 class="text-base font-bold text-white mb-2">Prove Every Path</h3>
+            <ul class="text-xs text-slate-300 space-y-2">
+              <li>• Author cases during build</li>
+              <li>• AI test matrix generator</li>
+              <li>• Multi-environment execution</li>
+              <li>• Auto-raise Redmine defects</li>
+            </ul>
+          </div>
+          <div class="mt-4 pt-3 border-t border-white/5 text-[11px] text-teal-300 font-mono">Role: QA Team</div>
+        </div>
+
+        <!-- Leadership -->
+        <div class="glass-card p-5 border-emerald-500/30 flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-mono uppercase text-emerald-400 font-bold mb-1">Leadership</div>
+            <h3 class="text-base font-bold text-white mb-2">Pulse at a Glance</h3>
+            <ul class="text-xs text-slate-300 space-y-2">
+              <li>• Single executive dashboard</li>
+              <li>• First-pass yield & stability</li>
+              <li>• 1-click PMO verdict emails</li>
+              <li>• Audit-ready compliance logs</li>
+            </ul>
+          </div>
+          <div class="mt-4 pt-3 border-t border-white/5 text-[11px] text-emerald-300 font-mono">Role: C-Suite / VPs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: The 8-Stage Lifecycle -->
+    <div class="slide flex-col justify-center w-full" data-notes="The 8-stage lifecycle is the heart of QMPulse. Stage 1: PMO opens the milestone. Stage 2: FA authors requirements with AI gap analysis. Stage 3: Segregation of duties is enforced through peer approval. Stage 4: Dev builds against approved specs. Stage 5: In parallel, QA writes tests with AI generation so they are ready the instant build lands. Stage 6: QA executes per environment; failures automatically create Redmine child defects. Stage 7: QA tracks blockers to resolution. Stage 8: PMO conducts UAT sign-off, closes milestone, and logs lessons learned.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">End-to-End Workflow</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">The 8 Beats of a Milestone Lifecycle</h2>
+      <p class="text-sm text-slate-400 mb-6">Continuous governance gates, automated handoffs, and instant notifications from start to finish.</p>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold text-xs flex items-center justify-center">01</span>
+            <span class="text-[10px] mono text-purple-300 font-bold">PMO</span>
+          </div>
+          <div class="text-sm font-bold text-white">Plan Milestone</div>
+          <div class="text-xs text-slate-400 mt-1">Scope, target dates, environments, and capacity setup.</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold text-xs flex items-center justify-center">02</span>
+            <span class="text-[10px] mono text-purple-300 font-bold">FA + AI</span>
+          </div>
+          <div class="text-sm font-bold text-white">Author Specs</div>
+          <div class="text-xs text-slate-400 mt-1">AI Analyzer flags untestable logic & ambiguous specs.</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-xs flex items-center justify-center">03</span>
+            <span class="text-[10px] mono text-indigo-300 font-bold">FA Review</span>
+          </div>
+          <div class="text-sm font-bold text-white">Peer-Approve</div>
+          <div class="text-xs text-slate-400 mt-1">Strict segregation of duties; zero self-approvals.</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-xs flex items-center justify-center">04</span>
+            <span class="text-[10px] mono text-indigo-300 font-bold">Dev Lead</span>
+          </div>
+          <div class="text-sm font-bold text-white">Assign & Build</div>
+          <div class="text-xs text-slate-400 mt-1">Developers build in context; flip to "For QA Test".</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 font-bold text-xs flex items-center justify-center">05</span>
+            <span class="text-[10px] mono text-cyan-300 font-bold">QA + AI</span>
+          </div>
+          <div class="text-sm font-bold text-white">Author Tests</div>
+          <div class="text-xs text-slate-400 mt-1">Pre-authored in parallel; AI drafts edge cases.</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-teal-500/20 text-teal-300 font-bold text-xs flex items-center justify-center">06</span>
+            <span class="text-[10px] mono text-teal-300 font-bold">QA Team</span>
+          </div>
+          <div class="text-sm font-bold text-white">Execute Testing</div>
+          <div class="text-xs text-slate-400 mt-1">Runs per env; failing steps auto-raise Redmine defects.</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-teal-500/20 text-teal-300 font-bold text-xs flex items-center justify-center">07</span>
+            <span class="text-[10px] mono text-teal-300 font-bold">QA Lead</span>
+          </div>
+          <div class="text-sm font-bold text-white">Track & Close</div>
+          <div class="text-xs text-slate-400 mt-1">Live pass/fail analytics and blocker resolution.</div>
+        </div>
+
+        <div class="glass-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-xs flex items-center justify-center">08</span>
+            <span class="text-[10px] mono text-emerald-300 font-bold">PMO</span>
+          </div>
+          <div class="text-sm font-bold text-white">UAT & Go-Live</div>
+          <div class="text-xs text-slate-400 mt-1">UAT sign-off, milestone close & lessons learned.</div>
+        </div>
+      </div>
+
+      <div class="glass-card p-3 text-center border-teal-500/30 text-xs font-semibold text-teal-300">
+        ⚡ Running Through Every Beat: Instant Smart Notifications • Dynamic Risk Register • Continuous Lessons Learned
+      </div>
+    </div>
+
+    <!-- SLIDE 5: Technology Backbone (Redmine + AI) -->
+    <div class="slide flex-col justify-center w-full" data-notes="Two technological pillars give QMPulse its competitive edge: First, Native Two-Way Redmine Sync. We do not ask teams to discard their existing ticketing system. QMPulse synchronizes requirements, tickets, and custom fields without clobbering history. Second, The Enterprise AI Hub. Powered by Google GenAI, our AI Requirement Analyzer acts as an early quality gate to catch defects at requirement time, while AI Test Generation speeds up test creation by over 40%.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Technology Backbone</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Deep Redmine Sync & The Enterprise AI Hub</h2>
+      <p class="text-sm text-slate-400 mb-8">Non-disruptive integration with systems of record, augmented by embedded intelligence.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="glass-card p-6 border-indigo-500/30">
+          <div class="flex items-center gap-2 text-indigo-400 font-bold text-sm uppercase mono mb-4">
+            <span class="w-2.5 h-2.5 rounded bg-indigo-400"></span> Deep Two-Way Redmine Sync
+          </div>
+          <div class="space-y-4 text-sm text-slate-300">
+            <div>
+              <b class="text-white">Zero Infrastructure Disruption:</b> Uses existing Redmine instance as the underlying source of truth—no risky data migrations.
+            </div>
+            <div>
+              <b class="text-white">Insert-Only Safe Architecture:</b> Ensures tickets and custom fields are synchronized safely without risk of data overwrite.
+            </div>
+            <div>
+              <b class="text-white">Automated Defect Write-Back:</b> Failed test steps automatically create Redmine child tickets with steps, expected/actual results, and attachments.
+            </div>
+            <div>
+              <b class="text-white">Per-User API Keys & Fallback:</b> Supports individual developer credentials as well as system-wide fallback keys.
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card p-6 border-teal-500/30">
+          <div class="flex items-center gap-2 text-teal-400 font-bold text-sm uppercase mono mb-4">
+            <span class="w-2.5 h-2.5 rounded bg-teal-400"></span> The Enterprise AI Hub
+          </div>
+          <div class="space-y-4 text-sm text-slate-300">
+            <div>
+              <b class="text-white">AI Requirement Analyzer:</b> Scans functional specifications before development; catches vague requirements, missing edge cases, and untestable logic.
+            </div>
+            <div>
+              <b class="text-white">Automated Test Case Authoring:</b> Generates complete test cases with multi-step validation and boundary checks in seconds.
+            </div>
+            <div>
+              <b class="text-white">QA Copilot Workspace Assistant:</b> Natural language assistant allowing teams to query workspace metrics, test coverage, and delivery health.
+            </div>
+            <div>
+              <b class="text-white">Requirement Chat:</b> Interactive conversational tool enabling FAs and QA to refine and stress-test specifications.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 6: 4 Disciplines / 12 Capabilities -->
+    <div class="slide flex-col justify-center w-full" data-notes="This matrix represents the full capability depth of QMPulse across 4 disciplines and 12 core modules. From planning and governance to test execution and executive reporting, everything is unified. Notice our automated Excel generation: it automatically generates Pareto defect analysis, CAPA corrective action sheets, and review effort logs on demand.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Platform Capabilities</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">12 Core Capabilities Across 4 Disciplines</h2>
+      <p class="text-sm text-slate-400 mb-8">A comprehensive, end-to-end quality and delivery management command center.</p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-card p-5 border-purple-500/30">
+          <div class="text-xs font-mono uppercase text-purple-400 font-bold mb-3 pb-2 border-b border-white/5">01. Plan & Govern</div>
+          <div class="space-y-3 text-xs text-slate-300">
+            <div><b class="text-white">Milestones & Sprints:</b> Project scoping, environment tracking, target dates, and live schedule health.</div>
+            <div><b class="text-white">Resources & Capacity:</b> Workload visibility to spot bottlenecks before they cause release delays.</div>
+            <div><b class="text-white">Dynamic Risk Register:</b> Active risk scoring, mitigation planning, and continuous owner tracking.</div>
+          </div>
+        </div>
+
+        <div class="glass-card p-5 border-cyan-500/30">
+          <div class="text-xs font-mono uppercase text-cyan-400 font-bold mb-3 pb-2 border-b border-white/5">02. Build & Test</div>
+          <div class="space-y-3 text-xs text-slate-300">
+            <div><b class="text-white">Test Case Library:</b> Versioned test cases with steps, expected outcomes, and module hierarchy.</div>
+            <div><b class="text-white">Execution Dashboard:</b> Live pass / fail / blocked tracking per run, module, and environment.</div>
+            <div><b class="text-white">Defect Management:</b> Step-level defect raising, Pareto root cause, and CAPA remediation.</div>
+          </div>
+        </div>
+
+        <div class="glass-card p-5 border-teal-500/30">
+          <div class="text-xs font-mono uppercase text-teal-400 font-bold mb-3 pb-2 border-b border-white/5">03. Analyze & Report</div>
+          <div class="space-y-3 text-xs text-slate-300">
+            <div><b class="text-white">PMO Executive Portal:</b> SPI, first-pass yield, defect stability, and plan vs. actual phase timeline.</div>
+            <div><b class="text-white">QA Analytics Suite:</b> Cross-milestone trends, test velocity, and quality indicators.</div>
+            <div><b class="text-white">One-Click Verdicts:</b> Auto-generated executive HTML emails, PDF certificates & Excel sheets.</div>
+          </div>
+        </div>
+
+        <div class="glass-card p-5 border-emerald-500/30">
+          <div class="text-xs font-mono uppercase text-emerald-400 font-bold mb-3 pb-2 border-b border-white/5">04. Enterprise Platform</div>
+          <div class="space-y-3 text-xs text-slate-300">
+            <div><b class="text-white">15 RBAC Roles:</b> Granular role-based access across 5 departments.</div>
+            <div><b class="text-white">Immutable Audit Trail:</b> Full searchable change history across every requirement and test.</div>
+            <div><b class="text-white">On-Prem / Secure Cloud:</b> Office 365 SMTP integration and strict enterprise security controls.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7: Enterprise Governance & Compliance -->
+    <div class="slide flex-col justify-center w-full" data-notes="Security and governance are non-negotiable for enterprise leadership. QMPulse delivers on all fronts: 15 granular roles ensure segregation of duties. Every single action is tracked in an immutable audit trail for compliance. And PMO verdict reporting is automated—generating rich HTML emails via Office 365 SMTP and formatted Excel workbooks with Pareto and CAPA sheets.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Governance & Security</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Enterprise-Grade Security & Audit Readiness</h2>
+      <p class="text-sm text-slate-400 mb-8">Architected for compliance-heavy, regulated enterprise IT ecosystems.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="glass-card p-6 border-purple-500/30">
+          <div class="text-sm font-bold text-purple-300 mb-1">Role-Based Access Control (RBAC)</div>
+          <div class="text-xs font-bold text-white mb-3">15 Roles Across 5 Delivery Departments</div>
+          <p class="text-xs text-slate-300 leading-relaxed mb-3">
+            Ensures complete segregation of duties. Functional Analysts cannot sign off their own requirements. PMO members are routed directly to executive reporting portals upon login.
+          </p>
+          <div class="flex flex-wrap gap-1.5 text-[10px] mono text-purple-200">
+            <span class="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30">Admin</span>
+            <span class="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30">QA Lead</span>
+            <span class="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30">QA Member</span>
+            <span class="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30">PMO</span>
+            <span class="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30">Dev Lead</span>
+          </div>
+        </div>
+
+        <div class="glass-card p-6 border-cyan-500/30">
+          <div class="text-sm font-bold text-cyan-300 mb-1">Complete Immutable Audit Trail</div>
+          <div class="text-xs font-bold text-white mb-3">Full Historical Traceability</div>
+          <p class="text-xs text-slate-300 leading-relaxed mb-3">
+            Every test case change, execution timestamp, requirement revision, and verdict sign-off is logged into an immutable history trail.
+          </p>
+          <div class="text-xs text-cyan-200/90 font-mono">
+            ✓ Searchable change history  •  ✓ Defect timeline events  •  ✓ Regulatory ready
+          </div>
+        </div>
+
+        <div class="glass-card p-6 border-teal-500/30">
+          <div class="text-sm font-bold text-teal-300 mb-1">Automated PMO Verdict Reporting</div>
+          <div class="text-xs font-bold text-white mb-3">One-Click Executive Sign-Off Deliverables</div>
+          <p class="text-xs text-slate-300 leading-relaxed mb-3">
+            Delivers inline HTML executive emails via Office 365 SMTP, complete with PDF sign-off attachments and automated Excel workbooks containing Review Effort, Pareto Analysis, and CAPA logs.
+          </p>
+          <div class="text-xs text-teal-200/90 font-mono">
+            ✓ Office 365 SMTP  •  ✓ PDF Sign-Offs  •  ✓ Automated Excel Export
+          </div>
+        </div>
+
+        <div class="glass-card p-6 border-emerald-500/30">
+          <div class="text-sm font-bold text-emerald-300 mb-1">Enterprise Hosting & Architecture</div>
+          <div class="text-xs font-bold text-white mb-3">On-Premises or Private Cloud Ready</div>
+          <p class="text-xs text-slate-300 leading-relaxed mb-3">
+            Runs securely inside your corporate network. PostgreSQL backend with JWT authentication (8-hour expiry), bcrypt password hashing, and API rate-limiting.
+          </p>
+          <div class="text-xs text-emerald-200/90 font-mono">
+            ✓ On-Prem Ready  •  ✓ Zero Data Leaks  •  ✓ Enterprise Rate Limiting
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 8: Business Value & Measurable ROI -->
+    <div class="slide flex-col justify-center w-full" data-notes="Let us review the bottom-line business value: AI test generation cuts authoring cycles by 40%. End-to-end traceability eliminates untracked defect leakage. Zero spreadsheet drift prevents costly release regressions. And automated PMO verdict generation reduces reporting time from days to under 60 seconds.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Business Impact</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Measurable ROI & Delivery Acceleration</h2>
+      <p class="text-sm text-slate-400 mb-8">Tangible efficiency and quality improvements delivered directly to enterprise operations.</p>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <div class="glass-card p-5 text-center border-teal-500/30">
+          <div class="text-4xl font-black text-teal-300">40%</div>
+          <div class="text-xs font-bold text-white mt-1">Faster Test Design</div>
+          <div class="text-[11px] text-slate-400 mt-1">AI accelerates requirement analysis and test matrix authoring.</div>
+        </div>
+
+        <div class="glass-card p-5 text-center border-cyan-500/30">
+          <div class="text-4xl font-black text-cyan-300">100%</div>
+          <div class="text-xs font-bold text-white mt-1">Traceability</div>
+          <div class="text-[11px] text-slate-400 mt-1">Zero orphaned requirements or untracked defects.</div>
+        </div>
+
+        <div class="glass-card p-5 text-center border-indigo-500/30">
+          <div class="text-4xl font-black text-indigo-300">0</div>
+          <div class="text-xs font-bold text-white mt-1">Spreadsheet Leaks</div>
+          <div class="text-[11px] text-slate-400 mt-1">Eliminates Excel attachment version mismatches.</div>
+        </div>
+
+        <div class="glass-card p-5 text-center border-emerald-500/30">
+          <div class="text-4xl font-black text-emerald-300">3x</div>
+          <div class="text-xs font-bold text-white mt-1">Faster Reporting</div>
+          <div class="text-[11px] text-slate-400 mt-1">Automated PMO verdict emails and audit Excel generation.</div>
+        </div>
+      </div>
+
+      <div class="glass-card p-6 border-teal-500/30 bg-teal-950/20">
+        <div class="text-xs font-mono uppercase text-teal-400 font-bold mb-2">Strategic Executive Outcomes</div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-300">
+          <div>
+            <b class="text-white block mb-1">★ Predictable Releases</b>
+            Real-time Schedule Performance Index (SPI) and blocker tracking prevent surprise launch delays.
+          </div>
+          <div>
+            <b class="text-white block mb-1">★ Higher First-Pass Yield</b>
+            AI validation at requirement time stops defects before expensive code development begins.
+          </div>
+          <div>
+            <b class="text-white block mb-1">★ Operational Agility</b>
+            Teams build and test rather than wasting hundreds of hours creating manual status reports.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 9: Roadmap & Next Steps -->
+    <div class="slide flex-col justify-center w-full" data-notes="To conclude, our adoption path is low-risk and structured: We propose a 2-week pilot on 2 flagship projects to validate the workflow with zero operational disruption. By Month 2, all teams will be aligned under one unified quality standard. The software is live, tested, and ready to deploy. Thank you, and I now invite your strategic questions and feedback.">
+      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Implementation Plan</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Strategic Rollout Roadmap & Action Plan</h2>
+      <p class="text-sm text-slate-400 mb-8">Structured, phased adoption designed for immediate, measurable value.</p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="glass-card p-5 border-purple-500/30">
+          <div class="text-xs font-mono text-purple-400 font-bold mb-1">Phase 1: Pilot</div>
+          <div class="text-sm font-bold text-white mb-2">Weeks 1 - 2</div>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Deploy on 2 flagship projects; configure Redmine API integration, custom fields, and RBAC matrix.
+          </p>
+        </div>
+
+        <div class="glass-card p-5 border-indigo-500/30">
+          <div class="text-xs font-mono text-indigo-400 font-bold mb-1">Phase 2: Enablement</div>
+          <div class="text-sm font-bold text-white mb-2">Weeks 3 - 4</div>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Onboard PMO, FA, Dev, and QA leads; activate AI Requirement Analyzer and test case generation.
+          </p>
+        </div>
+
+        <div class="glass-card p-5 border-cyan-500/30">
+          <div class="text-xs font-mono text-cyan-400 font-bold mb-1">Phase 3: Scale</div>
+          <div class="text-sm font-bold text-white mb-2">Month 2</div>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Roll out across all enterprise projects; standardize automated PMO email verdict reporting.
+          </p>
+        </div>
+
+        <div class="glass-card p-5 border-emerald-500/30">
+          <div class="text-xs font-mono text-emerald-400 font-bold mb-1">Phase 4: Optimization</div>
+          <div class="text-sm font-bold text-white mb-2">Month 3+</div>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Activate advanced QA analytics, predictive defect trend modeling, and continuous lessons learned loops.
+          </p>
+        </div>
+      </div>
+
+      <div class="glass-card p-6 border-teal-500/40 bg-gradient-to-r from-teal-950/40 to-sky-950/40 text-center glow-teal">
+        <h3 class="text-xl font-bold text-white mb-2">The Verdict: Ready to Transform Delivery Quality</h3>
+        <p class="text-sm text-slate-300 max-w-2xl mx-auto mb-4">
+          QMPulse is built, tested, and ready to deploy. We invite executive leadership to approve the Phase 1 Pilot rollout.
+        </p>
+        <div class="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-gradient-to-r from-teal-400 to-sky-500 text-[#04070f] font-bold text-sm">
+          Open for Executive Q&A & Strategic Discussion
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- SPEAKER NOTES POPUP MODAL (Toggle with N) -->
+  <!-- ========================================================================= -->
+  <div id="speakerNotesModal" class="hidden fixed bottom-16 right-8 w-96 max-h-72 glass-card p-5 z-50 border border-teal-500/40 bg-[#070d1d]/95 shadow-2xl overflow-y-auto">
+    <div class="flex items-center justify-between pb-2 mb-3 border-b border-white/10">
+      <span class="text-xs mono font-bold text-teal-400 uppercase flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-teal-400"></span> Presenter Script
+      </span>
+      <button onclick="toggleNotes()" class="text-xs text-slate-400 hover:text-white">&times;</button>
+    </div>
+    <div id="speakerNotesContent" class="text-xs text-slate-200 leading-relaxed"></div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- BOTTOM NAVIGATION & FOOTER -->
+  <!-- ========================================================================= -->
+  <footer class="flex items-center justify-between z-20 shrink-0 pt-4 border-t border-white/5 text-xs text-slate-400">
+    <div class="flex items-center gap-2">
+      <span>Use <kbd class="px-1.5 py-0.5 rounded bg-white/10 mono text-white">←</kbd> <kbd class="px-1.5 py-0.5 rounded bg-white/10 mono text-white">→</kbd> or <kbd class="px-1.5 py-0.5 rounded bg-white/10 mono text-white">Space</kbd> to navigate</span>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <span id="slideCounter" class="mono text-slate-300 font-semibold">1 / 9</span>
+      <div class="flex items-center gap-2">
+        <button onclick="prevSlide()" class="px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/15 text-white transition-colors">
+          ← Previous
+        </button>
+        <button onclick="nextSlide()" class="px-4 py-1.5 rounded-full bg-teal-500 hover:bg-teal-400 text-[#04070f] font-bold transition-colors">
+          Next →
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ========================================================================= -->
+  <!-- INTERACTIVITY CONTROLLER SCRIPT -->
+  <!-- ========================================================================= -->
+  <script>
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const totalSlides = slides.length;
+    const dotsContainer = document.getElementById('dotsContainer');
+    const slideCounter = document.getElementById('slideCounter');
+    const notesModal = document.getElementById('speakerNotesModal');
+    const notesContent = document.getElementById('speakerNotesContent');
+
+    // Generate Dots
+    slides.forEach((_, idx) => {
+      const dot = document.createElement('button');
+      dot.className = `w-2.5 h-2.5 rounded-full transition-all duration-300 ${idx === 0 ? 'bg-teal-400 w-8' : 'bg-white/20 hover:bg-white/40'}`;
+      dot.onclick = () => goToSlide(idx);
+      dotsContainer.appendChild(dot);
+    });
+
+    function updateSlide() {
+      slides.forEach((s, idx) => {
+        if (idx === currentSlide) {
+          s.classList.add('active');
+        } else {
+          s.classList.remove('active');
+        }
+      });
+
+      // Update Dots
+      const dots = dotsContainer.children;
+      for (let i = 0; i < dots.length; i++) {
+        if (i === currentSlide) {
+          dots[i].className = 'w-8 h-2.5 rounded-full bg-teal-400 transition-all duration-300';
+        } else {
+          dots[i].className = 'w-2.5 h-2.5 rounded-full bg-white/20 hover:bg-white/40 transition-all duration-300';
+        }
+      }
+
+      slideCounter.textContent = `${currentSlide + 1} / ${totalSlides}`;
+      
+      // Update Speaker notes
+      const notes = slides[currentSlide].getAttribute('data-notes') || 'No speaker notes for this slide.';
+      notesContent.textContent = notes;
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides - 1) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    function goToSlide(idx) {
+      currentSlide = idx;
+      updateSlide();
+    }
+
+    function toggleNotes() {
+      notesModal.classList.toggle('hidden');
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    // Keyboard bindings
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        prevSlide();
+      } else if (e.key.toLowerCase() === 'n') {
+        toggleNotes();
+      } else if (e.key.toLowerCase() === 'f') {
+        toggleFullscreen();
+      }
+    });
+
+    // Touch Swipe
+    let touchStartX = 0;
+    window.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    });
+    window.addEventListener('touchend', (e) => {
+      let touchEndX = e.changedTouches[0].screenX;
+      if (touchEndX < touchStartX - 50) nextSlide();
+      if (touchEndX > touchStartX + 50) prevSlide();
+    });
+
+    // Initialize
+    updateSlide();
+  </script>
+</body>
+</html>
