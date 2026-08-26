@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔒 Presenter Console — QMPulse (Private View / Paparan Pembentang)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #030712;
+      color: #f8fafc;
+      margin: 0;
+      padding: 0;
+      user-select: text;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .glass-panel {
+      background: rgba(17, 24, 39, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.875rem;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+    ::-webkit-scrollbar-thumb { background: rgba(20, 184, 166, 0.4); border-radius: 3px; }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between p-4 sm:p-5 bg-[#030712] text-slate-100 overflow-hidden">
+
+  <!-- Top Bar: Privacy Banner, Language Switcher, Timer, Clock -->
+  <header class="flex items-center justify-between pb-3 border-b border-white/10 shrink-0 gap-3">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase mono">
+        <span>🔒 PRIVATE PRESENTER CONSOLE</span>
+      </div>
+      <span class="text-xs text-slate-400 hidden sm:inline" id="privacyNotice">
+        Khas untuk skrin pembentang — Penonton hanya melihat slaid bersih!
+      </span>
+    </div>
+
+    <!-- Center: Language Toggle (BM vs EN) -->
+    <div class="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-teal-500/30">
+      <button onclick="setLanguage('bm')" id="btnLangBM" class="px-3 py-1 rounded text-xs font-bold transition-all bg-teal-500 text-slate-950 shadow-md">
+        🇲🇾 Bahasa Melayu
+      </button>
+      <button onclick="setLanguage('en')" id="btnLangEN" class="px-3 py-1 rounded text-xs font-medium text-slate-400 hover:text-white transition-all">
+        🇬🇧 English
+      </button>
+      <span class="text-[10px] text-slate-500 mono px-1.5 hidden md:inline">Key: L</span>
+    </div>
+
+    <!-- Timer & Current Time -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded border border-white/10">
+        <span class="text-xs text-slate-400 font-mono" id="timerLabel">MASA:</span>
+        <span id="elapsedTimer" class="text-sm font-bold text-teal-400 font-mono">00:00</span>
+        <button onclick="resetTimer()" title="Set Semula Masa" class="text-[10px] text-slate-400 hover:text-white ml-1 underline">Reset</button>
+      </div>
+
+      <div class="bg-slate-900 px-3 py-1 rounded border border-white/10 text-xs text-slate-300 font-mono hidden md:block">
+        <span id="clockDisplay">12:00 PM</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- MAIN CONTENT GRID -->
+  <!-- ========================================================================= -->
+  <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 py-3 min-h-0 overflow-hidden">
+
+    <!-- LEFT COLUMN: Previews & Next Slide (5 cols) -->
+    <section class="lg:col-span-5 flex flex-col gap-3 min-h-0">
+      
+      <!-- Current Slide Box -->
+      <div class="glass-panel p-4 flex flex-col shrink-0 border-teal-500/30 bg-slate-900/70 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs mono font-bold text-teal-400 uppercase flex items-center gap-1.5" id="currentViewLabel">
+            <span class="w-2 h-2 rounded-full bg-teal-400 animate-ping"></span>
+            Penonton Sedang Melihat
+          </span>
+          <span id="currentSlideBadge" class="text-xs mono font-bold bg-teal-950 px-2 py-0.5 rounded border border-teal-500/30 text-teal-300">
+            Slaid 1 / 9
+          </span>
+        </div>
+        <h2 id="currentSlideTitle" class="text-base font-bold text-white tracking-tight leading-snug">
+          01. Tajuk & Visi Strategik
+        </h2>
+      </div>
+
+      <!-- Next Slide Peek Box -->
+      <div class="glass-panel p-4 flex-1 flex flex-col border-white/10 bg-slate-950/50 min-h-0">
+        <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/5 shrink-0">
+          <span class="text-xs mono font-bold text-slate-400 uppercase" id="nextUpLabel">
+            🔜 Seterusnya (Persiapan Transisi)
+          </span>
+          <span id="nextSlideBadge" class="text-xs mono text-slate-400">
+            Slaid 2
+          </span>
+        </div>
+        <div id="nextSlideTitle" class="text-sm font-bold text-slate-200 mb-2 shrink-0">
+          02. Dilema Penghantaran vs Nadi Bersepadu
+        </div>
+        <div id="nextSlideSummary" class="text-xs text-slate-400 leading-relaxed overflow-y-auto pr-1">
+          Menerangkan cabaran utama industri (silo sistem, lambakan fail Excel, kelewatan UAT) berbanding penyelesaian automatik QMPulse.
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: Presenter Script & Key C-Suite Talking Points (7 cols) -->
+    <section class="lg:col-span-7 glass-panel p-5 flex flex-col border-teal-500/40 bg-[#070e1f] min-h-0 shadow-2xl">
+      
+      <!-- Script Header & Text Resizer -->
+      <div class="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="text-xs mono font-bold text-teal-300 uppercase flex items-center gap-2" id="scriptHeaderLabel">
+            🎙️ Skrip Pembentangan & Poin Eksekutif
+          </span>
+        </div>
+        <div class="flex items-center gap-1 text-xs">
+          <span class="text-slate-400 mr-1" id="fontLabel">Saiz Fon:</span>
+          <button onclick="changeFontSize(-1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-mono font-bold">-</button>
+          <button onclick="changeFontSize(1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-mono font-bold">+</button>
+        </div>
+      </div>
+
+      <!-- Script Content Area (Scrollable, Large Font) -->
+      <div id="scriptContainer" class="flex-1 overflow-y-auto py-3 pr-2 space-y-4 text-slate-100 text-base leading-relaxed">
+        <!-- Script dynamically inserted here -->
+      </div>
+
+      <!-- Executive Key Talking Bullet Highlights -->
+      <div id="highlightsBox" class="mt-2 pt-3 border-t border-white/10 shrink-0 bg-teal-950/30 p-3 rounded-lg border border-teal-500/20">
+        <div class="text-xs font-mono uppercase text-teal-400 font-bold mb-1.5" id="takeawayLabel">⚡ Mesej Utama untuk C-Suite:</div>
+        <div id="takeawayText" class="text-xs text-slate-200 leading-snug">
+          Tekankan 4 teras utama: 100% Kebolehkesanan (Traceability), 8 Peringkat Kitaran Hayat, 15 Peranan Tadbir Urus RBAC, dan 1 Sumber Tunggal Kebenaran.
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- BOTTOM CONTROLLER BAR -->
+  <!-- ========================================================================= -->
+  <footer class="flex items-center justify-between pt-3 border-t border-white/10 shrink-0">
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-slate-400" id="jumpLabel">Pergi ke:</span>
+      <select id="slideSelect" onchange="handleSelectSlide(this.value)" class="bg-slate-900 text-xs text-slate-200 border border-white/15 rounded px-2 py-1 outline-none">
+        <!-- Options populated dynamically -->
+      </select>
+    </div>
+
+    <!-- Slide Navigation Buttons -->
+    <div class="flex items-center gap-3">
+      <button onclick="prevSlide()" id="prevBtnLabel" class="px-4 py-2 rounded-lg border border-white/15 bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition-all flex items-center gap-1.5">
+        ← Slaid Sebelumnya
+      </button>
+      <button onclick="nextSlide()" id="nextBtnLabel" class="px-6 py-2 rounded-lg bg-gradient-to-r from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 text-slate-950 font-bold text-xs shadow-lg shadow-teal-500/20 transition-all flex items-center gap-1.5">
+        Slaid Seterusnya →
+      </button>
+    </div>
+  </footer>
+
+  <!-- ========================================================================= -->
+  <!-- DATA & LOGIC WITH COMPLETE BAHASA MELAYU & ENGLISH TRANSLATIONS -->
+  <!-- ========================================================================= -->
+  <script>
+    let currentLang = 'bm'; // Default to Bahasa Melayu for Malaysian C-Suite presentation
+
+    const SLIDES_BM = [
+      {
+        title: "01. Tajuk & Visi Strategik",
+        badge: "Slaid 1 / 9",
+        script: [
+          "\"Selamat pagi kepada barisan kepimpinan eksekutif dan rakan pengurusan. Hari ini saya amat berbesar hati untuk membentangkan QMPulse—platform Pengurusan Kualiti dan Tadbir Urus Penghantaran (Delivery Quality & Governance) generasi baharu.",
+          "Dalam ekosistem IT dan perisian moden, kualiti tidak boleh lagi diletakkan sebagai fasa terakhir yang terasing sebelum pelepasan sistem. QMPulse menghubungkan keseluruhan rantaian penghantaran: bermula daripada dokumen keperluan (requirements) yang ditulis oleh Penganalisis Fungsian (FA), fasa pembangunan kod oleh jurutera perisian, fasa ujian QA, sehinggalah pemantauan PMO masa nyata dan kelulusan go-live rasmi.",
+          "Platform ini memberikan pihak kepimpinan ketelusan 100% hujung-ke-hujung (end-to-end traceability), menjamin kepatuhan audit korporat, menghapuskan kecelaruan fail Excel, dan memacu kecekapan ujian melalui teknologi Kecerdasan Buatan (AI) terbenam.\""
+        ],
+        takeaway: "Tekankan 4 teras utama: 100% Kebolehkesanan, 8 Peringkat Kitaran Hayat, 15 Peranan Tadbir Urus RBAC, dan 1 Sumber Tunggal Kebenaran (Single Source of Truth).",
+        summary: "Memperkenalkan QMPulse: Daripada Keperluan Pertama hingga Keputusan Akhir — Satu Nadi Bersepadu."
+      },
+      {
+        title: "02. Dilema Penghantaran vs Nadi Bersepadu",
+        badge: "Slaid 2 / 9",
+        script: [
+          "\"Untuk memahami mengapa QMPulse amat penting, mari kita lihat cabaran sebenar yang sering melanda projek perusahaan hari ini:",
+          "Pada masa ini, PMO memantau dalam satu sistem, jurutera perisian menggunakan Redmine, penganalisis menulis spesifikasi dalam Word atau Confluence, dan pasukan QA merekod kes ujian dalam fail Excel yang dihantar melalui emel. Akibatnya wujud kekeliruan versi, kecacatan (defects) yang tidak dijejak rapi, serta kelewatan UAT di saat-saat akhir.",
+          "QMPulse menyelesaikan dilema ini dengan mewujudkan satu nadi operasi bersepadu. Kita TIDAK membuang sistem Redmine sedia ada—sebaliknya kita memperkasakannya dengan aliran kerja automatik, sokongan AI, dan papan pemuka eksekutif masa nyata.\""
+        ],
+        takeaway: "Jelaskan bahawa QMPulse memelihara pelaburan sistem sedia ada (Redmine) sambil menghapuskan kebergantungan manual pada fail Excel.",
+        summary: "Perbandingan antara cabaran semasa (silo sistem, fail Excel bersepah, pemantauan lambat) dengan transformasi QMPulse."
+      },
+      {
+        title: "03. Penyelarasan 5 Pasukan Utama",
+        badge: "Slaid 3 / 9",
+        script: [
+          "\"QMPulse menyatukan 5 disiplin utama di dalam organisasi kita di atas data masa nyata yang sama:",
+          "• Pasukan PMO: Menetapkan sasaran milestone, kapasiti sumber, memantau Indeks Prestasi Jadual (SPI), dan mengurus risiko projek.",
+          "• Penganalisis Fungsian (FA): Menulis spesifikasi dengan bantuan AI Analyzer bagi mengesan kekaburan awal, serta mematuhi semakan rakan sekerja (peer-review).",
+          "• Pembangun Kod (Dev): Menerima spesifikasi lengkap yang telah diluluskan, membina fungsi, dan menukar status kepada 'For QA Test' dalam satu klik.",
+          "• Pasukan QA: Mereka bentuk kes ujian secara selari semasa pembangunan berjalan, serta mendaftarkan kecacatan Redmine secara automatik apabila langkah ujian gagal.",
+          "• Kepimpinan Eksekutif (C-Suite): Memperoleh gambaran holistik tentang kestabilan pelepasan (release stability) dan kadar kelulusan pertama (first-pass yield) pada satu skrin.\""
+        ],
+        takeaway: "Tunjukkan bagaimana setiap pihak berkepentingan dalam bilik mesyuarat mendapat manfaat langsung mengikut peranan masing-masing.",
+        summary: "Perincian 5 peranan utama: PMO, Functional Analysts, Developers, QA Engineers, dan Leadership."
+      },
+      {
+        title: "04. Kitaran Hayat 8 Peringkat (The 8 Beats)",
+        badge: "Slaid 4 / 9",
+        script: [
+          "\"Kitaran 8 peringkat ini merupakan teras kekuatan QMPulse dengan kawalan tadbir urus automatik:",
+          "1. Pengasingan Tugas (Segregation of Duties): Penganalisis FA tidak boleh meluluskan dokumen keperluan mereka sendiri—ia wajib disemak oleh rakan FA yang lain dalam projek yang sama.",
+          "2. Reka Bentuk Ujian Selari (Parallel Acceleration): QA menulis kes ujian serentak semasa dev sedang membina kod, jadi tiada masa terbuang apabila sistem didepositkan ke persekitaran ujian.",
+          "3. Pautan Kecacatan Automatik: Apabila QA menanda langkah gagal pada Peringkat 6, sistem terus mencipta 'child issue' dalam Redmine lengkap dengan tangkapan skrin dan langkah pembiakan.",
+          "4. Pengurusan Risiko: Daftar risiko dinilai sepanjang 8 peringkat, bukan hanya pada peringkat awal.\""
+        ],
+        takeaway: "Sorot Pengasingan Tugas (Segregation of Duties) yang dikuatkuasakan secara kod dan penghasilan kes ujian selari.",
+        summary: "Aliran 8 peringkat bermula dari Perancangan Milestone sehingga Kelulusan UAT & Go-Live."
+      },
+      {
+        title: "05. Integrasi Redmine & Hab Kecerdasan Buatan (AI)",
+        badge: "Slaid 5 / 9",
+        script: [
+          "\"Dua tiang teknologi utama yang membezakan QMPulse:",
+          "1. Integrasi Dua Hala Redmine: Kebanyakan platform baharu memerlukan migrasi data yang berisiko tinggi. QMPulse bertindak sebagai lapisan kualiti moden di atas Redmine sedia ada, menyegerakkan data secara masa nyata tanpa menimpa (overwrite) rekod sejarah.",
+          "2. Hab AI Terbenam (Google GenAI): Kita menggunakan AI bukan sebagai gimik, tetapi sebagai penapis kualiti awal. AI Requirement Analyzer mengesan spesifikasi yang kabur atau tidak boleh diuji sebelum kod ditulis, manakala AI Test Generation memendekkan masa penyediaan kes ujian melebihi 40%.\""
+        ],
+        takeaway: "Sifar gangguan infrastruktur kepada Redmine + Keupayaan AI yang menapis ralat pada peringkat awal spesifikasi.",
+        summary: "Kelebihan integrasi dua hala Redmine dan keupayaan analitik Google GenAI."
+      },
+      {
+        title: "06. 12 Keupayaan Merentasi 4 Disiplin",
+        badge: "Slaid 6 / 9",
+        script: [
+          "\"Matriks ini membuktikan keluasan dan kedalaman fungsi QMPulse merentasi 4 disiplin utama:",
+          "Sama ada perancangan milestone, perpustakaan kes ujian, penjejakan kecacatan, atau kepatuhan audit korporat, semua pasukan beroperasi dalam satu sistem yang seragam.",
+          "Lihat penjanaan laporan Excel kami: ia menghasilkan lembaran Usaha Semakan (Review Effort), Analisis Punca Utama Pareto, dan pelan pembetulan CAPA secara automatik apabila laporan dihantar.\""
+        ],
+        takeaway: "Satu platform tunggal menggantikan 4 hingga 5 aplikasi berasingan dan puluhan fail spreadsheet.",
+        summary: "Rancang & Urus, Bina & Uji, Analisis & Lapor, serta Platform Perusahaan."
+      },
+      {
+        title: "07. Keselamatan & Kepatuhan Audit Korporat",
+        badge: "Slaid 7 / 9",
+        script: [
+          "\"Aspek tadbir urus dan keselamatan maklumat amat dititikberatkan untuk barisan CIO dan CISO kita:",
+          "- Kawalan Capaian RBAC: 15 peranan terperinci merentasi 5 jabatan. Ahli PMO terus diarahkan ke portal pelaporan eksekutif sebaik log masuk.",
+          "- Jejak Audit Tidak Boleh Dipadam (Immutable Audit Trail): Setiap pindaan spesifikasi, cap masa ujian, dan keputusan kelulusan direkodkan secara kekal untuk tujuan audit.",
+          "- Laporan Eksekutif Satu Klik: Menghantar keputusan pelepasan sistem kepada PMO dalam bentuk emel HTML profesional melalui Office 365, berserta sijil kelulusan PDF dan analisis Pareto dalam format Excel yang kemas.\""
+        ],
+        takeaway: "Yakinkan barisan CIO/CISO: 15 peranan RBAC, jejak audit kalis padam, dan sedia untuk pelayan On-Premises / Awan Peribadi.",
+        summary: "Tadbir urus keselamatan, matriks RBAC, jejak audit, integrasi Office 365 SMTP, dan pematuhan peraturan."
+      },
+      {
+        title: "08. Nilai Perniagaan & Pulangan Pelaburan (ROI)",
+        badge: "Slaid 8 / 9",
+        script: [
+          "\"Mari kita lihat impak pulangan pelaburan (ROI) yang jelas untuk kepimpinan eksekutif:",
+          "1. Kecekapan: Melalui penjanaan ujian AI, pasukan QA menjimatkan sehingga 40% masa reka bentuk ujian.",
+          "2. Sifar Ketirisan Kecacatan: 100% keperluan perniagaan dipetakan terus kepada pelaksanaan ujian dan isu Redmine.",
+          "3. Penjimatan Masa Pelaporan: Kitaran pelaporan PMO yang sebelum ini mengambil masa 2 hingga 3 hari kini dijana dalam masa kurang daripada 60 saat.",
+          "4. Kebolehsasaran Pelepasan: Kepimpinan dapat mengenal pasti risiko kelewatan lebih awal melalui Indeks SPI masa nyata.\""
+        ],
+        takeaway: "Fokus kepada angka kukuh: 40% reka bentuk ujian lebih pantas, 100% kebolehkesanan, sifar kebocoran fail Excel, pelaporan 3x lebih cepat.",
+        summary: "Angka pulangan pelaburan (ROI), penjimatan masa operasi, dan faedah strategik."
+      },
+      {
+        title: "09. Pelan Pelaksanaan & Hala Tuju",
+        badge: "Slaid 9 / 9",
+        script: [
+          "\"Sebagai penutup, pelan pelaksanaan kami adalah berstruktur, pantas, dan berisiko rendah:",
+          "- Fasa 1 (Minggu 1-2): Kita mulakan dengan Projek Perintis pada 2 projek utama bagi mengesahkan aliran kerja tanpa sebarang gangguan operasi.",
+          "- Fasa 2 & 3: Latihan pasukan dan pelaksanaan menyeluruh di peringkat perusahaan pada Bulan ke-2.",
+          "Sistem ini telah siap dibina, diuji, dan sedia untuk dilaksanakan hari ini. Terima kasih atas masa dan perhatian barisan kepimpinan, dan saya membuka ruang untuk sesi soal jawab serta perbincangan strategik.\""
+        ],
+        takeaway: "Seruan Bertindak (Call to Action): Memohon kelulusan kepimpinan untuk memulakan Projek Perintis Fasa 1 minggu ini.",
+        summary: "Pelan 4 fasa (Perintis, Pengupayaan, Peluasan, Pengoptimuman) dan pembukaan sesi Soal Jawab."
+      }
+    ];
+
+    const SLIDES_EN = [
+      {
+        title: "01. Title & Strategic Vision",
+        badge: "Slide 1 / 9",
+        script: [
+          "\"Good morning, Executive Leadership. Today, I am proud to present QMPulse—our unified Quality Management and Delivery Governance platform.",
+          "In enterprise software delivery, quality cannot be an afterthought or an isolated QA phase before release. QMPulse connects the entire delivery chain: from business requirements authored by Functional Analysts, through sprint build and QA test execution, to real-time PMO governance and final go-live sign-off.",
+          "It gives leadership 100% end-to-end visibility, guarantees regulatory compliance, eliminates spreadsheet chaos, and accelerates testing with built-in AI.\""
+        ],
+        takeaway: "Emphasize 100% Traceability, 8 Lifecycle Stages, 15 Governed Roles, and 1 Single Source of Truth.",
+        summary: "Introduces QMPulse and sets the tone: from first requirement to final verdict, one living heartbeat."
+      },
+      {
+        title: "02. The Delivery Dilemma vs. The Unified Pulse",
+        badge: "Slide 2 / 9",
+        script: [
+          "\"To understand why QMPulse is vital, let us look at the industry's common bottleneck: tool sprawl and fragmented silos.",
+          "Currently, PMOs track in one tool, developers code in Redmine, analysts write specs in Confluence or Word, and QA tracks tests on spreadsheets. This leads to version skew, untracked defect drift, and eleventh-hour release panic.",
+          "QMPulse solves this by establishing one single operational pulse. We are NOT asking teams to replace Redmine—we are supercharging it with automated workflows, AI assistance, and instant executive analytics.\""
+        ],
+        takeaway: "Explain that QMPulse protects existing Redmine investments while removing spreadsheet and email chaos.",
+        summary: "Comparison of current delivery friction (silos, spreadsheets, blind oversight) vs QMPulse solutions."
+      },
+      {
+        title: "03. Five Delivery Personas",
+        badge: "Slide 3 / 9",
+        script: [
+          "\"Here is how QMPulse aligns every team in this room on the exact same live data:",
+          "• For our PMO: You open the milestone, assign capacity, track Schedule Performance Index (SPI), and manage risks.",
+          "• For Functional Analysts: Requirements are captured with AI gap analysis, and peer-approval enforces segregation of duties.",
+          "• For Developers: Tasks flow seamlessly from approved requirements to code with zero ambiguity.",
+          "• For QA Teams: Test cases are pre-authored while dev is coding. The moment a build lands, test execution begins.",
+          "• For the C-Suite: You get the macro-level pulse: release stability, first-pass yield, and automated audit trails.\""
+        ],
+        takeaway: "Show how every stakeholder in the room benefits directly with role-specific views.",
+        summary: "Breakdown of PMO, Functional Analysts, Developers, QA Engineers, and Executive Leadership."
+      },
+      {
+        title: "04. The 8 Beats of a Milestone Lifecycle",
+        badge: "Slide 4 / 9",
+        script: [
+          "\"This 8-stage lifecycle is the core engine of QMPulse. Notice the built-in governance gates:",
+          "1. Segregation of Duties: A Functional Analyst can never sign off their own requirement—it must be peer-reviewed by a colleague in the same project.",
+          "2. Parallel Acceleration: QA writes test cases during the build phase (Stage 5) so no time is wasted when code is deployed.",
+          "3. Automated Defect Linking: When QA fails a step in Stage 6, a defect is automatically created in Redmine as a child ticket of the original requirement.",
+          "4. Risk Management is active through all 8 stages, not just in stage 1.\""
+        ],
+        takeaway: "Highlight code-enforced Segregation of Duties and parallel test case authoring.",
+        summary: "End-to-end 8-stage pipeline from Milestone Planning to UAT Sign-off & Go-Live."
+      },
+      {
+        title: "05. Deep Redmine Sync & The Enterprise AI Hub",
+        badge: "Slide 5 / 9",
+        script: [
+          "\"Two strategic technological pillars set QMPulse apart:",
+          "1. Native Two-Way Redmine Sync: Many platforms force you to migrate data or rip out existing tracking. QMPulse acts as a modern quality layer over Redmine, synchronizing in real time without overwriting history.",
+          "2. The Enterprise AI Hub: We embed Google GenAI directly into the workflow. Our AI Requirement Analyzer acts as an early quality gate to catch bad requirements before they reach development, while AI Test Generation cuts test design effort by over 40%.\""
+        ],
+        takeaway: "Zero infrastructure disruption with Redmine + AI quality gates that catch defects early.",
+        summary: "Detailed breakdown of two-way Redmine integration and Google GenAI capabilities."
+      },
+      {
+        title: "06. 12 Core Capabilities Across 4 Disciplines",
+        badge: "Slide 6 / 9",
+        script: [
+          "\"This slide demonstrates the complete depth of QMPulse across 4 disciplines and 12 core modules.",
+          "Whether it is milestone planning, test case management, defect analytics, or enterprise compliance, every team operates within the same governed environment.",
+          "Notice the automated Excel generation: it automatically produces Review Effort logs, Pareto analysis, and CAPA corrective action sheets on demand.\""
+        ],
+        takeaway: "One single platform replaces 4-5 disconnected tools and manual Excel spreadsheets.",
+        summary: "Plan & Govern, Build & Test, Analyze & Report, and Enterprise Platform."
+      },
+      {
+        title: "07. Enterprise-Grade Security & Audit Readiness",
+        badge: "Slide 7 / 9",
+        script: [
+          "\"Governance and security are fundamental requirements for our leadership team:",
+          "- Security & Access: QMPulse enforces 15 granular roles across 5 departments. PMO members get an executive portal; FAs and QA get specialized workspaces.",
+          "- Compliance: Every test run, status flip, requirement edit, and sign-off is logged in an immutable audit trail.",
+          "- One-Click Verdicts: Sending release sign-offs to PMO stakeholders takes one click—generating rich HTML emails, PDF certificates, and pre-formatted Excel deliverables with Pareto defect analysis and CAPA tracking.\""
+        ],
+        takeaway: "Reassure CIO/CISO: 15 RBAC roles, immutable audit trail, and on-premises / private cloud ready.",
+        summary: "Enterprise governance, RBAC matrix, audit trail, Office 365 SMTP, and on-prem readiness."
+      },
+      {
+        title: "08. Measurable ROI & Delivery Acceleration",
+        badge: "Slide 8 / 9",
+        script: [
+          "\"Let us review the bottom-line ROI for executive leadership:",
+          "1. Efficiency: By generating test cases with Google GenAI, our QA team cuts test design effort by up to 40%.",
+          "2. Zero Defect Leakage: 100% of requirements map to test executions and Redmine issues.",
+          "3. Time Savings: PMO reporting cycles that used to take days of manual Excel merging now execute in under 60 seconds with automated verdict emails.",
+          "4. Predictability: Leadership knows the exact health and stability of every milestone well before go-live.\""
+        ],
+        takeaway: "Hit the hard numbers: 40% faster test design, 100% traceability, 0 spreadsheet leaks, 3x faster reporting.",
+        summary: "Hard metrics, efficiency ROI, and strategic executive advantages."
+      },
+      {
+        title: "09. Strategic Rollout Roadmap & Action Plan",
+        badge: "Slide 9 / 9",
+        script: [
+          "\"To conclude, our path forward is clear, low-risk, and structured:",
+          "- We begin with a targeted 2-week pilot on two core projects to validate the workflow with zero operational disruption.",
+          "- By Month 2, all teams will be unified under one automated quality standard.",
+          "The software is live, tested, and fully functional today. Thank you for your time, and I now welcome your questions and feedback.\""
+        ],
+        takeaway: "Call to Action: Request approval for the low-risk 2-week Phase 1 pilot.",
+        summary: "Phased 4-step roadmap (Pilot, Enablement, Scale, Optimization) and opening for Q&A."
+      }
+    ];
+
+    let currentSlide = 0;
+    let fontSize = 16; // px
+    let timerSeconds = 0;
+    let timerInterval = null;
+
+    // Cross-window synchronization
+    const syncChannel = new BroadcastChannel('qmpulse_slide_deck_sync');
+    syncChannel.onmessage = (event) => {
+      if (typeof event.data?.slideIndex === 'number') {
+        goToSlide(event.data.slideIndex, false);
+      }
+    };
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'qmpulse_current_slide') {
+        const idx = parseInt(e.newValue, 10);
+        if (!isNaN(idx)) goToSlide(idx, false);
+      }
+    });
+
+    function getActiveDataset() {
+      return currentLang === 'bm' ? SLIDES_BM : SLIDES_EN;
+    }
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      const btnBM = document.getElementById('btnLangBM');
+      const btnEN = document.getElementById('btnLangEN');
+
+      if (lang === 'bm') {
+        btnBM.className = 'px-3 py-1 rounded text-xs font-bold transition-all bg-teal-500 text-slate-950 shadow-md';
+        btnEN.className = 'px-3 py-1 rounded text-xs font-medium text-slate-400 hover:text-white transition-all';
+        document.getElementById('privacyNotice').textContent = 'Khas untuk skrin pembentang — Penonton hanya melihat slaid bersih!';
+        document.getElementById('currentViewLabel').innerHTML = '<span class="w-2 h-2 rounded-full bg-teal-400 animate-ping"></span> Penonton Sedang Melihat';
+        document.getElementById('nextUpLabel').textContent = '🔜 Seterusnya (Persiapan Transisi)';
+        document.getElementById('scriptHeaderLabel').textContent = '🎙️ Skrip Pembentangan & Poin Eksekutif';
+        document.getElementById('fontLabel').textContent = 'Saiz Fon:';
+        document.getElementById('takeawayLabel').textContent = '⚡ Mesej Utama untuk C-Suite:';
+        document.getElementById('jumpLabel').textContent = 'Pergi ke:';
+        document.getElementById('prevBtnLabel').textContent = '← Slaid Sebelumnya';
+        document.getElementById('nextBtnLabel').textContent = 'Slaid Seterusnya →';
+        document.getElementById('timerLabel').textContent = 'MASA:';
+      } else {
+        btnEN.className = 'px-3 py-1 rounded text-xs font-bold transition-all bg-teal-500 text-slate-950 shadow-md';
+        btnBM.className = 'px-3 py-1 rounded text-xs font-medium text-slate-400 hover:text-white transition-all';
+        document.getElementById('privacyNotice').textContent = 'Keep on your screen — Audience only sees clean slides!';
+        document.getElementById('currentViewLabel').innerHTML = '<span class="w-2 h-2 rounded-full bg-teal-400 animate-ping"></span> Audience is Seeing';
+        document.getElementById('nextUpLabel').textContent = '🔜 Next Up (Prepare Transition)';
+        document.getElementById('scriptHeaderLabel').textContent = '🎙️ Presenter Script & Talking Points';
+        document.getElementById('fontLabel').textContent = 'Font Size:';
+        document.getElementById('takeawayLabel').textContent = '⚡ Key Executive Takeaway:';
+        document.getElementById('jumpLabel').textContent = 'Jump to:';
+        document.getElementById('prevBtnLabel').textContent = '← Previous Slide';
+        document.getElementById('nextBtnLabel').textContent = 'Next Slide →';
+        document.getElementById('timerLabel').textContent = 'TIMER:';
+      }
+
+      populateSlideSelector();
+      renderPresenter();
+    }
+
+    function populateSlideSelector() {
+      const dataset = getActiveDataset();
+      const slideSelect = document.getElementById('slideSelect');
+      slideSelect.innerHTML = '';
+      dataset.forEach((s, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${idx + 1}. ${s.title}`;
+        slideSelect.appendChild(opt);
+      });
+      slideSelect.value = currentSlide;
+    }
+
+    function renderPresenter() {
+      const dataset = getActiveDataset();
+      const slide = dataset[currentSlide];
+      const nextSlideData = dataset[currentSlide + 1] || null;
+
+      // Current Slide info
+      document.getElementById('currentSlideBadge').textContent = slide.badge;
+      document.getElementById('currentSlideTitle').textContent = slide.title;
+      document.getElementById('slideSelect').value = currentSlide;
+
+      // Next Slide info
+      if (nextSlideData) {
+        document.getElementById('nextSlideBadge').textContent = currentLang === 'bm' ? `Slaid ${currentSlide + 2}` : `Slide ${currentSlide + 2}`;
+        document.getElementById('nextSlideTitle').textContent = nextSlideData.title;
+        document.getElementById('nextSlideSummary').textContent = nextSlideData.summary;
+      } else {
+        document.getElementById('nextSlideBadge').textContent = currentLang === 'bm' ? 'Tamat Slaid' : 'End of Deck';
+        document.getElementById('nextSlideTitle').textContent = currentLang === 'bm' ? '🎉 Sesi Soal Jawab Eksekutif' : '🎉 Open Floor for Executive Q&A';
+        document.getElementById('nextSlideSummary').textContent = currentLang === 'bm' ? 'Jemput soalan daripada barisan C-Suite dan buat peralihan ke Sesi Demo Langsung.' : 'Invite questions and transition to the Live Demo session.';
+      }
+
+      // Script
+      const scriptBox = document.getElementById('scriptContainer');
+      scriptBox.innerHTML = '';
+      slide.script.forEach((p) => {
+        const pElem = document.createElement('p');
+        pElem.style.fontSize = `${fontSize}px`;
+        pElem.className = 'text-slate-200 leading-relaxed font-normal';
+        pElem.textContent = p;
+        scriptBox.appendChild(pElem);
+      });
+
+      // Key Takeaway
+      document.getElementById('takeawayText').textContent = slide.takeaway;
+    }
+
+    function goToSlide(idx, broadcast = true) {
+      const dataset = getActiveDataset();
+      if (idx >= 0 && idx < dataset.length) {
+        currentSlide = idx;
+        renderPresenter();
+        if (broadcast) {
+          syncChannel.postMessage({ slideIndex: currentSlide });
+          localStorage.setItem('qmpulse_current_slide', currentSlide.toString());
+        }
+      }
+    }
+
+    function nextSlide() {
+      const dataset = getActiveDataset();
+      if (currentSlide < dataset.length - 1) {
+        goToSlide(currentSlide + 1, true);
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        goToSlide(currentSlide - 1, true);
+      }
+    }
+
+    function handleSelectSlide(val) {
+      goToSlide(parseInt(val, 10), true);
+    }
+
+    function changeFontSize(delta) {
+      fontSize = Math.max(12, Math.min(26, fontSize + delta));
+      renderPresenter();
+    }
+
+    // Timer & Clock
+    function startTimer() {
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        timerSeconds++;
+        const mins = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+        const secs = String(timerSeconds % 60).padStart(2, '0');
+        document.getElementById('elapsedTimer').textContent = `${mins}:${secs}`;
+
+        // Clock
+        const now = new Date();
+        document.getElementById('clockDisplay').textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }, 1000);
+    }
+
+    function resetTimer() {
+      timerSeconds = 0;
+      document.getElementById('elapsedTimer').textContent = "00:00";
+    }
+
+    // Keyboard bindings in console window
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        prevSlide();
+      } else if (e.key.toLowerCase() === 'l') {
+        setLanguage(currentLang === 'bm' ? 'en' : 'bm');
+      }
+    });
+
+    // Check initial slide from localStorage
+    const saved = localStorage.getItem('qmpulse_current_slide');
+    if (saved) {
+      const idx = parseInt(saved, 10);
+      if (!isNaN(idx)) currentSlide = idx;
+    }
+
+    // Init with Bahasa Melayu
+    setLanguage('bm');
+    startTimer();
+  </script>
+</body>
+</html>

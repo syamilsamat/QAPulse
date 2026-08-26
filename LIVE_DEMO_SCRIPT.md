@@ -1,222 +1,211 @@
-# 🎙️ QMPulse — End-to-End Live Demo Script
-### *Executive Walkthrough: From Milestone Creation to UAT Sign-Off & Release Close*
+# 🎙️ QMPulse — End-to-End Live Demo Script (Bilingual: Bahasa Melayu & English)
+### *Panduan Sesi Demo Sistem: Dari Penciptaan Milestone sehingga UAT Sign-Off & Penutupan Release*
 
 ---
 
-## 📋 Demo Quick Reference
-- **Total Demo Duration:** 10 – 12 Minutes
-- **Target Audience:** C-Level Executives (CEO, CTO, CIO, COO, Head of PMO/QA) & Technical Directors
-- **Demo Scenario:** Delivering a mission-critical release *(e.g., "Core Banking Modernization — Sprint 14 / CR-2026")*
-- **Key Message to Reinforce:** *"One shared heartbeat — no spreadsheets, no email ping-pong, full audit compliance, and seamless Redmine + AI integration."*
+## 📋 Ringkasan & Persediaan Sesi Demo
+- **Tempoh Anggaran Demo:** 10 – 12 Minit
+- **Sasaran Penonton:** Pengurusan Tertinggi C-Suite (CEO, CTO, CIO, COO, Ketua PMO/QA) & Pengarah Teknikal
+- **Senario Demo:** Penghantaran Pelepasan Sistem Kritikal *(cth. "Core Banking Modernization — Sprint 14 / CR-2026")*
+- **Mesej Utama (The Core Pitch):** *"Satu nadi operasi bersepadu—tiada lagi lambakan fail Excel, tiada pertukaran emel manual, 100% patuh audit, dan integrasi pintar bersama Redmine + AI."*
 
 ---
 
-## 🎬 Pre-Demo Checklist
-1. Open your browser to `http://localhost:5173` (or production URL).
-2. Log in with an account having full workflow privileges (e.g., `admin` or `qa_lead`).
-3. Have Redmine open in a background tab if you want to show the live bi-directional sync.
-4. Have this script open on your secondary screen or printed beside your laptop.
+## 🎬 Senarai Semak Sebelum Memulakan Demo
+1. Buka pelayar web ke `http://localhost:5173`.
+2. Log masuk menggunakan akaun pentadbir/ketua *(cth. `admin` atau `qa_lead`)*.
+3. Buka tab Redmine di latar belakang sekiranya ingin menunjukkan integrasi masa nyata.
+4. Buka [`presenter_console.html`](file:///c:/Users/raimi.rosman/QAPulse/presenter_console.html) pada skrin komputer riba anda dan pilih bahasa **🇲🇾 Bahasa Melayu** (tekan `L` untuk tukar).
 
 ---
 
 ```mermaid
 flowchart TD
-    S1["Step 1: Milestone Planning<br/>(PMO / Scope & Target Dates)"] --> S2["Step 2: Requirement Authoring<br/>(FA + AI Analyzer)"]
-    S2 --> S3["Step 3: Peer-Approval Gate<br/>(Segregation of Duties)"]
-    S3 --> S4["Step 4: Dev Assignment & Build<br/>('For QA Test' Status Flip)"]
-    S4 --> S5["Step 5: Test Case Authoring<br/>(AI Test Matrix Generation)"]
-    S5 --> S6["Step 6: Execution & Defects<br/>(Auto Redmine Defect Write-Back)"]
-    S6 --> S7["Step 7: UAT & Sign-Off<br/>(Business Sign-Off & BDD)"]
-    S7 --> S8["Step 8: Milestone Completion<br/>(Verdict Email, RTM & Lessons Learned)"]
+    S1["Peringkat 1: Perancangan Milestone<br/>(PMO / Skop & Tarikh Sasaran)"] --> S2["Peringkat 2: Penulisan Spesifikasi<br/>(FA + AI Analyzer)"]
+    S2 --> S3["Peringkat 3: Kelulusan Rakan Sekerja<br/>(Segregation of Duties)"]
+    S3 --> S4["Peringkat 4: Agihan Dev & Pembangunan<br/>(Status 'For QA Test')"]
+    S4 --> S5["Peringkat 5: Reka Bentuk Kes Ujian<br/>(Penjanaan AI Test Matrix)"]
+    S5 --> S6["Peringkat 6: Pelaksanaan Ujian & Defect<br/>(Auto Write-Back ke Redmine)"]
+    S6 --> S7["Peringkat 7: UAT & Pengesahan Bisnes<br/>(Sijil Kelulusan & BDD)"]
+    S7 --> S8["Peringkat 8: Penutupan Milestone & Laporan<br/>(Emel Keputusan, RTM & Lessons Learned)"]
 ```
 
 ---
 
-## 🌟 Stage-by-Stage Live Demo Script
+# 🇲🇾 SKRIP DEMO LANGSUNG (BAHASA MELAYU KORPORAT)
 
 ---
 
-### 🟢 INTRO: Setting the Executive Context (30 Seconds)
+### 🟢 PENGENALAN: Menetapkan Konteks Eksekutif (30 Saat)
 
-**🖥️ On Screen:** Landing Page or Main Dashboard.
+**🖥️ Paparan Skrin:** Halaman Utama (Landing Page) atau Papan Pemuka Utama (Dashboard).
 
-**🗣️ What You Say:**
-> *"Thank you, everyone. Now let us see QMPulse in live action. \n\n"
-> "Imagine our team is delivering a critical business initiative—for example, our new Core Customer Portal. Typically, this would involve 15 different spreadsheets, dozens of emails, and disconnected Jira or Redmine tickets. \n\n"
-> "Today, I will walk you through the entire delivery journey across all 8 stages—from the moment PMO creates the milestone, through AI-assisted requirement vetting, developer build, QA execution with auto-defect creation, all the way to final UAT sign-off and automated executive reporting."*
-
----
-
-### 🟢 STEP 1: Milestone Planning & Governance (PMO View)
-
-**🖥️ Navigation:** Navigate to **QA Pipeline → Step 1: Milestone** (or `/configurations` / Milestones).
-
-**🖱️ What to Do:**
-1. Select Project: *(e.g., "Core Banking Platform")*.
-2. Enter Milestone Name: `Release 2.4 - Customer Security & Payments`.
-3. Select Type: `Sprint` or `Change Request (CR)`.
-4. Point to the Target Dates grid *(Requirements, Dev, QA, UAT, Go-Live)*.
-5. Point to the checkbox: **"Requires UAT Sign-off?"** (Keep checked).
-6. Click **Save / Create Milestone**.
-
-**🗣️ What You Say:**
-> *"Everything begins in Step 1 with our PMO. The PMO establishes the milestone, sets target dates across every lifecycle phase, assigns the target environment, and tracks initial risk.\n\n"
-> "Notice the 'Requires UAT Sign-Off' toggle. When enabled, QMPulse enforces an automated governance gate that prevents the milestone from ever being closed or deployed without verified business sign-off.\n\n"
-> "The moment PMO saves this milestone, automated notifications alert the Functional Analysts and Engineering Leads that the clock has officially started."*
-
-**✨ Executive WOW Factor:** Point out that schedule health and target dates are tracked per phase, giving PMO early-warning indicators rather than discovering delays at the end.
+**🗣️ Dialog Pembentang:**
+> *"Terima kasih kepada barisan kepimpinan. Sekarang mari kita lihat QMPulse beroperasi secara langsung.\n\n"
+> "Bayangkan organisasi kita sedang membangunkan inisiatif digital yang kritikal—contohnya Sistem Perbankan Pelanggan Baharu. Dalam kaedah konvensional, projek ini biasanya melibatkan lebih 15 fail Excel berasingan, puluhan rantaian emel, dan isu Redmine yang tidak disegerakkan secara langsung.\n\n"
+> "Hari ini, saya akan membawa tuan-tuan dan puan-puan merentasi keseluruhan 8 peringkat penghantaran—bermula dari penetapan sasaran oleh PMO, penapisan kualiti spesifikasi menggunakan AI, pembangunan kod, pelaksanaan ujian QA dengan pendaftaran defect automatik, sehinggalah kepada kelulusan UAT dan penjanaan laporan eksekutif satu klik."*
 
 ---
 
-### 🟢 STEP 2: Requirement Authoring & The AI Requirement Analyzer (FA View)
+### 🟢 PERINGKAT 1: Perancangan Milestone & Tadbir Urus (Paparan PMO)
 
-**🖥️ Navigation:** Click **Step 2: Requirements** on the pipeline top bar.
+**🖥️ Navigasi:** Pergi ke menu **QA Pipeline → Step 1: Milestone** (atau `/configurations`).
 
-**🖱️ What to Do:**
-1. Show existing requirements or click **+ Add Requirement** (or **Sync from Redmine**).
-2. Show a sample requirement: *"User Biometric Authentication on Mobile App"*.
-3. Click the **"AI Analyze Requirement"** button.
-4. Watch the AI output modal populate with clarity scores, ambiguity warnings, and suggested edge cases.
+**🖱️ Tindakan:**
+1. Pilih Projek: *(cth. "Core Banking Platform")*.
+2. Masukkan Nama Milestone: `Release 2.4 - Customer Security & Payments`.
+3. Pilih Jenis: `Sprint` atau `Change Request (CR)`.
+4. Tunjukkan jadual tarikh sasaran mengikut fasa *(Requirements, Dev, QA, UAT, Go-Live)*.
+5. Tunjukkan kotak semak: **"Requires UAT Sign-off?"** (Pastikan bertanda).
+6. Klik **Save / Create Milestone**.
 
-**🗣️ What You Say:**
-> *"Next, our Functional Analysts author the business specifications. In traditional projects, poorly specified requirements cause up to 60% of downstream production defects.\n\n"
-> "Here, QMPulse introduces our built-in Google GenAI Requirement Analyzer. In real time, the AI scans the requirement text and flags ambiguities, untestable acceptance criteria, and missing negative test scenarios before a single line of code is written.\n\n"
-> "This acts as our very first quality gate, ensuring developers and QA receive rock-solid specifications."*
+**🗣️ Dialog Pembentang:**
+> *"Segala-galanya bermula di Peringkat 1 bersama pihak PMO. PMO menetapkan skop milestone, menetapkan tarikh sasaran bagi setiap fasa, memperuntukkan persekitaran ujian (test environment), dan mengurus risiko awal.\n\n"
+> "Perhatikan fungsi 'Requires UAT Sign-Off'. Apabila diaktifkan, QMPulse menguatkuasakan pintu tadbir urus (governance gate) secara automatik—sistem tidak boleh ditutup atau dilepaskan ke 'Production' selagi dokumen penerimaan UAT belum disahkan.\n\n"
+> "Sebaik sahaja PMO menyimpan milestone ini, notifikasi automatik akan dihantar terus kepada Penganalisis Fungsian (FA) dan Ketua Pembangun bahawa kitaran projek telah bermula."*
 
-**✨ Executive WOW Factor:** *"We catch defect-causing ambiguities at the requirement stage, where fixing them costs 10x less than fixing them in QA or production."*
-
----
-
-### 🟢 STEP 3: Peer-Review & Segregation of Duties Gate
-
-**🖥️ Navigation:** Click **Step 3: Test Cases / Step 4: Approval** (Requirements Review).
-
-**🖱️ What to Do:**
-1. Show the **Review Status** column (`Pending Review`, `Approved`, `Changes Requested`).
-2. Show that the **Author** cannot click "Approve" on their own requirement.
-3. Show the **"Assigned Peer Reviewer"** from the same project team.
-4. Click **Approve** (as the designated peer reviewer).
-
-**🗣️ What You Say:**
-> *"Now let's look at enterprise compliance. QMPulse enforces strict Segregation of Duties. An analyst can never approve their own work.\n\n"
-> "The system mandates a secondary peer review from another qualified FA within the same project. Once approved, the requirement is locked into our immutable audit trail and handed off to Development and QA simultaneously."*
+**✨ Poin Wow Eksekutif:** *"Indeks Prestasi Jadual (SPI) dijejak secara langsung pada setiap fasa, membolehkan PMO mengesan kelewatan lebih awal tanpa menunggu laporan manual."*
 
 ---
 
-### 🟢 STEP 4: Developer Build & Status Transition
+### 🟢 PERINGKAT 2: Penulisan Spesifikasi & AI Requirement Analyzer (Paparan FA)
 
-**🖥️ Navigation:** Show the **Task Tracker / Redmine Task Integration** view.
+**🖥️ Navigasi:** Klik **Step 2: Requirements** pada bar navigasi atas.
 
-**🖱️ What to Do:**
-1. Point to the task card assigned to the developer with the linked requirement ID.
-2. Show the status moving from `In Development` to `For QA Test`.
-3. Highlight that this immediately updates Redmine without the developer having to enter duplicate logs.
+**🖱️ Tindakan:**
+1. Tunjukkan senarai spesifikasi sedia ada atau klik **+ Add Requirement** (atau **Sync from Redmine**).
+2. Pilih satu spesifikasi: *"Pengesahan Biometrik pada Aplikasi Mudah Alih"*.
+3. Klik butang **"AI Analyze Requirement"**.
+4. Tunjukkan modal AI yang memaparkan skor kejelasan, amaran kekaburan, dan cadangan kes ujian sempadan (edge cases).
 
-**🗣️ What You Say:**
-> *"Once approved, development begins. The Dev Lead assigns tasks with full specification context attached. \n\n"
-> "When the developer completes the build and deploys to the test environment, they simply flip the status to 'For QA Test'. \n\n"
-> "Notice what happens in parallel: The QA Lead and testing team receive an instant notification that the build is ready for verification."*
+**🗣️ Dialog Pembentang:**
+> *"Seterusnya, Penganalisis Fungsian (FA) merekodkan spesifikasi perniagaan. Dalam industri IT, lebih 50% kecacatan perisian berpunca daripada keperluan yang tidak jelas atau kabur.\n\n"
+> "Di sini, QMPulse mengintegrasikan Hab AI (Google GenAI) terbina dalam. Dalam beberapa saat, AI menganalisis teks spesifikasi dan mengesan kriteria yang tidak boleh diuji, logik yang mengelirukan, atau senario negatif yang tertinggal sebelum sebarang kod ditulis.\n\n"
+> "Ini bertindak sebagai penapis kualiti pertama kita—memastikan pemaju dan QA menerima spesifikasi yang kukuh dan tepat."*
 
----
-
-### 🟢 STEP 5: AI-Assisted Test Case Generation (QA View)
-
-**🖥️ Navigation:** Click **Step 3: Test Cases** (or navigate to `/test-cases`).
-
-**🖱️ What to Do:**
-1. Show the Test Case Library mapped by module and requirement.
-2. Click **"AI Generate Test Cases"** on a requirement.
-3. Show how the AI generates positive, negative, and edge-case steps with expected results automatically.
-4. Show the **"Compile to Execution File"** button.
-
-**🗣️ What You Say:**
-> *"While developers were writing code, our QA team was not sitting idle. They were authoring test cases in parallel.\n\n"
-> "With one click, our QA team uses GenAI to auto-generate structured test cases directly from the approved requirements—including preconditions, exact step-by-step actions, and expected outcomes.\n\n"
-> "This cuts test design effort by over 40% and ensures 100% test coverage against every business rule."*
+**✨ Poin Wow Eksekutif:** *"Memperbaiki ralat pada fasa keperluan menjimatkan kos sehingga 10 kali ganda berbanding membetulkannya di fasa QA atau selepas sistem digunakan."*
 
 ---
 
-### 🟢 STEP 6: Live Execution & Auto-Defect Creation in Redmine
+### 🟢 PERINGKAT 3: Pintu Kelulusan Rakan Sekerja (Segregation of Duties)
 
-**🖥️ Navigation:** Click **Step 5: Execution** (or `/test-cases/execution/:id`).
+**🖥️ Navigasi:** Klik **Step 3 / Step 4: Approval** (Status Semakan Keperluan).
 
-**🖱️ What to Do:**
-1. Open an Execution File linked to the Redmine ticket.
-2. Show the test rows with status badges: `Passed` (Green), `Failed` (Red), `Blocked` (Amber).
-3. Mark a test step as **Passed** (show progress bar increase).
-4. Mark a test step as **Failed** → *Watch the Defect Creation Modal open automatically!*
-5. Show how the modal pre-populates:
-   - Expected Result vs Actual Result
-   - Assignee (synced from project memberships)
-   - Scope: "This step" vs "Entire test case"
-6. Click **Create Defect** → Show the generated clickable **Redmine Defect ID** linked directly.
+**🖱️ Tindakan:**
+1. Tunjukkan kolum status semakan (`Pending Review`, `Approved`).
+2. Tunjukkan bahawa **Penulis asal tidak boleh meluluskan dokumen sendiri**.
+3. Tunjukkan **"Assigned Peer Reviewer"** daripada ahli projek yang sama.
+4. Klik **Approve** (sebagai penyemak rakan sekerja yang sah).
 
-**🗣️ What You Say:**
-> *"Here is where QA executes the tests per environment. As testers mark steps, progress calculates in real time.\n\n"
-> "Watch what happens when a test step Fails: The Defect Modal pops up instantly. The tester does not need to switch over to Redmine, copy-paste test steps, or re-type expected results.\n\n"
-> "QMPulse captures the failing step, creates the defect as a child issue in Redmine, attaches screenshots, and links it back to the exact execution record. Zero defect leakage, zero manual copy-pasting."*
-
-**✨ Executive WOW Factor:** Click the defect link to show that it exists in Redmine in real time.
+**🗣️ Dialog Pembentang:**
+> *"Dari sudut tadbir urus dan pematuhan audit korporat, QMPulse menguatkuasakan prinsip 'Segregation of Duties' (Pengasingan Tugas) secara mutlak.\n\n"
+> "Seseorang penganalisis tidak dibenarkan meluluskan hasil kerja mereka sendiri. Sistem mewajibkan semakan rakan sekerja (peer review) daripada FA lain dalam projek yang sama sebelum spesifikasi dikunci dan diserahkan kepada pasukan Pembangun serta QA."*
 
 ---
 
-### 🟢 STEP 7: UAT Verification & Business Sign-Off
+### 🟢 PERINGKAT 4: Agihan Pembangunan Kod & Pertukaran Status
 
-**🖥️ Navigation:** Click **Step 7: UAT** on the pipeline bar.
+**🖥️ Navigasi:** Tunjukkan paparan **Task Tracker / Integrasi Tugasan Redmine**.
 
-**🖱️ What to Do:**
-1. Show the UAT status dashboard.
-2. Show the **UAT Document Register** (e.g., uploaded sign-off PDF / customer acceptance memo).
-3. Click the **Review / Eye icon** to preview the attached sign-off certificate inline.
-4. *(Optional)* Highlight the BDD / Gherkin test generator panel if applicable.
+**🖱️ Tindakan:**
+1. Tunjukkan kad tugasan pembangun yang dipautkan terus kepada ID spesifikasi.
+2. Ubah status daripada `In Development` kepada `For QA Test`.
+3. Tunjukkan bahawa perubahan ini mengemas kini status dalam Redmine secara automatik.
 
-**🗣️ What You Say:**
-> *"Once QA testing passes 100%, we transition to Step 7: User Acceptance Testing (UAT).\n\n"
-> "The business stakeholders and product owners review the system in the UAT environment. When satisfied, the official signed UAT acceptance certificate is uploaded directly into the milestone repository.\n\n"
-> "The system validates the document, timestamps the sign-off, and unlocks the final milestone close gate."*
-
----
-
-### 🟢 STEP 8: Milestone Completion, Automated Verdict Reports & Lessons Learned
-
-**🖥️ Navigation:** Click **Step 8: Complete** on the pipeline bar.
-
-**🖱️ What to Do:**
-1. Show the **Pre-Flight Governance Check List**:
-   - `✔ Requirements synced & approved`
-   - `✔ Test cases compiled & executed (100%)`
-   - `✔ Zero open blocker defects`
-   - `✔ UAT sign-off certificate verified`
-2. Click **"Send PMO Verdict Report"** (or Show the Send Verdict Modal):
-   - Inline executive HTML summary
-   - Attached PDF sign-off report
-   - Auto-generated Excel with Review Log, Pareto Analysis, and CAPA sheets
-3. Click **"Complete Milestone"** → Show the celebration & completion badge.
-4. Point out the **Lessons Learned & RTM (Requirements Traceability Matrix)** export.
-
-**🗣️ What You Say:**
-> *"Finally, we arrive at Step 8: Milestone Completion.\n\n"
-> "Notice our Pre-Flight Governance Checks. QMPulse verifies that all requirements were approved, all tests were executed, all critical defects were resolved, and UAT sign-off is on file. Nothing can be rushed to production with loose ends.\n\n"
-> "With a single click on 'Send Verdict Report', QMPulse generates an executive HTML email delivered directly via Office 365, attaches the formal PDF sign-off certificate, and exports an audit-ready Excel workbook containing complete Pareto defect analysis and CAPA tracking.\n\n"
-> "We click 'Complete Milestone'—the release is locked, and lessons learned are archived for continuous organizational improvement."*
-
-**✨ Executive WOW Factor:** Show the pre-generated Excel sheet tabs (*Summary, Pareto Analysis, CAPA*) and mention that this used to take days of manual Excel merging.
+**🗣️ Dialog Pembentang:**
+> *"Sebaik diluluskan, fasa pembangunan bermula. Pembangun membina kod berpandukan spesifikasi yang lengkap.\n\n"
+> "Setelah siap dan didepositkan ke persekitaran ujian, pembangun hanya perlu menukar status kepada 'For QA Test'.\n\n"
+> "Secara automatik, Redmine disegerakkan, dan pasukan QA menerima notifikasi segera bahawa sistem sedia untuk diuji tanpa perlu menunggu emel berasingan."*
 
 ---
 
-### 🟢 CONCLUSION & OPENING FOR Q&A (30 Seconds)
+### 🟢 PERINGKAT 5: Reka Bentuk Kes Ujian Berasaskan AI (Paparan QA)
 
-**🖥️ On Screen:** Executive PMO Dashboard / Overview.
+**🖥️ Navigasi:** Klik **Step 3: Test Cases** (atau menu `/test-cases`).
 
-**🗣️ What You Say:**
-> *"To summarize what you just witnessed: In under 10 minutes, we went from milestone planning, AI-validated requirements, dev build, and parallel test execution, to live Redmine defect tracking, UAT sign-off, and one-click executive governance.\n\n"
-> "QMPulse eliminates the blind spots, protects our delivery dates, and elevates our engineering quality standards across the entire enterprise.\n\n"
-> "Thank you, and I would be glad to answer any questions or show specific modules in deeper detail."*
+**🖱️ Tindakan:**
+1. Tunjukkan perpustakaan kes ujian mengikut modul.
+2. Klik butang **"AI Generate Test Cases"** pada salah satu spesifikasi.
+3. Tunjukkan kes ujian yang dijana secara automatik merangkumi langkah-langkah, pra-syarat, dan hasil jangkaan.
+4. Tunjukkan butang **"Compile to Execution File"**.
+
+**🗣️ Dialog Pembentang:**
+> *"Semasa pembangun sedang menulis kod, pasukan QA kita tidak membuang masa. Mereka menyediakan kes ujian secara selari.\n\n"
+> "Dengan satu klik, QA menggunakan keupayaan GenAI untuk menjana matriks kes ujian lengkap terus daripada dokumen spesifikasi—termasuk senario positif, negatif, dan nilai sempadan.\n\n"
+> "Ini memendekkan masa reka bentuk ujian melebihi 40% dan menjamin liputan ujian 100% bagi setiap syarat perniagaan."*
 
 ---
 
-## 🎯 Pro-Tips for Demo Day
-- **Mouse Movement:** Move the cursor deliberately. Avoid frantic clicking; pause 2 seconds on key badges so the executives can read them.
-- **Narrate the 'Why', not just the 'What':** Don't just say *"Here is a button"*; say *"This button automates a 3-hour manual reporting task into a 2-second action."*
-- **If an AI response takes 2-3 seconds:** Use that moment to say: *"Notice how Google GenAI is analyzing our business rules in real time against enterprise quality heuristics."*
-- **Focus on C-Suite ROI:** Remind them that this system provides total governance for compliance audits without slowing down the development team.
+### 🟢 PERINGKAT 6: Pelaksanaan Ujian & Pendaftaran Defect Automatik ke Redmine
+
+**🖥️ Navigasi:** Klik **Step 5: Execution** (buka fail pelaksanaan).
+
+**🖱️ Tindakan:**
+1. Buka fail ujian yang dipautkan kepada tiket Redmine.
+2. Tunjukkan baris-baris ujian: `Passed` (Hijau), `Failed` (Merah), `Blocked` (Kuning).
+3. Tandakan satu langkah sebagai **Passed** (tunjukkan bar kemajuan meningkat).
+4. Tandakan satu langkah sebagai **Failed** ➔ *Modal Pendaftaran Defect terbuka secara automatik!*
+5. Tunjukkan bagaimana modal telah siap diisi:
+   - Hasil Jangkaan vs Hasil Sebenar
+   - Penerima Tugasan (Assignee)
+   - Lampiran / Tangkapan Skrin
+6. Klik **Create Defect** ➔ Tunjukkan nombor **Redmine Defect ID** yang boleh diklik terus.
+
+**🗣️ Dialog Pembentang:**
+> *"Kini QA melaksanakan ujian mengikut persekitaran. Apabila langkah ujian ditanda, peratusan kemajuan dikira secara masa nyata.\n\n"
+> "Sila perhatikan apa yang berlaku apabila sesuatu langkah GAGAL: Modal pendaftaran defect terbuka secara automatik. Penguji tidak perlu membuka Redmine secara manual, menyalin semula langkah ujian, atau menaip semula hasil jangkaan.\n\n"
+> "QMPulse merekodkan ralat tersebut, mencipta isu anak (child defect) dalam Redmine bersama tangkapan skrin, dan memautkannya kembali ke fail ujian. Sifar keciciran defect, sifar kerja penyalinan manual."*
+
+**✨ Poin Wow Eksekutif:** Klik pada pautan tiket defect untuk membuktikan bahawa isu tersebut wujud dalam Redmine secara langsung.
+
+---
+
+### 🟢 PERINGKAT 7: Pengesahan & Penerimaan UAT Bisnes
+
+**🖥️ Navigasi:** Klik **Step 7: UAT** pada bar navigasi.
+
+**🖱️ Tindakan:**
+1. Tunjukkan status fasa UAT.
+2. Tunjukkan **Daftar Dokumen UAT** (UAT Document Register).
+3. Klik ikon **Mata (Review / Eye icon)** untuk memaparkan sijil kelulusan yang telah ditandatangani secara langsung pada skrin.
+
+**🗣️ Dialog Pembentang:**
+> *"Setelah ujian QA lulus 100%, projek beralih ke Peringkat 7: Ujian Penerimaan Pengguna (UAT).\n\n"
+> "Pihak berkepentingan bisnes dan pemilik produk (Product Owners) mengesahkan fungsi dalam persekitaran UAT. Setelah berpuas hati, sijil penerimaan UAT yang telah ditandatangani dimuat naik terus ke dalam sistem.\n\n"
+> "QMPulse mengesahkan dokumen tersebut, merekodkan cap masa audit, dan membuka kunci pintu penutupan milestone."*
+
+---
+
+### 🟢 PERINGKAT 8: Penutupan Milestone, Laporan Keputusan Rasmi & Lessons Learned
+
+**🖥️ Navigasi:** Klik **Step 8: Complete**.
+
+**🖱️ Tindakan:**
+1. Tunjukkan **Senarai Semakan Tadbir Urus (Pre-Flight Checks)**:
+   - `✔ Keperluan disahkan & diluluskan`
+   - `✔ Kes ujian dilaksanakan 100%`
+   - `✔ Sifar isu defect kritikal yang belum selesai`
+   - `✔ Dokumen UAT telah diverifikasi`
+2. Klik butang **"Send PMO Verdict Report"** (atau tunjukkan modal Send Verdict):
+   - Emel eksekutif HTML format kemas
+   - Lampiran sijil kelulusan PDF rasmi
+   - Lembaran kerja Excel lengkap dengan analisis Pareto dan CAPA
+3. Klik **"Complete Milestone"** (tunjukkan animasi pengesahan pelepasan).
+4. Tunjukkan tab **Lessons Learned** dan Matriks Kebolehkesanan Keperluan (RTM).
+
+**🗣️ Dialog Pembentang:**
+> *"Akhir sekali, kita tiba di Peringkat 8: Penutupan Milestone.\n\n"
+> "Lihat senarai semakan keselamatan kami. QMPulse memastikan semua keperluan telah diluluskan, semua ujian telah selesai, tiada defect kritikal terbuka, dan penerimaan UAT telah lengkap. Tiada pelepasan yang boleh dibuat secara tergesa-gesa tanpa integriti kualiti.\n\n"
+> "Dengan hanya satu klik pada 'Send Verdict Report', QMPulse menjana emel eksekutif melalui Office 365, melampirkan sijil PDF rasmi, serta mengeksport buku kerja Excel yang mengandungi analisis Pareto dan penjejakan CAPA yang sedia untuk diaudit.\n\n"
+> "Kita klik 'Complete Milestone'—pelepasan sistem disahkan secara rasmi, dan pengajaran projek (lessons learned) diarkibkan untuk penambahbaikan berterusan."*
+
+**✨ Poin Wow Eksekutif:** *"Penyediaan laporan audit dan Pareto yang dahulunya mengambil masa berhari-hari kini selesai dalam masa kurang daripada 60 saat."*
+
+---
+
+### 🟢 PENUTUP & PEMBUKAAN SESI SOAL JAWAB (30 Saat)
+
+**🗣️ Dialog Pembentang:**
+> *"Secara kesimpulannya: Dalam masa 10 minit, kita telah menyaksikan bagaimana QMPulse mengurus keseluruhan kitaran penghantaran—dari perancangan milestone, spesifikasi berpandukan AI, pelaksanaan ujian selari, penyegerakan Redmine secara langsung, sehinggalah kepada kelulusan UAT dan pelaporan eksekutif berintegriti tinggi.\n\n"
+> "QMPulse menghapuskan titik buta operasi dan melindungi tarikh pelepasan sistem kita di seluruh perusahaan.\n\n"
+> "Terima kasih atas perhatian barisan kepimpinan, dan saya membuka ruang bagi sebarang soalan atau perbincangan lanjut."*
