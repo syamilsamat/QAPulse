@@ -1038,17 +1038,18 @@ export default function Dashboard() {
                       }} 
                     />
 
-                    {/* Swapped to a bright, vibrant Cyan (Tailwind cyan-400) */}
-                    <Bar dataKey="new" stackId="a" fill="#22d3ee" name="New" /> 
-
-                    {/* Swapped to a vivid, punchy Yellow (Tailwind yellow-400) */}
-                    <Bar dataKey="pending" stackId="a" fill="#facc15" name="Pending" />
-                    <Bar dataKey="in_progress" stackId="a" fill="#27A3F5" name="In Progress" /> 
-                    <Bar dataKey="blocked" stackId="a" fill="#E00404" name="Blocked" /> 
-                    <Bar dataKey="sit" stackId="a" fill="#93c5fd" name="SIT" /> 
-                    <Bar dataKey="uat" stackId="a" fill="#A038F2" name="UAT" /> 
-                    <Bar dataKey="done" stackId="a" fill="#86efac" name="Done" /> 
-                    <Bar dataKey="released_to_production" stackId="a" fill="#22c55e" name="Released" /> 
+                    {/* Requirement/task-board phases (same vocabulary as the
+                        Tasks page and PM Dashboard: Requirements -> Development
+                        -> QA -> UAT), plus Blocked and Completed as overlay
+                        states — replaces the old free-text task-status bars,
+                        which read from a table nothing in the app writes to
+                        any more. */}
+                    <Bar dataKey="requirements" stackId="a" fill="#22d3ee" name="Requirements" />
+                    <Bar dataKey="development" stackId="a" fill="#27A3F5" name="Development" />
+                    <Bar dataKey="qa" stackId="a" fill="#93c5fd" name="QA Testing" />
+                    <Bar dataKey="uat" stackId="a" fill="#A038F2" name="UAT" />
+                    <Bar dataKey="blocked" stackId="a" fill="#E00404" name="Blocked" />
+                    <Bar dataKey="completed" stackId="a" fill="#22c55e" name="Completed" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
