@@ -52,10 +52,8 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
     }
-    /* Custom scrollbar for speaker notes */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
-    ::-webkit-scrollbar-thumb { background: rgba(20, 184, 166, 0.3); border-radius: 3px; }
+    /* Hide scrollbars */
+    ::-webkit-scrollbar { display: none; }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col justify-between p-6 sm:p-8 bg-[#04070f] relative overflow-hidden">
@@ -64,7 +62,7 @@
   <div class="pointer-events-none absolute -top-40 -left-40 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl"></div>
   <div class="pointer-events-none absolute -bottom-40 -right-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
 
-  <!-- Top Bar: Logo & Deck Progress -->
+  <!-- Top Bar: Clean Header for Screen Sharing -->
   <header class="flex items-center justify-between z-20 shrink-0 pb-4 border-b border-white/5">
     <div class="flex items-center gap-3">
       <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-sky-500 flex items-center justify-center text-[#04070f] font-black text-sm">
@@ -79,24 +77,27 @@
     <!-- Slide Indicators -->
     <div class="flex items-center gap-2" id="dotsContainer"></div>
 
-    <!-- Quick Tools -->
-    <div class="flex items-center gap-3">
-      <button onclick="toggleNotes()" id="notesBtn" class="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-teal-400"></span> Speaker Notes (N)
+    <!-- Quick Tools: Dual Screen Presenter Console & Fullscreen -->
+    <div class="flex items-center gap-2.5">
+      <button onclick="openPresenterConsole()" id="presenterBtn" title="Opens a separate private window with your speaker script and timer" class="text-xs text-teal-300 hover:text-white px-3.5 py-1.5 rounded-full border border-teal-500/40 bg-teal-950/40 hover:bg-teal-500/20 transition-all flex items-center gap-1.5 font-medium shadow-lg shadow-teal-950/50">
+        <span class="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
+        <span>Presenter Console (P)</span>
       </button>
-      <button onclick="toggleFullscreen()" class="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all">
+      <button onclick="toggleFullscreen()" title="Toggle Fullscreen" class="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all">
         Full Screen (F)
       </button>
     </div>
   </header>
 
   <!-- ========================================================================= -->
-  <!-- SLIDE CONTAINER -->
+  <!-- SLIDE CONTAINER (100% CLEAN FOR AUDIENCE) -->
   <!-- ========================================================================= -->
   <main class="flex-1 flex items-center justify-center my-auto relative z-10 w-full max-w-7xl mx-auto py-4">
 
     <!-- SLIDE 1: Title Slide -->
-    <div class="slide active flex-col items-center text-center justify-center w-full max-w-5xl" data-notes="Good morning Executive Leadership. Today I am proud to present QMPulse—our unified Quality Management & Delivery Governance platform. QMPulse unifies the entire delivery chain: from business requirements authored by Functional Analysts, through development and QA test execution, to real-time PMO oversight and automated sign-off. It provides 100% traceability, ensures audit compliance, and accelerates testing with built-in AI.">
+    <div class="slide active flex-col items-center text-center justify-center w-full max-w-5xl" 
+         data-title="01. Title & Strategic Vision"
+         data-notes="Good morning Executive Leadership. Today I am proud to present QMPulse—our unified Quality Management & Delivery Governance platform. QMPulse unifies the entire delivery chain: from business requirements authored by Functional Analysts, through development and QA test execution, to real-time PMO oversight and automated sign-off. It provides 100% traceability, ensures audit compliance, and accelerates testing with built-in AI.">
       <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-400/10 border border-teal-400/30 text-teal-300 text-xs font-semibold uppercase tracking-wider mb-6">
         <span class="w-2 h-2 rounded-full bg-teal-400 pulse-dot"></span>
         Executive Strategy & Delivery Transformation
@@ -132,7 +133,9 @@
     </div>
 
     <!-- SLIDE 2: Problem vs Solution -->
-    <div class="slide flex-col justify-center w-full" data-notes="Why traditional enterprise delivery breaks down: PMOs track in isolated tools, developers work in Redmine, FAs write docs in Confluence/Word, and QA runs test cases in spreadsheets. This leads to version skew, untracked defects, and eleventh-hour release panic. QMPulse solves this by establishing one continuous pulse—keeping Redmine as the core system of record while supercharging it with automated workflows, AI assistance, and instant executive analytics.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="02. The Delivery Dilemma vs. Unified Pulse"
+         data-notes="Why traditional enterprise delivery breaks down: PMOs track in isolated tools, developers work in Redmine, FAs write docs in Confluence/Word, and QA runs test cases in spreadsheets. This leads to version skew, untracked defects, and eleventh-hour release panic. QMPulse solves this by establishing one continuous pulse—keeping Redmine as the core system of record while supercharging it with automated workflows, AI assistance, and instant executive analytics.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Strategic Context</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">The Delivery Dilemma vs. The Unified Pulse</h2>
       <p class="text-sm text-slate-400 mb-8">Bridging the gap between strategy, specification, coding, and quality verification.</p>
@@ -191,7 +194,9 @@
     </div>
 
     <!-- SLIDE 3: 5 Stakeholders / Personas -->
-    <div class="slide flex-col justify-center w-full" data-notes="Here is how QMPulse aligns every team in this room: PMO opens milestones and tracks SPI in real time. Functional Analysts author specs with AI gap analysis and enforce segregation of duties. Developers pick up approved specs with full context and flip tickets to 'For QA Test'. QA teams write test cases during build phase and auto-raise Redmine defects upon test failure. And Leadership gets a single-screen pulse of release readiness and quality stability.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="03. Five Delivery Personas"
+         data-notes="Here is how QMPulse aligns every team in this room: PMO opens milestones and tracks SPI in real time. Functional Analysts author specs with AI gap analysis and enforce segregation of duties. Developers pick up approved specs with full context and flip tickets to 'For QA Test'. QA teams write test cases during build phase and auto-raise Redmine defects upon test failure. And Leadership gets a single-screen pulse of release readiness and quality stability.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Stakeholder Alignment</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Five Teams. One Shared Source of Truth.</h2>
       <p class="text-sm text-slate-400 mb-8">Purpose-built views and governed permissions for every role in the delivery organization.</p>
@@ -275,7 +280,9 @@
     </div>
 
     <!-- SLIDE 4: The 8-Stage Lifecycle -->
-    <div class="slide flex-col justify-center w-full" data-notes="The 8-stage lifecycle is the heart of QMPulse. Stage 1: PMO opens the milestone. Stage 2: FA authors requirements with AI gap analysis. Stage 3: Segregation of duties is enforced through peer approval. Stage 4: Dev builds against approved specs. Stage 5: In parallel, QA writes tests with AI generation so they are ready the instant build lands. Stage 6: QA executes per environment; failures automatically create Redmine child defects. Stage 7: QA tracks blockers to resolution. Stage 8: PMO conducts UAT sign-off, closes milestone, and logs lessons learned.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="04. The 8 Beats of a Milestone"
+         data-notes="The 8-stage lifecycle is the heart of QMPulse. Stage 1: PMO opens the milestone. Stage 2: FA authors requirements with AI gap analysis. Stage 3: Segregation of duties is enforced through peer approval. Stage 4: Dev builds against approved specs. Stage 5: In parallel, QA writes tests with AI generation so they are ready the instant build lands. Stage 6: QA executes per environment; failures automatically create Redmine child defects. Stage 7: QA tracks blockers to resolution. Stage 8: PMO conducts UAT sign-off, closes milestone, and logs lessons learned.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">End-to-End Workflow</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">The 8 Beats of a Milestone Lifecycle</h2>
       <p class="text-sm text-slate-400 mb-6">Continuous governance gates, automated handoffs, and instant notifications from start to finish.</p>
@@ -360,7 +367,9 @@
     </div>
 
     <!-- SLIDE 5: Technology Backbone (Redmine + AI) -->
-    <div class="slide flex-col justify-center w-full" data-notes="Two technological pillars give QMPulse its competitive edge: First, Native Two-Way Redmine Sync. We do not ask teams to discard their existing ticketing system. QMPulse synchronizes requirements, tickets, and custom fields without clobbering history. Second, The Enterprise AI Hub. Powered by Google GenAI, our AI Requirement Analyzer acts as an early quality gate to catch defects at requirement time, while AI Test Generation speeds up test creation by over 40%.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="05. Redmine Sync & AI Engine"
+         data-notes="Two technological pillars give QMPulse its competitive edge: First, Native Two-Way Redmine Sync. We do not ask teams to discard their existing ticketing system. QMPulse synchronizes requirements, tickets, and custom fields without clobbering history. Second, The Enterprise AI Hub. Powered by Google GenAI, our AI Requirement Analyzer acts as an early quality gate to catch defects at requirement time, while AI Test Generation speeds up test creation by over 40%.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Technology Backbone</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Deep Redmine Sync & The Enterprise AI Hub</h2>
       <p class="text-sm text-slate-400 mb-8">Non-disruptive integration with systems of record, augmented by embedded intelligence.</p>
@@ -409,7 +418,9 @@
     </div>
 
     <!-- SLIDE 6: 4 Disciplines / 12 Capabilities -->
-    <div class="slide flex-col justify-center w-full" data-notes="This matrix represents the full capability depth of QMPulse across 4 disciplines and 12 core modules. From planning and governance to test execution and executive reporting, everything is unified. Notice our automated Excel generation: it automatically generates Pareto defect analysis, CAPA corrective action sheets, and review effort logs on demand.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="06. 12 Core Capabilities"
+         data-notes="This matrix represents the full capability depth of QMPulse across 4 disciplines and 12 core modules. From planning and governance to test execution and executive reporting, everything is unified. Notice our automated Excel generation: it automatically generates Pareto defect analysis, CAPA corrective action sheets, and review effort logs on demand.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Platform Capabilities</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">12 Core Capabilities Across 4 Disciplines</h2>
       <p class="text-sm text-slate-400 mb-8">A comprehensive, end-to-end quality and delivery management command center.</p>
@@ -454,7 +465,9 @@
     </div>
 
     <!-- SLIDE 7: Enterprise Governance & Compliance -->
-    <div class="slide flex-col justify-center w-full" data-notes="Security and governance are non-negotiable for enterprise leadership. QMPulse delivers on all fronts: 15 granular roles ensure segregation of duties. Every single action is tracked in an immutable audit trail for compliance. And PMO verdict reporting is automated—generating rich HTML emails via Office 365 SMTP and formatted Excel workbooks with Pareto and CAPA sheets.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="07. Governance & Security"
+         data-notes="Security and governance are non-negotiable for enterprise leadership. QMPulse delivers on all fronts: 15 granular roles ensure segregation of duties. Every single action is tracked in an immutable audit trail for compliance. And PMO verdict reporting is automated—generating rich HTML emails via Office 365 SMTP and formatted Excel workbooks with Pareto and CAPA sheets.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Governance & Security</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Enterprise-Grade Security & Audit Readiness</h2>
       <p class="text-sm text-slate-400 mb-8">Architected for compliance-heavy, regulated enterprise IT ecosystems.</p>
@@ -511,7 +524,9 @@
     </div>
 
     <!-- SLIDE 8: Business Value & Measurable ROI -->
-    <div class="slide flex-col justify-center w-full" data-notes="Let us review the bottom-line business value: AI test generation cuts authoring cycles by 40%. End-to-end traceability eliminates untracked defect leakage. Zero spreadsheet drift prevents costly release regressions. And automated PMO verdict generation reduces reporting time from days to under 60 seconds.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="08. Business Value & ROI"
+         data-notes="Let us review the bottom-line business value: AI test generation cuts authoring cycles by 40%. End-to-end traceability eliminates untracked defect leakage. Zero spreadsheet drift prevents costly release regressions. And automated PMO verdict generation reduces reporting time from days to under 60 seconds.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Business Impact</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Measurable ROI & Delivery Acceleration</h2>
       <p class="text-sm text-slate-400 mb-8">Tangible efficiency and quality improvements delivered directly to enterprise operations.</p>
@@ -562,7 +577,9 @@
     </div>
 
     <!-- SLIDE 9: Roadmap & Next Steps -->
-    <div class="slide flex-col justify-center w-full" data-notes="To conclude, our adoption path is low-risk and structured: We propose a 2-week pilot on 2 flagship projects to validate the workflow with zero operational disruption. By Month 2, all teams will be aligned under one unified quality standard. The software is live, tested, and ready to deploy. Thank you, and I now invite your strategic questions and feedback.">
+    <div class="slide flex-col justify-center w-full" 
+         data-title="09. Phased Rollout Roadmap"
+         data-notes="To conclude, our adoption path is low-risk and structured: We propose a 2-week pilot on 2 flagship projects to validate the workflow with zero operational disruption. By Month 2, all teams will be aligned under one unified quality standard. The software is live, tested, and ready to deploy. Thank you, and I now invite your strategic questions and feedback.">
       <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">Implementation Plan</div>
       <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">Strategic Rollout Roadmap & Action Plan</h2>
       <p class="text-sm text-slate-400 mb-8">Structured, phased adoption designed for immediate, measurable value.</p>
@@ -615,19 +632,6 @@
   </main>
 
   <!-- ========================================================================= -->
-  <!-- SPEAKER NOTES POPUP MODAL (Toggle with N) -->
-  <!-- ========================================================================= -->
-  <div id="speakerNotesModal" class="hidden fixed bottom-16 right-8 w-96 max-h-72 glass-card p-5 z-50 border border-teal-500/40 bg-[#070d1d]/95 shadow-2xl overflow-y-auto">
-    <div class="flex items-center justify-between pb-2 mb-3 border-b border-white/10">
-      <span class="text-xs mono font-bold text-teal-400 uppercase flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-teal-400"></span> Presenter Script
-      </span>
-      <button onclick="toggleNotes()" class="text-xs text-slate-400 hover:text-white">&times;</button>
-    </div>
-    <div id="speakerNotesContent" class="text-xs text-slate-200 leading-relaxed"></div>
-  </div>
-
-  <!-- ========================================================================= -->
   <!-- BOTTOM NAVIGATION & FOOTER -->
   <!-- ========================================================================= -->
   <footer class="flex items-center justify-between z-20 shrink-0 pt-4 border-t border-white/5 text-xs text-slate-400">
@@ -649,7 +653,7 @@
   </footer>
 
   <!-- ========================================================================= -->
-  <!-- INTERACTIVITY CONTROLLER SCRIPT -->
+  <!-- INTERACTIVITY & BROADCAST CHANNEL SYNCHRONIZATION -->
   <!-- ========================================================================= -->
   <script>
     let currentSlide = 0;
@@ -657,8 +661,22 @@
     const totalSlides = slides.length;
     const dotsContainer = document.getElementById('dotsContainer');
     const slideCounter = document.getElementById('slideCounter');
-    const notesModal = document.getElementById('speakerNotesModal');
-    const notesContent = document.getElementById('speakerNotesContent');
+    let presenterWindow = null;
+
+    // Cross-window synchronization via BroadcastChannel & LocalStorage fallback
+    const syncChannel = new BroadcastChannel('qmpulse_slide_deck_sync');
+    syncChannel.onmessage = (event) => {
+      if (typeof event.data?.slideIndex === 'number') {
+        goToSlide(event.data.slideIndex, false);
+      }
+    };
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'qmpulse_current_slide') {
+        const idx = parseInt(e.newValue, 10);
+        if (!isNaN(idx)) goToSlide(idx, false);
+      }
+    });
 
     // Generate Dots
     slides.forEach((_, idx) => {
@@ -668,7 +686,7 @@
       dotsContainer.appendChild(dot);
     });
 
-    function updateSlide() {
+    function updateSlide(broadcast = true) {
       slides.forEach((s, idx) => {
         if (idx === currentSlide) {
           s.classList.add('active');
@@ -688,33 +706,32 @@
       }
 
       slideCounter.textContent = `${currentSlide + 1} / ${totalSlides}`;
-      
-      // Update Speaker notes
-      const notes = slides[currentSlide].getAttribute('data-notes') || 'No speaker notes for this slide.';
-      notesContent.textContent = notes;
+
+      if (broadcast) {
+        syncChannel.postMessage({ slideIndex: currentSlide });
+        localStorage.setItem('qmpulse_current_slide', currentSlide.toString());
+      }
     }
 
     function nextSlide() {
       if (currentSlide < totalSlides - 1) {
         currentSlide++;
-        updateSlide();
+        updateSlide(true);
       }
     }
 
     function prevSlide() {
       if (currentSlide > 0) {
         currentSlide--;
-        updateSlide();
+        updateSlide(true);
       }
     }
 
-    function goToSlide(idx) {
-      currentSlide = idx;
-      updateSlide();
-    }
-
-    function toggleNotes() {
-      notesModal.classList.toggle('hidden');
+    function goToSlide(idx, broadcast = true) {
+      if (idx >= 0 && idx < totalSlides) {
+        currentSlide = idx;
+        updateSlide(broadcast);
+      }
     }
 
     function toggleFullscreen() {
@@ -725,6 +742,15 @@
       }
     }
 
+    // Opens Private Presenter Console in a Separate Window
+    function openPresenterConsole() {
+      if (presenterWindow && !presenterWindow.closed) {
+        presenterWindow.focus();
+        return;
+      }
+      presenterWindow = window.open('presenter_console.html', 'QMPulsePresenterConsole', 'width=960,height=750,menubar=no,toolbar=no,location=no,status=no');
+    }
+
     // Keyboard bindings
     window.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
@@ -733,8 +759,8 @@
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         e.preventDefault();
         prevSlide();
-      } else if (e.key.toLowerCase() === 'n') {
-        toggleNotes();
+      } else if (e.key.toLowerCase() === 'p') {
+        openPresenterConsole();
       } else if (e.key.toLowerCase() === 'f') {
         toggleFullscreen();
       }
@@ -752,7 +778,7 @@
     });
 
     // Initialize
-    updateSlide();
+    updateSlide(true);
   </script>
 </body>
 </html>
