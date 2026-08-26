@@ -966,17 +966,21 @@ function reviewStatusProgress(reviewStatus: string): number {
   return 0; // draft, rejected
 }
 
-router.get("/dashboard/task-board", async (req, res): Promise<void> => {
-  const ctx = getAuthContext(req);
-  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-
+// Shared by /dashboard/task-board (the real Tasks page) and
+// /dashboard/summary + /dashboard/weekly-trend below — those two used to
+// read the orphaned tasksTable instead, a legacy entity nothing in the
+// actual product creates rows in any more, so the Dashboard's task widgets
+// were structurally unable to agree with the Tasks page itself (a task
+// visible/blocked on one could never show on the other). One computation,
+// one source of truth.
+async function computeTaskBoardRows(ctx: { userId: number; role: string }): Promise<any[]> {
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
   const milestones = accessible === null
     ? await db.select().from(milestonesTable)
     : accessible.length > 0
       ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, accessible))
       : [];
-  if (milestones.length === 0) { res.json([]); return; }
+  if (milestones.length === 0) return [];
 
   const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
   const usersById = new Map(allUsers.map((u) => [u.id, u]));
@@ -998,6 +1002,7 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
         reviewStatus: requirementsTable.reviewStatus,
         devStatus: requirementsTable.devStatus,
         projectId: requirementsTable.projectId,
+        isBlocked: requirementsTable.isBlocked,
         pipelineFaIds: requirementsTable.pipelineFaIds,
         pipelineDevIds: requirementsTable.pipelineDevIds,
         pipelineQaIds: requirementsTable.pipelineQaIds,
@@ -1180,10 +1185,25 @@ router.get("/dashboard/task-board", async (req, res): Promise<void> => {
         devAssigneeId,
         executionFileId: qaFileIdByReq.get(entry.id) ?? null,
         phaseTimeline: buildPhaseTimeline(entry.timeline, m),
+        isBlocked: info.isBlocked ?? false,
+        // Last real activity on this requirement (its current phase segment's
+        // end, or start if that phase is still ongoing) — used to bucket
+        // /dashboard/weekly-trend by week, same idea as tasksTable.updatedAt
+        // used to serve for the old task-based version of that chart.
+        lastActivityAt: entry.timeline.length > 0
+          ? entry.timeline[entry.timeline.length - 1].end ?? entry.timeline[entry.timeline.length - 1].start
+          : null,
       });
     }
   }
 
+  return rows;
+}
+
+router.get("/dashboard/task-board", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const rows = await computeTaskBoardRows(ctx);
   res.json(rows);
 });
 
@@ -1433,38 +1453,47 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const now = new Date();
 
-  let tasks = await db.select().from(tasksTable);
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   let testCases = await db.select().from(testCasesTable);
   let requirements = await db.select().from(requirementsTable);
+
+  // "Tasks" here are the same requirement/milestone rows the Tasks page
+  // itself shows (computeTaskBoardRows) — not the orphaned tasksTable,
+  // which nothing in the real product writes to any more. Previously these
+  // two were structurally unable to agree: a requirement marked blocked
+  // there had no way to ever show up as "blocked" here.
+  let taskRows = await computeTaskBoardRows(ctx);
 
   const parsed = GetDashboardSummaryQueryParams.safeParse(req.query);
   if (parsed.success) {
     const { projectId, userId } = parsed.data;
     if (projectId) {
-      tasks = tasks.filter(t => t.projectId === projectId);
+      taskRows = taskRows.filter(r => r.projectId === projectId);
       testCases = testCases.filter(tc => tc.projectId === projectId);
       requirements = requirements.filter(r => r.projectId === projectId);
     }
     if (userId) {
-      tasks = tasks.filter(t => t.assigneeIds?.includes(userId));
+      // taskRows intentionally isn't filtered by userId here — a task-board
+      // row's assignee is a formatted "FA: X · Dev: Y · QA: Z" display
+      // string, not a clean id, so there's no exact per-user filter to do
+      // without a name-based heuristic. Task counts fall back to org-wide
+      // (still scoped to the caller's accessible projects) when a userId is
+      // passed; testCases below keeps its real id-based filter.
       testCases = testCases.filter(tc => tc.authorId === userId);
     }
   }
 
-  // "released_to_production" and "done" both mean the task is finished —
-  // the overdue check only ever excluded the former, so a 100%-complete
-  // task sitting at "done" past its due date was counted as overdue right
-  // alongside genuinely stalled work.
-  const CLOSED_TASK_STATUSES = ["released_to_production", "done"];
+  const isPending = (phase: string) => phase === "qa" || phase === "uat";
+  const isOverdueRow = (r: (typeof taskRows)[number]) =>
+    r.milestoneStatus !== "completed" && !!r.dueDate && new Date(r.dueDate) < now;
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.status === "released_to_production").length;
-  const pendingTasks = tasks.filter(t => ["uat", "sit"].includes(t.status)).length;
-  const blockedTasks = tasks.filter(t => t.status === "blocked").length;
-  const overdueTasks = tasks.filter(t => {
-    if (CLOSED_TASK_STATUSES.includes(t.status) || !t.dueDate) return false;
-    return new Date(t.dueDate) < now;
-  }).length;
+  const totalTasks = taskRows.length;
+  const completedTasks = taskRows.filter(r => r.milestoneStatus === "completed").length;
+  const pendingTasks = taskRows.filter(r => isPending(r.phase)).length;
+  const blockedTasks = taskRows.filter(r => r.isBlocked).length;
+  const overdueTasks = taskRows.filter(isOverdueRow).length;
 
   const totalRequirements = requirements.length;
   const openRequirements = requirements.filter(r => r.status !== "done").length;
@@ -1475,25 +1504,21 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const automationCandidates = testCases.filter(tc => tc.type === "automation_candidate").length;
 
   // Blocked/overdue task details
-  const blockedOrOverdueTasks = tasks
-    .filter(t => {
-      if (t.status === "blocked") return true;
-      if (CLOSED_TASK_STATUSES.includes(t.status) || !t.dueDate) return false;
-      return new Date(t.dueDate) < now;
-    })
-    .map(t => ({
-      id: t.id,
-      requirementId: t.requirementId,
-      name: t.name,
-      status: t.status,
-      dueDate: t.dueDate,
-      isOverdue: !CLOSED_TASK_STATUSES.includes(t.status) && !!t.dueDate && new Date(t.dueDate) < now,
+  const blockedOrOverdueTasks = taskRows
+    .filter(r => r.isBlocked || isOverdueRow(r))
+    .map(r => ({
+      id: r.requirementId,
+      requirementId: r.requirementId,
+      name: r.title,
+      status: r.isBlocked ? "blocked" : r.phaseLabel,
+      dueDate: r.dueDate,
+      isOverdue: isOverdueRow(r),
     }));
 
-  // Pending task details (UAT / SIT)
-  const pendingTasksList = tasks
-    .filter(t => ["uat", "sit"].includes(t.status))
-    .map(t => ({ id: t.id, requirementId: t.requirementId, name: t.name, status: t.status, dueDate: t.dueDate ?? null }));
+  // Pending task details (QA / UAT phase)
+  const pendingTasksList = taskRows
+    .filter(r => isPending(r.phase))
+    .map(r => ({ id: r.requirementId, requirementId: r.requirementId, name: r.title, status: r.phaseLabel, dueDate: r.dueDate ?? null }));
 
   res.json({
     totalTasks,
@@ -1547,20 +1572,35 @@ router.get("/dashboard/team", async (req, res): Promise<void> => {
 });
 
 router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = GetWeeklyTrendQueryParams.safeParse(req.query);
   const weeks = parsed.success && parsed.data.weeks ? parsed.data.weeks : 6;
-  const userId = parsed.success ? parsed.data.userId : undefined;
+  // userId filtering dropped here for the same reason as /dashboard/summary
+  // above — a task-board row's assignee is a display string, not an id.
 
-  let allTasks = await db.select().from(tasksTable);
-
-  if (userId) {
-    allTasks = allTasks.filter((t) => t.assigneeIds?.includes(userId));
-  }
+  // Same requirement/task-board rows as /dashboard/summary and the real
+  // Tasks page — see computeTaskBoardRows for why this replaced tasksTable.
+  const rows = await computeTaskBoardRows(ctx);
 
   const now = new Date();
   // Find start of current week (Monday-based)
   const currentDay = now.getDay(); // 0=Sun, 1=Mon...6=Sat
   const daysToMonday = currentDay === 0 ? 6 : currentDay - 1;
+
+  // One bucket per row, priority order: blocked beats everything (most
+  // urgent to surface), completed beats phase (a requirement whose
+  // milestone closed is done regardless of which phase it last sat in),
+  // otherwise bucket by its current phase.
+  const bucketOf = (r: (typeof rows)[number]): "blocked" | "completed" | "requirements" | "development" | "qa" | "uat" => {
+    if (r.isBlocked) return "blocked";
+    if (r.milestoneStatus === "completed") return "completed";
+    if (r.phase === "gap" || r.phase === "develop") return "development";
+    if (r.phase === "qa") return "qa";
+    if (r.phase === "uat") return "uat";
+    return "requirements";
+  };
 
   const trendData = [];
   for (let i = weeks - 1; i >= 0; i--) {
@@ -1575,32 +1615,25 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
     // ISO date string so the frontend chart can parse it
     const weekIso = weekStart.toISOString().split("T")[0];
 
-    // Get all tasks that were updated/active during this specific week
-    const weekTasks = allTasks.filter(t => {
-      const updated = new Date(t.updatedAt);
-      return updated >= weekStart && updated <= weekEnd;
+    // Rows whose last real activity (its current phase's end, or start if
+    // still ongoing) falls in this specific week.
+    const weekRows = rows.filter(r => {
+      if (!r.lastActivityAt) return false;
+      const activity = new Date(r.lastActivityAt);
+      return activity >= weekStart && activity <= weekEnd;
     });
 
-    // Count tasks by their exact status
-    const newCount = weekTasks.filter(t => t.status === "new").length;
-    const pendingCount = weekTasks.filter(t => t.status === "pending").length;
-    const inProgressCount = weekTasks.filter(t => t.status === "in_progress").length;
-    const blockedCount = weekTasks.filter(t => t.status === "blocked").length;
-    const sitCount = weekTasks.filter(t => t.status === "sit").length;
-    const uatCount = weekTasks.filter(t => t.status === "uat").length;
-    const doneCount = weekTasks.filter(t => t.status === "done").length;
-    const releasedCount = weekTasks.filter(t => t.status === "released_to_production").length;
+    const counts = { blocked: 0, completed: 0, requirements: 0, development: 0, qa: 0, uat: 0 };
+    for (const r of weekRows) counts[bucketOf(r)]++;
 
-    trendData.push({ 
-      week: weekIso, 
-      new: newCount,
-      pending: pendingCount,
-      in_progress: inProgressCount,
-      blocked: blockedCount,
-      sit: sitCount,
-      uat: uatCount,
-      done: doneCount,
-      released_to_production: releasedCount
+    trendData.push({
+      week: weekIso,
+      requirements: counts.requirements,
+      development: counts.development,
+      qa: counts.qa,
+      uat: counts.uat,
+      blocked: counts.blocked,
+      completed: counts.completed,
     });
   }
 
