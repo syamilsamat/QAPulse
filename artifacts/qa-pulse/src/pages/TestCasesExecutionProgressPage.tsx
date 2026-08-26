@@ -3588,6 +3588,13 @@ export default function TestCasesExecutionProgressPage() {
                         )}
                       </div>
 
+                      {row.libraryReviewStatus === "in_review" && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-xs dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                          Pending peer review — this test case's content may still change.
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
