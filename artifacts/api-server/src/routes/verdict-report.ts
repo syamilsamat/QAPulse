@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq, and, ilike } from "drizzle-orm";
+import { eq, and, ilike, inArray } from "drizzle-orm";
 import { execSync } from "child_process";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { actorFromReq } from "./auth";
@@ -69,6 +69,8 @@ import {
   documentRegisterTable,
   projectsTable,
   activityTable,
+  defectsTable,
+  defectLinksTable,
 } from "@workspace/db";
 
 function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
@@ -651,42 +653,82 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
 }
 
 async function reportFromLocalDB(issueId: string): Promise<Record<string, unknown> | null> {
+  // Native QAPulse defects for this ticket. Two ways a defect can be "for"
+  // this ticket:
+  //  1. Raised against a test case row inside the execution file itself
+  //     (linkType "found_by" — the normal QA-fail-modal path).
+  //  2. Raised directly against a linked requirement (linkType "requirement"
+  //     — a requirement defect, or a production escape not tied to any one
+  //     execution row).
+  // Previously this read tasksTable.type (t as any).type — a column that
+  // was removed from the schema entirely (see tasks.ts: "REMOVED: type"),
+  // so this always silently returned zero defects regardless of what was
+  // actually in the real Defects module.
+  const [file] = await db
+    .select()
+    .from(executionFilesTable)
+    .where(eq(executionFilesTable.redmineTicketId, issueId));
+
+  const execTcIds = file
+    ? (
+        await db
+          .select({ id: executionTestCasesTable.id })
+          .from(executionTestCasesTable)
+          .where(eq(executionTestCasesTable.executionFileId, file.id))
+      ).map((r) => r.id)
+    : [];
+
   const reqs = await db.select().from(requirementsTable);
-  const matched = reqs.filter(
+  const matchedReqs = reqs.filter(
     (r) =>
       r.redmineTicketId === issueId ||
       r.redmineTicketId === `#${issueId}` ||
       r.title.toLowerCase().includes(issueId.toLowerCase()),
   );
-  if (!matched.length) return null;
+  const reqIds = matchedReqs.map((r) => r.id);
 
-  const tasks = await db.select().from(tasksTable);
-  const users = await db.select().from(usersTable);
-  const reqIds = matched.map((r) => r.id);
+  if (execTcIds.length === 0 && reqIds.length === 0) return null;
 
-  const defectTasks = tasks.filter(
-    (t) =>
-      t.requirementId &&
-      reqIds.includes(t.requirementId) &&
-      ["bug_fix", "defect", "bug"].includes((t as any).type),
-  );
-  const getName = (ids: number[] | null) =>
-    ids && ids.length ? users.filter(u => ids.includes(u.id)).map(u => u.name).join(", ") : "Unassigned";
+  // Two independent lookups, unioned in JS — defectLinksTable rows are
+  // "found_by" (execution_tc_id set) XOR "requirement" (requirement_id
+  // set), never both, so this can't double-count a single link row; the
+  // Set dedupes the (rare) case of the same defect showing up via both.
+  const linksByTc = execTcIds.length > 0
+    ? await db.select({ defectId: defectLinksTable.defectId }).from(defectLinksTable).where(inArray(defectLinksTable.executionTcId, execTcIds))
+    : [];
+  const linksByReq = reqIds.length > 0
+    ? await db.select({ defectId: defectLinksTable.defectId }).from(defectLinksTable).where(inArray(defectLinksTable.requirementId, reqIds))
+    : [];
+  const defectIds = [...new Set([...linksByTc, ...linksByReq].map((l) => l.defectId))];
 
-  const defects = defectTasks.map((t) => ({
-    id: t.id,
-    subject: t.name,
-    status: t.status,
-    priority: "Normal",
-    category: "Bug",
-    assignee: getName(t.assigneeIds),
-    createdOn: t.createdAt.toISOString(),
-    reopenedCount: t.status.toLowerCase().includes("reopen") ? 1 : 0
+  if (defectIds.length === 0) {
+    // No linked defects, but the ticket itself is real (file or requirement
+    // matched) — return an empty-but-valid shape rather than null, so the
+    // caller doesn't fall through to the "no data found" error.
+    return buildReportShape(
+      issueId,
+      { subject: file?.title ?? matchedReqs[0]?.title ?? issueId, status: "", projectName: "" },
+      [],
+      [],
+    );
+  }
+
+  const defectRows = await db.select().from(defectsTable).where(inArray(defectsTable.id, defectIds));
+
+  const defects = defectRows.map((d) => ({
+    id: d.id,
+    subject: d.defectCode ? `${d.defectCode} — ${d.title}` : d.title,
+    status: d.status,
+    priority: d.severity ? d.severity.charAt(0).toUpperCase() + d.severity.slice(1) : "Normal",
+    category: d.defectCategory ?? d.category ?? "Bug",
+    assignee: d.assigneeName ?? "Unassigned",
+    createdOn: d.createdAt.toISOString(),
+    reopenedCount: 0, // reopen tracking only exists on the Redmine-API path
   }));
 
   return buildReportShape(
     issueId,
-    { subject: matched[0].title, status: matched[0].status, projectName: "" },
+    { subject: file?.title ?? matchedReqs[0]?.title ?? issueId, status: "", projectName: "" },
     [],
     defects,
   );
