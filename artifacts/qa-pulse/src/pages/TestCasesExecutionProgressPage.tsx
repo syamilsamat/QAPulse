@@ -612,7 +612,7 @@ const DesktopTableRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
 
     if (row.rowType === "group") {
       return (
@@ -937,7 +937,7 @@ const MobileCardRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
 
     return (
       <Card
@@ -2913,17 +2913,17 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
-      {((window as any).currentFileReviewStatus || '') && ((window as any).currentFileReviewStatus || '') !== "approved" && (
+      {(currentFileReviewStatus || '') && (currentFileReviewStatus || '') !== "approved" && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
               <p className="font-semibold text-sm">Execution is Locked</p>
               <p className="text-xs text-amber-700 mt-1">
-                This execution file is currently in <strong>{((window as any).currentFileReviewStatus || '').replace("_", " ")}</strong> status. 
+                This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status. 
                 You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
               </p>
-              {((window as any).currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
+              {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
                 <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
                   <strong>Rejection Reason:</strong> <br/>
                   <span className="whitespace-pre-wrap">{currentFileRejectionReason}</span>
@@ -2931,7 +2931,7 @@ export default function TestCasesExecutionProgressPage() {
               )}
             </div>
           </div>
-          {((window as any).currentFileReviewStatus || '') === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
+          {(currentFileReviewStatus || '') === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
                 <XCircle className="w-4 h-4 mr-2" /> Reject
@@ -3424,7 +3424,7 @@ export default function TestCasesExecutionProgressPage() {
               const isQaMember = currentUser?.role === "qa_member";
               const isAssignedToMe = row.qaPic === currentUser?.name;
               const isUnassigned = !row.qaPic;
-              const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
+              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
               const steps = parseLines(row.testSteps);
               const expectations = parseLines(row.expectedResult);
@@ -3725,7 +3725,7 @@ export default function TestCasesExecutionProgressPage() {
                         const isQaMember = currentUser?.role === "qa_member";
                         const isAssignedToMe = row.qaPic === currentUser?.name;
                         const isUnassigned = !row.qaPic;
-                        const canEdit = (!isQaMember || isAssignedToMe) && ((window as any).currentFileReviewStatus || '') === "approved";
+                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
                         if (row.rowType === "group") {
                           return (
                             <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">
