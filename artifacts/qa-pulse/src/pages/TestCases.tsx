@@ -1266,12 +1266,33 @@ export default function TestCases() {
 
   const handleAISuccess = async (groups: { requirementId: number; requirementTitle: string; testCases: any[] }[], formData: any) => {
     const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
-    // CreateTestCaseBody types every optional field as `zod.string().optional()`,
-    // and zod's .optional() accepts undefined but *rejects* null. Any null the
-    // generator left on a case would 400 the whole row, so drop nullish keys
-    // and let the column default instead of sending an explicit null.
-    const withoutNullish = (obj: Record<string, any>) =>
-      Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== null && v !== undefined));
+    // CreateTestCaseBody types the text fields as `zod.string().optional()`, and
+    // zod's .optional() accepts undefined but rejects null. A generator can also
+    // hand back an object or array where a string was asked for (testData as
+    // {"username":"a","password":"b"} is the usual offender). Either one 400s the
+    // whole row, so flatten object values to text and drop nullish keys. Numbers
+    // and booleans pass through untouched — projectId must stay a number.
+    const flatten = (v: any, depth = 0): string | undefined => {
+      if (v === null || v === undefined) return undefined;
+      if (typeof v === "string") return v.trim() || undefined;
+      if (typeof v === "number" || typeof v === "boolean") return String(v);
+      if (depth > 4) return undefined;
+      const parts = (
+        Array.isArray(v)
+          ? v.map((x) => flatten(x, depth + 1))
+          : Object.entries(v).map(([k, x]) => {
+              const t = flatten(x, depth + 1);
+              return t ? `${k}: ${t}` : undefined;
+            })
+      ).filter((x): x is string => !!x);
+      return parts.length ? parts.join("\n") : undefined;
+    };
+    const cleanPayload = (obj: Record<string, any>) =>
+      Object.fromEntries(
+        Object.entries(obj)
+          .map(([k, v]) => [k, v !== null && typeof v === "object" ? flatten(v) : v])
+          .filter(([, v]) => v !== null && v !== undefined),
+      );
 
     const saves = groups.flatMap((group) =>
       group.testCases.map((tc) =>
@@ -1282,7 +1303,7 @@ export default function TestCases() {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(
-            withoutNullish({
+            cleanPayload({
               title: tc.title,
               redmineUserStory: tc.redmineUserStory,
               tracker: formData?.tracker || tc.tracker,

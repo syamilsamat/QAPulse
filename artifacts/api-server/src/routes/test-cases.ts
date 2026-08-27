@@ -63,6 +63,33 @@ function safeParseJSON(content: string, fallback: any) {
   }
 }
 
+// Every AI-authored field on a test case maps to a plain text column, but a
+// model will return an object or a nested array where a string was asked for —
+// testData as {"username":"a","password":"b"} is the common one, and the
+// OpenRouter fallbacks run with no responseSchema at all. Flatten to readable
+// text so the row survives CreateTestCaseBody validation when it is saved.
+// Returns undefined, never null, because zod .optional() rejects null.
+function toText(value: unknown, depth = 0): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth > 4) return undefined; // guard against deep nesting / cycles
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => toText(v, depth + 1)).filter((v): v is string => !!v);
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  if (typeof value === "object") {
+    const parts = Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => {
+        const t = toText(v, depth + 1);
+        return t ? `${k}: ${t}` : undefined;
+      })
+      .filter((v): v is string => !!v);
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  return undefined;
+}
+
 async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise<string> {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) throw new Error("Missing OPENROUTER_API_KEY environment variable.");
@@ -216,6 +243,12 @@ const tcGenResponseSchema: Schema = {
   required: ["testCases"],
 };
 
+// The AI-authored fields CreateTestCaseBody types as optional strings.
+const AI_TEXT_FIELDS = [
+  "title", "tracker", "scenario", "preconditions", "testSteps", "testData",
+  "expectedResult", "tags", "type", "priority",
+] as const;
+
 async function generateForRequirement(
   req: { id: number; title: string; description?: string },
   opts: {
@@ -272,11 +305,14 @@ async function generateForRequirement(
 
   const parsed = safeParseJSON(finalRawText, { testCases: [] });
   const testCases = (parsed.testCases ?? []).map((tc: any) => {
-    if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
-    else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
-    // A fallback model runs without responseSchema and can hand back an array
-    // here, where CreateTestCaseBody wants a comma-joined string.
-    if (Array.isArray(tc.tags)) tc.tags = tc.tags.join(", ");
+    // An array arrived one step per line already; only a run-together string needs re-breaking below.
+    const stepsWereList = Array.isArray(tc.testSteps);
+    // Flatten every text field first, so nothing downstream sees an object.
+    for (const f of AI_TEXT_FIELDS) tc[f] = toText(tc[f]);
+    // Tags read better inline than one per line.
+    if (tc.tags) tc.tags = tc.tags.split("\n").join(", ");
+    // Re-break run-together numbered steps ("1. a 2. b") onto their own lines.
+    if (tc.testSteps && !stepsWereList) tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
     // The AI has no way to know the real Redmine ticket — it was only ever
     // given this requirement's internal DB id, and would otherwise invent a
     // number. Always use the requirement's actual redmineTicketId instead —
