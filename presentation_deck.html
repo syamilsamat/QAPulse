@@ -52,8 +52,25 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
     }
-    /* Hide scrollbars */
+    /* Hide default scrollbars for presentation mode */
     ::-webkit-scrollbar { display: none; }
+    
+    /* Visible custom scrollbar specifically for scrollable slides */
+    .custom-scrollbar::-webkit-scrollbar {
+      display: block !important;
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(4, 7, 15, 0.6);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(20, 184, 166, 0.4);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(20, 184, 166, 0.7);
+    }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col justify-between p-6 sm:p-8 bg-[#04070f] relative overflow-hidden">
@@ -279,15 +296,25 @@
       </div>
     </div>
 
-    <!-- SLIDE 4: The 8-Stage Lifecycle -->
-    <div class="slide flex-col justify-center w-full" 
-         data-title="04. The 8 Beats of a Milestone"
-         data-notes="The 8-stage lifecycle is the heart of QMPulse. Stage 1: PMO opens the milestone. Stage 2: FA authors requirements with AI gap analysis. Stage 3: Segregation of duties is enforced through peer approval. Stage 4: Dev builds against approved specs. Stage 5: In parallel, QA writes tests with AI generation so they are ready the instant build lands. Stage 6: QA executes per environment; failures automatically create Redmine child defects. Stage 7: QA tracks blockers to resolution. Stage 8: PMO conducts UAT sign-off, closes milestone, and logs lessons learned.">
-      <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-2">End-to-End Workflow</div>
-      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">The 8 Beats of a Milestone Lifecycle</h2>
-      <p class="text-sm text-slate-400 mb-6">Continuous governance gates, automated handoffs, and instant notifications from start to finish.</p>
+    <!-- SLIDE 4: The 8-Stage Lifecycle & Cross-Functional Swimlane -->
+    <div class="slide flex-col justify-start w-full max-h-[calc(100vh-130px)] overflow-y-auto pr-2.5 custom-scrollbar" 
+         data-title="04. The 8 Beats of a Milestone & Swimlane Flow"
+         data-notes="The 8-stage lifecycle is the heart of QMPulse. Notice the detailed swimlane diagram as you scroll down: 5 cross-functional roles (PMO, FA, Dev, QA, and System/AI Engine) operate in synchronized rhythm. Stage 1: PMO opens milestone. Stage 2: FA authors specs with AI gap analysis. Stage 3: Peer approval enforces segregation of duties. Stage 4: Dev builds against approved specs. Stage 5: In parallel, QA writes tests with AI generation so they are ready the instant build lands. Stage 6: QA executes per environment; failures automatically create Redmine child defects. Stage 7: QA tracks blockers to resolution. Stage 8: PMO conducts UAT sign-off, closes milestone, and logs lessons learned. Scroll down on the slide for the complete Swimlane Flow and Governance Matrix!">
+      
+      <!-- Slide Header -->
+      <div class="shrink-0 mb-4">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-teal-400 mono font-semibold tracking-wider uppercase mb-1">End-to-End Delivery Architecture</div>
+          <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px] font-mono font-semibold animate-pulse">
+            <span>👇 Scroll Down for Detailed Swimlane Diagram</span>
+          </div>
+        </div>
+        <h2 class="text-3xl sm:text-4xl font-bold text-white mb-1.5">The 8 Beats of a Milestone Lifecycle</h2>
+        <p class="text-sm text-slate-400">Continuous governance gates, automated handoffs, and instant notifications from start to finish.</p>
+      </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
+      <!-- Part 1: The 8 Milestone Beats Cards Grid -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4 shrink-0">
         <div class="glass-card p-4">
           <div class="flex items-center justify-between mb-2">
             <span class="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold text-xs flex items-center justify-center">01</span>
@@ -361,9 +388,383 @@
         </div>
       </div>
 
-      <div class="glass-card p-3 text-center border-teal-500/30 text-xs font-semibold text-teal-300">
+      <div class="glass-card p-3 text-center border-teal-500/30 text-xs font-semibold text-teal-300 mb-8 shrink-0">
         ⚡ Running Through Every Beat: Instant Smart Notifications • Dynamic Risk Register • Continuous Lessons Learned
       </div>
+
+      <!-- ========================================================================= -->
+      <!-- PART 2: DETAILED SWIMLANE DIAGRAM -->
+      <!-- ========================================================================= -->
+      <div class="pt-6 border-t border-white/15 space-y-6">
+        
+        <!-- Swimlane Header Banner -->
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-teal-950/40 via-purple-950/30 to-sky-950/40 p-4 rounded-xl border border-teal-500/30">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded bg-teal-400 text-slate-950 font-bold text-[11px] mono uppercase">Cross-Functional Swimlane</span>
+              <span class="text-xs text-teal-300 font-mono">5 Personas × 8 Lifecycle Beats</span>
+            </div>
+            <h3 class="text-xl font-bold text-white mt-1">Detailed Roles & Automated Governance Swimlane Flow</h3>
+          </div>
+          <div class="text-xs text-slate-300 flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-white/10 shrink-0">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Real-time Redmine & AI Sync Active</span>
+          </div>
+        </div>
+
+        <!-- The Swimlane Grid Canvas -->
+        <div class="glass-card p-5 border-teal-500/30 overflow-x-auto">
+          <div class="min-w-[980px]">
+            
+            <!-- Stage Headers Top Bar -->
+            <div class="grid grid-cols-12 gap-2 mb-3 pb-3 border-b border-white/10 text-center font-mono text-[11px] font-bold uppercase tracking-wider text-slate-300">
+              <div class="col-span-2 text-left pl-2 text-slate-400">Role / Lane</div>
+              <div class="col-span-1 text-purple-300 bg-purple-950/30 py-1 rounded">Stage 01<br/><span class="text-[9px] font-normal text-slate-400">Plan</span></div>
+              <div class="col-span-1 text-purple-300 bg-purple-950/30 py-1 rounded">Stage 02<br/><span class="text-[9px] font-normal text-slate-400">Specs</span></div>
+              <div class="col-span-1 text-indigo-300 bg-indigo-950/30 py-1 rounded">Stage 03<br/><span class="text-[9px] font-normal text-slate-400">Approval</span></div>
+              <div class="col-span-1 text-indigo-300 bg-indigo-950/30 py-1 rounded">Stage 04<br/><span class="text-[9px] font-normal text-slate-400">Build</span></div>
+              <div class="col-span-1 text-cyan-300 bg-cyan-950/30 py-1 rounded">Stage 05<br/><span class="text-[9px] font-normal text-slate-400">Test Auth</span></div>
+              <div class="col-span-1 text-teal-300 bg-teal-950/30 py-1 rounded">Stage 06<br/><span class="text-[9px] font-normal text-slate-400">Execute</span></div>
+              <div class="col-span-1 text-teal-300 bg-teal-950/30 py-1 rounded">Stage 07<br/><span class="text-[9px] font-normal text-slate-400">Retest</span></div>
+              <div class="col-span-2 text-emerald-300 bg-emerald-950/30 py-1 rounded">Stage 08<br/><span class="text-[9px] font-normal text-slate-400">UAT & Go-Live</span></div>
+            </div>
+
+            <!-- LANE 1: PMO / Project Manager -->
+            <div class="grid grid-cols-12 gap-2 items-center py-2.5 border-b border-white/5 bg-purple-950/10 rounded-lg px-2 mb-2">
+              <div class="col-span-2 flex items-center gap-2">
+                <div class="w-7 h-7 rounded bg-purple-500/20 text-purple-300 font-bold text-xs flex items-center justify-center border border-purple-500/30 shrink-0">PMO</div>
+                <div>
+                  <div class="text-xs font-bold text-purple-300">PMO / Lead</div>
+                  <div class="text-[10px] text-slate-400">Governance & Release</div>
+                </div>
+              </div>
+              
+              <!-- Stg 1 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-purple-500/30 bg-purple-950/30 text-purple-200">
+                <b class="text-white block mb-0.5">Open Milestone</b>
+                Scope, dates, env setup.
+              </div>
+              <!-- Stg 2-3 -->
+              <div class="col-span-2 text-[10px] text-slate-400 italic text-center px-1">
+                Monitor Spec Progress & Capacity
+              </div>
+              <!-- Stg 4 -->
+              <div class="col-span-1 text-[10px] text-slate-400 italic text-center">
+                Track SPI
+              </div>
+              <!-- Stg 5-7 -->
+              <div class="col-span-3 text-[10px] text-slate-400 italic text-center px-1">
+                Live Defect & Stability Tracking Dashboard
+              </div>
+              <!-- Stg 8 -->
+              <div class="col-span-2 glass-card p-2 text-[10px] border-purple-500/40 bg-purple-950/40 text-purple-200">
+                <b class="text-white block mb-0.5">UAT Sign-off & Verdict</b>
+                Exec PDF verdict email, close milestone & log lessons.
+              </div>
+            </div>
+
+            <!-- LANE 2: Functional Analyst (FA) -->
+            <div class="grid grid-cols-12 gap-2 items-center py-2.5 border-b border-white/5 bg-indigo-950/10 rounded-lg px-2 mb-2">
+              <div class="col-span-2 flex items-center gap-2">
+                <div class="w-7 h-7 rounded bg-indigo-500/20 text-indigo-300 font-bold text-xs flex items-center justify-center border border-indigo-500/30 shrink-0">FA</div>
+                <div>
+                  <div class="text-xs font-bold text-indigo-300">Functional Analyst</div>
+                  <div class="text-[10px] text-slate-400">Requirements & Peer Gate</div>
+                </div>
+              </div>
+
+              <!-- Stg 1 -->
+              <div class="col-span-1 text-[10px] text-slate-400 italic text-center">
+                Scope Sync
+              </div>
+              <!-- Stg 2 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-indigo-500/30 bg-indigo-950/30 text-indigo-200">
+                <b class="text-white block mb-0.5">Author Spec</b>
+                Write functional criteria & user stories.
+              </div>
+              <!-- Stg 3 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-indigo-500/40 bg-indigo-950/50 text-indigo-200">
+                <b class="text-white block mb-0.5">Peer Review</b>
+                <span class="text-[9px] text-indigo-300 font-mono block mt-0.5">🔒 Zero self-approval</span>
+                Peer FA approves spec.
+              </div>
+              <!-- Stg 4 -->
+              <div class="col-span-1 text-[10px] text-slate-400 italic text-center">
+                Provide Spec Context
+              </div>
+              <!-- Stg 5-7 -->
+              <div class="col-span-3 text-[10px] text-slate-400 italic text-center px-1">
+                Clarify Spec Ambiguities if QA/Dev flags discrepancy
+              </div>
+              <!-- Stg 8 -->
+              <div class="col-span-2 text-[10px] text-slate-400 italic text-center">
+                UAT Acceptance Verification
+              </div>
+            </div>
+
+            <!-- LANE 3: Developer / Tech Lead -->
+            <div class="grid grid-cols-12 gap-2 items-center py-2.5 border-b border-white/5 bg-cyan-950/10 rounded-lg px-2 mb-2">
+              <div class="col-span-2 flex items-center gap-2">
+                <div class="w-7 h-7 rounded bg-cyan-500/20 text-cyan-300 font-bold text-xs flex items-center justify-center border border-cyan-500/30 shrink-0">DEV</div>
+                <div>
+                  <div class="text-xs font-bold text-cyan-300">Developer / Lead</div>
+                  <div class="text-[10px] text-slate-400">Implementation & Build</div>
+                </div>
+              </div>
+
+              <!-- Stg 1-3 -->
+              <div class="col-span-3 text-[10px] text-slate-400 italic text-center">
+                Backlog Grooming & Capacity Review
+              </div>
+              <!-- Stg 4 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-cyan-500/40 bg-cyan-950/40 text-cyan-200">
+                <b class="text-white block mb-0.5">Build Code</b>
+                Build in context; flip status to "For QA Test".
+              </div>
+              <!-- Stg 5 -->
+              <div class="col-span-1 text-[10px] text-slate-400 italic text-center">
+                Deploy to SIT
+              </div>
+              <!-- Stg 6 -->
+              <div class="col-span-1 text-[10px] text-slate-400 italic text-center">
+                Receive Defect Tickets
+              </div>
+              <!-- Stg 7 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-cyan-500/40 bg-cyan-950/40 text-cyan-200">
+                <b class="text-white block mb-0.5">Fix Defect</b>
+                Resolve bug & push build for QA retest.
+              </div>
+              <!-- Stg 8 -->
+              <div class="col-span-2 text-[10px] text-slate-400 italic text-center">
+                Release Deployment Assist
+              </div>
+            </div>
+
+            <!-- LANE 4: QA Engineer / Test Lead -->
+            <div class="grid grid-cols-12 gap-2 items-center py-2.5 border-b border-white/5 bg-teal-950/10 rounded-lg px-2 mb-2">
+              <div class="col-span-2 flex items-center gap-2">
+                <div class="w-7 h-7 rounded bg-teal-500/20 text-teal-300 font-bold text-xs flex items-center justify-center border border-teal-500/30 shrink-0">QA</div>
+                <div>
+                  <div class="text-xs font-bold text-teal-300">QA Engineer / Lead</div>
+                  <div class="text-[10px] text-slate-400">Authoring, Execution & Sign-off</div>
+                </div>
+              </div>
+
+              <!-- Stg 1-4 -->
+              <div class="col-span-4 text-[10px] text-slate-400 italic text-center">
+                Environment Setup & Strategy Preparation
+              </div>
+              <!-- Stg 5 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-teal-500/40 bg-teal-950/40 text-teal-200">
+                <b class="text-white block mb-0.5">Author Tests</b>
+                Pre-author test suites mapped 1:1 to spec criteria.
+              </div>
+              <!-- Stg 6 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-teal-500/40 bg-teal-950/40 text-teal-200">
+                <b class="text-white block mb-0.5">Execute Tests</b>
+                Run tests per env. Pass/fail step execution.
+              </div>
+              <!-- Stg 7 -->
+              <div class="col-span-1 glass-card p-2 text-[10px] border-teal-500/40 bg-teal-950/40 text-teal-200">
+                <b class="text-white block mb-0.5">Retest & Verify</b>
+                Verify dev fixes until 100% pass yield.
+              </div>
+              <!-- Stg 8 -->
+              <div class="col-span-2 glass-card p-2 text-[10px] border-teal-500/40 bg-teal-950/40 text-teal-200">
+                <b class="text-white block mb-0.5">Issue QA Verdict</b>
+                Submit final quality report to PMO.
+              </div>
+            </div>
+
+            <!-- LANE 5: System Engine & AI (Automated Layer) -->
+            <div class="grid grid-cols-12 gap-2 items-center py-2.5 bg-emerald-950/15 rounded-lg px-2 border border-emerald-500/20">
+              <div class="col-span-2 flex items-center gap-2">
+                <div class="w-7 h-7 rounded bg-emerald-500/20 text-emerald-300 font-bold text-xs flex items-center justify-center border border-emerald-500/30 shrink-0">SYS</div>
+                <div>
+                  <div class="text-xs font-bold text-emerald-300">System & AI Engine</div>
+                  <div class="text-[10px] text-slate-400">Automated Governance & Sync</div>
+                </div>
+              </div>
+
+              <!-- Stg 1 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">Redmine Sync</b>
+                Create Redmine version/milestone.
+              </div>
+              <!-- Stg 2 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">🤖 AI Spec Check</b>
+                GenAI checks ambiguity & untestable logic.
+              </div>
+              <!-- Stg 3 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">RBAC Engine</b>
+                Enforce peer gate & audit log.
+              </div>
+              <!-- Stg 4 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">Ticket Sync</b>
+                Bi-directional Redmine issue status update.
+              </div>
+              <!-- Stg 5 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">🤖 AI Test Gen</b>
+                Auto-generate edge case test steps.
+              </div>
+              <!-- Stg 6 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/40 bg-emerald-950/50 text-emerald-200">
+                <b class="text-white block">⚡ Auto Defect</b>
+                Failed step auto-creates Redmine defect.
+              </div>
+              <!-- Stg 7 -->
+              <div class="col-span-1 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">Defect Binding</b>
+                Auto-bind test rerun to Redmine issue.
+              </div>
+              <!-- Stg 8 -->
+              <div class="col-span-2 glass-card p-1.5 text-[9px] border-emerald-500/30 bg-emerald-950/30 text-emerald-200">
+                <b class="text-white block">Audit & Verdict Email</b>
+                Generate immutable PDF log & send HTML O365 verdict email.
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ========================================================================= -->
+        <!-- PART 3: DETAILED GOVERNANCE & ARCHITECTURAL EXPLANATION -->
+        <!-- ========================================================================= -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+          
+          <!-- Column A: Core Architectural Pillars -->
+          <div class="glass-card p-5 border-teal-500/30">
+            <div class="flex items-center gap-2 text-teal-300 font-bold text-sm uppercase mono mb-3">
+              <span class="w-2 h-2 rounded-full bg-teal-400 animate-ping"></span>
+              Architectural Pillars of the Swimlane
+            </div>
+            <div class="space-y-3.5 text-xs text-slate-300 leading-relaxed">
+              <div class="flex gap-2.5">
+                <span class="text-teal-400 font-bold font-mono">01</span>
+                <div>
+                  <b class="text-white">Parallel Acceleration (Stage 4 & 5):</b> Traditional QA sits idle waiting for code delivery. In QMPulse, QA authors test suites concurrently during Stage 5 using AI generation while Dev codes in Stage 4. Execution starts the exact second code lands in SIT.
+                </div>
+              </div>
+
+              <div class="flex gap-2.5">
+                <span class="text-indigo-400 font-bold font-mono">02</span>
+                <div>
+                  <b class="text-white">Strict Segregation of Duties (Stage 3):</b> A Functional Analyst can never approve their own specification. System RBAC enforces peer review by another authorized FA in the project, guaranteeing zero unvetted requirements reach development.
+                </div>
+              </div>
+
+              <div class="flex gap-2.5">
+                <span class="text-cyan-400 font-bold font-mono">03</span>
+                <div>
+                  <b class="text-white">Automated Defect Write-Back (Stage 6):</b> When a QA test step fails, QMPulse automatically creates a child ticket in Redmine with exact reproduction steps, expected vs actual behavior, logs, and screenshots—zero manual copy-pasting required.
+                </div>
+              </div>
+
+              <div class="flex gap-2.5">
+                <span class="text-emerald-400 font-bold font-mono">04</span>
+                <div>
+                  <b class="text-white">Early Quality Gate via AI (Stage 2):</b> Google GenAI reviews requirement text before peer approval to flag ambiguous statements, missing boundary conditions, or untestable logic—preventing rework before a single line of code is written.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column B: The Loopback & Exception Remediation Cycle -->
+          <div class="glass-card p-5 border-purple-500/30">
+            <div class="flex items-center gap-2 text-purple-300 font-bold text-sm uppercase mono mb-3">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+              Defect Remediation & Exception Loopback
+            </div>
+            <div class="space-y-3.5 text-xs text-slate-300 leading-relaxed">
+              <p>
+                When a test fails during <b class="text-white">Stage 06 (Execute Testing)</b>, the system initiates a closed-loop remediation cycle that preserves strict traceability without stalling the milestone:
+              </p>
+              
+              <div class="space-y-2 font-mono text-[11px] bg-slate-950/60 p-3 rounded-lg border border-white/10">
+                <div class="flex items-start gap-2 text-red-300">
+                  <span class="font-bold text-red-400">FAIL ➔</span>
+                  <span>QA marks step "Failed" ➔ System auto-creates Redmine Child Defect (#DEF-104) bound to Requirement (#REQ-42).</span>
+                </div>
+                <div class="flex items-start gap-2 text-cyan-300">
+                  <span class="font-bold text-cyan-400">FIX  ➔</span>
+                  <span>Dev receives Redmine notification, fixes code, links commit SHA, and flips ticket to "Retest Ready".</span>
+                </div>
+                <div class="flex items-start gap-2 text-teal-300">
+                  <span class="font-bold text-teal-400">VERIFY ➔</span>
+                  <span>QA re-runs test step in Stage 07. If passed, Redmine child defect automatically updates to "Resolved".</span>
+                </div>
+              </div>
+
+              <div class="p-2.5 rounded bg-purple-950/30 border border-purple-500/30 text-[11px] text-purple-200">
+                <b class="text-white">Executive Oversight:</b> PMO tracks live Schedule Performance Index (SPI), blocker count, and first-pass yield in real time during the loopback cycle.
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Part 4: Role-by-Role Action & Governance Matrix -->
+        <div class="glass-card p-5 border-white/10">
+          <div class="text-xs font-mono uppercase text-slate-400 font-bold mb-3">Governance Handoff Matrix across the 5 Lanes</div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr class="border-b border-white/10 text-slate-400 font-mono uppercase text-[10px]">
+                  <th class="p-2.5">Role / Lane</th>
+                  <th class="p-2.5">Primary Beat</th>
+                  <th class="p-2.5">Key Input</th>
+                  <th class="p-2.5">Governed Action</th>
+                  <th class="p-2.5">Output Handoff</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/5 text-slate-300">
+                <tr>
+                  <td class="p-2.5 font-bold text-purple-300 font-mono">1. PMO Lead</td>
+                  <td class="p-2.5 text-slate-400">Beat 01 & 08</td>
+                  <td class="p-2.5">Project Scope & Charter</td>
+                  <td class="p-2.5">Define target dates, env targets & UAT sign-off criteria</td>
+                  <td class="p-2.5 text-purple-300">Milestone Shell & Exec Verdict PDF</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-indigo-300 font-mono">2. Functional Analyst</td>
+                  <td class="p-2.5 text-slate-400">Beat 02 & 03</td>
+                  <td class="p-2.5">Business Requirements</td>
+                  <td class="p-2.5">Author specs + AI ambiguity check + Peer FA approval gate</td>
+                  <td class="p-2.5 text-indigo-300">Peer-Approved Specs</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-cyan-300 font-mono">3. Developer Lead</td>
+                  <td class="p-2.5 text-slate-400">Beat 04 & 07</td>
+                  <td class="p-2.5">Approved Specs</td>
+                  <td class="p-2.5">Build code in context + resolve Redmine child defects</td>
+                  <td class="p-2.5 text-cyan-300">Build Artifact & SIT Deployment</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-teal-300 font-mono">4. QA Lead / Engineer</td>
+                  <td class="p-2.5 text-slate-400">Beat 05, 06 & 07</td>
+                  <td class="p-2.5">Approved Specs & SIT Build</td>
+                  <td class="p-2.5">Author tests in parallel + execute test runs per environment</td>
+                  <td class="p-2.5 text-teal-300">Execution Log & QA Quality Verdict</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-emerald-300 font-mono">5. System & AI Engine</td>
+                  <td class="p-2.5 text-slate-400">Beats 01 to 08 (Continuous)</td>
+                  <td class="p-2.5">Workflow Triggers & Test Runs</td>
+                  <td class="p-2.5">Redmine bi-directional sync, AI analysis, auto-defect creation</td>
+                  <td class="p-2.5 text-emerald-300">Immutable Audit Trail & O365 Emails</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
     </div>
 
     <!-- SLIDE 5: Technology Backbone (Redmine + AI) -->

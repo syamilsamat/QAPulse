@@ -274,10 +274,17 @@ async function generateForRequirement(
   const testCases = (parsed.testCases ?? []).map((tc: any) => {
     if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
     else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
+    // A fallback model runs without responseSchema and can hand back an array
+    // here, where CreateTestCaseBody wants a comma-joined string.
+    if (Array.isArray(tc.tags)) tc.tags = tc.tags.join(", ");
     // The AI has no way to know the real Redmine ticket — it was only ever
     // given this requirement's internal DB id, and would otherwise invent a
-    // number. Always use the requirement's actual redmineTicketId instead.
-    tc.redmineUserStory = actualRedmineTicketId;
+    // number. Always use the requirement's actual redmineTicketId instead —
+    // but drop the key when the requirement has none, because
+    // CreateTestCaseBody types it as an optional string and zod's .optional()
+    // accepts undefined while rejecting null, which would 400 the save.
+    if (actualRedmineTicketId != null) tc.redmineUserStory = actualRedmineTicketId;
+    else delete tc.redmineUserStory;
     return tc;
   });
   return { testCases };
