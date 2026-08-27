@@ -1294,6 +1294,13 @@ export default function TestCases() {
 
   const handleAISuccess = async (groups: { requirementId: number; requirementTitle: string; testCases: any[] }[], formData: any) => {
     const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+    // CreateTestCaseBody types every optional field as `zod.string().optional()`,
+    // and zod's .optional() accepts undefined but *rejects* null. Any null the
+    // generator left on a case would 400 the whole row, so drop nullish keys
+    // and let the column default instead of sending an explicit null.
+    const withoutNullish = (obj: Record<string, any>) =>
+      Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== null && v !== undefined));
+
     const saves = groups.flatMap((group) =>
       group.testCases.map((tc) =>
         fetch(`${getApiUrl()}/test-cases`, {
@@ -1302,37 +1309,52 @@ export default function TestCases() {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({
-            title: tc.title,
-            redmineUserStory: tc.redmineUserStory,
-            tracker: formData?.tracker || tc.tracker,
-            scenario: tc.scenario,
-            preconditions: tc.preconditions,
-            testSteps: tc.testSteps,
-            testData: tc.testData,
-            expectedResult: tc.expectedResult,
-            tags: tc.tags,
-            type: tc.type || "manual",
-            priority: tc.priority || "medium",
-            status: "active",
-            aiAssisted: true,
-            requirementId: group.requirementId,
-            projectId: formData?.projectId,
-            module: formData?.module,
-            authorId: formData?.authorId || user?.id,
-          }),
-        }).then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          body: JSON.stringify(
+            withoutNullish({
+              title: tc.title,
+              redmineUserStory: tc.redmineUserStory,
+              tracker: formData?.tracker || tc.tracker,
+              scenario: tc.scenario,
+              preconditions: tc.preconditions,
+              testSteps: tc.testSteps,
+              testData: tc.testData,
+              expectedResult: tc.expectedResult,
+              tags: tc.tags,
+              type: tc.type || "manual",
+              priority: tc.priority || "medium",
+              status: "active",
+              aiAssisted: true,
+              requirementId: group.requirementId,
+              projectId: formData?.projectId,
+              module: formData?.module,
+              authorId: formData?.authorId || user?.id,
+            }),
+          ),
+        }).then(async (r) => {
+          if (!r.ok) {
+            // Surface what the server actually rejected — a bare status code
+            // sent everyone hunting for a login problem that wasn't there.
+            const body = await r.json().catch(() => null);
+            throw new Error(body?.error ? `HTTP ${r.status}: ${body.error}` : `HTTP ${r.status}`);
+          }
           return r;
         }),
       ),
     );
     const results = await Promise.allSettled(saves);
     const saved = results.filter((r) => r.status === "fulfilled").length;
-    const failed = results.filter((r) => r.status === "rejected").length;
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
     await queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-    if (failed > 0) {
-      toast({ variant: "destructive", title: `${saved} saved, ${failed} failed — check you are logged in` });
+    if (rejected.length > 0) {
+      const reason = String(rejected[0].reason?.message ?? rejected[0].reason);
+      console.error("AI test case save failures:", rejected.map((r) => r.reason));
+      toast({
+        variant: "destructive",
+        title: `${saved} saved, ${rejected.length} failed`,
+        description: reason.startsWith("HTTP 401") || reason.startsWith("HTTP 403")
+          ? "You may have been signed out — try logging in again."
+          : reason.slice(0, 300),
+      });
     } else {
       toast({ title: `${saved} AI test cases saved` });
     }

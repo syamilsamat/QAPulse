@@ -208,21 +208,20 @@
           "• Pasukan QA: Mereka bentuk kes ujian secara selari semasa pembangunan berjalan, serta mendaftarkan kecacatan Redmine secara automatik apabila langkah ujian gagal.",
           "• Kepimpinan Eksekutif (C-Suite): Memperoleh gambaran holistik tentang kestabilan pelepasan (release stability) dan kadar kelulusan pertama (first-pass yield) pada satu skrin.\""
         ],
-        takeaway: "Tunjukkan bagaimana setiap pihak berkepentingan dalam bilik mesyuarat mendapat manfaat langsung mengikut peranan masing-masing.",
         summary: "Perincian 5 peranan utama: PMO, Functional Analysts, Developers, QA Engineers, dan Leadership."
       },
       {
-        title: "04. Kitaran Hayat 8 Peringkat (The 8 Beats)",
+        title: "04. Kitaran Hayat 8 Peringkat & Carta Swimlane",
         badge: "Slaid 4 / 9",
         script: [
           "\"Kitaran 8 peringkat ini merupakan teras kekuatan QMPulse dengan kawalan tadbir urus automatik:",
           "1. Pengasingan Tugas (Segregation of Duties): Penganalisis FA tidak boleh meluluskan dokumen keperluan mereka sendiri—ia wajib disemak oleh rakan FA yang lain dalam projek yang sama.",
-          "2. Reka Bentuk Ujian Selari (Parallel Acceleration): QA menulis kes ujian serentak semasa dev sedang membina kod, jadi tiada masa terbuang apabila sistem didepositkan ke persekitaran ujian.",
+          "2. Reka Bentuk Ujian Selari (Parallel Acceleration): QA menulis kes ujian serentak semasa dev sedang membina kod pada Peringkat 5, jadi tiada masa terbuang apabila sistem didepositkan ke persekitaran ujian.",
           "3. Pautan Kecacatan Automatik: Apabila QA menanda langkah gagal pada Peringkat 6, sistem terus mencipta 'child issue' dalam Redmine lengkap dengan tangkapan skrin dan langkah pembiakan.",
-          "4. Pengurusan Risiko: Daftar risiko dinilai sepanjang 8 peringkat, bukan hanya pada peringkat awal.\""
+          "4. Carta Swimlane Terperinci: Jika anda menatal (scroll) ke bawah pada slaid ini, anda akan melihat Carta Swimlane terperinci yang menunjukkan interaksi 5 peranan (PMO, FA, Dev, QA, dan System/AI Engine) merentasi kesemua 8 peringkat.\""
         ],
-        takeaway: "Sorot Pengasingan Tugas (Segregation of Duties) yang dikuatkuasakan secara kod dan penghasilan kes ujian selari.",
-        summary: "Aliran 8 peringkat bermula dari Perancangan Milestone sehingga Kelulusan UAT & Go-Live."
+        takeaway: "Sorot Pengasingan Tugas, penghasilan kes ujian selari, dan minta penonton menatal ke bawah untuk Carta Swimlane terperinci.",
+        summary: "Aliran 8 peringkat bermula dari Perancangan Milestone sehingga Kelulusan UAT & Carta Swimlane terperinci."
       },
       {
         title: "05. Integrasi Redmine & Hab Kecerdasan Buatan (AI)",
@@ -323,17 +322,17 @@
         summary: "Breakdown of PMO, Functional Analysts, Developers, QA Engineers, and Executive Leadership."
       },
       {
-        title: "04. The 8 Beats of a Milestone Lifecycle",
+        title: "04. The 8 Beats of a Milestone & Swimlane Flow",
         badge: "Slide 4 / 9",
         script: [
           "\"This 8-stage lifecycle is the core engine of QMPulse. Notice the built-in governance gates:",
           "1. Segregation of Duties: A Functional Analyst can never sign off their own requirement—it must be peer-reviewed by a colleague in the same project.",
-          "2. Parallel Acceleration: QA writes test cases during the build phase (Stage 5) so no time is wasted when code is deployed.",
-          "3. Automated Defect Linking: When QA fails a step in Stage 6, a defect is automatically created in Redmine as a child ticket of the original requirement.",
-          "4. Risk Management is active through all 8 stages, not just in stage 1.\""
+          "2. Parallel Acceleration: QA writes test cases during Stage 5 concurrently while dev builds in Stage 4 so no time is wasted when code lands in SIT.",
+          "3. Automated Defect Linking: When QA fails a step in Stage 6, a defect is automatically created in Redmine as a child ticket bound to the requirement.",
+          "4. Detailed Swimlane Diagram: As you scroll down on this slide, you will see our complete Swimlane Flow mapping all 5 roles (PMO, FA, Dev, QA, and System/AI Engine) across all 8 stages along with our Governance Matrix.\""
         ],
-        takeaway: "Highlight code-enforced Segregation of Duties and parallel test case authoring.",
-        summary: "End-to-end 8-stage pipeline from Milestone Planning to UAT Sign-off & Go-Live."
+        takeaway: "Highlight code-enforced Segregation of Duties, parallel test case authoring, and invite audience to scroll down for the Swimlane Flow.",
+        summary: "End-to-end 8-stage pipeline from Milestone Planning to UAT Sign-off & Detailed Swimlane Diagram."
       },
       {
         title: "05. Deep Redmine Sync & The Enterprise AI Hub",

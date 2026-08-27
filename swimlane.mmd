@@ -1,0 +1,34 @@
+flowchart TD
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef pmo fill:#dbeafe,stroke:#2563eb,stroke-width:2px;
+    classDef fa fill:#fef08a,stroke:#ca8a04,stroke-width:2px;
+    classDef dev fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
+    classDef qa fill:#fce7f3,stroke:#db2777,stroke-width:2px;
+
+    subgraph PMO [PMO / Leadership]
+        M1[1. Plan Milestone<br/>Define scope and timeline]:::pmo
+        M8[8. UAT & Go-Live<br/>Business validation and deployment]:::pmo
+    end
+
+    subgraph FA [Functional Analyst]
+        M2[2. Author Specs<br/>AI-assisted requirement drafting]:::fa
+        M3[3. Peer-Approve<br/>Review and finalize specs]:::fa
+    end
+
+    subgraph DEV [Developer]
+        M4[4. Assign & Build<br/>Code development and unit testing]:::dev
+    end
+
+    subgraph QA [QA Engineer]
+        M5[5. Author Tests<br/>AI-assisted test case generation]:::qa
+        M6[6. Execute Testing<br/>Run test cases and log results]:::qa
+        M7[7. Track & Close<br/>Manage defect lifecycle]:::qa
+    end
+
+    M1 -->|Handoff to FA| M2
+    M2 --> M3
+    M3 -->|Handoff to Dev| M4
+    M4 -->|Handoff to QA| M5
+    M5 --> M6
+    M6 --> M7
+    M7 -->|Handoff to PMO| M8
