@@ -54,6 +54,7 @@ interface TaskBoardRow {
   devAssigneeId: number | null;
   executionFileId: number | null;
   phaseTimeline: PhaseTimelineEntry[];
+  devTaskCounts: { done: number; total: number } | null;
 }
 
 interface Member {
@@ -835,6 +836,18 @@ export default function Tasks() {
                               <Progress value={r.progress} className="w-20" />
                               <span className="text-xs text-muted-foreground">{r.progress}%</span>
                             </div>
+                            {/* Dev Tasks — separate from the phase progress bar above (that's
+                                a 33/66/100 bucket on devStatus); this is the actual task
+                                breakdown count. Amber when tasks exist but none are done yet
+                                (nothing's visibly stuck), red when a requirement in active dev
+                                has zero tasks at all (the thing that actually needs a look). */}
+                            {r.devTaskCounts ? (
+                              <span className="text-[11px] text-muted-foreground mt-0.5 block">
+                                {r.devTaskCounts.done}/{r.devTaskCounts.total} dev tasks done
+                              </span>
+                            ) : (r.phase === "gap" || r.phase === "develop") ? (
+                              <span className="text-[11px] text-amber-700 mt-0.5 block">No dev tasks yet</span>
+                            ) : null}
                           </TableCell>
                           <TableCell>
                             <RequirementEventsDialog requirementId={r.requirementId} requirementTitle={r.title} />

@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { format } from "date-fns";
+import { DevTasksPanel } from "@/components/DevTasksPanel";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -284,6 +285,20 @@ export default function RequirementDetail() {
     },
   });
 
+  // Dev Tasks — shares the ["dev-tasks", reqId] query key with DevTasksPanel
+  // (react-query dedupes identical keys), so both read the same cached list
+  // without prop-drilling it down.
+  const { data: devTasks = [] } = useQuery<{ id: number; name: string; status: string }[]>({
+    queryKey: ["dev-tasks", reqId],
+    queryFn: async () => {
+      const res = await api(`/requirements/${reqId}/dev-tasks`, token);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!reqId,
+  });
+  const [reopenTaskIds, setReopenTaskIds] = useState<number[]>([]);
+
   // CR031 — requirement defects raised against this requirement
   const { data: reqDefects = [], refetch: refetchReqDefects } = useQuery<any[]>({
     queryKey: ["requirement-defects", reqId],
@@ -421,7 +436,7 @@ export default function RequirementDetail() {
     }
   };
 
-  const doDevAction = async (action: "assign" | "start" | "ready_for_qa" | "return_to_dev", devAssigneeId?: number, reason?: string) => {
+  const doDevAction = async (action: "assign" | "start" | "ready_for_qa" | "return_to_dev", devAssigneeId?: number, reason?: string, reopenIds?: number[]) => {
     if (!reqId) return;
     setDevLoading(true);
     try {
@@ -431,6 +446,7 @@ export default function RequirementDetail() {
           action,
           ...(devAssigneeId != null ? { devAssigneeId } : {}),
           ...(reason?.trim() ? { reason: reason.trim() } : {}),
+          ...(reopenIds && reopenIds.length > 0 ? { reopenTaskIds: reopenIds } : {}),
         }),
       });
       const data = await res.json();
@@ -443,9 +459,11 @@ export default function RequirementDetail() {
       });
       setReturnMode(false);
       setReturnReason("");
+      setReopenTaskIds([]);
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
       // CR050 — refresh the History timeline (dev action logged an event).
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["dev-tasks", reqId] });
     } catch {
       toast({ variant: "destructive", title: "Action failed" });
     } finally {
@@ -990,6 +1008,18 @@ export default function RequirementDetail() {
             </Card>
           )}
 
+          {/* Dev Tasks — Classic Delivery Flow only; a pipeline-milestone
+              requirement syncs straight from Redmine with no FA/dev-task
+              breakdown, so this card is deliberately skipped there. */}
+          {req.reviewStatus === "approved" && !milestone?.pipelineEnabled && reqId && (
+            <DevTasksPanel
+              reqId={reqId}
+              requirementProjectId={req.projectId ?? null}
+              requirementModule={req.module ?? null}
+              isBlocked={!!req.isBlocked}
+            />
+          )}
+
           {/* Attachments */}
           <Card>
             <CardHeader className="pb-2">
@@ -1341,16 +1371,22 @@ export default function RequirementDetail() {
                   )}
 
                   {req.devAssigneeId && (isLeadTier || req.devAssigneeId === user?.id) && req.devStatus !== "ready_for_qa" && (
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center flex-wrap">
                       {req.devStatus === "assigned" && (
                         <Button size="sm" variant="outline" disabled={devLoading} onClick={() => doDevAction("start")}>
                           Start Work
                         </Button>
                       )}
                       {(req.devStatus === "assigned" || req.devStatus === "in_progress") && (
-                        <Button size="sm" disabled={devLoading} onClick={() => doDevAction("ready_for_qa")}>
-                          Mark Ready for QA
-                        </Button>
+                        devTasks.length > 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Auto-set once all {devTasks.length} dev task{devTasks.length === 1 ? "" : "s"} are Done ({devTasks.filter((t) => t.status === "done").length}/{devTasks.length} so far) — see Dev Tasks below.
+                          </p>
+                        ) : (
+                          <Button size="sm" disabled={devLoading} onClick={() => doDevAction("ready_for_qa")}>
+                            Mark Ready for QA
+                          </Button>
+                        )
                       )}
                     </div>
                   )}
@@ -1364,6 +1400,29 @@ export default function RequirementDetail() {
                     (["qa_member", "qa_lead", "hod_qa", "admin", "cto"].includes(user?.role ?? "") || isLeadTier) && (
                     returnMode ? (
                       <div className="space-y-2 pt-1">
+                        {devTasks.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-medium">Which dev task(s) weren&apos;t actually done?</p>
+                            <p className="text-xs text-muted-foreground">
+                              Leaving all tasks marked Done would let this bounce straight back to Ready for QA — pick at least one to reopen.
+                            </p>
+                            {devTasks.map((t) => (
+                              <label key={t.id} className="flex items-center gap-2 text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={reopenTaskIds.includes(t.id)}
+                                  onChange={(e) =>
+                                    setReopenTaskIds((prev) =>
+                                      e.target.checked ? [...prev, t.id] : prev.filter((id) => id !== t.id),
+                                    )
+                                  }
+                                />
+                                <span>{t.name}</span>
+                                <span className="text-muted-foreground">({t.status})</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
                         <Textarea
                           value={returnReason}
                           onChange={(e) => setReturnReason(e.target.value)}
@@ -1371,10 +1430,15 @@ export default function RequirementDetail() {
                           className="text-xs min-h-[60px]"
                         />
                         <div className="flex gap-2">
-                          <Button size="sm" variant="destructive" disabled={devLoading} onClick={() => doDevAction("return_to_dev", undefined, returnReason)}>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={devLoading || (devTasks.length > 0 && reopenTaskIds.length === 0)}
+                            onClick={() => doDevAction("return_to_dev", undefined, returnReason, reopenTaskIds)}
+                          >
                             Confirm Return
                           </Button>
-                          <Button size="sm" variant="ghost" disabled={devLoading} onClick={() => { setReturnMode(false); setReturnReason(""); }}>
+                          <Button size="sm" variant="ghost" disabled={devLoading} onClick={() => { setReturnMode(false); setReturnReason(""); setReopenTaskIds([]); }}>
                             Cancel
                           </Button>
                         </div>
