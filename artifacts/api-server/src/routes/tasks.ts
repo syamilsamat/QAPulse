@@ -5,6 +5,7 @@ import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope, getRoleTierRank, getRoleDepartment } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
+import { submitForReview, getLatestReview, decideReview, maybeAdvanceRequirement, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
 import {
@@ -212,6 +213,28 @@ router.post("/tasks", async (req, res): Promise<void> => {
     if (blockerError) { res.status(400).json({ error: blockerError }); return; }
   }
 
+  // Dev Tasks — a task carrying requirementId feeds the "all tasks done ->
+  // requirement auto-advances to Ready for QA" rollup (maybeAdvanceRequirement),
+  // so creating one is restricted to the dev department's lead tier (+ admin/cto),
+  // not the general Task Tracker's open creation. Ad-hoc tasks (no requirementId)
+  // are unaffected.
+  if (parsed.data.requirementId != null) {
+    const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, parsed.data.requirementId));
+    if (!requirement) { res.status(400).json({ error: "Requirement not found" }); return; }
+    if ((requirement as any).isBlocked) {
+      res.status(409).json({ error: "Requirement is blocked — unblock it first before adding dev tasks" });
+      return;
+    }
+    const department = await getRoleDepartment(ctx.role);
+    const tierRank = await getRoleTierRank(ctx.role);
+    const isDevLead = department === "dev" && tierRank >= 2;
+    const isSuperuser = ctx.role === "admin" || ctx.role === "cto";
+    if (!isDevLead && !isSuperuser) {
+      res.status(403).json({ error: "Dev Lead role required to create a dev task" });
+      return;
+    }
+  }
+
   const [task] = await db.insert(tasksTable).values(parsed.data).returning();
 
   // CR011: one audit row per event, attributed to the actor (not per assignee)
@@ -262,6 +285,15 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
   }
 
   const [prevTask] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
+
+  // Dev Tasks — "in_review" and "done" are only reachable through the
+  // reviewed path (submit-review / review below), never a direct field edit,
+  // so the code-review gate can't be bypassed by PATCHing status straight in.
+  // Only guarded for requirement-linked tasks — ad-hoc tasks aren't gated.
+  if (prevTask?.requirementId != null && parsed.data.status && ["in_review", "done"].includes(parsed.data.status) && parsed.data.status !== prevTask.status) {
+    res.status(409).json({ error: `Use /tasks/:id/submit-review or /tasks/:id/review to reach "${parsed.data.status}" — it can't be set directly` });
+    return;
+  }
 
   if (parsed.data.blockedByTaskId != null) {
     // Validate against the project the task will have after this update.
@@ -441,6 +473,173 @@ router.post("/tasks/:id/acknowledge-revision", async (req, res): Promise<void> =
   });
 
   res.json(await formatTask(task));
+});
+
+/* ────────────────────────────────
+   DEV TASKS — CODE REVIEW
+   ──────────────────────────────── */
+
+// POST /tasks/:id/submit-review — the task's own assignee submits it for
+// peer review. Body: { prLink?: string, evidence?: { filename, mimeType, data (base64) } }
+router.post("/tasks/:id/submit-review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
+  if (!task) { res.status(404).json({ error: "Task not found" }); return; }
+
+  if (!task.assigneeIds || !task.assigneeIds.includes(ctx.userId)) {
+    res.status(403).json({ error: "Only a task's own assignee can submit it for review" });
+    return;
+  }
+  if (task.status === "in_review" || task.status === "done") {
+    res.status(409).json({ error: `Task is already ${task.status}` });
+    return;
+  }
+
+  if (task.requirementId != null) {
+    const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, task.requirementId));
+    if ((requirement as any)?.isBlocked) {
+      res.status(409).json({ error: "Requirement is blocked — unblock it first before submitting for review" });
+      return;
+    }
+  }
+
+  const { prLink, evidence } = req.body ?? {};
+  let review;
+  try {
+    review = await submitForReview({
+      entityType: "task",
+      entityId: id,
+      submittedBy: ctx.userId,
+      prLink: typeof prLink === "string" ? prLink : null,
+      evidence: evidence && evidence.filename && evidence.data ? evidence : null,
+      logDescription: `Task "${task.name}" submitted for code review`,
+      logEntityType: "task",
+    });
+  } catch (err) {
+    if (err instanceof EvidenceRejectedError) { res.status(400).json({ error: err.message }); return; }
+    throw err;
+  }
+
+  const [updatedTask] = await db.update(tasksTable).set({ status: "in_review" }).where(eq(tasksTable.id, id)).returning();
+
+  await notifyDevPeersOfReview({
+    projectId: task.projectId,
+    title: "Code review requested",
+    message: `Task "${task.name}" is ready for review.`,
+    type: "task_review_requested",
+    entityType: "task",
+    entityId: id,
+    actorId: ctx.userId,
+    excludeUserIds: task.assigneeIds,
+  }).catch(() => {});
+
+  res.json({ task: await formatTask(updatedTask), review });
+});
+
+// POST /tasks/:id/review — a peer dev (never a co-assignee) approves or
+// rejects the task's latest review round. Body: { decision: "approve"|"reject", note?: string }
+router.post("/tasks/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const { decision, note } = req.body ?? {};
+  if (decision !== "approve" && decision !== "reject") {
+    res.status(400).json({ error: "decision must be approve or reject" });
+    return;
+  }
+
+  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
+  if (!task) { res.status(404).json({ error: "Task not found" }); return; }
+  if (task.status !== "in_review") {
+    res.status(409).json({ error: "Task is not awaiting review" });
+    return;
+  }
+  if (task.assigneeIds && task.assigneeIds.includes(ctx.userId)) {
+    res.status(403).json({ error: "Can't review your own task" });
+    return;
+  }
+
+  const department = await getRoleDepartment(ctx.role);
+  const tierRank = await getRoleTierRank(ctx.role);
+  const isEligibleReviewer = department === "dev" || tierRank >= 2 || ctx.role === "admin" || ctx.role === "cto";
+  if (!isEligibleReviewer) {
+    res.status(403).json({ error: "Dev department or Lead-tier role required to review" });
+    return;
+  }
+
+  if (task.projectId != null) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, task.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    const parsedModuleIds = task.moduleIds
+      ? task.moduleIds.split(",").map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0)
+      : task.moduleId ? [task.moduleId] : [];
+    if (parsedModuleIds.length > 0) {
+      const mods = await db.select({ name: executionModulesTable.name }).from(executionModulesTable).where(inArray(executionModulesTable.id, parsedModuleIds));
+      const taskModuleNames = mods.map(m => m.name);
+      const scope = await getModuleScope(ctx.userId, ctx.role, task.projectId);
+      if (scope.restricted && !taskModuleNames.some(n => scope.moduleNames.includes(n))) {
+        res.status(403).json({ error: "Access denied to this module" });
+        return;
+      }
+    }
+  }
+
+  const review = await getLatestReview("task", id);
+  if (!review || review.status !== "in_review") {
+    res.status(409).json({ error: "No pending review found for this task" });
+    return;
+  }
+
+  const updatedReview = await decideReview({
+    reviewId: review.id,
+    reviewerId: ctx.userId,
+    decision,
+    note: typeof note === "string" ? note : null,
+    logDescription: decision === "approve"
+      ? `Task "${task.name}" — code review approved`
+      : `Task "${task.name}" — changes requested${note ? `: ${note}` : ""}`,
+    logEntityType: "task",
+    entityId: id,
+  });
+
+  const [updatedTask] = await db
+    .update(tasksTable)
+    .set({ status: decision === "approve" ? "done" : "in_progress" })
+    .where(eq(tasksTable.id, id))
+    .returning();
+
+  if (decision === "approve" && task.requirementId != null) {
+    const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId));
+    await maybeAdvanceRequirement(task.requirementId, reviewer?.name ?? "a reviewer");
+  }
+
+  if (task.assigneeIds && task.assigneeIds.length > 0) {
+    for (const uid of task.assigneeIds) {
+      await notifyUser(
+        uid,
+        decision === "approve" ? "Code review approved" : "Changes requested",
+        decision === "approve"
+          ? `Task "${task.name}" was approved and marked Done.`
+          : `Task "${task.name}" needs changes${note ? `: ${note}` : ""}.`,
+        decision === "approve" ? "task_review_approved" : "task_review_rejected",
+        "task",
+        id,
+        ctx.userId,
+      ).catch(() => {});
+    }
+  }
+
+  res.json({ task: await formatTask(updatedTask), review: updatedReview });
 });
 
 /* ────────────────────────────────

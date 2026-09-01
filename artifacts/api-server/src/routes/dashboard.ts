@@ -1022,6 +1022,23 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       .where(inArray(requirementsTable.id, reqIds));
     const extraById = new Map(extra.map((e) => [e.id, e]));
 
+    // Dev Tasks — {done, total} per requirement for the Tasks board's "N/M
+    // dev tasks" annotation. Additive alongside devStatusProgress's 33/66/100
+    // bucket below (that bucket stays as-is for zero-task requirements —
+    // this is display-only, it doesn't change progress math).
+    const devTaskRows = await db
+      .select({ requirementId: tasksTable.requirementId, status: tasksTable.status })
+      .from(tasksTable)
+      .where(inArray(tasksTable.requirementId, reqIds));
+    const devTaskCountsByReq = new Map<number, { done: number; total: number }>();
+    for (const t of devTaskRows) {
+      if (t.requirementId == null) continue;
+      const counts = devTaskCountsByReq.get(t.requirementId) ?? { done: 0, total: 0 };
+      counts.total += 1;
+      if (t.status === "done") counts.done += 1;
+      devTaskCountsByReq.set(t.requirementId, counts);
+    }
+
     // QA "assignee" — resolved from linked execution file(s)' qaPic (file-level
     // first, falling back to the per-row qaPic), not a dedicated column. The
     // "who assigned" name (qaPicSetBy, CR067) is only tracked at file level.
@@ -1197,6 +1214,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
         executionFileId: qaFileIdByReq.get(entry.id) ?? null,
         phaseTimeline: buildPhaseTimeline(entry.timeline, m),
         isBlocked: info.isBlocked ?? false,
+        devTaskCounts: devTaskCountsByReq.get(entry.id) ?? null,
         // Last real activity on this requirement (its current phase segment's
         // end, or start if that phase is still ongoing) — used to bucket
         // /dashboard/weekly-trend by week, same idea as tasksTable.updatedAt

@@ -17,6 +17,7 @@ import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank,
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 import { resolveApiKeyFromToken } from "./requirements";
+import { submitForReview, getLatestReview, decideReview, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
 import {
   pushDefectToRedmine,
   refreshDefectStatuses,
@@ -33,6 +34,13 @@ import {
 } from "./redmine-defect-bridge";
 
 const router: IRouter = Router();
+
+// Hoisted out of PATCH /defects/:id/status so the code-review gate (which
+// runs earlier in that same handler, before the Redmine write-through) can
+// test against the same "resolved-ish" bucket the reopen-detection below it
+// already uses — one definition of "this status means dev says it's fixed".
+const RESOLVED_STATES = /fixed|resolved|verified|closed/i;
+const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
 
 // CR014 access control. Defects with no project are visible to any
 // authenticated user (Redmine pulls can land without a project); scoping
@@ -854,6 +862,20 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       return;
     }
 
+    // Code-review gate — only for defects natively assigned to a dev in
+    // QAPulse (assigneeId set) and only QA-sourced ones; production defects
+    // keep their separate escape-review lifecycle (escapeStatus/escapeClass)
+    // untouched, since that process is built for firefighting speed, not a
+    // peer-review gate. A defect with no native assignee has no reviewer to
+    // gate against, so it's left alone too.
+    if (RESOLVED_STATES.test(statusRow.name) && defect.assigneeId != null && defect.source === "qa") {
+      const latestReview = await getLatestReview("defect", id);
+      if (!latestReview || latestReview.status !== "approved") {
+        res.status(409).json({ error: "Code review required before this defect can be marked Resolved — submit it for review first" });
+        return;
+      }
+    }
+
     // Write-through: Redmine is still the record. Only defects without a
     // Redmine id (pending sync) may change status locally.
     if (defect.redmineId) {
@@ -897,8 +919,6 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     // the old "left any retest-ish status" test, which false-flagged normal
     // forward moves: "Ready for Testing → In Progress" (QA starting the
     // retest), "Fixed → Retest", and "Resolved → Feedback" are NOT reopens.
-    const RESOLVED_STATES = /fixed|resolved|verified|closed/i;
-    const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
     const isReopen =
       /reopen/i.test(statusRow.name) ||
       (RESOLVED_STATES.test(oldStatus) && ACTIVE_DEV_STATES.test(statusRow.name));
@@ -950,6 +970,128 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     console.error("[PATCH /defects/:id/status]", err);
     res.status(500).json({ error: err?.message ?? "Status update failed" });
   }
+});
+
+// ─── Code review — gates the RESOLVED_STATES status push above ──────────────
+// Same code_reviews primitive Dev Tasks uses (see _code-review.ts), pointed at
+// entityType "defect" instead of "task". Only meaningful for a defect that
+// already has a native assigneeId (CR030) — that's the reviewer's counterpart.
+
+// POST /defects/:id/submit-review — the defect's assignee submits it for peer
+// review. Body: { prLink?: string, evidence?: { filename, mimeType, data (base64) } }
+router.post("/defects/:id/submit-review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+  if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+
+  if (defect.assigneeId !== ctx.userId) {
+    res.status(403).json({ error: "Only this defect's assignee can submit it for review" });
+    return;
+  }
+
+  const { prLink, evidence } = req.body ?? {};
+  let review;
+  try {
+    review = await submitForReview({
+      entityType: "defect",
+      entityId: id,
+      submittedBy: ctx.userId,
+      prLink: typeof prLink === "string" ? prLink : null,
+      evidence: evidence && evidence.filename && evidence.data ? evidence : null,
+      logDescription: `Defect ${defect.defectCode ?? `#${id}`} submitted for code review`,
+      logEntityType: "defect",
+    });
+  } catch (err) {
+    if (err instanceof EvidenceRejectedError) { res.status(400).json({ error: err.message }); return; }
+    throw err;
+  }
+
+  await notifyDevPeersOfReview({
+    projectId: defect.projectId,
+    title: "Code review requested",
+    message: `Defect ${defect.defectCode ?? `#${id}`} "${defect.title}" is ready for review.`,
+    type: "defect_review_requested",
+    entityType: "defect",
+    entityId: id,
+    actorId: ctx.userId,
+    excludeUserIds: [ctx.userId],
+  }).catch(() => {});
+
+  res.status(201).json(review);
+});
+
+// POST /defects/:id/review — a peer dev (never the assignee) approves or
+// rejects the defect's latest review round. Body: { decision: "approve"|"reject", note?: string }
+router.post("/defects/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const { decision, note } = req.body ?? {};
+  if (decision !== "approve" && decision !== "reject") {
+    res.status(400).json({ error: "decision must be approve or reject" });
+    return;
+  }
+
+  const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+  if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+  if (defect.assigneeId === ctx.userId) {
+    res.status(403).json({ error: "Can't review your own defect" });
+    return;
+  }
+
+  const department = await getRoleDepartment(ctx.role);
+  const tierRank = await getRoleTierRank(ctx.role);
+  const isEligibleReviewer = department === "dev" || tierRank >= 2 || ctx.role === "admin" || ctx.role === "cto";
+  if (!isEligibleReviewer) {
+    res.status(403).json({ error: "Dev department or Lead-tier role required to review" });
+    return;
+  }
+  if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" });
+    return;
+  }
+
+  const review = await getLatestReview("defect", id);
+  if (!review || review.status !== "in_review") {
+    res.status(409).json({ error: "No pending review found for this defect" });
+    return;
+  }
+
+  const updatedReview = await decideReview({
+    reviewId: review.id,
+    reviewerId: ctx.userId,
+    decision,
+    note: typeof note === "string" ? note : null,
+    logDescription: decision === "approve"
+      ? `Defect ${defect.defectCode ?? `#${id}`} — code review approved`
+      : `Defect ${defect.defectCode ?? `#${id}`} — changes requested${note ? `: ${note}` : ""}`,
+    logEntityType: "defect",
+    entityId: id,
+  });
+
+  if (defect.assigneeId) {
+    await notifyUser(
+      defect.assigneeId,
+      decision === "approve" ? "Code review approved" : "Changes requested",
+      decision === "approve"
+        ? `${defect.defectCode ?? `Defect #${id}`} was approved — you can mark it Resolved.`
+        : `${defect.defectCode ?? `Defect #${id}`} needs changes${note ? `: ${note}` : ""}.`,
+      decision === "approve" ? "defect_review_approved" : "defect_review_rejected",
+      "defect",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+  }
+
+  res.json(updatedReview);
 });
 
 // ─── CR030: native dev assignment (Lead-tier+ gate) ──────────────────────────
