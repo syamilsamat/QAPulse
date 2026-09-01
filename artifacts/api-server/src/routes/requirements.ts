@@ -5,6 +5,7 @@ import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { computeRequirementTimelines, buildPhaseTimeline } from "./dashboard";
+import { getLatestReview, getEvidenceForReview, resolveEvidencePath } from "./_code-review";
 import {
   db,
   requirementsTable,
@@ -23,6 +24,7 @@ import {
   defectLinksTable,
   tasksTable,
   requirementEventsTable,
+  reviewEvidenceTable,
 } from "@workspace/db";
 import path from "path";
 import fs from "fs";
@@ -925,7 +927,7 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Requirement is blocked — unblock it first (FA/PM) before continuing dev work" }); return;
   }
 
-  const { action, devAssigneeId, reason } = req.body ?? {};
+  const { action, devAssigneeId, reason, reopenTaskIds } = req.body ?? {};
   if (!["assign", "start", "ready_for_qa", "return_to_dev"].includes(action)) {
     res.status(400).json({ error: "action must be assign, start, ready_for_qa, or return_to_dev" }); return;
   }
@@ -967,6 +969,17 @@ router.patch("/requirements/:id/dev", async (req, res): Promise<void> => {
     }
     update.devStatus = "in_progress";
     update.readyForQaAt = null;
+
+    // Dev Tasks — leaving every task marked Done would let maybeAdvanceRequirement
+    // re-satisfy the gate on the very next task write and bounce the requirement
+    // straight back to ready_for_qa with nothing actually reopened. QA picks which
+    // task(s) weren't really done; those (and only those) go back to in_progress.
+    if (Array.isArray(reopenTaskIds) && reopenTaskIds.length > 0) {
+      const ids = reopenTaskIds.map((n: any) => Number(n)).filter((n: number) => Number.isInteger(n));
+      if (ids.length > 0) {
+        await db.update(tasksTable).set({ status: "in_progress" }).where(and(eq(tasksTable.requirementId, id), inArray(tasksTable.id, ids)));
+      }
+    }
   } else {
     if (!currentDevAssigneeId) { res.status(409).json({ error: "Requirement has no dev assignee yet" }); return; }
     if (ctx.userId !== currentDevAssigneeId && !isLead) {
@@ -1644,6 +1657,90 @@ router.post("/requirements/resolve-redmine", async (req, res): Promise<void> => 
   } catch (err: any) {
     res.status(502).json({ error: err?.message || `Failed to fetch Redmine issue #${ticketId}` });
   }
+});
+
+// ─── Dev Tasks (requirement -> tasks breakdown) ──────────────────────────────
+// Deliberately NOT GET /tasks?requirementId=X — that endpoint applies CR059
+// department-scoped visibility (qa/fa/dev only see tasks with an assignee in
+// their own department), which would hide every dev task from the FA/QA/PM
+// people who need to see this requirement's dev-task breakdown to know
+// whether it's actually done. Visibility here follows the requirement itself
+// (anyone who can load the requirement can see its dev tasks), not the
+// viewer's department.
+router.get("/requirements/:id/dev-tasks", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const rows = await db.select().from(tasksTable).where(eq(tasksTable.requirementId, id)).orderBy(tasksTable.createdAt);
+
+  const result = await Promise.all(rows.map(async (t) => {
+    let assigneeNames: string[] = [];
+    if (t.assigneeIds && t.assigneeIds.length > 0) {
+      const users = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, t.assigneeIds));
+      assigneeNames = users.map(u => u.name);
+    }
+
+    const latestReview = await getLatestReview("task", t.id);
+    let review: any = null;
+    if (latestReview) {
+      let reviewerName: string | null = null;
+      if (latestReview.reviewerId) {
+        const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, latestReview.reviewerId));
+        reviewerName = reviewer?.name ?? null;
+      }
+      const evidence = await getEvidenceForReview(latestReview.id);
+      review = {
+        id: latestReview.id,
+        status: latestReview.status,
+        prLink: latestReview.prLink,
+        submittedAt: latestReview.submittedAt,
+        reviewerId: latestReview.reviewerId,
+        reviewerName,
+        evidence: evidence.map(e => ({ id: e.id, filename: e.filename, mimeType: e.mimeType, size: e.size })),
+      };
+    }
+
+    return {
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      assigneeIds: t.assigneeIds ?? [],
+      assigneeNames,
+      estimatedHours: t.estimatedHours,
+      createdAt: t.createdAt,
+      review,
+    };
+  }));
+
+  res.json(result);
+});
+
+// GET /requirements/dev-tasks/evidence/:evidenceId/download
+router.get("/requirements/dev-tasks/evidence/:evidenceId/download", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const evidenceId = parseInt(req.params.evidenceId);
+  if (isNaN(evidenceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const evidenceRows = await db.select().from(reviewEvidenceTable).where(eq(reviewEvidenceTable.id, evidenceId));
+  const evidence = evidenceRows[0];
+  if (!evidence) { res.status(404).json({ error: "Evidence not found" }); return; }
+
+  const filePath = resolveEvidencePath(evidence.storagePath);
+  try {
+    await fs.promises.access(filePath);
+  } catch {
+    res.status(404).json({ error: "File not found on disk" });
+    return;
+  }
+
+  res.setHeader("Content-Type", evidence.mimeType);
+  res.setHeader("Content-Disposition", `inline; filename="${evidence.filename}"`);
+  fs.createReadStream(filePath).pipe(res);
 });
 
 // ─── Requirement Attachments ──────────────────────────────────────────────────

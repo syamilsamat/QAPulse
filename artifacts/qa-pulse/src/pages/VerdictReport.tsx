@@ -108,6 +108,7 @@ interface VerdictReportData {
   issueSubject?: string;
   projectName?: string;
   trackerName?: string;
+  devReview?: { approved: number; total: number } | null;
   requirements: Array<{
     id: number;
     title: string;
@@ -1698,6 +1699,25 @@ export default function VerdictReport() {
                           ))}
                         </div>
                       </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {data.devReview && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-primary" /> Dev Code Reviews
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm">
+                        <span className="font-semibold">{data.devReview.approved}/{data.devReview.total}</span>{" "}
+                        dev tasks reviewed and approved
+                        {data.devReview.approved < data.devReview.total && (
+                          <span className="text-amber-700"> — {data.devReview.total - data.devReview.approved} still pending peer review</span>
+                        )}
+                      </p>
                     </CardContent>
                   </Card>
                 )}

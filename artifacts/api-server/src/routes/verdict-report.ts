@@ -6,6 +6,7 @@ import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { actorFromReq } from "./auth";
 import { logActivity } from "./_audit";
 import { getAuthContext } from "../middleware/access";
+import { getLatestReview } from "./_code-review";
 
 let nodemailer: any = null;
 try {
@@ -736,6 +737,27 @@ async function reportFromLocalDB(issueId: string): Promise<Record<string, unknow
 
 // ─── Main route ───────────────────────────────────────────────────────────────
 
+// Dev Tasks — code-review compliance stat for the PMO report. Deliberately
+// small for v1 (one {approved, total} pair, not a per-module breakdown): the
+// report is keyed by Redmine ticket, not requirement, so this resolves
+// ticket -> requirement(s) -> tasks -> latest review per task. N+1 on
+// getLatestReview is fine here — a single ticket's task count is small,
+// this endpoint isn't a bulk listing.
+async function getDevReviewStats(redmineTicketId: string): Promise<{ approved: number; total: number } | null> {
+  const reqs = await db.select({ id: requirementsTable.id }).from(requirementsTable).where(eq(requirementsTable.redmineTicketId, redmineTicketId));
+  if (reqs.length === 0) return null;
+  const reqIds = reqs.map((r) => r.id);
+  const tasks = await db.select({ id: tasksTable.id }).from(tasksTable).where(inArray(tasksTable.requirementId, reqIds));
+  if (tasks.length === 0) return null;
+
+  let approved = 0;
+  for (const t of tasks) {
+    const latest = await getLatestReview("task", t.id);
+    if (latest?.status === "approved") approved++;
+  }
+  return { approved, total: tasks.length };
+}
+
 router.get("/verdict-report/report", async (req, res): Promise<void> => {
   const { redmineId } = req.query;
   if (!redmineId || typeof redmineId !== "string") {
@@ -754,6 +776,8 @@ router.get("/verdict-report/report", async (req, res): Promise<void> => {
     defectData = await reportFromLocalDB(cleanId);
   }
 
+  const devReview = await getDevReviewStats(cleanId).catch(() => null);
+
   if (testData && defectData) {
     res.json({
       ...testData,
@@ -763,16 +787,17 @@ router.get("/verdict-report/report", async (req, res): Promise<void> => {
       projectName: defectData.projectName || testData.projectName,
       trackerName: (defectData as any).trackerName || (testData as any).trackerName || "",
       source: "app_dashboard",
+      devReview,
     });
     return;
   }
 
   if (testData) {
-    res.json(testData);
+    res.json({ ...testData, devReview });
     return;
   }
   if (defectData) {
-    res.json(defectData);
+    res.json({ ...defectData, devReview });
     return;
   }
 
