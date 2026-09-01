@@ -224,6 +224,23 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
     }
   };
 
+  // Evidence download needs the Bearer token, which a plain <a href> can't send
+  // (this app authenticates via JWT-in-localStorage, not cookies) — same fix
+  // RequirementDetail.tsx's downloadAttachment already uses for attachments:
+  // fetch with the header, then open the blob instead of navigating directly.
+  const viewEvidence = async (evidenceId: number, filename: string) => {
+    try {
+      const res = await api(`/requirements/dev-tasks/evidence/${evidenceId}/download`, token);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      toast({ variant: "destructive", title: `Failed to open ${filename}` });
+    }
+  };
+
   const doneCount = tasks.filter((t) => t.status === "done").length;
 
   return (
@@ -281,15 +298,14 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
                         </a>
                       )}
                       {t.review?.evidence.map((e) => (
-                        <a
+                        <button
                           key={e.id}
-                          href={`${getApiUrl()}/requirements/dev-tasks/evidence/${e.id}/download`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          type="button"
+                          onClick={() => viewEvidence(e.id, e.filename)}
                           className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5"
                         >
                           <Paperclip className="w-3 h-3" /> {e.filename} · {fmtSize(e.size)}
-                        </a>
+                        </button>
                       ))}
                     </div>
                   )}
