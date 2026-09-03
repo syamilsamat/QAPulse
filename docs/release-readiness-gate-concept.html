@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QAPulse — Release Readiness Gate Concept</title>
+  <style>
+    :root {
+      --ink: #152238;
+      --muted: #64748b;
+      --line: #dbe4ef;
+      --surface: #ffffff;
+      --canvas: #f4f7fb;
+      --navy: #152b4e;
+      --blue: #2563eb;
+      --cyan: #0891b2;
+      --green: #15803d;
+      --green-bg: #ecfdf3;
+      --amber: #b45309;
+      --amber-bg: #fffbeb;
+      --red: #b91c1c;
+      --red-bg: #fff1f2;
+      --radius: 16px;
+      --shadow: 0 14px 40px rgba(30, 55, 90, .09);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, select { font: inherit; }
+    a { color: inherit; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 13px clamp(20px, 5vw, 72px);
+      color: #fff;
+      background: rgba(21, 43, 78, .96);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 750; letter-spacing: .01em; }
+    .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: linear-gradient(135deg, #22d3ee, #3b82f6); box-shadow: inset 0 0 0 1px rgba(255,255,255,.4); }
+    .topbar nav { display: flex; gap: 20px; font-size: 13px; color: #dbeafe; }
+    .topbar nav a { text-decoration: none; }
+    .topbar nav a:hover { color: #fff; }
+    .print-btn { border: 1px solid rgba(255,255,255,.3); color: #fff; background: rgba(255,255,255,.08); padding: 7px 11px; border-radius: 9px; cursor: pointer; }
+    .hero {
+      overflow: hidden;
+      position: relative;
+      padding: 82px clamp(20px, 7vw, 108px) 92px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 82% 12%, rgba(34,211,238,.28), transparent 28%),
+        radial-gradient(circle at 8% 90%, rgba(59,130,246,.22), transparent 30%),
+        linear-gradient(135deg, #102440 0%, #173f6c 58%, #075985 100%);
+    }
+    .hero-grid { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 1.3fr .7fr; align-items: center; gap: 58px; }
+    .eyebrow { margin: 0 0 15px; color: #67e8f9; font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 820px; font-size: clamp(40px, 6vw, 70px); line-height: 1.03; letter-spacing: -.045em; }
+    .hero p { max-width: 720px; margin: 24px 0 0; color: #d9e9fb; font-size: clamp(17px, 2vw, 21px); }
+    .hero-card { padding: 23px; border: 1px solid rgba(255,255,255,.2); border-radius: 20px; background: rgba(255,255,255,.09); box-shadow: 0 20px 50px rgba(0,0,0,.18); backdrop-filter: blur(10px); }
+    .hero-card-label { color: #a5f3fc; font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .1em; }
+    .hero-status { margin: 10px 0 4px; font-size: 27px; font-weight: 800; }
+    .hero-card p { margin: 0; color: #cbdff3; font-size: 14px; }
+    .mini-gates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 20px; }
+    .mini-gate { height: 8px; border-radius: 99px; background: #4ade80; }
+    .mini-gate.warn { background: #fbbf24; }
+    main { max-width: 1180px; margin: 0 auto; padding: 68px 24px 90px; }
+    section { scroll-margin-top: 74px; margin-bottom: 80px; }
+    .section-kicker { color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin: 6px 0 14px; font-size: clamp(28px, 4vw, 42px); line-height: 1.15; letter-spacing: -.025em; }
+    h3 { margin: 0 0 8px; font-size: 18px; }
+    .lead { max-width: 820px; margin: 0 0 30px; color: var(--muted); font-size: 17px; }
+    .callout { padding: 20px 22px; border-left: 5px solid var(--blue); border-radius: 0 14px 14px 0; background: #eff6ff; color: #1e3a5f; }
+    .problem-grid, .metric-grid, .role-grid, .roadmap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .card { padding: 23px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+    .number { display: grid; place-items: center; width: 36px; height: 36px; margin-bottom: 18px; border-radius: 10px; color: var(--blue); background: #eff6ff; font-weight: 850; }
+    .card p { margin: 7px 0 0; color: var(--muted); }
+    .architecture { display: grid; gap: 14px; }
+    .source-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+    .source { padding: 13px 8px; border: 1px solid #bfd4ea; border-radius: 11px; text-align: center; background: #f8fbff; font-size: 12px; font-weight: 700; }
+    .flow-arrow { text-align: center; color: var(--blue); font-size: 28px; line-height: 1; }
+    .engine { padding: 24px; border-radius: 16px; color: #fff; text-align: center; background: linear-gradient(135deg, var(--navy), #075985); }
+    .engine strong { display: block; font-size: 22px; }
+    .outcomes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .outcome { padding: 16px; border-radius: 12px; text-align: center; font-weight: 800; border: 1px solid; }
+    .outcome.ready { color: var(--green); background: var(--green-bg); border-color: #86efac; }
+    .outcome.conditional { color: var(--amber); background: var(--amber-bg); border-color: #fcd34d; }
+    .outcome.blocked { color: var(--red); background: var(--red-bg); border-color: #fda4af; }
+    .simulator { overflow: hidden; border: 1px solid #bfd1e6; border-radius: 22px; background: var(--surface); box-shadow: 0 20px 60px rgba(30,55,90,.12); }
+    .sim-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px 25px; color: #fff; background: var(--navy); }
+    .sim-head h3 { margin: 0; font-size: 21px; }
+    .scenario-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+    .scenario-buttons button { cursor: pointer; padding: 7px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 8px; color: #fff; background: rgba(255,255,255,.08); }
+    .scenario-buttons button:hover { background: rgba(255,255,255,.17); }
+    .sim-body { display: grid; grid-template-columns: 1.25fr .75fr; min-height: 500px; }
+    .gate-list { padding: 22px; border-right: 1px solid var(--line); }
+    .gate { display: grid; grid-template-columns: 1fr 115px 92px; gap: 14px; align-items: center; padding: 14px 4px; border-bottom: 1px solid #edf1f6; }
+    .gate:last-child { border-bottom: 0; }
+    .gate-title { font-weight: 760; }
+    .gate-hint { color: var(--muted); font-size: 12px; }
+    .gate input[type="number"] { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 8px; color: var(--ink); background: #fff; }
+    .gate-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .gate-check input { width: 18px; height: 18px; accent-color: var(--blue); }
+    .gate-result { min-width: 86px; padding: 6px 8px; border-radius: 99px; text-align: center; font-size: 12px; font-weight: 800; }
+    .gate-result.pass { color: var(--green); background: var(--green-bg); }
+    .gate-result.fail { color: var(--red); background: var(--red-bg); }
+    .decision-panel { display: flex; flex-direction: column; justify-content: center; padding: 34px; background: #f8fbff; }
+    .decision-icon { display: grid; place-items: center; width: 82px; height: 82px; border-radius: 50%; color: #fff; background: var(--red); font-size: 38px; box-shadow: 0 12px 30px rgba(185,28,28,.2); }
+    .decision-panel h3 { margin-top: 20px; font-size: 30px; line-height: 1.1; }
+    .decision-panel p { color: var(--muted); }
+    .decision-score { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); }
+    .decision-score strong { display: block; color: var(--ink); font-size: 34px; }
+    .decision-reasons { margin: 16px 0 0; padding-left: 18px; color: #7f1d1d; font-size: 13px; }
+    .decision-reasons li { margin: 5px 0; }
+    .policy-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+    .policy-table th, .policy-table td { padding: 15px 17px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .policy-table th { color: #fff; background: var(--navy); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .policy-table td:first-child { font-weight: 760; }
+    .tag { display: inline-block; padding: 3px 8px; border-radius: 99px; color: #1d4ed8; background: #dbeafe; font-size: 11px; font-weight: 800; }
+    .role-grid { grid-template-columns: repeat(4, 1fr); }
+    .role-card { position: relative; padding-top: 52px; }
+    .role-icon { position: absolute; top: 18px; left: 22px; color: var(--blue); font-size: 22px; }
+    .role-card ul { margin: 12px 0 0; padding-left: 18px; color: var(--muted); }
+    .metric-grid { grid-template-columns: repeat(4, 1fr); }
+    .metric-card strong { display: block; margin: 7px 0; color: var(--blue); font-size: 24px; }
+    .metric-card span { color: var(--muted); font-size: 13px; }
+    .roadmap-grid { grid-template-columns: repeat(3, 1fr); }
+    .phase { border-top: 5px solid var(--blue); }
+    .phase:nth-child(2) { border-top-color: var(--cyan); }
+    .phase:nth-child(3) { border-top-color: var(--green); }
+    .phase-time { color: var(--blue); font-size: 12px; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; }
+    .phase ol { margin: 14px 0 0; padding-left: 20px; color: var(--muted); }
+    .phase li { margin-bottom: 8px; }
+    .risk-list { display: grid; gap: 10px; }
+    .risk-item { display: grid; grid-template-columns: 180px 1fr; gap: 18px; padding: 17px 19px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .risk-item strong { color: var(--red); }
+    footer { padding: 38px 24px; color: #cbd5e1; text-align: center; background: var(--navy); }
+    footer strong { color: #fff; }
+    @media (max-width: 900px) {
+      .hero-grid, .sim-body { grid-template-columns: 1fr; }
+      .problem-grid, .roadmap-grid { grid-template-columns: 1fr; }
+      .metric-grid, .role-grid { grid-template-columns: repeat(2, 1fr); }
+      .source-row { grid-template-columns: repeat(3, 1fr); }
+      .gate-list { border-right: 0; border-bottom: 1px solid var(--line); }
+      .topbar nav { display: none; }
+    }
+    @media (max-width: 560px) {
+      .hero { padding-top: 58px; }
+      .hero-card { display: none; }
+      .metric-grid, .role-grid, .outcomes { grid-template-columns: 1fr; }
+      .gate { grid-template-columns: 1fr 92px; }
+      .gate .gate-input { grid-column: 1; }
+      .gate-result { grid-column: 2; grid-row: 1 / span 2; }
+      .risk-item { grid-template-columns: 1fr; gap: 4px; }
+      .sim-head { align-items: flex-start; flex-direction: column; }
+    }
+    @media print {
+      .topbar, .scenario-buttons, .print-btn { display: none !important; }
+      body { background: #fff; }
+      .hero { padding: 45px; }
+      main { padding: 35px 0; }
+      section { break-inside: avoid; margin-bottom: 40px; }
+      .card, .simulator, .policy-table { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">✓</span> QAPulse Strategy</div>
+    <nav aria-label="Document sections">
+      <a href="#why">Why</a><a href="#model">Model</a><a href="#simulator">Simulator</a><a href="#governance">Governance</a><a href="#roadmap">Roadmap</a>
+    </nav>
+    <button class="print-btn" type="button" onclick="window.print()">Print / PDF</button>
+  </header>
+
+  <header class="hero">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">Highest-priority product improvement</p>
+        <h1>Release Readiness Gate</h1>
+        <p>Transform QAPulse from a collection of QA dashboards into an auditable decision system that answers one executive question: <strong>“Can we release safely—and why?”</strong></p>
+      </div>
+      <aside class="hero-card" aria-label="Example readiness outcome">
+        <span class="hero-card-label">Milestone · September Release</span>
+        <div class="hero-status">Ready with exceptions</div>
+        <p>6 of 7 gates passed. One medium risk accepted by the accountable approver.</p>
+        <div class="mini-gates" aria-hidden="true"><span class="mini-gate"></span><span class="mini-gate"></span><span class="mini-gate"></span><span class="mini-gate warn"></span></div>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section id="why">
+      <div class="section-kicker">01 · The business case</div>
+      <h2>QAPulse has the evidence. It needs the decision.</h2>
+      <p class="lead">Requirements, test results, defects, risks, UAT, traceability, milestones and approvals already exist. Today, decision-makers still have to interpret those signals manually and may reach different conclusions from the same data.</p>
+      <div class="problem-grid">
+        <article class="card"><div class="number">1</div><h3>Fragmented judgement</h3><p>Each dashboard is locally useful, but no single control combines the evidence into a release decision.</p></article>
+        <article class="card"><div class="number">2</div><h3>Hidden policy</h3><p>Readiness rules often live in meetings, spreadsheets or individual experience rather than an agreed policy.</p></article>
+        <article class="card"><div class="number">3</div><h3>Weak accountability</h3><p>Exceptions may be discussed, but the rationale, owner, expiry and supporting evidence are difficult to audit later.</p></article>
+      </div>
+      <div class="callout" style="margin-top:22px"><strong>The opportunity:</strong> use existing QAPulse data to produce a consistent, explainable and formally approved readiness outcome—without creating another reporting workflow.</div>
+    </section>
+
+    <section id="model">
+      <div class="section-kicker">02 · The operating model</div>
+      <h2>Evidence in. Policy applied. Decision out.</h2>
+      <p class="lead">The gate should calculate readiness from authoritative records, preserve human accountability for exceptions, and show exactly why a release is blocked.</p>
+      <div class="architecture" role="img" aria-label="QAPulse evidence sources feed a readiness policy engine, producing ready, ready with exceptions, or not ready">
+        <div class="source-row">
+          <div class="source">Requirements</div><div class="source">Test execution</div><div class="source">Defects</div><div class="source">Risks</div><div class="source">UAT sign-off</div><div class="source">Evidence</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="engine"><strong>Release Readiness Policy Engine</strong>Configurable thresholds · mandatory gates · exception rules · audit history</div>
+        <div class="flow-arrow">↓</div>
+        <div class="outcomes"><div class="outcome ready">✓ Ready</div><div class="outcome conditional">! Ready with accepted exceptions</div><div class="outcome blocked">× Not ready</div></div>
+      </div>
+    </section>
+
+    <section id="simulator">
+      <div class="section-kicker">03 · Interactive concept</div>
+      <h2>Explore how the decision changes</h2>
+      <p class="lead">Adjust the release evidence below. A real implementation would calculate these values automatically from QAPulse and require approval for any permitted exception.</p>
+      <div class="simulator">
+        <div class="sim-head">
+          <h3>September Release · Gate assessment</h3>
+          <div class="scenario-buttons" aria-label="Example scenarios">
+            <button type="button" data-scenario="healthy">Healthy release</button>
+            <button type="button" data-scenario="conditional">With exception</button>
+            <button type="button" data-scenario="blocked">Blocked release</button>
+          </div>
+        </div>
+        <div class="sim-body">
+          <div class="gate-list">
+            <div class="gate" data-kind="threshold" data-min="100">
+              <div><div class="gate-title">Mandatory requirements approved</div><div class="gate-hint">Policy: 100% of mandatory scope</div></div>
+              <div class="gate-input"><input id="requirements" type="number" min="0" max="100" value="100" aria-label="Requirements approved percentage" />%</div><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="threshold" data-min="95">
+              <div><div class="gate-title">Critical requirement coverage</div><div class="gate-hint">Policy: at least 95%</div></div>
+              <div class="gate-input"><input id="coverage" type="number" min="0" max="100" value="98" aria-label="Critical coverage percentage" />%</div><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="threshold" data-min="95">
+              <div><div class="gate-title">Test execution completed</div><div class="gate-hint">Policy: at least 95%</div></div>
+              <div class="gate-input"><input id="execution" type="number" min="0" max="100" value="97" aria-label="Execution completed percentage" />%</div><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="threshold" data-min="90">
+              <div><div class="gate-title">Pass rate</div><div class="gate-hint">Policy: at least 90% of executed cases</div></div>
+              <div class="gate-input"><input id="passrate" type="number" min="0" max="100" value="94" aria-label="Pass rate percentage" />%</div><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="maximum" data-max="0" data-critical="true">
+              <div><div class="gate-title">Open Severity 1–2 defects</div><div class="gate-hint">Hard gate: none permitted</div></div>
+              <div class="gate-input"><input id="defects" type="number" min="0" max="99" value="0" aria-label="Open critical defects" /></div><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="boolean">
+              <div><div class="gate-title">UAT sign-off completed</div><div class="gate-hint">Mandatory accountable-business approval</div></div>
+              <label class="gate-check"><input id="uat" type="checkbox" checked /> Signed</label><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="boolean" data-exception="true">
+              <div><div class="gate-title">High risks resolved</div><div class="gate-hint">An accountable approver may accept an exception</div></div>
+              <label class="gate-check"><input id="risks" type="checkbox" checked /> Resolved</label><div class="gate-result"></div>
+            </div>
+            <div class="gate" data-kind="exception">
+              <div><div class="gate-title">Exception formally accepted</div><div class="gate-hint">Only applies to exception-eligible gates; never overrides a hard gate</div></div>
+              <label class="gate-check"><input id="exception" type="checkbox" /> Accepted</label><div class="gate-result">—</div>
+            </div>
+          </div>
+          <aside class="decision-panel" aria-live="polite">
+            <div class="decision-icon" id="decisionIcon">✓</div>
+            <h3 id="decisionTitle">Ready</h3>
+            <p id="decisionText">All mandatory gates satisfy the agreed release policy.</p>
+            <div class="decision-score">Policy compliance<strong id="decisionScore">7 / 7</strong></div>
+            <ul class="decision-reasons" id="decisionReasons"></ul>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="governance">
+      <div class="section-kicker">04 · Proposed gate policy</div>
+      <h2>Start with seven gates, not dozens</h2>
+      <p class="lead">A focused policy is easier to understand, govern and adopt. Thresholds should be configurable by release type, but changes must be versioned and approved.</p>
+      <div style="overflow-x:auto">
+        <table class="policy-table">
+          <thead><tr><th>Gate</th><th>Default rule</th><th>Owner</th><th>Exception?</th><th>QAPulse source</th></tr></thead>
+          <tbody>
+            <tr><td>Requirement approval</td><td>100% mandatory scope approved</td><td>FA Lead</td><td><span class="tag">Controlled</span></td><td>Requirements and review history</td></tr>
+            <tr><td>Critical coverage</td><td>≥95% linked to approved test cases</td><td>QA Lead</td><td><span class="tag">Controlled</span></td><td>Traceability matrix</td></tr>
+            <tr><td>Execution completion</td><td>≥95% completed</td><td>QA Lead</td><td><span class="tag">Controlled</span></td><td>Execution files</td></tr>
+            <tr><td>Pass rate</td><td>≥90% of executed cases</td><td>QA Lead</td><td><span class="tag">Controlled</span></td><td>Execution results</td></tr>
+            <tr><td>Critical defects</td><td>Zero open Severity 1–2 defects</td><td>HOD QA</td><td>No—hard gate</td><td>Defect register / Redmine</td></tr>
+            <tr><td>UAT sign-off</td><td>Signed by accountable business owner</td><td>Business owner</td><td>No—hard gate</td><td>UAT sign-offs</td></tr>
+            <tr><td>High risks</td><td>Resolved, mitigated or formally accepted</td><td>PM / risk owner</td><td><span class="tag">Controlled</span></td><td>Risk register</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-kicker">05 · Accountability</div>
+      <h2>Automation informs; people remain accountable</h2>
+      <div class="role-grid">
+        <article class="card role-card"><div class="role-icon">◇</div><h3>FA Lead</h3><p>Confirms approved scope and requirement stability.</p><ul><li>Owns requirement gate</li><li>Explains scope exceptions</li></ul></article>
+        <article class="card role-card"><div class="role-icon">✓</div><h3>QA Lead</h3><p>Owns coverage, execution quality and defect evidence.</p><ul><li>Reviews failed gates</li><li>Proposes remediation</li></ul></article>
+        <article class="card role-card"><div class="role-icon">◫</div><h3>PM / Release Manager</h3><p>Coordinates timing, dependencies, risks and the gate review.</p><ul><li>Starts assessment</li><li>Tracks closure actions</li></ul></article>
+        <article class="card role-card"><div class="role-icon">⚑</div><h3>Accountable Approver</h3><p>Accepts controlled exceptions and owns the release decision.</p><ul><li>Records rationale</li><li>Sets exception expiry</li></ul></article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-kicker">06 · Success measures</div>
+      <h2>Measure whether governance actually improves delivery</h2>
+      <div class="metric-grid">
+        <article class="card metric-card"><h3>Decision lead time</h3><strong>↓ 50%</strong><span>Time from gate review opened to decision recorded.</span></article>
+        <article class="card metric-card"><h3>Manual reporting</h3><strong>↓ 60%</strong><span>Hours spent assembling release evidence and status packs.</span></article>
+        <article class="card metric-card"><h3>Evidence completeness</h3><strong>≥ 95%</strong><span>Releases with every decision supported by source evidence.</span></article>
+        <article class="card metric-card"><h3>Escaped critical defects</h3><strong>↓ trend</strong><span>Severity 1–2 defects discovered after release.</span></article>
+      </div>
+      <p class="lead" style="margin-top:20px">These are proposed targets. Baseline current performance before committing to final values.</p>
+    </section>
+
+    <section id="roadmap">
+      <div class="section-kicker">07 · Delivery approach</div>
+      <h2>Deliver policy before complexity</h2>
+      <div class="roadmap-grid">
+        <article class="card phase"><div class="phase-time">Phase 1 · 2 weeks</div><h3>Policy and evidence map</h3><ol><li>Confirm release types and decision owners.</li><li>Agree seven rules, thresholds and hard gates.</li><li>Validate source-data completeness.</li><li>Baseline existing decision lead time.</li></ol></article>
+        <article class="card phase"><div class="phase-time">Phase 2 · 3–4 weeks</div><h3>Read-only gate MVP</h3><ol><li>Calculate gate status for one pilot project.</li><li>Show evidence and failed-rule explanations.</li><li>Generate a printable readiness pack.</li><li>Do not allow exceptions yet.</li></ol></article>
+        <article class="card phase"><div class="phase-time">Phase 3 · 3–4 weeks</div><h3>Governed decisions</h3><ol><li>Add exception request and approval.</li><li>Capture rationale, evidence and expiry.</li><li>Notify owners of failed gates.</li><li>Compare pilot outcomes with baseline.</li></ol></article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-kicker">08 · Risks and controls</div>
+      <h2>What could undermine the concept</h2>
+      <div class="risk-list">
+        <div class="risk-item"><strong>False confidence</strong><span>A green result is only reliable if source data is complete. Display freshness and missing-data warnings; never silently treat missing evidence as passed.</span></div>
+        <div class="risk-item"><strong>Gaming the thresholds</strong><span>Version policy changes, restrict who may edit them, and show which policy version governed each decision.</span></div>
+        <div class="risk-item"><strong>Approval bottlenecks</strong><span>Use role-based delegation, due dates and escalation—not shared accounts or automatic approvals.</span></div>
+        <div class="risk-item"><strong>Exception normalisation</strong><span>Track repeat exceptions, require expiry dates and surface teams or gates with recurring waivers.</span></div>
+        <div class="risk-item"><strong>One policy for everything</strong><span>Define profiles for production release, hotfix, pilot and internal deployment while keeping a small controlled set of variants.</span></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="callout"><strong>Recommended decision:</strong> approve a limited MVP for one live milestone. Begin with a read-only assessment using current QAPulse data, validate it against the existing release meeting, and add exception approval only after the team trusts the calculation.</div>
+    </section>
+  </main>
+
+  <footer><strong>QAPulse Release Readiness Gate</strong><br />Business concept and interactive decision model · September 2026</footer>
+
+  <script>
+    (() => {
+      const root = document;
+      const gates = [...root.querySelectorAll('.gate[data-kind]')];
+      const title = root.getElementById('decisionTitle');
+      const text = root.getElementById('decisionText');
+      const icon = root.getElementById('decisionIcon');
+      const score = root.getElementById('decisionScore');
+      const reasons = root.getElementById('decisionReasons');
+      const exception = root.getElementById('exception');
+
+      function assessGate(gate) {
+        const kind = gate.dataset.kind;
+        if (kind === 'exception') return null;
+        const input = gate.querySelector('input');
+        let passed = false;
+        if (kind === 'threshold') passed = Number(input.value) >= Number(gate.dataset.min);
+        if (kind === 'maximum') passed = Number(input.value) <= Number(gate.dataset.max);
+        if (kind === 'boolean') passed = input.checked;
+        return { gate, passed, label: gate.querySelector('.gate-title').textContent, critical: gate.dataset.critical === 'true', exceptionEligible: gate.dataset.exception === 'true' || kind === 'threshold' };
+      }
+
+      function update() {
+        const assessed = gates.map(assessGate).filter(Boolean);
+        assessed.forEach(item => {
+          const result = item.gate.querySelector('.gate-result');
+          result.textContent = item.passed ? 'Passed' : 'Failed';
+          result.className = 'gate-result ' + (item.passed ? 'pass' : 'fail');
+        });
+        const failures = assessed.filter(item => !item.passed);
+        const hardFailures = failures.filter(item => item.critical || !item.exceptionEligible);
+        const accepted = exception.checked && failures.length > 0 && hardFailures.length === 0;
+        score.textContent = `${assessed.length - failures.length} / ${assessed.length}`;
+        reasons.innerHTML = failures.map(item => `<li>${item.label}</li>`).join('');
+
+        if (failures.length === 0) {
+          title.textContent = 'Ready';
+          text.textContent = 'All mandatory gates satisfy the agreed release policy.';
+          icon.textContent = '✓';
+          icon.style.background = 'var(--green)';
+          reasons.innerHTML = '';
+        } else if (accepted) {
+          title.textContent = 'Ready with exceptions';
+          text.textContent = 'The release may proceed only under the recorded approval, actions and expiry conditions.';
+          icon.textContent = '!';
+          icon.style.background = 'var(--amber)';
+        } else {
+          title.textContent = 'Not ready';
+          text.textContent = hardFailures.length ? 'At least one mandatory hard gate has failed. This cannot be overridden.' : 'Failed gates require remediation or a formally accepted exception.';
+          icon.textContent = '×';
+          icon.style.background = 'var(--red)';
+        }
+      }
+
+      const scenarios = {
+        healthy: { requirements: 100, coverage: 98, execution: 97, passrate: 94, defects: 0, uat: true, risks: true, exception: false },
+        conditional: { requirements: 100, coverage: 98, execution: 97, passrate: 94, defects: 0, uat: true, risks: false, exception: true },
+        blocked: { requirements: 96, coverage: 87, execution: 82, passrate: 84, defects: 2, uat: false, risks: false, exception: false }
+      };
+
+      root.querySelectorAll('[data-scenario]').forEach(button => button.addEventListener('click', () => {
+        const values = scenarios[button.dataset.scenario];
+        Object.entries(values).forEach(([id, value]) => {
+          const control = root.getElementById(id);
+          if (control.type === 'checkbox') control.checked = value;
+          else control.value = value;
+        });
+        update();
+      }));
+      root.querySelectorAll('.gate input').forEach(input => input.addEventListener('input', update));
+      update();
+    })();
+  </script>
+</body>
+</html>
