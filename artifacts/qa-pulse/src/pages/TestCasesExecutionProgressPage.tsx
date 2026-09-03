@@ -121,7 +121,10 @@ const RESULT_DOT_COLOR: Record<string, string> = {
   "Not Executed": "bg-slate-300",
 };
 
-export type AppExecutionTestCase = ExecutionTestCase & { tracker?: string };
+export type AppExecutionTestCase = ExecutionTestCase & {
+  tracker?: string;
+  libraryReviewStatus?: string | null;
+};
 
 // Fields compared to detect drift between an execution copy and its linked library
 // test case. Execution-only concerns (QA PIC, Result, Defect Number, QA Notes) are
@@ -568,6 +571,7 @@ interface RowProps {
   qaUsers: ExecutionUser[];
   hiddenCols: Set<string>;
   currentUser: { id: number; name: string; role: string } | null;
+  currentFileReviewStatus: string | null;
   mode: "execute" | "edit";
   isDirty: boolean;
   dragDisabled?: boolean;
@@ -592,6 +596,7 @@ const DesktopTableRow = React.memo(
     qaUsers,
     hiddenCols,
     currentUser,
+    currentFileReviewStatus,
     mode,
     isDirty,
     dragDisabled,
@@ -930,6 +935,7 @@ const MobileCardRow = React.memo(
     qaUsers,
     hiddenCols,
     currentUser,
+    currentFileReviewStatus,
     mode,
     isDirty,
   }: RowProps) => {
@@ -3351,6 +3357,7 @@ export default function TestCasesExecutionProgressPage() {
                           mode={mode}
                           hiddenCols={hiddenCols}
                           currentUser={currentUser}
+                          currentFileReviewStatus={currentFileReviewStatus}
                           dragDisabled={mode !== "edit"}
                         />
                       ))}
