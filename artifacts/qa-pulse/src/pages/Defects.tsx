@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -178,14 +178,25 @@ export default function Defects() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
+  const deepLinkedTab = new URLSearchParams(searchString).get("tab");
 
-  const [tab, setTab] = useState<"qa" | "production" | "other" | "requirement">("qa");
+  const [tab, setTab] = useState<"qa" | "production" | "other" | "requirement">(
+    deepLinkedTab === "production" || deepLinkedTab === "other" || deepLinkedTab === "requirement" ? deepLinkedTab : "qa",
+  );
   useHighlightRow([tab]); // CR051 — focus a defect row from a ?highlight= deep-link
   const [view, setView] = useState<string>("open");
   const [filterProject, setFilterProject] = useState("all");
   const [filterSeverity, setFilterSeverity] = useState("all");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (deepLinkedTab === "qa" || deepLinkedTab === "production" || deepLinkedTab === "other" || deepLinkedTab === "requirement") {
+      setTab(deepLinkedTab);
+    }
+    const highlight = Number(new URLSearchParams(searchString).get("highlight"));
+    if (Number.isInteger(highlight) && highlight > 0) setExpanded(new Set([highlight]));
+  }, [deepLinkedTab, searchString]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [pullTracker, setPullTracker] = useState<string>(() => localStorage.getItem("qa_pulse_prod_tracker") ?? "");

@@ -148,7 +148,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
       context: contextFor(task.projectId, task.milestoneId),
       reason: overdue ? `Overdue since ${task.dueDate}` : task.blockedByTaskId ? "Blocked by another task" : `Status: ${task.status.replace(/_/g, " ")}`,
       priority: overdue ? "urgent" : task.blockedByTaskId ? "high" : "normal",
-      section: overdue ? "urgent" : "action", actionLabel: "Open task", actionUrl: "/tasks",
+      section: overdue ? "urgent" : "action", actionLabel: "Open task", actionUrl: task.requirementId ? `/tasks?highlight=${task.requirementId}` : "/tasks",
       projectId: task.projectId ?? null, projectName: task.projectId ? projectNameById.get(task.projectId) ?? null : null,
       milestoneName: task.milestoneId ? milestoneNameById.get(task.milestoneId) ?? null : null,
       ownerName, updatedAt: task.updatedAt.toISOString(),
@@ -212,7 +212,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
       push({ id: `test-case:${testCase.id}`, type: "test_case", title: `${isReview ? "Review" : "Revise"} test case: ${testCase.title}`,
         context: contextFor(testCase.projectId, null), reason: `${isReview ? "Waiting for peer review" : "Returned for revision"} · ${ageDays(testCase.updatedAt)} day(s)`,
         priority: ageDays(testCase.updatedAt) >= 3 ? "urgent" : "high", section: ageDays(testCase.updatedAt) >= 3 ? "urgent" : "action",
-        actionLabel: isReview ? "Open review queue" : "Open test case", actionUrl: "/test-cases",
+        actionLabel: isReview ? "Review test case" : "Open test case", actionUrl: `/test-cases?highlight=${testCase.id}`,
         projectId: testCase.projectId, projectName: testCase.projectId ? projectNameById.get(testCase.projectId) ?? null : null, milestoneName: null,
         ownerName: testCase.authorId ? userNameById.get(testCase.authorId) ?? null : null, updatedAt: testCase.updatedAt.toISOString() });
     }
@@ -252,7 +252,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
     const critical = ["critical", "high"].includes(defect.severity.toLowerCase());
     push({ id: `defect:${defect.id}`, type: "defect", title: `${defect.defectCode ?? `Defect #${defect.id}`}: ${defect.title}`,
       context: contextFor(defect.projectId, defect.milestoneId), reason: `${defect.severity} severity · status: ${defect.status}`,
-      priority: critical ? "urgent" : "normal", section: critical ? "urgent" : "action", actionLabel: defect.assigneeId == null && !defect.assigneeName ? "Assign owner" : "Open defect", actionUrl: "/defects",
+      priority: critical ? "urgent" : "normal", section: critical ? "urgent" : "action", actionLabel: defect.assigneeId == null && !defect.assigneeName ? "Assign owner" : "Open defect", actionUrl: `/defects?tab=${defect.source === "production" ? "production" : defect.source === "requirement" ? "requirement" : "qa"}&highlight=${defect.id}`,
       projectId: defect.projectId, projectName: defect.projectId ? projectNameById.get(defect.projectId) ?? null : null,
       milestoneName: defect.milestoneId ? milestoneNameById.get(defect.milestoneId) ?? null : null,
       ownerName: defect.assigneeId ? userNameById.get(defect.assigneeId) ?? null : defect.assigneeName, updatedAt: defect.updatedAt.toISOString() });
@@ -265,7 +265,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
       const critical = risk.probability === "high" && risk.impact === "high";
       push({ id: `risk:${risk.id}`, type: "risk", title: risk.title, context: contextFor(risk.projectId, risk.milestoneId),
         reason: `${risk.probability} probability · ${risk.impact} impact${risk.mitigationPlan ? "" : " · mitigation missing"}`,
-        priority: critical ? "urgent" : "high", section: critical ? "urgent" : "action", actionLabel: risk.ownerId == null ? "Assign owner" : "Open risk", actionUrl: "/risk-register",
+        priority: critical ? "urgent" : "high", section: critical ? "urgent" : "action", actionLabel: risk.ownerId == null ? "Assign owner" : "Open risk", actionUrl: `/risk-register?projectId=${risk.projectId}&highlight=${risk.id}`,
         projectId: risk.projectId, projectName: projectNameById.get(risk.projectId) ?? null,
         milestoneName: risk.milestoneId ? milestoneNameById.get(risk.milestoneId) ?? null : null,
         ownerName: risk.ownerId ? userNameById.get(risk.ownerId) ?? null : null, updatedAt: risk.updatedAt.toISOString() });
@@ -274,7 +274,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
       if (!canSeeProject(milestone.projectId) || milestone.status !== "active" || !isOverdue(milestone.targetDate)) continue;
       push({ id: `milestone:${milestone.id}`, type: "requirement", title: `Milestone overdue: ${milestone.name}`,
         context: contextFor(milestone.projectId, milestone.id), reason: `Target date ${milestone.targetDate?.toISOString().slice(0, 10)}`,
-        priority: "urgent", section: "urgent", actionLabel: "Open milestone", actionUrl: "/milestones",
+        priority: "urgent", section: "urgent", actionLabel: "Open milestone", actionUrl: `/milestones?highlight=${milestone.id}`,
         projectId: milestone.projectId, projectName: projectNameById.get(milestone.projectId) ?? null,
         milestoneName: milestone.name, ownerName: milestone.createdBy ? userNameById.get(milestone.createdBy) ?? null : null, updatedAt: milestone.updatedAt.toISOString() });
     }

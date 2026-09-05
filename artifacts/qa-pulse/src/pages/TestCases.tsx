@@ -812,6 +812,35 @@ export default function TestCases() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  // Record-level deep link from My Work Today. Clear presentation filters so
+  // the target cannot be hidden, expand it, and move to the containing page.
+  const deepLinkId = useMemo(() => {
+    const raw = new URLSearchParams(searchString).get("highlight");
+    const id = raw ? Number(raw) : NaN;
+    return Number.isInteger(id) ? id : null;
+  }, [searchString]);
+  const appliedDeepLink = useRef<number | null>(null);
+  useEffect(() => {
+    if (deepLinkId == null || appliedDeepLink.current === deepLinkId || testCases.length === 0) return;
+    const ordered = [...(testCases as any[])].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    const index = ordered.findIndex((testCase) => testCase.id === deepLinkId);
+    if (index < 0) return;
+    appliedDeepLink.current = deepLinkId;
+    setSearch("");
+    setNlMode(false);
+    setNlResultIds(null);
+    setFilterProject("all");
+    setFilterModule("all");
+    setFilterAI("all");
+    setFilterMilestone("all");
+    setFilterRequirement("all");
+    setSortBy("newest");
+    setCurrentPage(Math.floor(index / ITEMS_PER_PAGE) + 1);
+    setExpandedId(deepLinkId);
+  }, [deepLinkId, testCases]);
   const { data: projects = [] } = useQuery({
     queryKey: getListProjectsQueryKey(),
     queryFn: () => listProjects(),
@@ -1082,6 +1111,18 @@ export default function TestCases() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   );
+  useEffect(() => {
+    if (deepLinkId == null || expandedId !== deepLinkId) return;
+    const timer = setTimeout(() => {
+      const candidates = document.querySelectorAll<HTMLElement>(`[data-test-case-id="${deepLinkId}"]`);
+      const target = [...candidates].find((element) => element.getClientRects().length > 0);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("ring-2", "ring-primary", "ring-offset-2");
+      setTimeout(() => target.classList.remove("ring-2", "ring-primary", "ring-offset-2"), 2400);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [deepLinkId, expandedId, currentPage]);
   const filteredIds = useMemo(
     () => new Set(filtered.map((t) => t.id)),
     [filtered],
@@ -1416,6 +1457,7 @@ export default function TestCases() {
     return (
       <React.Fragment key={tc.id}>
         <TableRow
+          data-test-case-id={tc.id}
           className={`hover:bg-muted/40 cursor-pointer border-b transition-colors ${selectedIds.has(tc.id) ? "bg-primary/5" : ""} ${expandedId === tc.id ? "bg-muted/20" : ""}`}
           onClick={() => setExpandedId(expandedId === tc.id ? null : tc.id)}
         >
@@ -1919,6 +1961,7 @@ export default function TestCases() {
                 {paginatedTestCases.map((tc) => (
                   <Card
                     key={tc.id}
+                    data-test-case-id={tc.id}
                     className={`relative overflow-hidden shadow-sm transition-colors ${expandedId === tc.id ? "border-primary/50 ring-1 ring-primary/20" : ""}`}
                   >
                     <div className="absolute top-3 right-2 flex gap-1">
