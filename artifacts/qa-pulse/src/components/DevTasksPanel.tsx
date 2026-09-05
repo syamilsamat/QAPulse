@@ -45,6 +45,7 @@ interface DevTaskReview {
   id: number;
   status: "in_review" | "approved" | "rejected";
   prLink: string | null;
+  note: string | null;
   submittedAt: string;
   reviewerId: number | null;
   reviewerName: string | null;
@@ -311,7 +312,19 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
                   )}
 
                   {t.status === "done" && t.review?.reviewerName && (
-                    <p className="text-xs text-green-700">✓ Code review passed — reviewed by {t.review.reviewerName}</p>
+                    <p className="text-xs text-green-700">
+                      ✓ Code review passed — reviewed by {t.review.reviewerName}
+                      {t.review.note ? `: "${t.review.note}"` : ""}
+                    </p>
+                  )}
+
+                  {/* Ungated by t.status — a rejection reverts the task to in_progress,
+                      so this is the only place the assignee can still learn what to fix
+                      once the "in review" screen it was said on is gone. */}
+                  {t.review?.status === "rejected" && t.review.note && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      ↩ {t.review.reviewerName ?? "A reviewer"} requested changes: "{t.review.note}"
+                    </p>
                   )}
 
                   {canSubmit && reviewOpenFor !== t.id && (

@@ -15,6 +15,11 @@ export const codeReviewsTable = pgTable("code_reviews", {
   entityId: integer("entity_id").notNull(),
   status: text("status").notNull().default("in_review"), // 'in_review' | 'approved' | 'rejected'
   prLink: text("pr_link"),
+  // Reviewer's note (approve or reject). Originally left log-only per the
+  // plan's "matches how return_to_dev's reason already works" — but unlike
+  // that one-shot action, a rejection here needs to stay visible to the
+  // assignee long after the log entry scrolls by, so it's a real column.
+  note: text("note"),
   submittedBy: integer("submitted_by"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
   reviewerId: integer("reviewer_id"),

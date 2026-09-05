@@ -5,7 +5,7 @@ import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope, getRoleTierRank, getRoleDepartment } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
-import { submitForReview, getLatestReview, decideReview, maybeAdvanceRequirement, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
+import { submitForReview, getLatestReview, decideReview, maybeAdvanceRequirement, maybeRevertIfIncomplete, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
 import {
@@ -252,6 +252,13 @@ router.post("/tasks", async (req, res): Promise<void> => {
     }
   }
 
+  // A fresh (not_started) task added to a requirement already sitting at
+  // ready_for_qa means "all dev tasks Done" is no longer true — revert it,
+  // or QA keeps seeing Ready for QA on dev work that's provably incomplete.
+  if (task.requirementId != null) {
+    await maybeRevertIfIncomplete(task.requirementId, "a new dev task was added").catch(() => {});
+  }
+
   res.status(201).json(await formatTask(task));
 });
 
@@ -330,6 +337,13 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
       for (const id of task.assigneeIds) {
         await notifyUser(id, "Task updated", `Task "${task.name}" status changed to ${parsed.data.status}.`, "task", "task", task.id);
       }
+    }
+
+    // A Done task reopened through the generic Task Tracker edit (not the
+    // review flow — that path is already blocked from writing status
+    // directly) can also invalidate an already-ready_for_qa requirement.
+    if (prevTask.status === "done" && task.requirementId != null) {
+      await maybeRevertIfIncomplete(task.requirementId, "a dev task was reopened").catch(() => {});
     }
   }
 

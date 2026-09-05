@@ -135,6 +135,7 @@ export async function decideReview(opts: {
       status: opts.decision === "approve" ? "approved" : "rejected",
       reviewerId: opts.reviewerId,
       reviewedAt: new Date(),
+      note: opts.note ?? null,
     })
     .where(eq(codeReviewsTable.id, opts.reviewId))
     .returning();
@@ -180,6 +181,39 @@ export async function maybeAdvanceRequirement(requirementId: number, lastActorNa
     entityType: "requirement",
     oldValue: { devStatus: (requirement as any).devStatus ?? null },
     newValue: { devStatus: "ready_for_qa" },
+  });
+}
+
+/**
+ * The counterpart to maybeAdvanceRequirement — a requirement already sitting
+ * at ready_for_qa can stop being "all tasks Done" two ways: a new task gets
+ * added to it, or an existing Done task gets reopened. Either one needs to
+ * revert devStatus back to in_progress, or the requirement stays flagged
+ * Ready for QA while its dev work is provably incomplete. No-ops if devStatus
+ * isn't currently ready_for_qa, or if the task set is (still, or again)
+ * legitimately all Done — e.g. call this after every task write and let it
+ * decide, rather than trying to reason about it at each call site.
+ */
+export async function maybeRevertIfIncomplete(requirementId: number, reason: string): Promise<void> {
+  const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, requirementId));
+  if (!requirement || (requirement as any).devStatus !== "ready_for_qa") return;
+
+  const tasks = await db.select({ status: tasksTable.status }).from(tasksTable).where(eq(tasksTable.requirementId, requirementId));
+  if (tasks.length > 0 && tasks.every((t) => t.status === "done")) return; // still legitimately all done
+
+  await db
+    .update(requirementsTable)
+    .set({ devStatus: "in_progress", readyForQaAt: null } as any)
+    .where(eq(requirementsTable.id, requirementId));
+
+  await logActivity({
+    type: "requirement_dev_reverted",
+    description: `Requirement "${requirement.title}" — ${reason}, no longer fully done; reverted from Ready for QA to In Progress`,
+    userId: null,
+    entityId: requirementId,
+    entityType: "requirement",
+    oldValue: { devStatus: "ready_for_qa" },
+    newValue: { devStatus: "in_progress" },
   });
 }
 

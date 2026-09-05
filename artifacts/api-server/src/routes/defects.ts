@@ -17,7 +17,7 @@ import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank,
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 import { resolveApiKeyFromToken } from "./requirements";
-import { submitForReview, getLatestReview, decideReview, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
+import { submitForReview, getLatestReview, getEvidenceForReview, decideReview, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
 import {
   pushDefectToRedmine,
   refreshDefectStatuses,
@@ -41,6 +41,13 @@ const router: IRouter = Router();
 // already uses — one definition of "this status means dev says it's fixed".
 const RESOLVED_STATES = /fixed|resolved|verified|closed/i;
 const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
+
+// Deliberately separate from RESOLVED_STATES above (which only feeds the
+// pre-existing reopen-detection heuristic and isn't ours to redefine) — this
+// tracker's actual status list includes a plain "Done" that the narrower
+// regex doesn't catch, which let a defect reach a resolved-shaped state with
+// the code-review gate never firing (found via smoke test on DEF-0001).
+const GATE_RESOLVED_STATES = /fixed|resolved|verified|closed|done/i;
 
 // CR014 access control. Defects with no project are visible to any
 // authenticated user (Redmine pulls can land without a project); scoping
@@ -868,7 +875,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     // untouched, since that process is built for firefighting speed, not a
     // peer-review gate. A defect with no native assignee has no reviewer to
     // gate against, so it's left alone too.
-    if (RESOLVED_STATES.test(statusRow.name) && defect.assigneeId != null && defect.source === "qa") {
+    if (GATE_RESOLVED_STATES.test(statusRow.name) && defect.assigneeId != null && defect.source === "qa") {
       const latestReview = await getLatestReview("defect", id);
       if (!latestReview || latestReview.status !== "approved") {
         res.status(409).json({ error: "Code review required before this defect can be marked Resolved — submit it for review first" });
@@ -979,6 +986,38 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
 
 // POST /defects/:id/submit-review — the defect's assignee submits it for peer
 // review. Body: { prLink?: string, evidence?: { filename, mimeType, data (base64) } }
+// GET /defects/:id/review — latest review round (if any), for the frontend
+// review panel. Anyone who can see the defect can see this; write actions
+// are gated separately below.
+router.get("/defects/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const latestReview = await getLatestReview("defect", id);
+  if (!latestReview) { res.json(null); return; }
+
+  let reviewerName: string | null = null;
+  if (latestReview.reviewerId) {
+    const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, latestReview.reviewerId));
+    reviewerName = reviewer?.name ?? null;
+  }
+  const evidence = await getEvidenceForReview(latestReview.id);
+
+  res.json({
+    id: latestReview.id,
+    status: latestReview.status,
+    prLink: latestReview.prLink,
+    note: latestReview.note,
+    submittedAt: latestReview.submittedAt,
+    reviewerId: latestReview.reviewerId,
+    reviewerName,
+    evidence: evidence.map((e) => ({ id: e.id, filename: e.filename, mimeType: e.mimeType, size: e.size })),
+  });
+});
+
 router.post("/defects/:id/submit-review", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }

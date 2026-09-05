@@ -27,6 +27,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { DefectReviewSection } from "@/components/DefectReviewSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -770,6 +771,12 @@ export default function Defects() {
                       </div>
                     );
                   })()}
+
+                  {/* Code review — QA-sourced defects with a native assignee only;
+                      gates the Resolved/Fixed-type status push above. */}
+                  {d.source === "qa" && d.assigneeId != null && (
+                    <DefectReviewSection defectId={d.id} assigneeId={d.assigneeId} />
+                  )}
 
                   {/* Linked TCs */}
                   {d.links.length === 0 && <p className="text-xs text-muted-foreground">No linked test cases.</p>}

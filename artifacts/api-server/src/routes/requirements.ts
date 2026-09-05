@@ -1696,6 +1696,7 @@ router.get("/requirements/:id/dev-tasks", async (req, res): Promise<void> => {
         id: latestReview.id,
         status: latestReview.status,
         prLink: latestReview.prLink,
+        note: latestReview.note,
         submittedAt: latestReview.submittedAt,
         reviewerId: latestReview.reviewerId,
         reviewerName,
