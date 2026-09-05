@@ -129,7 +129,7 @@ export default function Login() {
             setPendingUser({ id: data.user.id, name: data.user.name });
           } else {
             login(data.user, data.token, (data as any).refreshToken ?? "", rememberMe);
-            setLocation("/dashboard");
+            setLocation("/my-work");
           }
         },
         onError: (error: any) => {

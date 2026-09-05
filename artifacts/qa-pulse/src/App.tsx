@@ -40,6 +40,7 @@ import UatSignoffs from "@/pages/UatSignoffs";
 import Resources from "@/pages/Resources";
 import QAAnalytics from "@/pages/QAAnalytics";
 import QAPipeline from "@/pages/QAPipeline";
+import MyWorkToday from "@/pages/MyWorkToday";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,11 +141,15 @@ function Router() {
         If logged in, go to the app. If logged out, show the landing page.
       */}
       <Route path="/">
-        {user ? <Redirect to="/dashboard" /> : <QMPulseLanding />}
+        {user ? <Redirect to="/my-work" /> : <QMPulseLanding />}
       </Route>
 
       <Route path="/login">
-        {user ? <Redirect to="/dashboard" /> : <Login />}
+        {user ? <Redirect to="/my-work" /> : <Login />}
+      </Route>
+
+      <Route path="/my-work">
+        <ProtectedRoute component={MyWorkToday} />
       </Route>
 
       {/* CR048 — Dashboard is the universal fallback landing (sidebar marks it

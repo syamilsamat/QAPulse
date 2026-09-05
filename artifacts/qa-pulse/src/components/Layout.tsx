@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // 1. Replaced MessageSquare with Bot
-import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon, FileSearch, Rocket } from "lucide-react";
+import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon, FileSearch, Rocket, ListChecks } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const API_BASE = () => getApiUrl();
@@ -569,6 +569,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  {
+    href: "/my-work",
+    label: "My Work Today",
+    icon: ListChecks,
+    activeColor: "text-blue-500",
+    roles: [],
+    alwaysVisible: true,
+    section: "My Workspace",
+  },
   {
     href: "/dashboard",
     label: "Dashboard",
