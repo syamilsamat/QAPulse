@@ -78,6 +78,10 @@ router.get("/my-work", async (req, res): Promise<void> => {
   ]);
   const currentUser = currentUsers[0];
   if (!currentUser) { res.status(404).json({ error: "User not found" }); return; }
+  if (scope !== "mine" && tierRank < 2) {
+    res.status(403).json({ error: "Team and unassigned scopes require a lead role" });
+    return;
+  }
 
   let teamUsers = [currentUser];
   if (scope === "team" && tierRank >= 2) {
