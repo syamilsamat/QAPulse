@@ -21,6 +21,11 @@ const LEVEL_LABEL: Record<string, "Low" | "Medium" | "High"> = { low: "Low", med
 
 const router: IRouter = Router();
 
+function parsePositiveId(value: string): number | null {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 function requireAuth(req: any, res: any): { userId: number; role: string } | null {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -255,7 +260,8 @@ router.patch("/risks/:id", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!(await canWriteRisk(ctx.role))) { res.status(403).json({ error: "Lead role or above required" }); return; }
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid risk ID" }); return; }
   const [existing] = await db.select().from(risksTable).where(eq(risksTable.id, id));
   if (!existing) { res.status(404).json({ error: "Risk not found" }); return; }
 
@@ -308,7 +314,8 @@ router.delete("/risks/:id", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!(await canWriteRisk(ctx.role))) { res.status(403).json({ error: "Lead role or above required" }); return; }
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid risk ID" }); return; }
   const [existing] = await db.select().from(risksTable).where(eq(risksTable.id, id));
   if (!existing) { res.status(404).json({ error: "Risk not found" }); return; }
 

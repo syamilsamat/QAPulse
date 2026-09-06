@@ -31,6 +31,7 @@
     "preprod:smoke": "tsx ./src/preprod-smoke.ts",
     "preprod:crud": "tsx ./src/preprod-crud.ts",
     "preprod:auth": "tsx ./src/preprod-auth.ts",
+    "preprod:boundaries": "tsx ./src/preprod-boundaries.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

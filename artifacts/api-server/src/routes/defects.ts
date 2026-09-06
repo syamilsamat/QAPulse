@@ -1513,6 +1513,10 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
   if (!ctx) return;
   try {
     const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid defect ID" });
+      return;
+    }
     const [before] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
     if (!before) {
       res.status(404).json({ error: "Defect not found" });
