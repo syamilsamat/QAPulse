@@ -54,8 +54,17 @@ app.use(
   }),
 );
 
+const allowedCorsOrigins = (process.env.CORS_ORIGIN ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN ?? true,
+  // Same-origin requests do not need CORS. Cross-origin browser access is
+  // denied by default and must be explicitly allowlisted in production.
+  origin(origin, callback) {
+    callback(null, !origin || allowedCorsOrigins.includes(origin));
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: false,

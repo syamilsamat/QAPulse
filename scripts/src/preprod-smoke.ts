@@ -109,6 +109,13 @@ async function login(email: string): Promise<{ token: string; role: string; user
 
 const health = await request("/healthz");
 expect("public health check", health.status, 200);
+const untrustedOrigin = await fetch(`${baseUrl}/healthz`, {
+  headers: { origin: "https://evil.example" },
+  signal: AbortSignal.timeout(15_000),
+});
+expect("CORS does not reflect an untrusted origin", untrustedOrigin.headers.get("access-control-allow-origin"), null);
+expect("HSTS is enabled", untrustedOrigin.headers.has("strict-transport-security"), true);
+expect("content sniffing protection is enabled", untrustedOrigin.headers.get("x-content-type-options"), "nosniff");
 const readiness = await request("/readyz");
 expect("database readiness check", readiness.status, 200, (readiness.body as any)?.status);
 
