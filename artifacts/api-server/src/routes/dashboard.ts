@@ -6,6 +6,14 @@ import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middle
 
 const router: IRouter = Router();
 
+// Dashboard data contains internal delivery, activity, and team information.
+// Enforce authentication at router level so newly added handlers cannot
+// accidentally omit the boundary check.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
+
 const PM_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
 
 // CR038 — flat assumed weekly capacity per person, used for the Capacity

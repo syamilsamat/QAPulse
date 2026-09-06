@@ -20,6 +20,13 @@ import {
 
 const router: IRouter = Router();
 
+// Tasks and their event history are internal project data. Keep the auth
+// boundary at router level so every current and future task handler is covered.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
+
 // CR059 — department-scoped task visibility: qa/fa/dev each only see tasks
 // with at least one assignee in their own department; pm (any tier) and
 // admin/cto see everything, since PM owns cross-department milestone delivery.
