@@ -38,6 +38,14 @@ import {
 
 const router: IRouter = Router();
 
+// Requirements, their mappings, attachments, and history are internal
+// project data. A router-level boundary prevents detail routes from leaking
+// records when an individual handler omits its own authentication check.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
+
 async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
   let assigneeName: string | null = null;
   let projectName: string | null = null;

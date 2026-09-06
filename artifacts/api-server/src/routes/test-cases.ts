@@ -34,6 +34,14 @@ const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
 
 const router: IRouter = Router();
 
+// Test designs and execution linkage are internal project records. Enforce
+// authentication once for the complete route surface, including detail and
+// export handlers that do not need to repeat the same guard.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
+
 function safeParseJSON(content: string, fallback: any) {
   let cleaned = content
     .replace(/```json\n?/gi, "")

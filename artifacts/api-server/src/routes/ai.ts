@@ -374,6 +374,7 @@ router.patch("/ai/requirement-suggestions/:id", async (req, res): Promise<void> 
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid suggestion ID" }); return; }
   const { status } = req.body;
   if (!SUGGESTION_STATUSES.includes(status)) {
     res.status(400).json({ error: `status must be one of ${SUGGESTION_STATUSES.join(", ")}` });
@@ -1873,6 +1874,7 @@ router.get("/ai/requirement-chat/conversations/:id/messages", async (req, res): 
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const convoId = Number(req.params.id);
+  if (!Number.isInteger(convoId) || convoId <= 0) { res.status(400).json({ error: "Invalid conversation ID" }); return; }
   const [convo] = await db.select().from(conversations).where(eq(conversations.id, convoId));
   if (!convo || convo.userId !== ctx.userId) { res.status(404).json({ error: "Conversation not found" }); return; }
 

@@ -44,6 +44,33 @@ const authenticatedReads = [
   "/pipeline-settings", "/my-work?scope=mine",
 ] as const;
 
+const protectedDetailReads = [
+  "/uat-signoffs/1/download", "/milestones/1", "/milestones/1/assignees",
+  "/milestones/1/assignable-users", "/milestones/1/risk-assessments", "/milestones/1/ai-risk-status",
+  "/roles/1/permissions", "/test-cases/1", "/test-cases/1/executions", "/users/1",
+  "/users/1/stats", "/projects/1", "/requirements/1/comments", "/defects/1/review",
+  "/requirements/by-redmine/1", "/requirements/1/test-cases", "/requirements/1",
+  "/requirements/1/history", "/requirements/1/events", "/requirements/1/dev-tasks",
+  "/requirements/1/attachments", "/requirements/attachments/1/download", "/data-prep-files/1/download",
+  "/tasks/1", "/tasks/1/events", "/teams/1", "/teams/1/members", "/projects/1/teams",
+  "/projects/1/members", "/projects/1/modules", "/execution-files/1",
+  "/execution-files/1/summaries", "/ai/execution-risk/1",
+  "/ai/requirement-chat/conversations/1/messages",
+] as const;
+
+const malformedDetailReads = [
+  "/users/not-a-number", "/projects/not-a-number", "/requirements/not-a-number",
+  "/requirements/not-a-number/test-cases", "/requirements/not-a-number/history",
+  "/requirements/not-a-number/events", "/requirements/not-a-number/dev-tasks",
+  "/requirements/not-a-number/attachments", "/test-cases/not-a-number",
+  "/test-cases/not-a-number/executions", "/tasks/not-a-number", "/tasks/not-a-number/events",
+  "/milestones/not-a-number", "/milestones/not-a-number/assignees",
+  "/milestones/not-a-number/risk-assessments", "/teams/not-a-number",
+  "/execution-files/not-a-number", "/defects/not-a-number/review",
+  "/roles/not-a-number/permissions", "/ai/execution-risk/not-a-number",
+  "/ai/requirement-chat/conversations/not-a-number/messages",
+] as const;
+
 interface Failure { check: string; expected: string; actual: string; detail?: string }
 const failures: Failure[] = [];
 let assertions = 0;
@@ -83,6 +110,11 @@ for (const path of protectedReads) {
   expect(`anonymous ${path}`, result.status, 401, (result.body as any)?.error);
 }
 
+for (const path of protectedDetailReads) {
+  const result = await request(path);
+  expect(`anonymous detail ${path}`, result.status, 401, (result.body as any)?.error);
+}
+
 for (const account of accounts) {
   const { token } = await login(account.email);
   if (!token) continue;
@@ -90,6 +122,14 @@ for (const account of accounts) {
   for (const path of authenticatedReads) {
     const result = await request(path, token);
     expect(`${account.email} ${path} has no server error`, result.status >= 500, false, (result.body as any)?.error);
+  }
+
+
+  if (account.email === "admin@qapulse.com") {
+    for (const path of malformedDetailReads) {
+      const result = await request(path, token);
+      expect(`malformed ${path} is a controlled client error`, result.status >= 400 && result.status < 500, true, (result.body as any)?.error);
+    }
   }
 
   for (const scope of ["mine", "team", "unassigned"] as const) {

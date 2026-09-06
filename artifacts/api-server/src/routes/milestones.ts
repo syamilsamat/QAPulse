@@ -9,6 +9,11 @@ import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow }
 
 const router: IRouter = Router();
 
+function parsePositiveId(value: string): number | null {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 function requireAuth(req: any, res: any): { userId: number; role: string } | null {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -279,7 +284,8 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
 
@@ -324,7 +330,8 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
@@ -399,7 +406,8 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
 router.get("/milestones/:id/assignees", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
@@ -419,7 +427,8 @@ router.get("/milestones/:id/assignees", async (req, res): Promise<void> => {
 router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   // canWritePipeline, not canWrite: QA Pipeline Step 2 lets a qa_member name
@@ -442,7 +451,8 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const userId = Number(req.body.userId);
   if (!userId) { res.status(400).json({ error: "userId is required" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
@@ -470,7 +480,8 @@ router.delete("/milestones/:id/assignees/:userId", async (req, res): Promise<voi
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const userId = parseInt(req.params.userId);
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
@@ -486,7 +497,8 @@ router.delete("/milestones/:id", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
@@ -504,7 +516,8 @@ router.patch("/milestones/:id/review", async (req, res): Promise<void> => {
   const FA_ROLES = ["fa_lead", "hod_fa", "admin"];
   if (!FA_ROLES.includes(ctx.role)) { res.status(403).json({ error: "FA Lead or above required for milestone sign-off" }); return; }
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
 
@@ -543,7 +556,8 @@ router.get("/milestones/:id/risk-assessments", async (req, res): Promise<void> =
   const PM_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
   if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!(await canAccessProject((ctx as any).id ?? ctx.userId, ctx.role, m.projectId))) {
@@ -585,7 +599,8 @@ router.get("/milestones/:id/ai-risk-status", async (req, res): Promise<void> => 
   const ctx = requireAuth(req, res);
   if (!ctx) return;
 
-  const id = parseInt(req.params.id);
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!(await canAccessProject((ctx as any).id ?? ctx.userId, ctx.role, m.projectId))) {
