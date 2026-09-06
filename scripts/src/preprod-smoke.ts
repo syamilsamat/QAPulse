@@ -30,7 +30,7 @@ const protectedReads = [
   "/my-work", "/requirements", "/requirements/review-queue", "/requirements/dev-queue",
   "/requirements/events/all", "/document-register", "/data-prep-files", "/audit-log", "/tasks",
   "/tasks/events/all", "/contacts", "/teams", "/modules", "/execution-files",
-  "/execution-progress", "/execution-files/review-queue",
+  "/execution-progress", "/execution-files/review-queue", "/execution-events",
 ] as const;
 
 const authenticatedReads = [

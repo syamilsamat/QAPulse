@@ -276,7 +276,9 @@ export default function TestExecutionSummary() {
 
   // SSE live updates
   useEffect(() => {
-    const eventSource = new EventSource("/api/execution-events");
+    const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+    if (!token) return;
+    const eventSource = new EventSource(`/api/execution-events?token=${encodeURIComponent(token)}`);
     eventSource.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === "UPDATED" && msg.ticketId === currentTicketId && currentTicketId) {

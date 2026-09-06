@@ -28,7 +28,7 @@ import { fetchActiveDefectsForIssue } from "./verdict-report";
 const router: IRouter = Router();
 
 // CR014 access control (per-route, not router-level, because /execution-events
-// is an SSE stream the browser's EventSource opens without headers).
+// authenticates its EventSource connection through a token query parameter).
 function requireAuth(req: any, res: any): { userId: number; role: string } | null {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -61,10 +61,15 @@ function hasRealResult(result: unknown): boolean {
 // --- 1. SETUP SERVER-SENT EVENTS (SSE) CLIENTS ---
 const clients = new Set<any>();
 
-// Deliberately unauthenticated: EventSource cannot send an Authorization
-// header, and the stream only emits {ticketId, type:"UPDATED"} pings — no
-// test data. Revisit if the payload ever grows.
 router.get("/execution-events", (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  try {
+    verifyToken(token);
+  } catch {
+    res.status(401).end();
+    return;
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
