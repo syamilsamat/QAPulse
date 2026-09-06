@@ -1462,10 +1462,16 @@ export default function TestCases() {
           onClick={() => setExpandedId(expandedId === tc.id ? null : tc.id)}
         >
           <TableCell className={`pl-4 ${cellPy}`} onClick={(e) => e.stopPropagation()}>
-            <Checkbox checked={selectedIds.has(tc.id)} onCheckedChange={() => toggleSelect(tc.id)} />
+            <Checkbox aria-label={`Select ${tc.title}`} checked={selectedIds.has(tc.id)} onCheckedChange={() => toggleSelect(tc.id)} />
           </TableCell>
           <TableCell className={cellPy}>
-            <Button variant="ghost" size="icon" className="w-6 h-6 p-0 hover:bg-transparent">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-6 h-6 p-0 hover:bg-transparent"
+              aria-label={`${expandedId === tc.id ? "Collapse" : "Expand"} ${tc.title}`}
+              aria-expanded={expandedId === tc.id}
+            >
               {expandedId === tc.id ? (
                 <ChevronDown className="w-4 h-4 text-primary" />
               ) : (
@@ -1524,7 +1530,7 @@ export default function TestCases() {
           <TableCell className={`${cellPy} text-right`} onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7">
+                <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`More actions for ${tc.title}`}>
                   <MoreHorizontal className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1928,6 +1934,7 @@ export default function TestCases() {
                       <TableRow className="hover:bg-transparent border-b">
                         <th className="w-12 pl-4 py-3">
                           <Checkbox
+                            aria-label="Select all visible test cases"
                             checked={allFilteredSelected}
                             onCheckedChange={toggleSelectAll}
                           />

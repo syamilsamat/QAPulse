@@ -1203,7 +1203,7 @@ export default function TestCasesExecution() {
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="w-[50px] border-r border-border text-center">
-                  <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                  <input type="checkbox" aria-label="Select all visible execution files" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
                     checked={filteredFiles.length > 0 && selectedFiles.length === filteredFiles.length}
                     onChange={e => handleSelectAll(e.target.checked)} />
                 </TableHead>
@@ -1229,7 +1229,7 @@ export default function TestCasesExecution() {
                 return (
                   <TableRow key={f.id} className="border-b border-border hover:bg-muted/20 cursor-pointer" onClick={() => setLocation(`/test-cases/execution/${f.redmineTicketId}`)}>
                     <TableCell className="border-r border-border text-center" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                      <input type="checkbox" aria-label={`Select execution file ${f.redmineTicketId}`} className="w-4 h-4 rounded border-gray-300 cursor-pointer"
                         checked={selectedFiles.includes(f.id)}
                         onChange={e => handleSelectFile(f.id, e.target.checked)} />
                     </TableCell>

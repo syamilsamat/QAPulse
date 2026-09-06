@@ -360,6 +360,7 @@ function GlobalQACopilot() {
                 size="icon"
                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 onClick={() => setIsOpen(false)}
+                aria-label="Close QA Copilot"
               >
                 <X className="w-4 h-4" />
               </Button>
@@ -462,6 +463,7 @@ function GlobalQACopilot() {
                 disabled={chatLoading || !chatInput.trim()}
                 size="icon"
                 className="shrink-0"
+                aria-label="Send QA Copilot message"
               >
                 <Send className="w-4 h-4" />
               </Button>
@@ -534,6 +536,7 @@ function GlobalQACopilot() {
                 disabled={reqChatLoading || !reqChatInput.trim()}
                 size="icon"
                 className="shrink-0"
+                aria-label="Send requirement question"
               >
                 <Send className="w-4 h-4" />
               </Button>
@@ -547,6 +550,7 @@ function GlobalQACopilot() {
           onClick={() => setIsOpen(true)}
           className="rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all hover:-translate-y-1 text-white border-none hover:opacity-90"
           style={{ backgroundColor: "#274AB3" }}
+          aria-label="Open QA Copilot"
         >
           <Bot className="w-6 h-6" />
         </Button>
