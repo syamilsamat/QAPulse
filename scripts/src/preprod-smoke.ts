@@ -92,14 +92,18 @@ function expect(check: string, actual: unknown, expected: unknown, detail?: stri
   if (actual !== expected) failures.push({ check, actual: String(actual), expected: String(expected), detail });
 }
 
-async function login(email: string): Promise<{ token: string; role: string }> {
+async function login(email: string): Promise<{ token: string; role: string; userId: number }> {
   const result = await request("/auth/login", undefined, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
   expect(`login ${email}`, result.status, 200, (result.body as any)?.error);
-  return { token: (result.body as any)?.token ?? "", role: (result.body as any)?.user?.role ?? "" };
+  return {
+    token: (result.body as any)?.token ?? "",
+    role: (result.body as any)?.user?.role ?? "",
+    userId: Number((result.body as any)?.user?.id ?? 0),
+  };
 }
 
 const health = await request("/healthz");
@@ -118,8 +122,18 @@ for (const path of protectedDetailReads) {
 }
 
 for (const account of accounts) {
-  const { token } = await login(account.email);
+  const { token, userId } = await login(account.email);
   if (!token) continue;
+
+  const directory = await request("/users", token);
+  expect(`${account.email} user directory status`, directory.status, 200, (directory.body as any)?.error);
+  expect(
+    `${account.email} user directory never exposes Redmine API keys`,
+    Array.isArray(directory.body) && directory.body.every((user: any) => !Object.prototype.hasOwnProperty.call(user, "redmineApiKey")),
+    true,
+  );
+  const ownProfile = await request(`/users/${userId}`, token);
+  expect(`${account.email} may read own profile`, ownProfile.status, 200, (ownProfile.body as any)?.error);
 
   for (const path of authenticatedReads) {
     const result = await request(path, token);

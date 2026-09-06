@@ -33,7 +33,7 @@ function requireAuth(req: any, res: any): { userId: number; role: string } | nul
 }
 const PRIVILEGED_ROLES = ["admin", "cto"];
 
-function formatUser(u: typeof usersTable.$inferSelect) {
+function formatUser(u: typeof usersTable.$inferSelect, includeSecrets = false) {
   return {
     id: u.id,
     name: u.name,
@@ -43,7 +43,7 @@ function formatUser(u: typeof usersTable.$inferSelect) {
     avatarUrl: u.avatarUrl,
     mustChangePassword: u.mustChangePassword,
     isActive: u.isActive ?? true,
-    redmineApiKey: u.redmineApiKey ?? null,
+    ...(includeSecrets ? { redmineApiKey: u.redmineApiKey ?? null } : {}),
     createdAt: u.createdAt.toISOString(),
   };
 }
@@ -67,7 +67,7 @@ router.get("/users", async (req, res): Promise<void> => {
     }
   }
 
-  res.json(users.map(formatUser));
+  res.json(users.map((user) => formatUser(user)));
 });
 
 router.post("/users", async (req, res): Promise<void> => {
@@ -98,7 +98,8 @@ router.post("/users", async (req, res): Promise<void> => {
 });
 
 router.get("/users/:id", async (req, res): Promise<void> => {
-  if (!requireAuth(req, res)) return;
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const params = GetUserParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -114,7 +115,7 @@ router.get("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser(user));
+  res.json(formatUser(user, ctx.userId === user.id));
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {
@@ -185,7 +186,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser(user));
+  res.json(formatUser(user, isSelf));
 });
 
 router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
@@ -211,7 +212,7 @@ router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  res.json(formatUser(user));
+  res.json(formatUser(user, ctx.userId === user.id));
 });
 
 router.get("/users/:id/stats", async (req, res): Promise<void> => {
