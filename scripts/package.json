@@ -32,6 +32,7 @@
     "preprod:crud": "tsx ./src/preprod-crud.ts",
     "preprod:auth": "tsx ./src/preprod-auth.ts",
     "preprod:boundaries": "tsx ./src/preprod-boundaries.ts",
+    "preprod:config": "tsx ./src/preprod-config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

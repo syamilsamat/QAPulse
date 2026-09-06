@@ -104,6 +104,8 @@ async function login(email: string): Promise<{ token: string; role: string }> {
 
 const health = await request("/healthz");
 expect("public health check", health.status, 200);
+const readiness = await request("/readyz");
+expect("database readiness check", readiness.status, 200, (readiness.body as any)?.status);
 
 for (const path of protectedReads) {
   const result = await request(path);
