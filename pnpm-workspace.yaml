@@ -45,7 +45,12 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - '@replit/*'
   - brace-expansion
+  - body-parser
+  - dompurify
   - ip-address
+  - protobufjs
+  - qs
+  - uuid
   - stripe-replit-sync
 
 onlyBuiltDependencies:
@@ -78,6 +83,7 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   brace-expansion: 5.0.9
+  body-parser: 2.3.0
   esbuild: 0.27.3
   esbuild>@esbuild/aix-ppc64: '-'
   esbuild>@esbuild/android-arm: '-'
@@ -103,6 +109,7 @@ overrides:
   esbuild>@esbuild/win32-arm64: '-'
   esbuild>@esbuild/win32-ia32: '-'
   fast-uri: '>=3.1.2'
+  dompurify: 3.4.13
   ip-address: 10.3.1
   lightningcss>lightningcss-android-arm64: '-'
   lightningcss>lightningcss-darwin-x64: '-'
@@ -117,6 +124,8 @@ overrides:
   path-to-regexp: '>=8.4.0'
   picomatch: '>=4.0.4'
   postcss: '>=8.5.10'
+  protobufjs: 7.6.5
+  qs: 6.16.0
   rollup>@rollup/rollup-android-arm-eabi: '-'
   rollup>@rollup/rollup-android-arm64: '-'
   rollup>@rollup/rollup-darwin-x64: '-'
@@ -140,3 +149,4 @@ overrides:
   rollup>@rollup/rollup-win32-ia32-msvc: '-'
   rollup>@rollup/rollup-win32-x64-gnu: '-'
   yaml: '>=2.8.3'
+  uuid: 11.1.1
