@@ -144,9 +144,35 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Only an admin can change a user's role" }); return;
   }
 
+  const [targetUser] = await db.select().from(usersTable).where(eq(usersTable.id, params.data.id));
+  if (!targetUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  // Self-service password changes belong exclusively to /auth/change-password,
+  // where the current password is verified. Managers may issue temporary
+  // passwords to ordinary users, but only admin/cto may reset another
+  // privileged account.
+  if (parsed.data.password !== undefined) {
+    if (isSelf) {
+      res.status(400).json({ error: "Use the change-password endpoint to change your own password" }); return;
+    }
+    if (!isManager) {
+      res.status(403).json({ error: "Manager tier or above required to reset passwords" }); return;
+    }
+    if (PRIVILEGED_ROLES.includes(targetUser.role) && !isAdmin) {
+      res.status(403).json({ error: "Only an admin can reset an admin/cto password" }); return;
+    }
+    if (parsed.data.password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" }); return;
+    }
+  }
+
   const updateData: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.password) {
     updateData.password = await bcrypt.hash(parsed.data.password, 12);
+    updateData.mustChangePassword = true;
   }
 
   const [user] = await db
