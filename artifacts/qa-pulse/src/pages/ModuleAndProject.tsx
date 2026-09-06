@@ -579,14 +579,14 @@ export default function ModuleAndProject() {
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState("qa_member");
   const [memberTeam, setMemberTeam] = useState("");
-  const [memberPw, setMemberPw] = useState("password123");
+  const [memberPw, setMemberPw] = useState("");
 
   const createMutation = useCreateUser({
     mutation: {
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
         toast({ title: `Team member ${memberName} created. They can log in with the temporary password.` });
-        setMemberName(""); setMemberEmail(""); setMemberRole("qa_member"); setMemberTeam(""); setMemberPw("password123");
+        setMemberName(""); setMemberEmail(""); setMemberRole("qa_member"); setMemberTeam(""); setMemberPw("");
       },
       onError: () => toast({ variant: "destructive", title: "Failed to create team member" }),
     },

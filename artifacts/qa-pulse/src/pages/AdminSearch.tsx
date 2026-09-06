@@ -66,6 +66,12 @@ type SearchResult = {
   originalData: Record<string, any>; // Keeps reference for editing
 };
 
+function generateTemporaryPassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return `Qa!7${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
+}
+
 export default function AdminSearch() {
   const [query, setQuery] = useState("");
   const { toast } = useToast();
@@ -76,6 +82,7 @@ export default function AdminSearch() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   const [selectedItem, setSelectedItem] = useState<SearchResult | null>(null);
   const [editForm, setEditForm] = useState<Record<string, any>>({});
 
@@ -210,10 +217,10 @@ export default function AdminSearch() {
     onError: handleError,
   });
   const userResetPassword = useMutation({
-    mutationFn: ({ id }: { id: number }) =>
-      apiFetch(`/users/${id}`, "PATCH", { password: "password123" }), // Adjust endpoint if your backend uses a dedicated route like `/users/${id}/reset-password`
+    mutationFn: ({ id, password }: { id: number; password: string }) =>
+      apiFetch(`/users/${id}`, "PATCH", { password }),
     onSuccess: () =>
-      handleSuccess(getListUsersQueryKey(), "Password reset to password123"),
+      handleSuccess(getListUsersQueryKey(), "Temporary password set; the user must change it at next login"),
     onError: handleError,
   });
 
@@ -243,6 +250,7 @@ export default function AdminSearch() {
 
   const openResetPassword = (item: SearchResult) => {
     setSelectedItem(item);
+    setTemporaryPassword(generateTemporaryPassword());
     setResetDialogOpen(true);
   };
 
@@ -258,7 +266,7 @@ export default function AdminSearch() {
 
   const executeResetPassword = () => {
     if (!selectedItem || selectedItem.type !== "user") return;
-    userResetPassword.mutate({ id: selectedItem.id });
+    userResetPassword.mutate({ id: selectedItem.id, password: temporaryPassword });
   };
 
   const executeUpdate = () => {
@@ -599,9 +607,10 @@ export default function AdminSearch() {
               <span className="font-semibold text-foreground">
                 {selectedItem?.title}
               </span>
-              ? Their password will be permanently changed to{" "}
+              ? Give this one-time temporary password to the user securely. They
+              will be required to change it at next login:{" "}
               <span className="font-mono bg-muted px-1 rounded">
-                password123
+                {temporaryPassword}
               </span>
               .
             </DialogDescription>
