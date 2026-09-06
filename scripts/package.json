@@ -29,6 +29,7 @@
     "seed:sparrow:clear": "tsx ./src/clear-sparrow-data.ts",
     "clear:playwright": "tsx ./src/clear-playwright-data.ts",
     "preprod:smoke": "tsx ./src/preprod-smoke.ts",
+    "preprod:crud": "tsx ./src/preprod-crud.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

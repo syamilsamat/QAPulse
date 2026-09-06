@@ -190,6 +190,7 @@ async function formatTestCase(tc: any) {
   return {
     id: tc.id,
     title: tc.title,
+    objective: tc.objective,
     type: tc.type,
     priority: tc.priority,
     redmineUserStory: tc.redmineUserStory,
@@ -208,6 +209,7 @@ async function formatTestCase(tc: any) {
     requirementTitle,
     projectId: tc.projectId,
     projectName,
+    linkedBug: tc.linkedBug,
     authorId: tc.authorId,
     authorName,
     aiAssisted: tc.aiAssisted,
