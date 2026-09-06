@@ -31,6 +31,7 @@ const protectedReads = [
   "/requirements/events/all", "/document-register", "/data-prep-files", "/audit-log", "/tasks",
   "/tasks/events/all", "/contacts", "/teams", "/modules", "/execution-files",
   "/execution-progress", "/execution-files/review-queue", "/execution-events",
+  "/notifications/stream",
 ] as const;
 
 const authenticatedReads = [
@@ -142,6 +143,12 @@ for (const account of accounts) {
 
 
   if (account.email === "admin@qapulse.com") {
+    const stream = await fetch(`${baseUrl}/notifications/stream?token=${encodeURIComponent(token)}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    expect("authenticated notification stream connects", stream.status, 200);
+    await stream.body?.cancel();
+
     for (const path of malformedDetailReads) {
       const result = await request(path, token);
       expect(`malformed ${path} is a controlled client error`, result.status >= 400 && result.status < 500, true, (result.body as any)?.error);

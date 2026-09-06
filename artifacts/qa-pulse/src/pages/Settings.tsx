@@ -157,11 +157,11 @@ export default function Settings() {
 
   useEffect(() => {
     if (!isLeadOrAdmin) return;
-    fetch("/api/redmine/projects")
+    fetch("/api/redmine/projects", { headers: authHeaders() })
       .then((r) => r.json())
       .then((data: RedmineProject[]) => setRedmineProjects(Array.isArray(data) ? data : []))
       .catch(() => {});
-    fetch("/api/redmine/global-config")
+    fetch("/api/redmine/global-config", { headers: authHeaders() })
       .then((r) => r.json())
       .then((data: RedmineProjectConfig | null) => {
         if (!data) return;
@@ -172,7 +172,7 @@ export default function Settings() {
         });
       })
       .catch(() => {});
-  }, [isLeadOrAdmin]);
+  }, [isLeadOrAdmin, token]);
 
   useEffect(() => {
     fetch("/api/document-register", { headers: authHeaders() })
@@ -242,11 +242,11 @@ export default function Settings() {
   const handleSyncProjects = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch("/api/redmine/sync-projects", { method: "POST" });
+      const res = await fetch("/api/redmine/sync-projects", { method: "POST", headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
       toast({ title: `Synced ${data.synced} Redmine projects` });
-      const updated = await fetch("/api/redmine/projects").then((r) => r.json());
+      const updated = await fetch("/api/redmine/projects", { headers: authHeaders() }).then((r) => r.json());
       setRedmineProjects(Array.isArray(updated) ? updated : []);
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
@@ -260,7 +260,7 @@ export default function Settings() {
     try {
       const res = await fetch("/api/redmine/global-config", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           complexityFieldId: configForm.complexityFieldId ? Number(configForm.complexityFieldId) : null,
           targetedStartDateFieldId: configForm.targetedStartDateFieldId ? Number(configForm.targetedStartDateFieldId) : null,

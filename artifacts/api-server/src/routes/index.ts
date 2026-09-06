@@ -34,6 +34,9 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+// SSE authenticates with a query token because EventSource cannot set a
+// bearer header. Mount it before routers that use header-only catch-all auth.
+router.use(notificationsRouter);
 router.use(usersRouter);
 router.use(projectsRouter);
 router.use(requirementsRouter);
@@ -41,7 +44,6 @@ router.use(testCasesRouter);
 router.use(tasksRouter);
 router.use(dashboardRouter);
 router.use(calendarRouter);
-router.use(notificationsRouter);
 router.use(socialEventsRouter);
 router.use(aiRouter);
 router.use(verdictReportRouter);
