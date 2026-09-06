@@ -30,6 +30,7 @@
     "clear:playwright": "tsx ./src/clear-playwright-data.ts",
     "preprod:smoke": "tsx ./src/preprod-smoke.ts",
     "preprod:crud": "tsx ./src/preprod-crud.ts",
+    "preprod:auth": "tsx ./src/preprod-auth.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

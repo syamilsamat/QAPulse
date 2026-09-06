@@ -87,8 +87,6 @@ export default function Login() {
   const { login } = useAuth();
   const { toast } = useToast();
   const loginMutation = useLogin();
-  const changePasswordMutation = useChangePassword();
-
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
@@ -98,7 +96,15 @@ export default function Login() {
   const [pendingUser, setPendingUser] = useState<{
     id: number;
     name: string;
+    token: string;
   } | null>(null);
+  const changePasswordMutation = useChangePassword({
+    request: {
+      headers: pendingUser?.token
+        ? { Authorization: `Bearer ${pendingUser.token}` }
+        : undefined,
+    },
+  });
 
   // Pointer parallax for the shared 3D backdrop (matches the landing page).
   useEffect(() => {
@@ -126,7 +132,7 @@ export default function Login() {
       {
         onSuccess: (data) => {
           if (data.user.mustChangePassword) {
-            setPendingUser({ id: data.user.id, name: data.user.name });
+            setPendingUser({ id: data.user.id, name: data.user.name, token: data.token });
           } else {
             login(data.user, data.token, (data as any).refreshToken ?? "", rememberMe);
             setLocation("/my-work");
