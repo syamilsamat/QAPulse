@@ -1,4 +1,4 @@
-# QA Pulse
+# QM Pulse
 
 Internal QA management and analytics platform for tracking requirements, test cases, tasks, and team performance.
 
@@ -56,7 +56,7 @@ Demo accounts:
 
 ## Product
 
-**QA Pulse** is a full-stack QA management platform with:
+**QM Pulse** is a full-stack QA management platform with:
 - **Dashboard** — real-time metrics (tasks, test cases, overdue, AI-assisted stats), weekly trend chart, activity feed
 - **Requirements** — create/edit/delete requirements linked to projects, with Redmine ticket ID support
 - **Test Cases** — manual test case management with AI generation (via OpenAI), clone, expand-to-view steps

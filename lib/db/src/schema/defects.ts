@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-// CR019: native defect records. QAPulse is the front door for QA defects
+// CR019: native defect records. QM Pulse is the front door for QA defects
 // (write-through to Redmine, which stays the system of record for lifecycle);
 // production defects are pulled in from the Redmine incident tracker (CR020).
 // All Redmine-specific sync code lives in redmine-defect-bridge.ts only.
@@ -44,7 +44,7 @@ export const defectsTable = pgTable(
     // now but keep their real tracker recorded (Sync from Redmine dialog)
     tracker: text("tracker"),
     category: text("category"), // Redmine category name, saved alongside the tracker
-    // QAPulse-native defect classification (independent of the Redmine category
+    // QM Pulse-native defect classification (independent of the Redmine category
     // above, which is a freeform per-project Redmine field) — one of a fixed
     // set: functional | ui_ux | usability | performance | security | data |
     // compatibility | integration | configuration | localization. Settable

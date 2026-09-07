@@ -38,7 +38,7 @@ export function defectCodePrefix(route: string): string {
   return "DEF-";
 }
 
-// Redmine priority name → QAPulse severity
+// Redmine priority name → QM Pulse severity
 export function severityFromPriority(priority?: string | null): string {
   const p = (priority ?? "").toLowerCase();
   if (p.includes("immediate") || p.includes("urgent")) return "critical";
@@ -79,7 +79,7 @@ export interface PushResult {
   error?: string;
 }
 
-// Write-through push: create the Redmine issue for a QAPulse defect.
+// Write-through push: create the Redmine issue for a QM Pulse defect.
 // Idempotent — a defect that already carries a redmineId is never re-pushed.
 // CR051 — search Redmine for an issue whose description carries our unique
 // marker, so a retried push reuses it instead of creating a duplicate.
@@ -131,9 +131,9 @@ export async function pushDefectToRedmine(
   // CR051 — retry-safe: if a previous push created the issue but the response
   // was lost (timeout/reset after Redmine committed), no redmineId was stored
   // and this would create a second issue. The description embeds a unique
-  // marker (DEF-code / "QMPulse defect #id"); search for it first and reuse
+  // marker (DEF-code / "QM Pulse defect #id"); search for it first and reuse
   // any existing issue. Best-effort — search failures fall through to create.
-  const marker = defect.defectCode ?? `QMPulse defect #${defect.id}`;
+  const marker = defect.defectCode ?? `QM Pulse defect #${defect.id}`;
   const existingRemoteId = await findRedmineIssueByMarker(marker, apiKey);
   if (existingRemoteId) return { ok: true, redmineId: existingRemoteId };
 
@@ -142,7 +142,7 @@ export async function pushDefectToRedmine(
     defect.stepsToReproduce ? `*Steps to reproduce:*\n${defect.stepsToReproduce}` : null,
     defect.expectedResult ? `*Expected:*\n${defect.expectedResult}` : null,
     defect.actualResult ? `*Actual:*\n${defect.actualResult}` : null,
-    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${marker} (created via QMPulse)_`,
+    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${marker} (created via QM Pulse)_`,
   ].filter(Boolean);
 
   try {
@@ -172,7 +172,7 @@ export async function pushDefectToRedmine(
   }
 }
 
-// Sync the full Redmine status list (/issue_statuses.json) into QAPulse so
+// Sync the full Redmine status list (/issue_statuses.json) into QM Pulse so
 // the Defects page can offer the real status options for editing.
 export async function syncIssueStatuses(apiKey: string): Promise<{ synced: number; error?: string }> {
   try {
@@ -195,7 +195,7 @@ export async function syncIssueStatuses(apiKey: string): Promise<{ synced: numbe
   }
 }
 
-// Status write-through: push a status change made in QAPulse to Redmine.
+// Status write-through: push a status change made in QM Pulse to Redmine.
 // The caller only updates the local cache when this succeeds — Redmine stays
 // the system of record until CR021.
 export async function pushStatusToRedmine(
@@ -219,7 +219,7 @@ export async function pushStatusToRedmine(
 }
 
 // CR061 — edit write-through: push corrected title/description/tracker made
-// in QAPulse (by the reporter or a qa_lead+) to Redmine. Same fail-closed
+// in QM Pulse (by the reporter or a qa_lead+) to Redmine. Same fail-closed
 // pattern as pushStatusToRedmine — the caller only updates the local row once
 // this succeeds. Tracker is resolved by name through the same trackersTable
 // cache pushDefectToRedmine already uses for creation.
@@ -252,7 +252,7 @@ export async function pushDefectFieldsToRedmine(
   }
 }
 
-// CR030 — QAPulse doesn't store a Redmine user id for its own accounts, so
+// CR030 — QM Pulse doesn't store a Redmine user id for its own accounts, so
 // pushing a native assignment out requires a best-effort name search against
 // Redmine's own user list. Silent miss (no match / Redmine down) just means
 // the push doesn't happen this cycle — the native assignment still stands
@@ -275,9 +275,9 @@ async function resolveRedmineUserIdByName(name: string, apiKey: string): Promise
   }
 }
 
-// Push a native (QAPulse) defect assignee to Redmine. Non-fatal on failure —
+// Push a native (QM Pulse) defect assignee to Redmine. Non-fatal on failure —
 // callers treat this as best-effort, same as pushDefectToRedmine's philosophy
-// of never blocking a QAPulse-side action on Redmine being reachable.
+// of never blocking a QM Pulse-side action on Redmine being reachable.
 export async function pushAssigneeToRedmine(
   redmineIssueId: string,
   qaPulseUserId: number,
@@ -307,7 +307,7 @@ export async function pushAssigneeToRedmine(
 // the record until CR021). Assignee is reconciled both ways (CR030): whichever
 // side changed more recently wins — Redmine's issue.updated_on vs our own
 // assigneeAssignedAt — since native in-app assignment is now a first-class
-// QAPulse action, not just a Redmine-side fact QAPulse mirrors.
+// QM Pulse action, not just a Redmine-side fact QM Pulse mirrors.
 export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed: number }> {
   const rows = await db
     .select({
@@ -376,7 +376,7 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
 // (children, grandchildren, …) breadth-first, so parents always come before
 // their children in the returned list. Read-only. Caps: depth 5, ~300 issues.
 // Fetch a single issue by id. Used when syncing from a typed-in parent Redmine
-// id, where the root ticket may not be in QAPulse yet — fetchIssueTree below
+// id, where the root ticket may not be in QM Pulse yet — fetchIssueTree below
 // only walks *descendants* and never returns the root itself.
 export async function fetchSingleIssue(
   apiKey: string,
@@ -433,7 +433,7 @@ export async function fetchIssueTree(
 
 // "Pull now": import the 100 most recently updated issues of the chosen
 // tracker, each routed by its tracker (QA/Prod/Others tabs, User Story →
-// requirement). INSERT-ONLY: issues already in QAPulse are ignored untouched
+// requirement). INSERT-ONLY: issues already in QM Pulse are ignored untouched
 // ("Refresh status" is the update mechanism).
 export interface PullResultCounts {
   imported: number;

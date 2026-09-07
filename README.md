@@ -1,6 +1,6 @@
-# QAPulse
+# QM Pulse
 
-QAPulse is a QA management platform built for software testing teams. It centralises test case authoring, task tracking, execution progress, defect creation, and PMO reporting — with deep Redmine integration throughout.
+QM Pulse is a QA management platform built for software testing teams. It centralises test case authoring, task tracking, execution progress, defect creation, and PMO reporting — with deep Redmine integration throughout.
 
 ---
 
@@ -10,7 +10,7 @@ Before you begin, make sure you have the following installed and available:
 
 - **Node.js** v18 or higher
 - **pnpm** v8 or higher — this workspace enforces pnpm. Running `npm install` or `yarn` will exit with an error.
-- **PostgreSQL** — a running instance with a database created for QAPulse
+- **PostgreSQL** — a running instance with a database created for QM Pulse
 - **Redmine** — a running Redmine instance with API access enabled
 - **Google GenAI API key** — required for AI-assisted test case generation
 - **Office 365 SMTP credentials** — required for PMO report email delivery
@@ -88,7 +88,7 @@ Create a `.env` file at the workspace root with the following variables:
 
 ## Project Structure
 
-QAPulse is a pnpm monorepo. The main packages are:
+QM Pulse is a pnpm monorepo. The main packages are:
 
 ```
 QAPulse/
@@ -119,7 +119,7 @@ QAPulse/
 
 ## User Roles
 
-QAPulse uses role-based access control. Roles are assigned per user account.
+QM Pulse uses role-based access control. Roles are assigned per user account.
 
 | Role | Access |
 |---|---|

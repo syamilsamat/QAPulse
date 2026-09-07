@@ -552,7 +552,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
 
   // Edit permission: the author/assignee always can. A Redmine-imported
   // requirement's "author" is often a Redmine-resolved fallback rather than
-  // a real accountable QAPulse user, so any FA-tier reviewer may edit it too
+  // a real accountable QM Pulse user, so any FA-tier reviewer may edit it too
   // — otherwise a whole team could be locked out of a requirement nobody
   // among them technically "owns." Native (non-Redmine) requirements stay
   // author/assignee-only.
@@ -1473,7 +1473,7 @@ async function redmineFetchLocal(path: string, apiKey: string) {
   });
 }
 
-// CR023p1.4 — Redmine issues carry an author name, not a QAPulse user ID. Matching
+// CR023p1.4 — Redmine issues carry an author name, not a QM Pulse user ID. Matching
 // is approximate (name string vs. a separate identity system), so a miss falls
 // back to the importing user rather than ever leaving createdBy null.
 async function resolveRedmineCreatedBy(
@@ -1486,7 +1486,7 @@ async function resolveRedmineCreatedBy(
     const [match] = await db.select().from(usersTable).where(ilike(usersTable.name, name));
     if (match) return match.id;
   }
-  console.warn(`[Redmine import] No QAPulse user matched Redmine author "${name ?? "(none)"}" for issue #${ticketId} — falling back to importing user #${importingUserId}`);
+  console.warn(`[Redmine import] No QM Pulse user matched Redmine author "${name ?? "(none)"}" for issue #${ticketId} — falling back to importing user #${importingUserId}`);
   return importingUserId;
 }
 

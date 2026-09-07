@@ -1,4 +1,4 @@
-# QAPulse — Two Delivery Pipelines
+# QM Pulse — Two Delivery Pipelines
 
 Every milestone runs through exactly one of **two independent delivery flows**, decided by a single flag: `pipelineEnabled`. They share the same underlying tables (requirements, execution files, defects) but different owners, gates, and UI.
 
@@ -10,7 +10,7 @@ Every milestone runs through exactly one of **two independent delivery flows**, 
 | Requirements | Hand-authored, peer-reviewed by a different FA (segregation of duties enforced server-side) | Synced straight from Redmine — no FA authoring or peer review step |
 | Closure | A Lead manually sets status to Completed | 7 gates re-checked live; "Mark as DEPLOYED" is disabled until all pass |
 
-For the full interactive version with status chips, loop routing, and the deploy gate drawn out, open [`qapulse-milestone-swimlane.html`](./qapulse-milestone-swimlane.html) in a browser. The diagrams below are GitHub-renderable fallbacks — Mermaid doesn't support true horizontal swimlanes, so lanes are grouped as subgraphs instead.
+For the full interactive version with status chips, loop routing, and the deploy gate drawn out, open [`qm-pulse-milestone-swimlane.html`](./qm-pulse-milestone-swimlane.html) in a browser. The diagrams below are GitHub-renderable fallbacks — Mermaid doesn't support true horizontal swimlanes, so lanes are grouped as subgraphs instead.
 
 ## A · Classic Delivery Flow
 

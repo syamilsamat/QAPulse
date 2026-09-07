@@ -151,7 +151,7 @@ export default function MyWorkToday() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Good morning, {firstName}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {scope === "mine" ? "Your prioritized actions across QAPulse." : scope === "team" ? "Team actions, reviews and delivery exceptions." : "Work that needs an accountable owner."}
+              {scope === "mine" ? "Your prioritized actions across QM Pulse." : scope === "team" ? "Team actions, reviews and delivery exceptions." : "Work that needs an accountable owner."}
             </p>
           </div>
           <div className="flex items-center gap-2">

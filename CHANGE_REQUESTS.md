@@ -1,6 +1,6 @@
-# QAPulse — Change Request Register
+# QM Pulse — Change Request Register
 
-Canonical list of all CRs for QAPulse. Update status here whenever a CR is deployed, started, or planned.
+Canonical list of all CRs for QM Pulse. Update status here whenever a CR is deployed, started, or planned.
 
 ---
 
@@ -16,8 +16,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR006](#cr006--ai-enhancements) | AI Enhancements | ✅ Deployed | 2026-06-27 |
 | [CR007](#cr007--auth--session-management) | Auth & Session Management | ✅ Deployed | 2026-06-29 |
 | [CR008](#cr008--execution-sheet-ux-overhaul) | Execution Sheet UX Overhaul | ✅ Deployed | 2026-06-28 |
-| [CR009](#cr009--playwrightqapulse-reporter) | Playwright→QAPulse Reporter | ⏳ Pending | — |
-| [CR010](#cr010--trigger-playwright-from-qapulse-ui) | Trigger Playwright from QAPulse UI | ⏳ Pending | — |
+| [CR009](#cr009--playwrightqapulse-reporter) | Playwright→QM Pulse Reporter | ⏳ Pending | — |
+| [CR010](#cr010--trigger-playwright-from-qapulse-ui) | Trigger Playwright from QM Pulse UI | ⏳ Pending | — |
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | ✅ Deployed | 2026-07-04 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
@@ -141,17 +141,17 @@ Full session & auth hardening:
 
 ---
 
-### CR009 — Playwright→QAPulse Reporter
+### CR009 — Playwright→QM Pulse Reporter
 **Status:** ⏳ Pending
 
-Custom Playwright reporter that auto-pushes test results into QAPulse execution files:
+Custom Playwright reporter that auto-pushes test results into QM Pulse execution files:
 - Upsert by caseId
 - Covers all suites
 - One fixed ticketId per suite
 
 ---
 
-### CR010 — Trigger Playwright from QAPulse UI
+### CR010 — Trigger Playwright from QM Pulse UI
 **Status:** ⏳ Pending
 **Depends on:** CR009
 
@@ -228,10 +228,10 @@ Addresses bottlenecks found in codebase audit:
 **Status:** ⏳ Pending
 **Source:** unmerged branch `claude/microsoft-login-integration-6cm4go`
 
-Replace email/password auth with Microsoft Entra ID (Azure AD) SSO, single-tenant, org accounts only. Password login removed entirely; admins pre-create user accounts (name, email, role — no password). Users signing in with a Microsoft email not already in QAPulse get a "contact admin" error (no auto-provisioning).
+Replace email/password auth with Microsoft Entra ID (Azure AD) SSO, single-tenant, org accounts only. Password login removed entirely; admins pre-create user accounts (name, email, role — no password). Users signing in with a Microsoft email not already in QM Pulse get a "contact admin" error (no auto-provisioning).
 
 - Make `password` nullable on `usersTable`
-- New `POST /auth/microsoft` — validates Azure AD ID token via `jwks-rsa` + `jsonwebtoken`, looks up user by email, issues QA Pulse JWT
+- New `POST /auth/microsoft` — validates Azure AD ID token via `jwks-rsa` + `jsonwebtoken`, looks up user by email, issues QM Pulse JWT
 - Remove `POST /auth/login`; keep `/auth/me`, `/auth/logout`, `/auth/change-password`
 - Frontend: MSAL redirect flow (`@azure/msal-browser`, `@azure/msal-react`) replaces the Login page's email/password form
 - Remove password fields from Settings' user creation form
@@ -281,7 +281,7 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 
 **Original plan (for reference):**
 
-Expands QAPulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO), driven by two new **admin-configurable** columns on the existing `roles` table (`department`, `tierRank`) rather than a hardcoded lookup — admin can retier/re-department any role via the existing Roles page, no deploy needed. Still **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
+Expands QM Pulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO), driven by two new **admin-configurable** columns on the existing `roles` table (`department`, `tierRank`) rather than a hardcoded lookup — admin can retier/re-department any role via the existing Roles page, no deploy needed. Still **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
 
 **Part 1 — Project-level access control (prerequisite)**
 - New `project_members` table (projectId + userId, no per-project sub-roles yet)
@@ -407,15 +407,15 @@ Supports impact analysis before editing/deleting a library TC, avoiding duplicat
 
 **Implementation note:** the execution fail modal already created Redmine issues directly (with assignee/custom fields/screenshots/duplicate check), so that flow was kept and extended with local registration (`POST /defects/register`, upsert by redmineId) instead of replacing it. Write-through `POST /defects` exists for the manual New Defect dialog. All Redmine code isolated in `redmine-defect-bridge.ts` as designed.
 
-First step toward native defect tracking in QAPulse. QAPulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so the future full cutover (CR021) only removes the Redmine write — schema and UI carry over unchanged.
+First step toward native defect tracking in QM Pulse. QM Pulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so the future full cutover (CR021) only removes the Redmine write — schema and UI carry over unchanged.
 
-**Migration principle (applies to all Redmine-touching CRs):** every part is classified permanent or bridge. Permanent = QAPulse tables/pages/links/metrics, Redmine-agnostic, survive cutover unchanged. Bridge = the Redmine push/pull code, isolated in a single module (`redmine-defect-bridge.ts`) that nothing else imports Redmine details from — deleted at cutover.
+**Migration principle (applies to all Redmine-touching CRs):** every part is classified permanent or bridge. Permanent = QM Pulse tables/pages/links/metrics, Redmine-agnostic, survive cutover unchanged. Bridge = the Redmine push/pull code, isolated in a single module (`redmine-defect-bridge.ts`) that nothing else imports Redmine details from — deleted at cutover.
 
 **Ownership rules (the design hinges on these):**
-1. **One-way ownership** *(amended 2026-07-04 by user decision)*. QAPulse owns creation + TC linkage. Status is now **editable in QAPulse as write-through**: the full Redmine status list is synced locally (`redmine_statuses` table), a status change is pushed to Redmine first (`PUT /issues/:id`), and the local cache updates only on Redmine's success — on rejection QAPulse keeps the old status. Redmine remains the system of record (devs can still change status there; "Refresh status" reconciles, last write wins). Comments/assignment still Redmine-only until CR021. This is an early slice of CR021's native lifecycle, kept inside the bridge module.
+1. **One-way ownership** *(amended 2026-07-04 by user decision)*. QM Pulse owns creation + TC linkage. Status is now **editable in QM Pulse as write-through**: the full Redmine status list is synced locally (`redmine_statuses` table), a status change is pushed to Redmine first (`PUT /issues/:id`), and the local cache updates only on Redmine's success — on rejection QM Pulse keeps the old status. Redmine remains the system of record (devs can still change status there; "Refresh status" reconciles, last write wins). Comments/assignment still Redmine-only until CR021. This is an early slice of CR021's native lifecycle, kept inside the bridge module.
 2. **Backfill `defect_number`.** On creation, the returned Redmine ID is written into `execution_test_cases.defect_number` exactly as if typed — Pareto/CAPA sheets, verdict Excel, traceability matrix, and link-out chips keep working with zero changes, and IDs are guaranteed real (no more typo'd defect numbers).
 3. **Never block execution on Redmine.** If Redmine is down when a TC is failed, the defect row is created locally as "pending sync"; a background retry (with idempotency guard against duplicate Redmine tickets) pushes it and fills in the Redmine ID.
-4. **Reporter identity.** Per-user Redmine API keys (existing `resolveApiKey`) → actual QA shows as reporter in Redmine. Global-key fallback → prepend "Reported by {name} via QAPulse" to the description.
+4. **Reporter identity.** Per-user Redmine API keys (existing `resolveApiKey`) → actual QA shows as reporter in Redmine. Global-key fallback → prepend "Reported by {name} via QM Pulse" to the description.
 
 **Data model (new tables):**
 - `defects`: id, `defect_code` (auto `DEF-NNNN` per project), title, description, steps to reproduce / expected / actual, severity, status (cached from Redmine), module, `project_id`, `reporter_id`, `assignee_name` (cached), `redmine_id`, `sync_status` (`pending` | `synced` | `error`), **`source` (`qa` | `production`)**, **`found_in` (`SIT` | `UAT` | `Production`)**, timestamps. The source/found_in columns are added now (cheap) so CR020 prod defects need no migration.
@@ -428,7 +428,7 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 **Defects page (new, mockup approved 2026-07-03):**
 - Summary cards: Open · In progress · Awaiting retest · Closed (30d).
 - Saved-view tabs: All open / Blocking TCs / Awaiting retest / My defects; project + severity filters, search.
-- Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QAPulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
+- Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QM Pulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
 - Expand row → linked TCs from `defect_links` with execution file + current result, deep-linking to the execution file via the CR018 `?tc=` filter.
 - **Retest flag:** defect Fixed/Resolved in Redmine while a linked TC is still Failed → TC line shows "Retest needed"; collected under the Awaiting retest tab/card.
 - Deliberately absent: comments, reassignment — those stay in Redmine until CR021. (Status editing was originally absent too, but was added post-deploy 2026-07-04 as write-through — see ownership rule 1.)
@@ -443,7 +443,7 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 ### CR020 — Production Defect Workflow (Escape Analysis)
 **Status:** ✅ Deployed (2026-07-04, together with CR019). PMO report Excel integration of leakage rate deferred — metrics live on the Defects page Production tab.
 
-Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QAPulse) and **QAPulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QAPulse closes the QA loop.
+Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QM Pulse) and **QM Pulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QM Pulse closes the QA loop.
 
 **Framing:** a prod defect is an *escape* — a bug that got past testing. The workflow answers "why did we miss it, and how do we make sure we never miss it again."
 
@@ -454,7 +454,7 @@ Handles defects found in **production** — the mirror image of CR019: for prod 
 - **Closed loop state:** regression TC added + retest passed → escape review complete.
 - **Metrics cards + PMO report:** prod defect count per release, **defect leakage rate** (prod ÷ total), escapes analyzed, regression TCs added. Leakage rate also feeds the existing Pareto/CAPA process.
 
-**Permanent vs bridge:** escape review, regression backfill, leakage metrics, Production tab = permanent (read QAPulse tables only). Pull sync + read-only Redmine status = bridge, lives in `redmine-defect-bridge.ts`, deleted at CR021 cutover (prod intake then happens directly in QAPulse or its replacement).
+**Permanent vs bridge:** escape review, regression backfill, leakage metrics, Production tab = permanent (read QM Pulse tables only). Pull sync + read-only Redmine status = bridge, lives in `redmine-defect-bridge.ts`, deleted at CR021 cutover (prod intake then happens directly in QM Pulse or its replacement).
 
 **Scope estimate:** `artifacts/api-server/src/routes/defects.ts` (pull-sync job + escape-review endpoints), `artifacts/qa-pulse/src/pages/Defects.tsx` (Production tab, escape panel, create-regression-TC dialog), `pmo-report.ts` (leakage metrics). No schema change beyond CR019's tables.
 
@@ -463,10 +463,10 @@ Handles defects found in **production** — the mirror image of CR019: for prod 
 ### CR021 — Native Defect Tracking Cutover (Retire Redmine for Defects)
 **Status:** 📋 Planned (2026-07-03). Depends on CR019 + CR020; sequenced after CR014 (dev roles).
 
-The end state: QAPulse becomes the **system of record** for defects; Redmine is retired for defect tracking (it may remain for other uses — requirements import etc. are unaffected).
+The end state: QM Pulse becomes the **system of record** for defects; Redmine is retired for defect tracking (it may remain for other uses — requirements import etc. are unaffected).
 
 - **Delete the bridges:** remove `redmine-defect-bridge.ts` (write-through push, status read, prod pull). Everything permanent from CR019/CR020 continues unchanged.
-- **Enable native lifecycle:** status transitions (New → Open → In Progress → Fixed → Verified/Closed + Reopened/Rejected/Duplicate/Deferred), comments, assignment — on the existing Defects page. Developers work in QAPulse (requires CR014 roles).
+- **Enable native lifecycle:** status transitions (New → Open → In Progress → Fixed → Verified/Closed + Reopened/Rejected/Duplicate/Deferred), comments, assignment — on the existing Defects page. Developers work in QM Pulse (requires CR014 roles).
 - **History migration:** one-time import of remaining Redmine defect tickets via `redmine_legacy_id` (subject, status, assignee, journal); legacy `RM #` chips keep resolving for old records; unresolvable IDs surfaced in a data-quality report.
 - **Notifications:** assignee/reporter notified on transitions via the existing notifications table.
 - Retest loop switches from Redmine-status polling to native status transitions (same UI, different trigger).
@@ -486,7 +486,7 @@ Follow-ups to CR014's FA track onboarding — three separable features that deep
 
 **Part 2 — Discussion thread on requirements** *(depends on CR014's Detail page)*
 - New `requirement_comments` table + `GET`/`POST /requirements/:id/comments` (project-scoped; anyone who can view can comment)
-- Chronological thread on the Requirement Detail page between the review box and History panel — keeps the reject → revise → resubmit conversation in QAPulse instead of Teams/email
+- Chronological thread on the Requirement Detail page between the review box and History panel — keeps the reject → revise → resubmit conversation in QM Pulse instead of Teams/email
 - New comment notifies author, assignee, and prior commenters (deduped, minus the commenter); comments permanent (no edit/delete in v1)
 - Review-action comments stay in `activityTable` per CR014 — the thread is for discussion *between* review actions, not a replacement audit trail
 
@@ -509,7 +509,7 @@ A follow-up audit comparing CR014/CR022's actual shipped implementation against 
 - Segregation-of-duties check now guards both `approve` and `reject` — an author can no longer reject their own requirement.
 - Reject notifications now fan out to author + assignee + the milestone's PM (approve stays author+assignee only — "routine progress, no PM needed").
 - Editing a `rejected` requirement is now restricted to its author/assignee (revise & resubmit).
-- Redmine imports resolve `createdBy` by matching the Redmine issue's author name against QAPulse users (`ilike` on name); on no match, falls back to the importing user rather than ever leaving it `null` — closes the segregation-of-duties bypass for imported requirements.
+- Redmine imports resolve `createdBy` by matching the Redmine issue's author name against QM Pulse users (`ilike` on name); on no match, falls back to the importing user rather than ever leaving it `null` — closes the segregation-of-duties bypass for imported requirements.
 
 **Part 2 — `RequirementDetail.tsx` completed** (`e82dd6a`)
 - Breadcrumb now traces the real `parentId` ancestry chain (root first).
@@ -760,9 +760,9 @@ Dev tooling, not an in-app feature: a reversible seed/clear script pair producin
 ### CR029 — Defect Category Classification
 **Status:** ✅ Deployed (2026-07-05)
 
-A fixed, QAPulse-native defect taxonomy (Functional, UI/UX, Usability, Performance, Security, Data/Database, Compatibility, Integration/API, Configuration/Environment, Localization), settable on both defect-creation paths (the Defects page's "New Defect" dialog and the execution fail pill's "Create Defect" modal) and gated to Lead-tier and above.
+A fixed, QM Pulse-native defect taxonomy (Functional, UI/UX, Usability, Performance, Security, Data/Database, Compatibility, Integration/API, Configuration/Environment, Localization), settable on both defect-creation paths (the Defects page's "New Defect" dialog and the execution fail pill's "Create Defect" modal) and gated to Lead-tier and above.
 
-- **New column, not a repurpose of the existing `category` field:** `defects.category` already existed, but it's a Redmine-mirror (whatever a given Redmine project's own issue-category field happens to say — freeform, only populated on production-defect pulls). Overloading it with a fixed QAPulse taxonomy would have collided with that unrelated existing meaning, so a new `defectCategory` column was added instead. Requires a `db push` (the `defects` table has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL at all — it was created via `drizzle-kit push` originally, unlike `milestones`/`requirements`, which have hand-written idempotent bootstrap statements).
+- **New column, not a repurpose of the existing `category` field:** `defects.category` already existed, but it's a Redmine-mirror (whatever a given Redmine project's own issue-category field happens to say — freeform, only populated on production-defect pulls). Overloading it with a fixed QM Pulse taxonomy would have collided with that unrelated existing meaning, so a new `defectCategory` column was added instead. Requires a `db push` (the `defects` table has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL at all — it was created via `drizzle-kit push` originally, unlike `milestones`/`requirements`, which have hand-written idempotent bootstrap statements).
 - **Lead-tier+ gate, enforced server-side, not just hidden in the UI:** added `getRoleTierRank(role)` to `middleware/access.ts` (admin → unrestricted, everyone else looked up from `roles.tier_rank`; Lead = 2 across every department by the existing tier convention). `POST /defects`, `POST /defects/register`, and `PATCH /defects/:id` all silently drop an incoming `defectCategory` if the caller's tier is below 2, rather than rejecting the whole request — a lower-tier caller hitting the API directly (bypassing the UI, which simply doesn't render the field for them) can't set it, but their otherwise-valid defect still gets created.
 - **`GET /auth/me` (and login/refresh) now return `tierRank`** so the frontend can decide whether to render the field at all — `formatUser()` in `auth.ts` was made async to join `roles.tier_rank` by the user's role name (admin hardcoded to a finite sentinel, 99, since `Infinity` doesn't survive `JSON.stringify`).
 - **Shared `DefectCategoryField` component** (dropdown + an (i) info button opening a dialog with all 10 categories and their descriptions) used identically by both creation dialogs — "all dialogs regarding defects" now means exactly these two, since a separate "Edit Defect" dialog doesn't exist (edits happen via small inline controls for `escapeStatus`/`escapeClass`/`escapeNotes` only). `PATCH /defects/:id` accepts `defectCategory` too, ahead of any future edit UI needing it.
@@ -774,19 +774,19 @@ A fixed, QAPulse-native defect taxonomy (Functional, UI/UX, Usability, Performan
 ### CR030 — Developer Workflow: Requirement Handoff & Defect Assignment
 **Status:** ✅ Deployed (2026-07-05)
 
-First slice of bringing Development into QAPulse as a native workflow participant rather than an external, no-login department (a reversal of CR014's original assumption — the `dev_member`/`dev_lead`/`hod_dev` roles it seeded already existed and can log in, but had no dev-specific workflow to do anything with). Two independent handoff loops, matching how the org actually works day to day:
+First slice of bringing Development into QM Pulse as a native workflow participant rather than an external, no-login department (a reversal of CR014's original assumption — the `dev_member`/`dev_lead`/`hod_dev` roles it seeded already existed and can log in, but had no dev-specific workflow to do anything with). Two independent handoff loops, matching how the org actually works day to day:
 
 - **Requirements:** FA-approved requirement → Lead assigns a developer → dev works it → dev marks Ready for QA. Ready-for-QA is the terminal dev-side state; QA picking the work back up for testing is already tracked by the existing execution tables, not a further status here.
-- **Defects:** QA creates/finds a defect → Lead-tier assigns a developer natively in QAPulse → dev fixes it (existing status-edit flow) → the already-built "Retest needed" surfacing (CR019/CR020) closes the loop back to QA. No new hand-back mechanism was needed — it already existed, just without a native assignee to notify.
+- **Defects:** QA creates/finds a defect → Lead-tier assigns a developer natively in QM Pulse → dev fixes it (existing status-edit flow) → the already-built "Retest needed" surfacing (CR019/CR020) closes the loop back to QA. No new hand-back mechanism was needed — it already existed, just without a native assignee to notify.
 
 **Part 1 — Native defect assignment, reconciled against Redmine by recency**
 
-Redmine assignment was previously read-only cache (`defects.assigneeName`, a plain string, refreshed one-way from Redmine on every status refresh). Decision (user call, 2026-07-05): make assignment native in QAPulse now — the Lead-tier+ user assigns a real QAPulse user — but keep the Redmine side in sync via **last-write-wins by timestamp**, not by picking one system as permanently authoritative:
+Redmine assignment was previously read-only cache (`defects.assigneeName`, a plain string, refreshed one-way from Redmine on every status refresh). Decision (user call, 2026-07-05): make assignment native in QM Pulse now — the Lead-tier+ user assigns a real QM Pulse user — but keep the Redmine side in sync via **last-write-wins by timestamp**, not by picking one system as permanently authoritative:
 
-- New columns on `defects`: `assigneeId` (FK to `users`, the source of truth for "who owns this in QAPulse") and `assigneeAssignedAt` (when that assignment was made).
+- New columns on `defects`: `assigneeId` (FK to `users`, the source of truth for "who owns this in QM Pulse") and `assigneeAssignedAt` (when that assignment was made).
 - `PATCH /defects/:id/assign` (Lead-tier+ gate, `getRoleTierRank >= 2` — mirrors the existing `canSetDefectCategory` gate) sets both columns, updates the cached `assigneeName` for display, logs activity, notifies the new assignee, and — if the defect already has a `redmineId` — best-effort pushes the assignment to Redmine.
-- Pushing to Redmine requires a Redmine *user id*, which QAPulse doesn't store for its own accounts (unlike the existing per-user Redmine API key, which authenticates outbound calls but doesn't identify the account to look up). Added `resolveRedmineUserIdByName`/`pushAssigneeToRedmine` in `redmine-defect-bridge.ts` — a best-effort name search against Redmine's own `/users.json`. A miss (no matching Redmine user, or Redmine unreachable) is silent: the native assignment stands locally regardless, exactly like `pushDefectToRedmine`'s existing "never block on Redmine" philosophy.
-- `refreshDefectStatuses` (the existing bulk Redmine→QAPulse pull) now reconciles the assignee both ways instead of blindly overwriting the cache: compares Redmine's `issue.updated_on` against our own `assigneeAssignedAt`. If QAPulse's native assignment is newer, the pull leaves it alone and fires the same best-effort push instead of clobbering it; if Redmine's is newer, the pull adopts Redmine's assignee name into the cache and — if it name-matches a QAPulse user — updates `assigneeId` too, so the native "My Defects" view stays consistent with reassignments made directly in Redmine.
+- Pushing to Redmine requires a Redmine *user id*, which QM Pulse doesn't store for its own accounts (unlike the existing per-user Redmine API key, which authenticates outbound calls but doesn't identify the account to look up). Added `resolveRedmineUserIdByName`/`pushAssigneeToRedmine` in `redmine-defect-bridge.ts` — a best-effort name search against Redmine's own `/users.json`. A miss (no matching Redmine user, or Redmine unreachable) is silent: the native assignment stands locally regardless, exactly like `pushDefectToRedmine`'s existing "never block on Redmine" philosophy.
+- `refreshDefectStatuses` (the existing bulk Redmine→QM Pulse pull) now reconciles the assignee both ways instead of blindly overwriting the cache: compares Redmine's `issue.updated_on` against our own `assigneeAssignedAt`. If QM Pulse's native assignment is newer, the pull leaves it alone and fires the same best-effort push instead of clobbering it; if Redmine's is newer, the pull adopts Redmine's assignee name into the cache and — if it name-matches a QM Pulse user — updates `assigneeId` too, so the native "My Defects" view stays consistent with reassignments made directly in Redmine.
 - Defects page: assignee picker (Lead-tier+ only; everyone else sees read-only text) scoped to `dev_member`/`dev_lead`/`hod_dev` users, and a new "My Defects" view tab (`view=mine`, filters to `assigneeId === current user`) alongside the existing All open/Blocking/Retest tabs.
 - Defects nav item, previously hardcoded to `["qa_member", "qa_lead", "admin"]` with no permission key (deliberately, per CR019, so it wouldn't get hidden on existing DBs before permission keys existed) now carries `nav:defects`, seeded to the dev department plus every role that could already reach it (`qa_manager`/`hod_qa` were quietly missing from that original hardcoded list too — now included).
 
@@ -836,7 +836,7 @@ Today "something is wrong with this requirement" has exactly one outlet — flip
 - `foundIn`: new value `"Development"` for defects discovered outside a testing phase (e.g. a dev mid-implementation); `SIT` / `UAT` still apply when QA notices the issue during execution.
 - Link to the requirement via the existing `defectLinksTable` (`requirementId` + `linkType: 'requirement'`, already present and previously unused for this purpose — see comment at `defects.ts:63-75`).
 - `defectCategory` (the functional/ui_ux/... taxonomy) does not apply to this source and stays `null` — it's a product-defect classification, not a requirement-authoring one.
-- Requirement defects are QAPulse-native only: `redmineId` stays null, no Redmine push, consistent with the standing principle that Redmine integrations stay thin and disposable — this is a QAPulse concept with no Redmine tracker equivalent.
+- Requirement defects are QM Pulse-native only: `redmineId` stays null, no Redmine push, consistent with the standing principle that Redmine integrations stay thin and disposable — this is a QM Pulse concept with no Redmine tracker equivalent.
 - Status/retest lifecycle reuses the existing plain-string vocabulary and regex-based `retestNeeded` calculation (`New` → `In Progress` → `Fixed`/`Ready` → QA sees it needs retest → `Verified`/`Closed`) — no new state machine.
 
 ---
@@ -980,7 +980,7 @@ Risk score is derived at read time from a 3×3 probability×impact matrix (low/m
 **Non-goals for this CR:**
 - **Initiating** (project charter, stakeholder register) — a genuinely new concept with no existing data to build on, unlike Closing/Risk which extend structures already in place. Worth its own CR if the org wants formal charter sign-off tracked in-app rather than in a separate doc.
 - **Executing** as a live work-in-progress board — the task board and dev-handoff status already exist elsewhere in the app (`Tasks.tsx`, the Development card); duplicating a live WIP view into the PM Dashboard is a bigger, separate design question (what's the delta over just linking to those existing pages?) rather than a natural extension of what's here.
-- **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QAPulse tracks cost at all.
+- **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QM Pulse tracks cost at all.
 
 **Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).
 
@@ -1075,7 +1075,7 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 ### CR036 — PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag
 **Status:** ✅ Deployed (2026-07-15) — went live with the CR038+ deploys; the `tasks.blocked_by_task_id` column is bootstrap-covered (`ALTER TABLE ... IF NOT EXISTS` on server start), so no manual `db push` was needed
 
-**Implementation notes (2026-07-14):** All three parts built as specified below. Blocker resolution added to `formatTask` (`blockedByTaskName`/`blockedByTaskStatus`) so the badge grays out once the blocker is done. `validateBlocker` walks the chain with a visited set (bounded loop, no recursive CTE). On the Resources page the previous subtle green "on N milestones" label became the amber "Overallocated · N milestones" badge + row tint, with an "Overallocated only" checkbox filter. Rename covered the sidebar label, the standalone-PMO sidebar item, "Report Portal", and the "QMPulse — Report Dashboard" header.
+**Implementation notes (2026-07-14):** All three parts built as specified below. Blocker resolution added to `formatTask` (`blockedByTaskName`/`blockedByTaskStatus`) so the badge grays out once the blocker is done. `validateBlocker` walks the chain with a visited set (bounded loop, no recursive CTE). On the Resources page the previous subtle green "on N milestones" label became the amber "Overallocated · N milestones" badge + row tint, with an "Overallocated only" checkbox filter. Rename covered the sidebar label, the standalone-PMO sidebar item, "Report Portal", and the "QM Pulse — Report Dashboard" header.
 **Origin:** `docs/pmo-pain-points-review.md` — three of the four still-open items from that review, bundled as one low-risk deploy. The fourth (AI Risk Predictor, now unblocked by CR033's risk register) is deliberately **not** in this CR — it has a different risk profile (external AI dependency, prompt-quality iteration) and deserves its own rollback unit; it becomes CR037 when picked up. Utilization % is also excluded (see Non-goals).
 
 Three separable parts, deployable together because their file footprints barely overlap and only Part 2 touches the schema.
@@ -1105,7 +1105,7 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 - No backend change required (the array length is the flag); at most a convenience `overallocated: boolean` on the endpoint response if the frontend derivation feels awkward.
 
 **Non-goals:**
-- **Utilization %** ("estimated hours vs. available capacity") — requires an *available capacity* concept (per-user hours field + admin UI, or a wrong-for-part-timers 40h/week assumption) that doesn't exist in the schema. Parked until there's a decision on whether QMPulse models capacity at all — same open-question family as CR033's cost/budget note. Revisit alongside CR037.
+- **Utilization %** ("estimated hours vs. available capacity") — requires an *available capacity* concept (per-user hours field + admin UI, or a wrong-for-part-timers 40h/week assumption) that doesn't exist in the schema. Parked until there's a decision on whether QM Pulse models capacity at all — same open-question family as CR033's cost/budget note. Revisit alongside CR037.
 - **AI Risk Predictor** — CR037, own deploy (see Origin above).
 - No many-to-many dependency table, no Gantt/critical-path anything — `blockedByTaskId` is a field, not a scheduling engine.
 
@@ -1120,7 +1120,7 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 **Depends on:** CR033 (risk register — the data model this was explicitly deferred for in `docs/pmo-pain-points-review.md`), CR032 (multi-cycle phase timeline — the rework-churn signal), CR020 (escape history), CR026 (defect trend queries to reuse).
 **Origin:** third feature of the Bestinet AI-pitch trio (TC Generator → CR015 ✅, Verdict Writer → verdict email flow ✅, Risk Predictor → this). Kept out of CR036 deliberately — external AI dependency and prompt-quality iteration deserve their own rollback unit.
 
-**What it is:** a per-milestone AI risk assessment — predicted risk level + top contributing factors + suggested mitigation — synthesized from data QMPulse already collects. **Not** the existing `POST /ai/risk-score` (that's per-ticket/module execution scoring feeding the Verdict Report); this is its milestone-level sibling on the PM Dashboard.
+**What it is:** a per-milestone AI risk assessment — predicted risk level + top contributing factors + suggested mitigation — synthesized from data QM Pulse already collects. **Not** the existing `POST /ai/risk-score` (that's per-ticket/module execution scoring feeding the Verdict Report); this is its milestone-level sibling on the PM Dashboard.
 
 **Inputs (all existing, no new tracking):**
 1. CR033 risk register — open/mitigating risk rows for the milestone (probability × impact).
@@ -1165,7 +1165,7 @@ CR014 seeded `qa_manager` at tier 3 (between `qa_lead` and `hod_qa`) but `middle
 
 **Part 2 — Utilization % on PM Dashboard Capacity table**
 
-Parked in CR034, CR036, and CR037 pending a decision on whether QAPulse models per-user available capacity or falls back to a flat assumption.
+Parked in CR034, CR036, and CR037 pending a decision on whether QM Pulse models per-user available capacity or falls back to a flat assumption.
 
 **Decision (user call, 2026-07-15):** flat 40h/week per person, no per-user configurable capacity field.
 
@@ -1233,7 +1233,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 ### CR040 — Standalone Risk Register Page
 **Status:** ✅ Deployed (2026-07-15)
 
-**Origin:** a RACI exercise over QAPulse's core processes (done in a planning conversation, not a formal review) flagged that `qa_lead`/`fa_lead` are Consulted stakeholders for risk — they have the actual domain knowledge (quality/testing risk, requirement/scope risk) to make Risk Register entries meaningful — but structurally can't be, because CR033 built the Risk Register as a card embedded inside PM Dashboard, and PM Dashboard is `hod_pm`/`pm_lead`/`admin`/`cto`/`pmo`-only. Confirms a real gap, not a hypothetical one: `PmDashboard.tsx`'s own `CAN_WRITE_ROLES` constant already includes `qa_lead`/`fa_lead` (`["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"]`) and the backend write gate is tier-based (`getRoleTierRank(role) >= 2`, which both roles already clear) — the write path was already anticipated, it's simply unreachable because nothing gates the *page* at that grain.
+**Origin:** a RACI exercise over QM Pulse's core processes (done in a planning conversation, not a formal review) flagged that `qa_lead`/`fa_lead` are Consulted stakeholders for risk — they have the actual domain knowledge (quality/testing risk, requirement/scope risk) to make Risk Register entries meaningful — but structurally can't be, because CR033 built the Risk Register as a card embedded inside PM Dashboard, and PM Dashboard is `hod_pm`/`pm_lead`/`admin`/`cto`/`pmo`-only. Confirms a real gap, not a hypothetical one: `PmDashboard.tsx`'s own `CAN_WRITE_ROLES` constant already includes `qa_lead`/`fa_lead` (`["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"]`) and the backend write gate is tier-based (`getRoleTierRank(role) >= 2`, which both roles already clear) — the write path was already anticipated, it's simply unreachable because nothing gates the *page* at that grain.
 
 **Decision: split, not duplicate.** Extract the Risk Register into its own page at its own permission key, rather than granting `qa_lead`/`fa_lead` the whole `nav:pm-dashboard` key (simpler, but hands them Burn Rate/SPI/Capacity/Closed-Milestones panels they have no RACI stake in) or duplicating the UI in two places (drifts over time).
 
@@ -1336,7 +1336,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 1. **Milestone create** (`milestones.ts`): notifies `fa_lead`+`fa_member` with project access — new `milestone_created` type (Calendar icon added to both frontend TYPE_CONFIG maps; deep-links to /milestones).
 2. **Requirement approve** (`requirements.ts`): additional fan-out to `dev_lead` (project+module scoped) — "ready for dev assignment", type `review_approved`, excludes author/assignee already notified.
 3. **Ready for QA** (`requirements.ts`): additional fan-out to `qa_lead` (project+module scoped), type `requirement_ready_for_qa`; existing FA-assignee + milestone-PM notifications kept, deduped via excludeUserIds.
-4. **Defect create with assignee** (`defects.ts` + both frontends): the dialogs' assignee is a Redmine member id, so both creation flows now also send `assigneeName`; backend resolves it via `resolveUserIdByName` (same convention as qaPic), stores `assigneeId`/`assigneeName`/`assigneeAssignedAt` on the local row (POST /defects non-requirement path + POST /defects/register), and notifies the dev with `defect_assigned`. Redmine-only names that don't match a QAPulse user store the name but skip the notification.
+4. **Defect create with assignee** (`defects.ts` + both frontends): the dialogs' assignee is a Redmine member id, so both creation flows now also send `assigneeName`; backend resolves it via `resolveUserIdByName` (same convention as qaPic), stores `assigneeId`/`assigneeName`/`assigneeAssignedAt` on the local row (POST /defects non-requirement path + POST /defects/register), and notifies the dev with `defect_assigned`. Redmine-only names that don't match a QM Pulse user store the name but skip the notification.
 
 **Bonus fix:** execution file **created** with qaPic already set now notifies the PIC (previously only the PATCH path did, and only on change).
 
@@ -1437,7 +1437,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Origin:** the items CR050 deferred because they needed a migration or larger rework. Bootstrap-covered — no manual db push.
 
 1. **Defect register upsert race → idempotent** (`defects.ts`, `roles.ts`, schema): added a partial `UNIQUE` index on `defects.redmine_id` (non-null only). Bootstrap dedupes any pre-existing duplicates first — repointing their `defect_links` to the surviving lowest-id row (FK cascades on delete, so repoint before deleting) — then creates the index, all guarded so it can't block boot. `POST /defects/register` now catches the `23505` unique violation and returns the existing row instead of inserting a twin (creation-only side effects — DEF-code, notifications — are skipped on the losing race).
-2. **Pending-sync Redmine duplication** (`redmine-defect-bridge.ts`): before creating a Redmine issue, `pushDefectToRedmine` searches (`/search.json`) for the unique marker it embeds in every description (`DEF-code` / "QMPulse defect #id"). If a prior push committed but its response was lost, the retry finds and reuses that issue instead of creating a second. Best-effort — search failure falls through to create.
+2. **Pending-sync Redmine duplication** (`redmine-defect-bridge.ts`): before creating a Redmine issue, `pushDefectToRedmine` searches (`/search.json`) for the unique marker it embeds in every description (`DEF-code` / "QM Pulse defect #id"). If a prior push committed but its response was lost, the retry finds and reuses that issue instead of creating a second. Best-effort — search failure falls through to create.
 3. **NaN query coercion** (`defects.ts` `GET /defects`): a non-integer `?projectId=` now returns 400 instead of silently matching nothing (scoped users) or everything (admins).
 4. **`?highlight=` deep-links now focus the row** (new `hooks/use-highlight.ts`): notification deep-links to Defects and Milestones scroll the target row into view and flash a ring. Additive hook (`useHighlightRow` + `highlightRowId`), no logic change. Tasks renders through a data-grid of plain row objects with no per-row DOM id — left as a fast-follow (its deep-link still navigates to the page correctly).
 
@@ -1498,7 +1498,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Template asset:** the real client workbook was sanitized (not rebuilt from scratch) — its 24 real project risk rows and project name were stripped, but every structural element was kept: 3 sheets (Doc Info, Risk Log, Read Me), the Bestinet letterhead logo, merged cells, column widths, fonts/borders, and — critically — the Risk Map column's live `IF()` formula (recalculates Red/Yellow/Green from Impact × Likelihood × Status in Excel itself, not baked in at export time). Row capacity extended from 24 to 200 pre-styled rows so real projects don't overflow. The template's patchwork of ad-hoc conditional-formatting ranges (grown organically as the original file was hand-extended row by row) was replaced with 4 clean rule sets spanning the full row range. Fixed a real defect found in the source file: J/T (Risk Map) cells carried a stray static pink fill (legacy indexed color 45) that showed through whenever no CF rule matched (e.g. "Closed") — added an explicit gray CF rule for "Closed" and stripped the base fill so only conditional formatting drives color.
 
-**Column mapping — honest, not fabricated:** QMPulse's risk model doesn't collect everything the template has a slot for. Mapped: Risk ID (sequential R001… by raised-date order), Entry Date, Description (← title), Impact on Project (← description), Category, Impact/Likelihood/Status (pre-treatment), Risk Map (live formula), Owner (resolved name), Describe Response Strategy (← mitigationPlan), Mitigated Date (← closedAt). Left genuinely blank rather than guessed: Response Strategy taxonomy (Avoid/Transfer/Mitigate/Accept — QMPulse has no such field), Contingency Plan, Progress Update, and the entire post-treatment residual block (Q–T) — QMPulse doesn't track a separate residual risk assessment.
+**Column mapping — honest, not fabricated:** QM Pulse's risk model doesn't collect everything the template has a slot for. Mapped: Risk ID (sequential R001… by raised-date order), Entry Date, Description (← title), Impact on Project (← description), Category, Impact/Likelihood/Status (pre-treatment), Risk Map (live formula), Owner (resolved name), Describe Response Strategy (← mitigationPlan), Mitigated Date (← closedAt). Left genuinely blank rather than guessed: Response Strategy taxonomy (Avoid/Transfer/Mitigate/Accept — QM Pulse has no such field), Contingency Plan, Progress Update, and the entire post-treatment residual block (Q–T) — QM Pulse doesn't track a separate residual risk assessment.
 
 **Backend:** `risk-log-excel.ts` (new) — same `xlsx-populate` + SheetJS-fallback architecture as the existing test-case template builder (`excel-builder.ts`), base64-embedded fallback (`risk-log-template-data.ts`) for environments where the asset file isn't readable. `GET /risks/export?projectId=X` in `risks.ts`, project-access gated, no elevated role required (same visibility as viewing the register).
 
@@ -1526,7 +1526,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Scope:** `lib/db` risks schema, `roles.ts` (bootstrap ALTER), `risks.ts` (+1 route, owner-name resolution), `risk-log-excel.ts` (K column), `RiskRegisterCard.tsx`, demo `demo-data.ts`/`seed-demo-data.ts`. No manual db push.
 
-**CR055 follow-up #2 (2026-07-21):** Doc Info sheet's revision-history table (previously always blank) now populates from real audit-trail events — each risk's creation and every status change, chronologically, with actor name and the existing human-readable activity description. Table extended from the source template's 11 pre-styled rows to 100 (`Doc Info` B9:G108) to hold real project history. Reviewed By / Reviewed Date columns stay blank — QMPulse has no peer-review step on risks to report there, so nothing is fabricated to fill them.
+**CR055 follow-up #2 (2026-07-21):** Doc Info sheet's revision-history table (previously always blank) now populates from real audit-trail events — each risk's creation and every status change, chronologically, with actor name and the existing human-readable activity description. Table extended from the source template's 11 pre-styled rows to 100 (`Doc Info` B9:G108) to hold real project history. Reviewed By / Reviewed Date columns stay blank — QM Pulse has no peer-review step on risks to report there, so nothing is fabricated to fill them.
 
 ### CR057 — Lessons Learned export to Bestinet's official "5.1 Lesson Learned" PMO template
 
@@ -1534,14 +1534,14 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Origin:** direct follow-on to CR055/056 (Risk Log export) — same ask, different template. Found the source at `~/Desktop/QAPulse/5.1 Lesson Learned/eQuota FWe Approval Project Lessons Learnt.xlsx` (Ref. No. BSB-PMO-TEM–24–V1.0), a real client's actual retrospective content.
 
-**Template asset:** sanitized the same way as the Risk Log (client's 7 real lesson rows + project name stripped, structure/logo/dropdown validations kept). Data-validation dropdowns for Phase (a fixed 13-value PM-phase list) and Lessons Learnt Type (What went wrong / What went right / Best Practice) preserved and extended across the full row range; the source file's inconsistent 4-value variant on 2 rows (a stray extra "Recommendation" option) standardized to one clean 3-value list throughout. Row capacity extended: Lessons Learnt 10→60 rows, Doc Info history 5→60 rows. Row heights on the Lessons Learnt data rows set to a generous fixed height (110pt) — the source file's original per-row heights were sized for each row's own short sample text and clipped QMPulse's longer real content.
+**Template asset:** sanitized the same way as the Risk Log (client's 7 real lesson rows + project name stripped, structure/logo/dropdown validations kept). Data-validation dropdowns for Phase (a fixed 13-value PM-phase list) and Lessons Learnt Type (What went wrong / What went right / Best Practice) preserved and extended across the full row range; the source file's inconsistent 4-value variant on 2 rows (a stray extra "Recommendation" option) standardized to one clean 3-value list throughout. Row capacity extended: Lessons Learnt 10→60 rows, Doc Info history 5→60 rows. Row heights on the Lessons Learnt data rows set to a generous fixed height (110pt) — the source file's original per-row heights were sized for each row's own short sample text and clipped QM Pulse's longer real content.
 
-**Real data-model mismatch, handled honestly:** the template expects one row per discrete, individually-classified lesson (Phase + Type). QMPulse captures lessons learned as a single free-text field per milestone at Closing (CR033p1) — one blob that can genuinely mix "what went wrong" and "what went right" in one paragraph (confirmed: the source template's own sample data did exactly this). Rather than force a misleading classification:
-- **Phase** is filled honestly as "Project Closure" — that's literally always when QMPulse captures this field, not a per-row guess.
+**Real data-model mismatch, handled honestly:** the template expects one row per discrete, individually-classified lesson (Phase + Type). QM Pulse captures lessons learned as a single free-text field per milestone at Closing (CR033p1) — one blob that can genuinely mix "what went wrong" and "what went right" in one paragraph (confirmed: the source template's own sample data did exactly this). Rather than force a misleading classification:
+- **Phase** is filled honestly as "Project Closure" — that's literally always when QM Pulse captures this field, not a per-row guess.
 - **Type** ships blank; its dropdown validation survives the export so a human can classify it manually afterward if they want to.
 - **Comments** carries the milestone name, since one export can span every completed milestone in a project and the reader needs to know which is which.
 
-**Doc Info revision history:** one row per milestone (date = completedAt, actor = closedBy's name, summary = "Lessons learned captured for milestone \"X\"") — reuses the same milestone rows already being exported, since QMPulse has no activity-log event distinct from the completion transition itself for this field.
+**Doc Info revision history:** one row per milestone (date = completedAt, actor = closedBy's name, summary = "Lessons learned captured for milestone \"X\"") — reuses the same milestone rows already being exported, since QM Pulse has no activity-log event distinct from the completion transition itself for this field.
 
 **Backend:** `lessons-learned-excel.ts` (new, same xlsx-populate + SheetJS-fallback architecture as `risk-log-excel.ts`), `lessons-learned-template-data.ts` (base64 fallback). `GET /milestones/lessons-learned/export?projectId=X` in `milestones.ts` — project-access gated, no elevated role required (same as viewing milestones). Only completed milestones with a non-empty `lessonsLearned` are included.
 

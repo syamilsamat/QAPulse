@@ -486,7 +486,7 @@ export async function buildTestCaseExcel(
 
     // ── Review & Rework Effort — one row per audit entry ──────────────────────
     // Template headers (row 4): B=Sl# C=Review Cycle D=Document Name E=Review Time F=Rework Time G=Remarks
-    // E, F, G left blank — QA Pulse does not track time
+    // E, F, G left blank — QM Pulse does not track time
     const rrSheet = wb.sheet("Review & Rework Effort");
     if (rrSheet) {
       const rrEntries: AuditEntry[] = auditEntries && auditEntries.length > 0

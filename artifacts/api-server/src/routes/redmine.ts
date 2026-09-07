@@ -12,7 +12,7 @@ import { getAuthContext } from "../middleware/access";
 
 const router: IRouter = Router();
 
-// CR047 — every Redmine route requires an authenticated QAPulse user. Without
+// CR047 — every Redmine route requires an authenticated QM Pulse user. Without
 // this, the env-key fallback in resolveApiKey() let an anonymous caller create
 // Redmine issues and upload attachments under the server's service account.
 router.use((req, res, next) => {

@@ -231,7 +231,7 @@ const BACKBONE = [
   {
     icon: GitBranch,
     title: "Deep Redmine sync",
-    lead: "QMPulse doesn't replace Redmine — it makes it flow. Tickets, projects and custom fields move both ways, so your tracker and your quality workspace never drift apart.",
+    lead: "QM Pulse doesn't replace Redmine — it makes it flow. Tickets, projects and custom fields move both ways, so your tracker and your quality workspace never drift apart.",
     points: [
       "Import requirements and tickets, hierarchy intact",
       "Push defects and status changes straight back",
@@ -518,7 +518,7 @@ const QMPulseLanding: React.FC = () => {
             </h1>
 
             <p className="hero-desc mt-7 max-w-2xl text-lg md:text-xl text-slate-300/90 leading-relaxed">
-              QMPulse unifies functional analysis, planning, development, QA and PMO reporting
+              QM Pulse unifies functional analysis, planning, development, QA and PMO reporting
               into one traceable flow — so every team feels the same pulse, in real time, from
               intake to sign-off.
             </p>
@@ -564,7 +564,7 @@ const QMPulseLanding: React.FC = () => {
                   Five teams. One source of truth.
                 </h2>
                 <p className="mt-4 text-lg text-slate-300/90">
-                  QMPulse isn't a QA tool bolted onto a tracker. It's the shared heartbeat every
+                  QM Pulse isn't a QA tool bolted onto a tracker. It's the shared heartbeat every
                   role works from — each with the view they need, all on the same live data.
                 </p>
               </div>
@@ -833,7 +833,7 @@ const QMPulseLanding: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <ShieldCheck className="w-6 h-6 text-teal-300" />
                   <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
-                    Why teams run on QMPulse
+                    Why teams run on QM Pulse
                   </h2>
                 </div>
                 <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-10">
@@ -872,14 +872,14 @@ const QMPulseLanding: React.FC = () => {
                 Feel the pulse.
               </h2>
               <p className="mt-5 text-lg text-slate-300/90">
-                From the first requirement to the final verdict, QMPulse keeps every team beating as
+                From the first requirement to the final verdict, QM Pulse keeps every team beating as
                 one. Sign in and see your delivery come alive.
               </p>
               <button
                 onClick={goLogin}
                 className="group mt-10 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-teal-400 to-sky-500 px-10 py-4 text-lg font-semibold text-[#04070f] shadow-xl shadow-teal-500/25 hover:shadow-teal-400/40 hover:scale-[1.03] transition-all"
               >
-                Sign in to QMPulse
+                Sign in to QM Pulse
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
@@ -890,9 +890,9 @@ const QMPulseLanding: React.FC = () => {
             <div className="mx-auto max-w-6xl flex flex-col md:flex-row items-center justify-between gap-3 text-sm text-slate-500">
               <span className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-teal-400" />
-                QMPulse — Quality Management Pulse
+                QM Pulse — Quality Management Pulse
               </span>
-              <span>© 2026 QMPulse. From requirement to verdict, one living heartbeat.</span>
+              <span>© 2026 QM Pulse. From requirement to verdict, one living heartbeat.</span>
             </div>
           </footer>
         </main>

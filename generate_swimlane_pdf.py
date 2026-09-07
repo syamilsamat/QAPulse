@@ -1,5 +1,5 @@
 """
-QAPulse – 8-Beat Milestone Lifecycle Swimlane Diagram (PDF)
+QM Pulse – 8-Beat Milestone Lifecycle Swimlane Diagram (PDF)
 Faithfully replicates the dark-themed, glass-card grid design
 from presentation_deck.html – landscape A4.
 """
@@ -141,8 +141,8 @@ def wrap_text(text, font, size, max_w, c_ref):
 
 def generate(out_path):
     c = canvas.Canvas(out_path, pagesize=landscape(A4))
-    c.setTitle("QAPulse - 8-Beat Milestone Lifecycle Swimlane")
-    c.setAuthor("QAPulse Platform")
+    c.setTitle("QM Pulse - 8-Beat Milestone Lifecycle Swimlane")
+    c.setAuthor("QM Pulse Platform")
 
     # Background
     c.setFillColor(BG)
@@ -338,13 +338,13 @@ def generate(out_path):
     # ── Footer ───────────────────────────────────────────────────────────
     c.setFont("Helvetica", 5.5)
     c.setFillColor(SLATE_500)
-    c.drawString(ML, MB, "QAPulse - AI-Powered Quality Assurance Platform  |  Confidential")
-    c.drawRightString(W - MR, MB, "2026 QAPulse  |  All Rights Reserved")
+    c.drawString(ML, MB, "QM Pulse - AI-Powered Quality Assurance Platform  |  Confidential")
+    c.drawRightString(W - MR, MB, "2026 QM Pulse  |  All Rights Reserved")
 
-    # ── QAPulse branding top-right ───────────────────────────────────────
+    # ── QM Pulse branding top-right ───────────────────────────────────────
     c.setFont("Helvetica-Bold", 8)
     c.setFillColor(TEAL_300)
-    c.drawRightString(W - MR - 2*mm, H - MT - 4*mm, "QAPulse")
+    c.drawRightString(W - MR - 2*mm, H - MT - 4*mm, "QM Pulse")
 
     c.save()
     print(f"PDF saved -> {out_path}  ({os.path.getsize(out_path):,} bytes)")
@@ -352,5 +352,5 @@ def generate(out_path):
 
 if __name__ == "__main__":
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "QAPulse_Swimlane_Diagram.pdf")
+                       "QM_Pulse_Swimlane_Diagram.pdf")
     generate(out)

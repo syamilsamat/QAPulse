@@ -350,7 +350,7 @@ function RedmineSection({
                   10.10.4.130:3306
                 </code>{" "}
                 is only accessible from within your internal network. This
-                feature works when QMPulse is deployed on-premises.
+                feature works when QM Pulse is deployed on-premises.
               </p>
             </div>
           )}
@@ -1090,7 +1090,7 @@ export default function VerdictReport() {
               >
                 <div className="text-center mb-6">
                   <h1 className="text-2xl font-bold">
-                    QMPulse — Verdict Report
+                    QM Pulse — Verdict Report
                   </h1>
                   <p className="text-sm text-muted-foreground">
                     Generated:{" "}

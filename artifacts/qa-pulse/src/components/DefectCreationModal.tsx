@@ -26,7 +26,7 @@ import {
   searchRedmineIssues,
   createRedmineDefect,
   registerLocalDefect,
-  fetchQapulseProjects,
+  fetchQmpulseProjects,
   type RedmineProjectItem,
   type RedmineProjectConfigItem,
   type RedmineTracker,
@@ -92,13 +92,13 @@ export default function DefectCreationModal({
   const [targetedStartDate, setTargetedStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [targetedCompletionDate, setTargetedCompletionDate] = useState("");
 
-  // QMPulse fields
+  // QM Pulse fields
   const [severity, setSeverity] = useState("medium");
   const [foundIn, setFoundIn] = useState("SIT");
   const [defectModule, setDefectModule] = useState("");
   const [defectCategory, setDefectCategory] = useState("");
-  const [qapulseProjectId, setQapulseProjectId] = useState<number | null>(null);
-  const [qapulseProjects, setQapulseProjects] = useState<{ id: number; name: string }[]>([]);
+  const [qmpulseProjectId, setQmpulseProjectId] = useState<number | null>(null);
+  const [qmpulseProjects, setQmpulseProjects] = useState<{ id: number; name: string }[]>([]);
 
   // Duplicate check
   const [duplicates, setDuplicates] = useState<RedmineIssueMatch[]>([]);
@@ -112,7 +112,7 @@ export default function DefectCreationModal({
   useEffect(() => {
     if (!open) return;
     setExpectedResultValue(expectedResult ?? "");
-    fetchQapulseProjects().then(setQapulseProjects).catch(() => {});
+    fetchQmpulseProjects().then(setQmpulseProjects).catch(() => {});
     fetchRedmineProjects().then(setProjects).catch(() => {});
     fetchRedmineTrackers()
       .then((list) => {
@@ -305,7 +305,7 @@ export default function DefectCreationModal({
     setFoundIn("SIT");
     setDefectModule("");
     setDefectCategory("");
-    setQapulseProjectId(null);
+    setQmpulseProjectId(null);
     onClose();
   };
 
@@ -412,9 +412,9 @@ export default function DefectCreationModal({
 
           <Separator />
 
-          {/* QMPulse Fields */}
+          {/* QM Pulse Fields */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QMPulse</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
@@ -444,11 +444,11 @@ export default function DefectCreationModal({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>QMPulse Project</Label>
+              <Label>QM Pulse Project</Label>
               <SearchableSelect
-                value={qapulseProjectId?.toString() ?? ""}
-                onValueChange={(v) => setQapulseProjectId(v ? Number(v) : null)}
-                options={qapulseProjects.map((p) => ({ value: p.id.toString(), label: p.name }))}
+                value={qmpulseProjectId?.toString() ?? ""}
+                onValueChange={(v) => setQmpulseProjectId(v ? Number(v) : null)}
+                options={qmpulseProjects.map((p) => ({ value: p.id.toString(), label: p.name }))}
                 placeholder="Select project (optional)..."
                 searchPlaceholder="Search project..."
               />

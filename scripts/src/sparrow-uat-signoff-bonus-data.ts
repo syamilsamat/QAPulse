@@ -11,7 +11,7 @@
  * sign-off DOCUMENT the review action doesn't otherwise produce, backdated
  * to 3 days before the milestone's completedAt (2026-10-14 15:02, pre-shift)
  * so the story reads: business signs off the acceptance pack on the 11th,
- * the FA Lead doesn't formally close the milestone in QAPulse until the 14th.
+ * the FA Lead doesn't formally close the milestone in QM Pulse until the 14th.
  */
 import { pt } from "./sparrow-data";
 

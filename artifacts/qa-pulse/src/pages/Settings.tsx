@@ -496,7 +496,7 @@ export default function Settings() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Shield className="w-4 h-4" /> Role & Permissions
           </CardTitle>
-          <CardDescription>Your current access level in QMPulse</CardDescription>
+          <CardDescription>Your current access level in QM Pulse</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -601,12 +601,12 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Bell className="w-4 h-4" /> About QMPulse
+            <Bell className="w-4 h-4" /> About QM Pulse
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm text-muted-foreground">
-            <p>QMPulse is an internal QA management and analytics platform designed to streamline your testing workflows.</p>
+            <p>QM Pulse is an internal QA management and analytics platform designed to streamline your testing workflows.</p>
             <p className="text-xs mt-3">Version 1.0.0</p>
           </div>
         </CardContent>

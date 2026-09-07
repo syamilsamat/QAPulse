@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>QAPulse — Release Readiness Gate Concept</title>
+  <title>QM Pulse — Release Readiness Gate Concept</title>
   <style>
     :root {
       --ink: #152238;
@@ -176,7 +176,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">✓</span> QAPulse Strategy</div>
+    <div class="brand"><span class="brand-mark">✓</span> QM Pulse Strategy</div>
     <nav aria-label="Document sections">
       <a href="#why">Why</a><a href="#model">Model</a><a href="#simulator">Simulator</a><a href="#governance">Governance</a><a href="#roadmap">Roadmap</a>
     </nav>
@@ -188,7 +188,7 @@
       <div>
         <p class="eyebrow">Highest-priority product improvement</p>
         <h1>Release Readiness Gate</h1>
-        <p>Transform QAPulse from a collection of QA dashboards into an auditable decision system that answers one executive question: <strong>“Can we release safely—and why?”</strong></p>
+        <p>Transform QM Pulse from a collection of QA dashboards into an auditable decision system that answers one executive question: <strong>“Can we release safely—and why?”</strong></p>
       </div>
       <aside class="hero-card" aria-label="Example readiness outcome">
         <span class="hero-card-label">Milestone · September Release</span>
@@ -202,21 +202,21 @@
   <main>
     <section id="why">
       <div class="section-kicker">01 · The business case</div>
-      <h2>QAPulse has the evidence. It needs the decision.</h2>
+      <h2>QM Pulse has the evidence. It needs the decision.</h2>
       <p class="lead">Requirements, test results, defects, risks, UAT, traceability, milestones and approvals already exist. Today, decision-makers still have to interpret those signals manually and may reach different conclusions from the same data.</p>
       <div class="problem-grid">
         <article class="card"><div class="number">1</div><h3>Fragmented judgement</h3><p>Each dashboard is locally useful, but no single control combines the evidence into a release decision.</p></article>
         <article class="card"><div class="number">2</div><h3>Hidden policy</h3><p>Readiness rules often live in meetings, spreadsheets or individual experience rather than an agreed policy.</p></article>
         <article class="card"><div class="number">3</div><h3>Weak accountability</h3><p>Exceptions may be discussed, but the rationale, owner, expiry and supporting evidence are difficult to audit later.</p></article>
       </div>
-      <div class="callout" style="margin-top:22px"><strong>The opportunity:</strong> use existing QAPulse data to produce a consistent, explainable and formally approved readiness outcome—without creating another reporting workflow.</div>
+      <div class="callout" style="margin-top:22px"><strong>The opportunity:</strong> use existing QM Pulse data to produce a consistent, explainable and formally approved readiness outcome—without creating another reporting workflow.</div>
     </section>
 
     <section id="model">
       <div class="section-kicker">02 · The operating model</div>
       <h2>Evidence in. Policy applied. Decision out.</h2>
       <p class="lead">The gate should calculate readiness from authoritative records, preserve human accountability for exceptions, and show exactly why a release is blocked.</p>
-      <div class="architecture" role="img" aria-label="QAPulse evidence sources feed a readiness policy engine, producing ready, ready with exceptions, or not ready">
+      <div class="architecture" role="img" aria-label="QM Pulse evidence sources feed a readiness policy engine, producing ready, ready with exceptions, or not ready">
         <div class="source-row">
           <div class="source">Requirements</div><div class="source">Test execution</div><div class="source">Defects</div><div class="source">Risks</div><div class="source">UAT sign-off</div><div class="source">Evidence</div>
         </div>
@@ -230,7 +230,7 @@
     <section id="simulator">
       <div class="section-kicker">03 · Interactive concept</div>
       <h2>Explore how the decision changes</h2>
-      <p class="lead">Adjust the release evidence below. A real implementation would calculate these values automatically from QAPulse and require approval for any permitted exception.</p>
+      <p class="lead">Adjust the release evidence below. A real implementation would calculate these values automatically from QM Pulse and require approval for any permitted exception.</p>
       <div class="simulator">
         <div class="sim-head">
           <h3>September Release · Gate assessment</h3>
@@ -292,7 +292,7 @@
       <p class="lead">A focused policy is easier to understand, govern and adopt. Thresholds should be configurable by release type, but changes must be versioned and approved.</p>
       <div style="overflow-x:auto">
         <table class="policy-table">
-          <thead><tr><th>Gate</th><th>Default rule</th><th>Owner</th><th>Exception?</th><th>QAPulse source</th></tr></thead>
+          <thead><tr><th>Gate</th><th>Default rule</th><th>Owner</th><th>Exception?</th><th>QM Pulse source</th></tr></thead>
           <tbody>
             <tr><td>Requirement approval</td><td>100% mandatory scope approved</td><td>FA Lead</td><td><span class="tag">Controlled</span></td><td>Requirements and review history</td></tr>
             <tr><td>Critical coverage</td><td>≥95% linked to approved test cases</td><td>QA Lead</td><td><span class="tag">Controlled</span></td><td>Traceability matrix</td></tr>
@@ -352,11 +352,11 @@
     </section>
 
     <section>
-      <div class="callout"><strong>Recommended decision:</strong> approve a limited MVP for one live milestone. Begin with a read-only assessment using current QAPulse data, validate it against the existing release meeting, and add exception approval only after the team trusts the calculation.</div>
+      <div class="callout"><strong>Recommended decision:</strong> approve a limited MVP for one live milestone. Begin with a read-only assessment using current QM Pulse data, validate it against the existing release meeting, and add exception approval only after the team trusts the calculation.</div>
     </section>
   </main>
 
-  <footer><strong>QAPulse Release Readiness Gate</strong><br />Business concept and interactive decision model · September 2026</footer>
+  <footer><strong>QM Pulse Release Readiness Gate</strong><br />Business concept and interactive decision model · September 2026</footer>
 
   <script>
     (() => {

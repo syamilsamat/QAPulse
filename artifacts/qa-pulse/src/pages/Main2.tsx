@@ -156,7 +156,7 @@ const Main2: React.FC = () => {
                 <AnimatedQALogo className="w-5 h-5 text-white" />
               </div>
               <span className="text-lg md:text-xl font-bold text-slate-900 tracking-tight truncate">
-                QA Pulse
+                QM Pulse
               </span>
             </div>
             <button
@@ -208,7 +208,7 @@ const Main2: React.FC = () => {
                 <div className="w-14 md:w-48 shrink-0 bg-slate-50 border-r border-slate-100 p-2 md:p-4 flex flex-col gap-2">
                   <div className="flex items-center justify-center md:justify-start gap-2 mb-6 mt-2 md:mt-0 md:px-2">
                     <AnimatedQALogo className="w-5 h-5 shrink-0" />
-                    <span className="font-bold text-slate-800 hidden md:block">QA Pulse</span>
+                    <span className="font-bold text-slate-800 hidden md:block">QM Pulse</span>
                   </div>
                   {[
                     { icon: <LayoutDashboard className="w-5 h-5 md:w-4 md:h-4" />, label: "Dashboard", active: true },
@@ -227,7 +227,7 @@ const Main2: React.FC = () => {
                 <div className="flex-1 p-3 sm:p-4 md:p-6 flex flex-col gap-4 overflow-y-auto bg-white">
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0 pb-2 border-b border-slate-100">
                     <div>
-                      <h2 className="text-base md:text-lg font-bold text-slate-800">Welcome to QA Pulse,</h2>
+                      <h2 className="text-base md:text-lg font-bold text-slate-800">Welcome to QM Pulse,</h2>
                       <p className="text-[10px] md:text-xs text-slate-500">Project Alpha - Release 1.2</p>
                     </div>
                   </div>
@@ -342,7 +342,7 @@ const Main2: React.FC = () => {
                 <span className="text-3xl md:text-4xl font-bold mb-4 md:mb-6 bg-gradient-to-r from-black to-blue-600 bg-clip-text text-transparent">AI Intelligence Hub</span>
               </h2>
               <p className="text-base md:text-lg text-slate-600 mb-6 md:mb-8 leading-relaxed max-w-lg mx-auto md:mx-0">
-                QA Pulse uses advanced conversational AI to eliminate repetitive tasks. Analyze vague requirements, generate edge cases instantly, and synthesize weekly performance summaries without breaking a sweat.
+                QM Pulse uses advanced conversational AI to eliminate repetitive tasks. Analyze vague requirements, generate edge cases instantly, and synthesize weekly performance summaries without breaking a sweat.
               </p>
               <ul className="space-y-4 max-w-md mx-auto md:mx-0 text-left">
                 {[
@@ -418,11 +418,11 @@ const Main2: React.FC = () => {
           </div>
         </section>
 
-        {/* --- WHY QA PULSE (COMPARISON) --- */}
+        {/* --- WHY QM PULSE (COMPARISON) --- */}
         <section className="compare-section py-16 md:py-24 px-4 sm:px-6 relative">
           <div className="text-center mb-10 md:mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4 md:mb-6 bg-gradient-to-r from-black to-blue-600 bg-clip-text text-transparent">
-              Traditional vs. QA Pulse
+              Traditional vs. QM Pulse
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-7xl mx-auto text-left">
 
@@ -442,7 +442,7 @@ const Main2: React.FC = () => {
               <div className="compare-good p-6 md:p-8 rounded-[24px] bg-white border border-slate-100 relative shadow-[0_4px_20px_rgb(0,0,0,0.03)] z-10">
                 <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-blue-200/30 blur-[40px] pointer-events-none" />
                 <h3 className="text-lg md:text-xl font-bold text-blue-700 mb-5 md:mb-6 flex items-center gap-2 relative z-10">
-                  <CheckCircle2 className="w-5 h-5 shrink-0" /> QA Pulse
+                  <CheckCircle2 className="w-5 h-5 shrink-0" /> QM Pulse
                 </h3>
                 <ul className="space-y-3 md:space-y-4 relative z-10">
                   {["AI-assisted rapid test generation", "Unified platform with Redmine sync", "Real-time PMO & Admin dashboards"].map((item, i) => (

@@ -1,5 +1,5 @@
 /**
- * Seeds a realistic, fully-linked client-demo dataset into QAPulse by
+ * Seeds a realistic, fully-linked client-demo dataset into QM Pulse by
  * calling the real API (not raw SQL) — so validation, audit logging, defect
  * code generation, and notifications all fire exactly as they would for a
  * real user. Every created entity is recorded into demo-seed-manifest.json

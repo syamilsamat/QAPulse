@@ -7,7 +7,7 @@
 Follow-ups to CR014's FA track onboarding (`docs/change-requests/pm-ba-onboarding.md`). CR014 gives the FA track its roles, the upstream requirement-approval gate, the downstream milestone UAT gate, the Requirement Detail page, the review queue, and description diffs. This CR deepens the workflow around those gates with three separable features:
 
 1. **Acceptance criteria** — a structured "how do we know this is done" list on every requirement, so FA review, QA test authoring, AI test-case generation, and UAT all check against something concrete instead of prose.
-2. **Discussion threads** — the reject → revise → resubmit loop is a conversation; keep it in QAPulse instead of Teams/email.
+2. **Discussion threads** — the reject → revise → resubmit loop is a conversation; keep it in QM Pulse instead of Teams/email.
 3. **UAT with evidence** — CR014's milestone UAT gate is a single approve/reject; without recorded per-requirement UAT results it's a rubber stamp with no trail, which undercuts the audit-heavy design of everything else in CR014.
 
 They're bundled as one CR because they share a theme (FA requirement workflow) and an audience, but each Part is independently shippable and sequenced separately — see Sequencing at the bottom.

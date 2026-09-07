@@ -12,31 +12,31 @@ from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_LABEL_POSITION
 # =============================================================================
 SALARY = 5000.0                # RM per QA per month
 MANUAL_PER_WEEK = 100          # test cases/week, manual process
-QAPULSE_PER_DAY = 100          # test cases/day, with QAPulse
+QMPULSE_PER_DAY = 100          # test cases/day, with QM Pulse
 DAYS_PER_WEEK = 5
 WEEKS_PER_MONTH = 4.33
 DAYS_PER_MONTH = DAYS_PER_WEEK * WEEKS_PER_MONTH   # 21.65
 
 MANUAL_PER_DAY = MANUAL_PER_WEEK / DAYS_PER_WEEK              # 20.0
-MULTIPLIER = QAPULSE_PER_DAY / MANUAL_PER_DAY                  # 5.0x
+MULTIPLIER = QMPULSE_PER_DAY / MANUAL_PER_DAY                  # 5.0x
 
 MANUAL_PER_MONTH = MANUAL_PER_WEEK * WEEKS_PER_MONTH            # 433
-QAPULSE_PER_MONTH = QAPULSE_PER_DAY * DAYS_PER_MONTH             # 2165
+QMPULSE_PER_MONTH = QMPULSE_PER_DAY * DAYS_PER_MONTH             # 2165
 
 COST_PER_TC_MANUAL = SALARY / MANUAL_PER_MONTH                  # RM11.55
-COST_PER_TC_QAPULSE = SALARY / QAPULSE_PER_MONTH                # RM2.31
-SAVINGS_PER_TC = COST_PER_TC_MANUAL - COST_PER_TC_QAPULSE        # RM9.24
+COST_PER_TC_QMPULSE = SALARY / QMPULSE_PER_MONTH                # RM2.31
+SAVINGS_PER_TC = COST_PER_TC_MANUAL - COST_PER_TC_QMPULSE        # RM9.24
 PCT_REDUCTION = SAVINGS_PER_TC / COST_PER_TC_MANUAL * 100        # 80.0%
 
-FTE_NEEDED_MANUAL = QAPULSE_PER_MONTH / MANUAL_PER_MONTH         # 5.0
+FTE_NEEDED_MANUAL = QMPULSE_PER_MONTH / MANUAL_PER_MONTH         # 5.0
 EXTRA_FTE_AVOIDED = FTE_NEEDED_MANUAL - 1                        # 4.0
 MONTHLY_COST_AVOIDANCE = EXTRA_FTE_AVOIDED * SALARY              # RM20,000
 ANNUAL_COST_AVOIDANCE = MONTHLY_COST_AVOIDANCE * 12              # RM240,000
 
 MANUAL_MIN_PER_TC = (8 * 60) / MANUAL_PER_DAY                    # 24.0 min
-QAPULSE_MIN_PER_TC = (8 * 60) / QAPULSE_PER_DAY                  # 4.8 min
+QMPULSE_MIN_PER_TC = (8 * 60) / QMPULSE_PER_DAY                  # 4.8 min
 
-PCT_WEEK_FREED = 80.0  # to hit the old 100/week target, QAPulse needs 1 of 5 days
+PCT_WEEK_FREED = 80.0  # to hit the old 100/week target, QM Pulse needs 1 of 5 days
 
 
 def create_deck():
@@ -45,7 +45,7 @@ def create_deck():
     prs.slide_height = Inches(7.5)
     blank_layout = prs.slide_layouts[6]
 
-    # Color Palette — matches QMPulse_Executive_Presentation.pptx
+    # Color Palette — matches QM_Pulse_Executive_Presentation.pptx
     BG_DARK = RGBColor(11, 17, 32)
     BG_CARD = RGBColor(22, 33, 58)
     BG_CARD_LIGHT = RGBColor(30, 44, 76)
@@ -233,7 +233,7 @@ def create_deck():
     tf.word_wrap = True
     tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
     p1 = tf.paragraphs[0]
-    p1.text = "QAPulse Return on Investment"
+    p1.text = "QM Pulse Return on Investment"
     p1.font.size = Pt(40)
     p1.font.bold = True
     p1.font.color.rgb = TEXT_WHITE
@@ -281,8 +281,8 @@ def create_deck():
 
     s1.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"Today I want to walk leadership through the hard numbers behind QAPulse — not just what it does, "
-        "but what it is worth in Ringgit terms. The short version: one QA analyst using QAPulse produces the "
+        "\"Today I want to walk leadership through the hard numbers behind QM Pulse — not just what it does, "
+        "but what it is worth in Ringgit terms. The short version: one QA analyst using QM Pulse produces the "
         "same test coverage as five QA analysts working manually, at 20% of the cost per test case, freeing "
         "up 80% of that analyst's week for higher-value work.\""
     )
@@ -293,7 +293,7 @@ def create_deck():
     s2 = prs.slides.add_slide(blank_layout)
     apply_background(s2)
     add_header(s2, "Current State", "The Manual Testing Bottleneck",
-               "Today's baseline QA throughput, before QAPulse, per tester.")
+               "Today's baseline QA throughput, before QM Pulse, per tester.")
 
     left_stats = [
         ("100", "Test Cases / Week", "Manual authoring & execution pace per QA analyst.", CORAL_ACCENT),
@@ -329,42 +329,42 @@ def create_deck():
 
     s2.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT:\n"
-        "\"Before QAPulse, a QA analyst clears 100 test cases a week — 20 a day, or about 24 minutes of manual "
+        "\"Before QM Pulse, a QA analyst clears 100 test cases a week — 20 a day, or about 24 minutes of manual "
         "effort per test case. That ceiling is fixed. The only lever we have today to test more is to hire more, "
         "at RM5,000 a month per head.\""
     )
 
     # =========================================================================
-    # SLIDE 3: THE QAPULSE SHIFT (THROUGHPUT CHARTS)
+    # SLIDE 3: THE QM PULSE SHIFT (THROUGHPUT CHARTS)
     # =========================================================================
     s3 = prs.slides.add_slide(blank_layout)
     apply_background(s3)
-    add_header(s3, "The QAPulse Shift", "5x Testing Throughput, Same Headcount",
+    add_header(s3, "The QM Pulse Shift", "5x Testing Throughput, Same Headcount",
                "AI-assisted authoring and one-click execution lift daily output from 20 to 100 test cases.")
 
     add_column_chart(
         s3, Inches(0.8), Inches(2.0), Inches(5.7), Inches(4.6),
         "Test Cases / Day (per QA)",
-        ["Manual QA", "QAPulse"],
+        ["Manual QA", "QM Pulse"],
         "Daily Throughput",
-        [round(MANUAL_PER_DAY, 1), QAPULSE_PER_DAY],
+        [round(MANUAL_PER_DAY, 1), QMPULSE_PER_DAY],
         [CORAL_ACCENT, TEAL_ACCENT],
         number_format='#,##0',
     )
     add_column_chart(
         s3, Inches(6.8), Inches(2.0), Inches(5.7), Inches(4.6),
         "Test Cases / Month (per QA)",
-        ["Manual QA", "QAPulse"],
+        ["Manual QA", "QM Pulse"],
         "Monthly Capacity",
-        [round(MANUAL_PER_MONTH), round(QAPULSE_PER_MONTH)],
+        [round(MANUAL_PER_MONTH), round(QMPULSE_PER_MONTH)],
         [CORAL_ACCENT, CYAN_ACCENT],
         number_format='#,##0',
     )
 
     s3.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT:\n"
-        f"\"With QAPulse, the same analyst moves from 20 to 100 test cases a day — a flat 5x multiplier. "
-        f"Over a month that is the difference between {round(MANUAL_PER_MONTH)} and {round(QAPULSE_PER_MONTH)} "
+        f"\"With QM Pulse, the same analyst moves from 20 to 100 test cases a day — a flat 5x multiplier. "
+        f"Over a month that is the difference between {round(MANUAL_PER_MONTH)} and {round(QMPULSE_PER_MONTH)} "
         "test cases, with no change in headcount or salary cost.\""
     )
 
@@ -379,9 +379,9 @@ def create_deck():
     add_column_chart(
         s4, Inches(0.8), Inches(2.0), Inches(6.6), Inches(4.7),
         "Cost Per Test Case (RM)",
-        ["Manual QA", "QAPulse"],
+        ["Manual QA", "QM Pulse"],
         "Cost / Test Case",
-        [round(COST_PER_TC_MANUAL, 2), round(COST_PER_TC_QAPULSE, 2)],
+        [round(COST_PER_TC_MANUAL, 2), round(COST_PER_TC_QMPULSE, 2)],
         [CORAL_ACCENT, TEAL_ACCENT],
         number_format='"RM"#,##0.00',
     )
@@ -400,7 +400,7 @@ def create_deck():
 
     calc_lines = [
         (f"Manual: RM5,000 ÷ {round(MANUAL_PER_MONTH)} test cases/month", f"= RM{COST_PER_TC_MANUAL:.2f} / test case"),
-        (f"QAPulse: RM5,000 ÷ {round(QAPULSE_PER_MONTH)} test cases/month", f"= RM{COST_PER_TC_QAPULSE:.2f} / test case"),
+        (f"QM Pulse: RM5,000 ÷ {round(QMPULSE_PER_MONTH)} test cases/month", f"= RM{COST_PER_TC_QMPULSE:.2f} / test case"),
     ]
     for label, result in calc_lines:
         p_l = tf_v.add_paragraph()
@@ -435,7 +435,7 @@ def create_deck():
     s4.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT:\n"
         f"\"The same RM5,000 salary now buys RM{COST_PER_TC_MANUAL:.2f} worth of testing down to "
-        f"RM{COST_PER_TC_QAPULSE:.2f} per test case — an 80% reduction in unit cost, with no change in "
+        f"RM{COST_PER_TC_QMPULSE:.2f} per test case — an 80% reduction in unit cost, with no change in "
         "quality standards or sign-off process.\""
     )
 
@@ -444,13 +444,13 @@ def create_deck():
     # =========================================================================
     s5 = prs.slides.add_slide(blank_layout)
     apply_background(s5)
-    add_header(s5, "Headcount Impact", "RM240,000 Avoided Per QAPulse Seat, Per Year",
-               f"To manually match one QAPulse analyst's monthly output ({round(QAPULSE_PER_MONTH)} test cases), you would need {int(FTE_NEEDED_MANUAL)} QA analysts.")
+    add_header(s5, "Headcount Impact", "RM240,000 Avoided Per QM Pulse Seat, Per Year",
+               f"To manually match one QM Pulse analyst's monthly output ({round(QMPULSE_PER_MONTH)} test cases), you would need {int(FTE_NEEDED_MANUAL)} QA analysts.")
 
     add_column_chart(
         s5, Inches(0.8), Inches(2.0), Inches(6.6), Inches(4.7),
-        f"Monthly Payroll for {round(QAPULSE_PER_MONTH)} Test Cases (RM)",
-        [f"Manual ({int(FTE_NEEDED_MANUAL)} QA)", "QAPulse (1 QA)"],
+        f"Monthly Payroll for {round(QMPULSE_PER_MONTH)} Test Cases (RM)",
+        [f"Manual ({int(FTE_NEEDED_MANUAL)} QA)", "QM Pulse (1 QA)"],
         "Payroll Cost",
         [int(FTE_NEEDED_MANUAL * SALARY), int(SALARY)],
         [CORAL_ACCENT, TEAL_ACCENT],
@@ -458,9 +458,9 @@ def create_deck():
     )
 
     stats = [
-        ("4", "Extra Headcount Avoided", "per QAPulse-equipped QA seat", GOLD_ACCENT),
+        ("4", "Extra Headcount Avoided", "per QM Pulse-equipped QA seat", GOLD_ACCENT),
         ("RM20,000", "Avoided Cost / Month", "4 FTE x RM5,000 salary", EMERALD_ACCENT),
-        ("RM240,000", "Avoided Cost / Year", "per QAPulse seat, compounding across the team", EMERALD_ACCENT),
+        ("RM240,000", "Avoided Cost / Year", "per QM Pulse seat, compounding across the team", EMERALD_ACCENT),
     ]
     for i, (val, title, desc, color) in enumerate(stats):
         c_top = Inches(2.0 + i * 1.62)
@@ -468,10 +468,10 @@ def create_deck():
 
     s5.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT:\n"
-        f"\"Put another way: hitting {round(QAPULSE_PER_MONTH)} test cases a month manually needs "
+        f"\"Put another way: hitting {round(QMPULSE_PER_MONTH)} test cases a month manually needs "
         f"{int(FTE_NEEDED_MANUAL)} QA analysts on payroll — RM{int(FTE_NEEDED_MANUAL*SALARY):,}/month. "
-        "QAPulse gets one analyst to the same output for RM5,000/month. That is RM20,000/month, or "
-        "RM240,000/year, in avoided hiring cost for every QAPulse-equipped seat — and it scales linearly "
+        "QM Pulse gets one analyst to the same output for RM5,000/month. That is RM20,000/month, or "
+        "RM240,000/year, in avoided hiring cost for every QM Pulse-equipped seat — and it scales linearly "
         "as the team grows.\""
     )
 
@@ -481,7 +481,7 @@ def create_deck():
     s6 = prs.slides.add_slide(blank_layout)
     apply_background(s6)
     add_header(s6, "Value Over Time", "Cumulative Cost Avoidance — 12 Month View",
-               "RM20,000/month in avoided headcount cost compounds to RM240,000 in year one, per QAPulse seat.")
+               "RM20,000/month in avoided headcount cost compounds to RM240,000 in year one, per QM Pulse seat.")
 
     add_column_chart(
         s6, Inches(0.8), Inches(2.0), Inches(11.7), Inches(4.7),
@@ -496,8 +496,8 @@ def create_deck():
 
     s6.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT:\n"
-        "\"This avoided cost is not a one-time event — it compounds every month QAPulse stays in use. "
-        "By the end of year one, a single QAPulse seat has avoided RM240,000 in headcount cost that would "
+        "\"This avoided cost is not a one-time event — it compounds every month QM Pulse stays in use. "
+        "By the end of year one, a single QM Pulse seat has avoided RM240,000 in headcount cost that would "
         "otherwise have been needed to keep pace with the same testing volume.\""
     )
 
@@ -506,7 +506,7 @@ def create_deck():
     # =========================================================================
     s7 = prs.slides.add_slide(blank_layout)
     apply_background(s7)
-    add_header(s7, "Beyond Test-Case Volume", "What Else QAPulse Saves Today",
+    add_header(s7, "Beyond Test-Case Volume", "What Else QM Pulse Saves Today",
                "Value the salary-based ROI model above does not even capture.")
 
     extra_gains = [
@@ -559,7 +559,7 @@ def create_deck():
     s7.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT:\n"
         "\"The RM240,000 figure is only the headcount-avoidance piece — the part we can price precisely. "
-        "QAPulse also compresses test design time by roughly 40%, turns multi-day PMO reporting cycles into "
+        "QM Pulse also compresses test design time by roughly 40%, turns multi-day PMO reporting cycles into "
         "under a minute, removes duplicate defect logging, and closes the traceability gaps that let defects "
         "slip into production. None of that is included in the RM240,000 number — it is upside on top.\""
     )
@@ -575,12 +575,12 @@ def create_deck():
     assumptions = [
         ("Baseline QA salary", "RM5,000 / month per QA analyst (as provided)."),
         ("Manual throughput", "100 test cases / week, 5-day work week → 20 test cases / day."),
-        ("QAPulse throughput", "100 test cases / day (as provided), same 5-day work week."),
+        ("QM Pulse throughput", "100 test cases / day (as provided), same 5-day work week."),
         ("Month length", "4.33 weeks / month (21.65 working days) — standard calendar averaging."),
         ("Cost per test case", "Monthly salary ÷ monthly test cases completed, same analyst, same salary."),
-        ("Headcount avoidance", "Extra manual FTEs needed to match QAPulse's monthly output, at the same RM5,000 salary each."),
-        ("Not included", "QAPulse licensing/build/hosting cost is not netted off — the figures above are gross value created, not net ROI %."),
-        ("Scaling", "All figures are per QA seat — multiply by the number of QAPulse-equipped analysts for team- or department-wide impact."),
+        ("Headcount avoidance", "Extra manual FTEs needed to match QM Pulse's monthly output, at the same RM5,000 salary each."),
+        ("Not included", "QM Pulse licensing/build/hosting cost is not netted off — the figures above are gross value created, not net ROI %."),
+        ("Scaling", "All figures are per QA seat — multiply by the number of QM Pulse-equipped analysts for team- or department-wide impact."),
     ]
 
     tbox = s8.shapes.add_textbox(Inches(0.8), Inches(2.0), Inches(11.7), Inches(5.0))
@@ -628,7 +628,7 @@ def create_deck():
     p_vt.font.bold = True
     p_vt.font.color.rgb = TEAL_ACCENT
     p_vb = tf_v.add_paragraph()
-    p_vb.text = ("Every QA analyst equipped with QAPulse delivers the output of five, at one-fifth the cost per "
+    p_vb.text = ("Every QA analyst equipped with QM Pulse delivers the output of five, at one-fifth the cost per "
                  "test case — worth RM240,000/year in avoided headcount alone, before counting faster test "
                  "design, automated reporting, and full traceability.")
     p_vb.font.size = Pt(14)
@@ -661,12 +661,12 @@ def create_deck():
     s9.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / CLOSING:\n"
         "\"To close: this is not a projection built on hope, it is basic arithmetic on numbers we already "
-        "observe today — 100 test cases a week manually versus 100 a day with QAPulse. We would like to "
+        "observe today — 100 test cases a week manually versus 100 a day with QM Pulse. We would like to "
         "validate the team-wide number with Finance and HR, then move to a short pilot to confirm it in "
         "the field. Thank you — happy to take questions.\""
     )
 
-    output_path = os.path.join(os.getcwd(), "QAPulse_ROI_Presentation.pptx")
+    output_path = os.path.join(os.getcwd(), "QM_Pulse_ROI_Presentation.pptx")
     prs.save(output_path)
     print(f"Presentation saved successfully to {output_path}")
 

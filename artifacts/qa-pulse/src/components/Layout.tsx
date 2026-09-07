@@ -929,7 +929,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           ) : (
             <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
               <PulseLogo size="sm" showWord={false} />
-              QMPulse
+              QM Pulse
             </h1>
           )}
         </div>
@@ -1180,7 +1180,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </SheetTrigger>
               <h1 className="ml-4 text-lg font-bold flex items-center gap-2">
                 <PulseLogo size="sm" showWord={false} />
-                QMPulse
+                QM Pulse
               </h1>
               <div className="ml-auto flex items-center gap-1">
                 {unreadCount > 0 && (
@@ -1213,7 +1213,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Sign out of QMPulse?</AlertDialogTitle>
+            <AlertDialogTitle>Sign out of QM Pulse?</AlertDialogTitle>
             <AlertDialogDescription>
               You'll be redirected to the login page. Any unsaved changes will
               be lost.

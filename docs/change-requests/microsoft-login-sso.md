@@ -4,7 +4,7 @@
 
 ## Context
 
-QA Pulse currently uses email/password authentication (JWT). The goal is to replace this with Microsoft Entra ID (Azure AD) SSO — single-tenant, org accounts only. Password-based login is removed entirely. Users who sign in with a Microsoft email not already in QA Pulse get a "contact admin" error (no auto-provisioning). Admins pre-create user accounts with just name, email, and role — no password required.
+QM Pulse currently uses email/password authentication (JWT). The goal is to replace this with Microsoft Entra ID (Azure AD) SSO — single-tenant, org accounts only. Password-based login is removed entirely. Users who sign in with a Microsoft email not already in QM Pulse get a "contact admin" error (no auto-provisioning). Admins pre-create user accounts with just name, email, and role — no password required.
 
 The feature branch `claude/microsoft-login-integration-6cm4go` was 5 commits behind `main` (all execution fixes from June 29) at time of writing. Branch must be synced first.
 
@@ -43,7 +43,7 @@ Add `POST /auth/microsoft`:
 - Look up user in `usersTable` by email
 - 404 if not found: `"Account not registered. Contact your QA administrator."`
 - 403 if `isActive === false`: existing deactivated error
-- Issue QA Pulse JWT via existing `signToken()` and return `{ user, token }`
+- Issue QM Pulse JWT via existing `signToken()` and return `{ user, token }`
 
 Remove `POST /auth/login` (password login no longer used).
 Keep `GET /auth/me`, `POST /auth/logout`, `POST /auth/change-password` unchanged (they don't hurt).
@@ -82,7 +82,7 @@ export const msalInstance = new PublicClientApplication({
 - Add "Sign in with Microsoft" button — on click: `msalInstance.loginRedirect({ scopes: ["openid", "profile", "email"] })`
 - Add a `useEffect` (via `useMsal()` hook) that fires when `accounts` array is non-empty:
   - `acquireTokenSilent({ scopes: ["openid"], account })` → get ID token
-  - `POST /auth/microsoft` with `{ idToken }` → get QA Pulse `{ user, token }`
+  - `POST /auth/microsoft` with `{ idToken }` → get QM Pulse `{ user, token }`
   - Call `AuthContext.login(user, token)` → redirect to `/dashboard`
   - On error (404/403): show toast and call `msalInstance.logout()`
 
@@ -99,7 +99,7 @@ export const msalInstance = new PublicClientApplication({
 ### 5. Settings — remove password from user creation
 **`artifacts/qa-pulse/src/pages/Settings.tsx`**
 - Remove `password` input from the Create User form (admin user management section)
-- Remove the "Change Password" card (users no longer have QA Pulse passwords)
+- Remove the "Change Password" card (users no longer have QM Pulse passwords)
 - Update the create-user mutation payload to omit `password`
 
 **`artifacts/api-server/src/routes/users.ts`** — `POST /users`
@@ -117,7 +117,7 @@ export const msalInstance = new PublicClientApplication({
 2. Set env vars: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` (backend) + `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID` (frontend)
 3. `cd lib/db && npx drizzle-kit push` to make `password` nullable
 4. Start app — login page should show only "Sign in with Microsoft" button
-5. Click button → Azure AD redirects back → QA Pulse JWT issued → dashboard loads
+5. Click button → Azure AD redirects back → QM Pulse JWT issued → dashboard loads
 6. Try a Microsoft email not in DB → expect 404 toast "Account not registered"
 7. Admin creates a new user (no password field) → user can log in via Microsoft
 8. Test `GET /auth/me` still works with existing JWT tokens

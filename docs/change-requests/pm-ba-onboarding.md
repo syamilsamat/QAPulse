@@ -1,16 +1,16 @@
-# CR: Expand QAPulse beyond QA — Org-wide role hierarchy & project-level access control
+# CR: Expand QM Pulse beyond QA — Org-wide role hierarchy & project-level access control
 
 **Status:** Deferred — not yet started
 
 ## Context
 
-QAPulse today is a QA-only tool: 4 roles (`admin`, `qa_lead`, `qa_member`, `pmo`), and every authenticated user can read/write every project's requirements, test cases, execution files, and tasks — there is no project-level data scoping (`requirements.ts` etc. barely call `verifyToken`, and nothing checks "does this user belong to this project"). The goal is to widen QAPulse into a genuinely multi-department platform matching this org's real reporting structure — not just flat "one role per department," but the full seniority hierarchy each department already uses. **Dev stays entirely outside QAPulse** (confirmed — Dev/Dev Lead/HOD Dev do not get logins; Dev work happens externally and QAPulse only sees the Task that PM creates once Dev is done). **Microsoft/Azure AD SSO stays out of scope** (tracked separately in `microsoft-login-sso.md`).
+QM Pulse today is a QA-only tool: 4 roles (`admin`, `qa_lead`, `qa_member`, `pmo`), and every authenticated user can read/write every project's requirements, test cases, execution files, and tasks — there is no project-level data scoping (`requirements.ts` etc. barely call `verifyToken`, and nothing checks "does this user belong to this project"). The goal is to widen QM Pulse into a genuinely multi-department platform matching this org's real reporting structure — not just flat "one role per department," but the full seniority hierarchy each department already uses. **Dev stays entirely outside QM Pulse** (confirmed — Dev/Dev Lead/HOD Dev do not get logins; Dev work happens externally and QM Pulse only sees the Task that PM creates once Dev is done). **Microsoft/Azure AD SSO stays out of scope** (tracked separately in `microsoft-login-sso.md`).
 
 The role/nav-permission system is already fully data-driven (`roles` + `role_nav_permissions` tables, admin-editable via `POST /roles` and `PUT /roles/:id/permissions`), and `projectId` columns already exist on `requirements`, `test_cases`, `tasks`, and `execution_files`. The missing pieces are: (1) *enforcing* project-level scoping, (2) tiering that scoping so seniority escalates visibility, and (3) two new department-facing surfaces (PM dashboard, Functional Analyst requirements-review workflow).
 
 ### Workflow this needs to support
 
-The real SDLC loop QAPulse is being asked to formalize is not a straight line, it loops back through the Functional Analyst (FA) twice:
+The real SDLC loop QM Pulse is being asked to formalize is not a straight line, it loops back through the Functional Analyst (FA) twice:
 
 ```
 PM (intake) → FA (analyze + requirement) → [approval gate] → PM (assign) → Dev (build, external)
@@ -45,12 +45,12 @@ The org's real structure, one CTO above every department:
 
 - **PM track:** `project_manager` → `pm_lead` → `hod_pm`
 - **FA track (shares one HOD with BI):** `functional_analyst` → `fa_lead` → `hod_fa_bi`
-- **BI track:** *deferred* — `bi` / `bi_lead` role names are reserved (so `hod_fa_bi`'s visibility computation is forward-compatible) but no BI-specific pages/endpoints are built in this CR. BI's actual QAPulse purpose gets designed later.
+- **BI track:** *deferred* — `bi` / `bi_lead` role names are reserved (so `hod_fa_bi`'s visibility computation is forward-compatible) but no BI-specific pages/endpoints are built in this CR. BI's actual QM Pulse purpose gets designed later.
 - **QA track (already partly exists):** `qa_member` (existing) → `qa_lead` (existing) → `qa_manager` (**new**) → `hod_qa` (**new**)
 - **Dev track:** out of scope — no roles, no logins.
 - **CTO:** `cto` — sits above all HODs, sees everything.
 
-**Visibility model — configurable via the `roles` table, no new "reports-to" schema.** There is no "who reports to whom" data in QAPulse and this CR doesn't add one. Instead, two new columns go on the existing (already admin-editable) `roles` table:
+**Visibility model — configurable via the `roles` table, no new "reports-to" schema.** There is no "who reports to whom" data in QM Pulse and this CR doesn't add one. Instead, two new columns go on the existing (already admin-editable) `roles` table:
 
 ```ts
 // lib/db/src/schema/roles.ts (add to existing rolesTable)
@@ -168,7 +168,7 @@ No FK constraints. A CR is simply a Project with one Milestone (`type: "cr"`); a
 
 - Seed all three roles with `department: "fa_bi"` and `tierRank` 10/20/40, and nav keys: `nav:requirements`, `nav:traceability`, `nav:inbox`, `nav:team-hangouts`, `nav:report`. Same nav across tiers; scope differs via `resolveProjectAccess`. Also seed the reserved `bi`/`bi_lead` roles with `department: "fa_bi"`, `tierRank` 10/20 and **no nav keys** (no pages to show yet) — this is what makes `hod_fa_bi`'s visibility already correct once BI is actually onboarded later, without touching this CR's code again.
 - **Schema**: add four explicit audit columns to `requirementsTable`, replacing the earlier generic `reviewedBy`/`reviewedAt` design — the org wants the *last approval* and *last rejection* independently retrievable, not overwriting each other if a requirement bounces back and forth:
-  - `createdBy integer` (the table has **no author-tracking column at all** today; `createdAt` already exists) — populated from the auth token on `POST /requirements`, same pattern `test-cases.ts` already uses for `authorId`. **For Redmine-imported requirements specifically** (`syncRedmineTicket()` in `requirements.ts`), `createdBy` must **not** default to the importing QAPulse user — it should reflect who actually authored the ticket in Redmine. `syncRedmineTicket()` already has the full `issue` object from Redmine's API, which includes `issue.author.name`; resolve `createdBy` by matching that name (case-insensitive) against `usersTable.name`. If no QAPulse user matches (name drift, ex-employee, etc.), fall back to the importing user as a last resort so the column is never left `null` — but log this fallback so admins can reconcile the mapping later. Name-matching is inherently fuzzy (this is a stopgap, not a real cross-system identity link); flagged as a known limitation, not a blocker.
+  - `createdBy integer` (the table has **no author-tracking column at all** today; `createdAt` already exists) — populated from the auth token on `POST /requirements`, same pattern `test-cases.ts` already uses for `authorId`. **For Redmine-imported requirements specifically** (`syncRedmineTicket()` in `requirements.ts`), `createdBy` must **not** default to the importing QM Pulse user — it should reflect who actually authored the ticket in Redmine. `syncRedmineTicket()` already has the full `issue` object from Redmine's API, which includes `issue.author.name`; resolve `createdBy` by matching that name (case-insensitive) against `usersTable.name`. If no QM Pulse user matches (name drift, ex-employee, etc.), fall back to the importing user as a last resort so the column is never left `null` — but log this fallback so admins can reconcile the mapping later. Name-matching is inherently fuzzy (this is a stopgap, not a real cross-system identity link); flagged as a known limitation, not a blocker.
   - `approvedBy integer`, `approvedAt timestamp` — set only on an `approved` review action.
   - `rejectedBy integer`, `rejectedAt timestamp` — set only on a `rejected` review action.
   - These four columns always reflect the **most recent** approve/reject event (for quick display/filtering without a join); the **complete** history of every review action ever taken — including ones these columns have since been overwritten by — lives in `activityTable`, which is never overwritten. Both matter: the columns for "what's the current state," the journal for "show me everything that ever happened."
@@ -274,7 +274,7 @@ Closes a real gap: today, editing a requirement's `description` after test cases
 - Confirm `admin` and `pmo` see no behavior change beyond project scoping (post-backfill, invisible since everyone is grandfathered into all current projects).
 - **Requirement-revised re-review check**: create a requirement, attach a test case, compile it into two separate execution files, mark it "Passed" in both. Edit the requirement's `description`. Confirm both execution instances now show the re-review alert, and the Test Case Library page shows the informational badge. Click "Revised" on one execution instance — confirm its `result` resets to "Not Executed", `executionTcHistoryTable` gets a new `Passed → Not Executed` row, and **only that instance's** alert clears (the other execution file's instance still shows it). Retest and confirm the new result is logged the same way as any normal result change.
 - **Task-flagging + notification fan-out check**: create a requirement with a linked Task (assigned to two users) and a linked test case; edit the requirement's `description`. Confirm the Task shows the alert banner on the Tasks page, and confirm the requirement's author, its assignee, and both Task assignees all receive a notification. Acknowledge the Task alert and confirm the Task's own `status` is unchanged (visibility only, no forced state reset).
-- **Redmine-import `createdBy` check**: import a Redmine ticket whose Redmine author's name matches an existing QAPulse user — confirm `createdBy` resolves to that QAPulse user, **not** whoever ran the import. Import a ticket whose Redmine author has no matching QAPulse user — confirm it falls back to the importer (not `null`) and a reconciliation warning is logged.
+- **Redmine-import `createdBy` check**: import a Redmine ticket whose Redmine author's name matches an existing QM Pulse user — confirm `createdBy` resolves to that QM Pulse user, **not** whoever ran the import. Import a ticket whose Redmine author has no matching QM Pulse user — confirm it falls back to the importer (not `null`) and a reconciliation warning is logged.
 - **Newly-scoped routers check**: as a non-admin/non-cto with no `project_members` row for Project X, confirm `pmo-report` and `document-register` endpoints touching Project X now return empty/404 instead of leaking data, and `POST /ai/analyze-requirement` for a requirement outside their accessible projects returns 404 rather than running the analysis.
 
 ## Rollout sequence
