@@ -45,7 +45,7 @@ def create_deck():
     prs.slide_height = Inches(7.5)
     blank_layout = prs.slide_layouts[6]
 
-    # Color Palette — matches QMPulse_Executive_Presentation.pptx
+    # Color Palette — matches QM_Pulse_Executive_Presentation.pptx
     BG_DARK = RGBColor(11, 17, 32)
     BG_CARD = RGBColor(22, 33, 58)
     BG_CARD_LIGHT = RGBColor(30, 44, 76)
@@ -666,7 +666,7 @@ def create_deck():
         "the field. Thank you — happy to take questions.\""
     )
 
-    output_path = os.path.join(os.getcwd(), "QAPulse_ROI_Presentation.pptx")
+    output_path = os.path.join(os.getcwd(), "QM_Pulse_ROI_Presentation.pptx")
     prs.save(output_path)
     print(f"Presentation saved successfully to {output_path}")
 

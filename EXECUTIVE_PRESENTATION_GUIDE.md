@@ -12,7 +12,7 @@
 
 | File | Type | Description |
 |---|---|---|
-| [`QMPulse_Executive_Presentation.pptx`](file:///c:/Users/raimi.rosman/QAPulse/QMPulse_Executive_Presentation.pptx) | **Microsoft PowerPoint (.pptx)** | 16:9 Widescreen executive slide deck with professional dark-slate design, structured cards, metric callouts, and embedded speaker notes on every slide. |
+| [`QM_Pulse_Executive_Presentation.pptx`](file:///c:/Users/raimi.rosman/QAPulse/QM_Pulse_Executive_Presentation.pptx) | **Microsoft PowerPoint (.pptx)** | 16:9 Widescreen executive slide deck with professional dark-slate design, structured cards, metric callouts, and embedded speaker notes on every slide. |
 | [`presentation_deck.html`](file:///c:/Users/raimi.rosman/QAPulse/presentation_deck.html) | **Interactive Web Presentation** | Standalone interactive slide deck. Open directly in Chrome/Edge. Supports keyboard arrows (`←`/`→`), Spacebar, Fullscreen (`F`), and Speaker Notes popup (`N`). |
 | [`generate_presentation.py`](file:///c:/Users/raimi.rosman/QAPulse/generate_presentation.py) | **Python Generator Script** | Python script using `python-pptx` to programmatically update or regenerate the PowerPoint presentation at any time. |
 

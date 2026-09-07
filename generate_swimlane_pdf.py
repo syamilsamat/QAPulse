@@ -352,5 +352,5 @@ def generate(out_path):
 
 if __name__ == "__main__":
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "QAPulse_Swimlane_Diagram.pdf")
+                       "QM_Pulse_Swimlane_Diagram.pdf")
     generate(out)

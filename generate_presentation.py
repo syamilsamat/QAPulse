@@ -178,7 +178,7 @@ def create_deck():
     )
 
     # =========================================================================
-    # SLIDE 2: THE STRATEGIC PROBLEM & THE QMPULSE SOLUTION
+    # SLIDE 2: THE STRATEGIC PROBLEM & THE QM PULSE SOLUTION
     # =========================================================================
     s2 = prs.slides.add_slide(blank_layout)
     apply_background(s2)
@@ -233,7 +233,7 @@ def create_deck():
     tf_sb = s_badge.text_frame
     tf_sb.vertical_anchor = MSO_ANCHOR.MIDDLE
     p_sbt = tf_sb.paragraphs[0]
-    p_sbt.text = "THE QMPULSE SOLUTION"
+    p_sbt.text = "THE QM PULSE SOLUTION"
     p_sbt.font.size = Pt(10)
     p_sbt.font.bold = True
     p_sbt.font.color.rgb = TEAL_ACCENT
@@ -854,7 +854,7 @@ def create_deck():
         "The software is live, tested, and fully functional today. Thank you for your time, and I now welcome your questions and feedback.\""
     )
 
-    output_path = os.path.join(os.getcwd(), "QMPulse_Executive_Presentation.pptx")
+    output_path = os.path.join(os.getcwd(), "QM_Pulse_Executive_Presentation.pptx")
     prs.save(output_path)
     print(f"Presentation saved successfully to {output_path}")
 
