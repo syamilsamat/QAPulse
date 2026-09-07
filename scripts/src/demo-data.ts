@@ -24,21 +24,21 @@ export interface DemoUser {
 }
 
 export const USERS: DemoUser[] = [
-  { key: "amir", name: "Amir Rahman", email: "amir.rahman@demo.qapulse.local", role: "pm_lead" },
-  { key: "nadia", name: "Nadia Sulaiman", email: "nadia.sulaiman@demo.qapulse.local", role: "qa_lead" },
-  { key: "farid", name: "Farid Karim", email: "farid.karim@demo.qapulse.local", role: "qa_member" },
-  { key: "weiling", name: "Wei Ling Tan", email: "wei.ling@demo.qapulse.local", role: "qa_member" },
-  { key: "siti", name: "Siti Hassan", email: "siti.hassan@demo.qapulse.local", role: "fa_lead" },
-  { key: "devan", name: "Devan Kumar", email: "devan.kumar@demo.qapulse.local", role: "dev_lead" },
+  { key: "amir", name: "Amir Rahman", email: "amir.rahman@demo.qmpulse.local", role: "pm_lead" },
+  { key: "nadia", name: "Nadia Sulaiman", email: "nadia.sulaiman@demo.qmpulse.local", role: "qa_lead" },
+  { key: "farid", name: "Farid Karim", email: "farid.karim@demo.qmpulse.local", role: "qa_member" },
+  { key: "weiling", name: "Wei Ling Tan", email: "wei.ling@demo.qmpulse.local", role: "qa_member" },
+  { key: "siti", name: "Siti Hassan", email: "siti.hassan@demo.qmpulse.local", role: "fa_lead" },
+  { key: "devan", name: "Devan Kumar", email: "devan.kumar@demo.qmpulse.local", role: "dev_lead" },
   // Individual-contributor developer under Devan (dev_lead) — on both
   // projects so the PM Dashboard's per-project Capacity table shows the
   // same person with a different workload depending on the project.
-  { key: "hafiz", name: "Hafiz Rosli", email: "hafiz.rosli@demo.qapulse.local", role: "dev_member" },
+  { key: "hafiz", name: "Hafiz Rosli", email: "hafiz.rosli@demo.qmpulse.local", role: "dev_member" },
   // CR035 — not on portal-squad and not in any directMemberKeys, so her
   // only project access is the module-scoped grant seeded below. Exists
   // purely to demonstrate the "project + module" scope on the new Project
   // Access panel — not used anywhere else in the seed flow.
-  { key: "aisyah", name: "Aisyah Rahim", email: "aisyah.rahim@demo.qapulse.local", role: "qa_member" },
+  { key: "aisyah", name: "Aisyah Rahim", email: "aisyah.rahim@demo.qmpulse.local", role: "qa_member" },
 ];
 
 export interface DemoTeam {

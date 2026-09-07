@@ -1597,7 +1597,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
 });
 
 // NOTE: not currently called by any frontend page (checked — no reference
-// to memberStats/tasksByProject anywhere in artifacts/qa-pulse/src). Fixed
+// to memberStats/tasksByProject anywhere in artifacts/qm-pulse/src). Fixed
 // anyway for consistency with the other dashboard routes, in case something
 // starts consuming it later, but there's no UI regression risk either way.
 router.get("/dashboard/team", async (req, res): Promise<void> => {

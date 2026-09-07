@@ -59,7 +59,7 @@ Keep `GET /auth/me`, `POST /auth/logout`, `POST /auth/change-password` unchanged
 
 ### 4. Frontend — replace Login page with Microsoft SSO
 
-**New file**: `artifacts/qa-pulse/src/lib/msal.ts`
+**New file**: `artifacts/qm-pulse/src/lib/msal.ts`
 ```ts
 import { PublicClientApplication } from "@azure/msal-browser";
 
@@ -72,11 +72,11 @@ export const msalInstance = new PublicClientApplication({
 });
 ```
 
-**`artifacts/qa-pulse/src/App.tsx`**
+**`artifacts/qm-pulse/src/App.tsx`**
 - Import `MsalProvider` from `@azure/msal-react` and `msalInstance` from `@/lib/msal`
 - Wrap existing `<AuthProvider>` with `<MsalProvider instance={msalInstance}>`
 
-**`artifacts/qa-pulse/src/pages/Login.tsx`** — full rewrite:
+**`artifacts/qm-pulse/src/pages/Login.tsx`** — full rewrite:
 - Remove email/password form and force-change-password overlay
 - Keep logo/branding (existing `AnimatedQALogo`)
 - Add "Sign in with Microsoft" button — on click: `msalInstance.loginRedirect({ scopes: ["openid", "profile", "email"] })`
@@ -86,7 +86,7 @@ export const msalInstance = new PublicClientApplication({
   - Call `AuthContext.login(user, token)` → redirect to `/dashboard`
   - On error (404/403): show toast and call `msalInstance.logout()`
 
-**New packages** — add to `artifacts/qa-pulse/package.json`:
+**New packages** — add to `artifacts/qm-pulse/package.json`:
 - `@azure/msal-browser`
 - `@azure/msal-react`
 
@@ -97,7 +97,7 @@ export const msalInstance = new PublicClientApplication({
 ---
 
 ### 5. Settings — remove password from user creation
-**`artifacts/qa-pulse/src/pages/Settings.tsx`**
+**`artifacts/qm-pulse/src/pages/Settings.tsx`**
 - Remove `password` input from the Create User form (admin user management section)
 - Remove the "Change Password" card (users no longer have QM Pulse passwords)
 - Update the create-user mutation payload to omit `password`

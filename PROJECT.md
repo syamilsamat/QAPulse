@@ -7,9 +7,9 @@ QM Pulse is a QA management platform built for software testing teams. It centra
 ## Architecture
 
 ```
-QAPulse/                        ← pnpm workspace root
+QMPulse/                        ← pnpm workspace root
 ├── artifacts/
-│   ├── qa-pulse/               ← React frontend (Vite + TypeScript)
+│   ├── qm-pulse/               ← React frontend (Vite + TypeScript)
 │   ├── api-server/             ← Express REST API (TypeScript)
 │   └── mockup-sandbox/         ← Design playground
 ├── lib/
@@ -199,7 +199,7 @@ Authentication is JWT Bearer token. The server reads the user from the token on 
 pnpm install
 
 # Run frontend
-cd artifacts/qa-pulse && pnpm dev
+cd artifacts/qm-pulse && pnpm dev
 
 # Run API server
 cd artifacts/api-server && pnpm dev

@@ -2,21 +2,21 @@ type Json = Record<string, any> | any[] | null;
 
 export {};
 
-const rawBaseUrl = process.env.QAPULSE_BASE_URL;
-const password = process.env.QAPULSE_TEST_PASSWORD;
+const rawBaseUrl = process.env.QMPULSE_BASE_URL;
+const password = process.env.QMPULSE_TEST_PASSWORD;
 
 if (!rawBaseUrl || !password) {
-  console.error("Set QAPULSE_BASE_URL and QAPULSE_TEST_PASSWORD before running preprod:smoke.");
+  console.error("Set QMPULSE_BASE_URL and QMPULSE_TEST_PASSWORD before running preprod:smoke.");
   process.exit(2);
 }
 
 const baseUrl = `${rawBaseUrl.replace(/\/$/, "")}/api`;
 const accounts = [
-  { email: "admin@qapulse.com", tier: "lead" },
-  { email: "pmo1@qapulse.com", tier: "member" },
-  { email: "fa1@qapulse.com", tier: "member" },
-  { email: "dev1@qapulse.com", tier: "member" },
-  { email: "qa1@qapulse.com", tier: "member" },
+  { email: "admin@qmpulse.com", tier: "lead" },
+  { email: "pmo1@qmpulse.com", tier: "member" },
+  { email: "fa1@qmpulse.com", tier: "member" },
+  { email: "dev1@qmpulse.com", tier: "member" },
+  { email: "qa1@qmpulse.com", tier: "member" },
 ] as const;
 
 const protectedReads = [
@@ -149,7 +149,7 @@ for (const account of accounts) {
   }
 
 
-  if (account.email === "admin@qapulse.com") {
+  if (account.email === "admin@qmpulse.com") {
     const stream = await fetch(`${baseUrl}/notifications/stream?token=${encodeURIComponent(token)}`, {
       signal: AbortSignal.timeout(15_000),
     });

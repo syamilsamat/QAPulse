@@ -17,7 +17,7 @@ present("DATABASE_URL");
 const jwtSecret = value("JWT_SECRET");
 checks.push({
   name: "JWT_SECRET",
-  pass: jwtSecret.length >= 32 && jwtSecret !== "qa-pulse-dev-secret-change-in-production-2024",
+  pass: jwtSecret.length >= 32 && jwtSecret !== "qm-pulse-dev-secret-change-in-production-2024",
   detail: jwtSecret ? (jwtSecret.length >= 32 ? "configured with sufficient length" : "must be at least 32 characters") : "missing",
 });
 

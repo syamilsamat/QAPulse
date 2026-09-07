@@ -15,7 +15,7 @@
 1. Buka pelayar web ke `http://localhost:5173`.
 2. Log masuk menggunakan akaun pentadbir/ketua *(cth. `admin` atau `qa_lead`)*.
 3. Buka tab Redmine di latar belakang sekiranya ingin menunjukkan integrasi masa nyata.
-4. Buka [`presenter_console.html`](file:///c:/Users/raimi.rosman/QAPulse/presenter_console.html) pada skrin komputer riba anda dan pilih bahasa **🇲🇾 Bahasa Melayu** (tekan `L` untuk tukar).
+4. Buka [`presenter_console.html`](file:///c:/Users/raimi.rosman/QMPulse/presenter_console.html) pada skrin komputer riba anda dan pilih bahasa **🇲🇾 Bahasa Melayu** (tekan `L` untuk tukar).
 
 ---
 

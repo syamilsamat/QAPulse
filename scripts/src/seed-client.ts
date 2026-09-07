@@ -4,13 +4,13 @@
  * clear script can reverse it precisely.
  *
  * Required env var:
- *   QAPULSE_API_URL — the same URL you open QM Pulse at in your browser,
+ *   QMPULSE_API_URL — the same URL you open QM Pulse at in your browser,
  *   e.g. https://your-repl-name.username.repl.co (no trailing slash, no
  *   /api suffix — this script appends /api itself, same as the frontend's
  *   own getApiUrl()).
  *
  * Optional env vars:
- *   SEED_ADMIN_EMAIL    (default: admin@qapulse.com)
+ *   SEED_ADMIN_EMAIL    (default: admin@qmpulse.com)
  *   SEED_ADMIN_PASSWORD (default: password123 — matches the actual code
  *   default below; this comment previously said "admin123" and didn't)
  */
@@ -23,10 +23,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const MANIFEST_PATH = join(__dirname, "..", "demo-seed-manifest.json");
 
 export function getBaseUrl(): string {
-  const url = process.env.QAPULSE_API_URL;
+  const url = process.env.QMPULSE_API_URL;
   if (!url) {
     throw new Error(
-      "QAPULSE_API_URL is required — set it to the same URL you open QM Pulse at in your browser " +
+      "QMPULSE_API_URL is required — set it to the same URL you open QM Pulse at in your browser " +
       "(e.g. https://your-repl-name.username.repl.co), with no trailing slash and no /api suffix.",
     );
   }
@@ -55,7 +55,7 @@ export async function login(email: string, password: string): Promise<string> {
 }
 
 export async function loginAdmin(): Promise<string> {
-  const email = process.env.SEED_ADMIN_EMAIL || "admin@qapulse.com";
+  const email = process.env.SEED_ADMIN_EMAIL || "admin@qmpulse.com";
   const password = process.env.SEED_ADMIN_PASSWORD || "password123";
   return login(email, password);
 }

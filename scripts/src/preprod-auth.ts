@@ -2,10 +2,10 @@ type Json = Record<string, any> | any[] | null;
 
 export {};
 
-const rawBaseUrl = process.env.QAPULSE_BASE_URL;
-const password = process.env.QAPULSE_TEST_PASSWORD;
+const rawBaseUrl = process.env.QMPULSE_BASE_URL;
+const password = process.env.QMPULSE_TEST_PASSWORD;
 if (!rawBaseUrl || !password) {
-  console.error("Set QAPULSE_BASE_URL and QAPULSE_TEST_PASSWORD before running preprod:auth.");
+  console.error("Set QMPULSE_BASE_URL and QMPULSE_TEST_PASSWORD before running preprod:auth.");
   process.exit(2);
 }
 
@@ -40,20 +40,20 @@ function expectStatus(check: string, result: Awaited<ReturnType<typeof request>>
 
 const invalid = await request("/auth/login", undefined, {
   method: "POST",
-  body: JSON.stringify({ email: "admin@qapulse.com", password: `${password}-incorrect` }),
+  body: JSON.stringify({ email: "admin@qmpulse.com", password: `${password}-incorrect` }),
 });
 expectStatus("invalid credentials rejected", invalid, 401);
 
 const unknown = await request("/auth/login", undefined, {
   method: "POST",
-  body: JSON.stringify({ email: "not-a-user@qapulse.invalid", password }),
+  body: JSON.stringify({ email: "not-a-user@qmpulse.invalid", password }),
 });
 expectStatus("unknown account rejected", unknown, 401);
 expect("login errors do not reveal account existence", (invalid.body as any)?.error, (unknown.body as any)?.error);
 
 const login = await request("/auth/login", undefined, {
   method: "POST",
-  body: JSON.stringify({ email: "qa1@qapulse.com", password }),
+  body: JSON.stringify({ email: "qa1@qmpulse.com", password }),
 });
 expectStatus("valid login", login, 200);
 const accessToken = String((login.body as any)?.token ?? "");

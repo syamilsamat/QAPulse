@@ -11,7 +11,7 @@
  *
  * Run from the Replit shell:
  *   cd scripts
- *   QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-demo-data.ts
+ *   QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-demo-data.ts
  */
 
 import pg from "pg";

@@ -46,7 +46,7 @@ show something real instead of empty states.
 1. **Find your app's public URL** — the same one you use to open QM Pulse in
    your browser (e.g. `https://your-repl-name.username.repl.co`). The
    script appends `/api` itself, exactly like the frontend does.
-2. Make sure `admin@qapulse.com` / `admin123` is still the working admin
+2. Make sure `admin@qmpulse.com` / `admin123` is still the working admin
    login (or override via `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`).
 
 ## Run it
@@ -55,7 +55,7 @@ From the Replit shell:
 
 ```bash
 cd scripts
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-data.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-data.ts
 ```
 
 Takes a minute or two — it's making several hundred real API calls, the same
@@ -75,14 +75,14 @@ of that script.
 
 All demo users share one password: `Demo@2026` (see `demo-data.ts`'s
 `DEMO_PASSWORD` if you change it). Their emails are all
-`firstname.lastname@demo.qapulse.local`, so they're easy to spot in the
+`firstname.lastname@demo.qmpulse.local`, so they're easy to spot in the
 Team/Roles pages and won't collide with anyone real.
 
 ## Clear it before/after a demo
 
 ```bash
 cd scripts
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-demo-data.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-demo-data.ts
 ```
 
 This reads `demo-seed-manifest.json` (written automatically while seeding —

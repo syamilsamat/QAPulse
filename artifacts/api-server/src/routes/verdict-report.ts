@@ -1492,7 +1492,7 @@ router.post("/verdict-report/send-email", async (req, res) => {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,sans-serif;">
   <div style="max-width:940px;margin:0 auto;">
-    <img src="cid:qapulse-report"
+    <img src="cid:qmpulse-report"
          alt="QM Pulse Verdict Report"
          style="width:100%;display:block;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px;">
@@ -1507,7 +1507,7 @@ router.post("/verdict-report/send-email", async (req, res) => {
       {
         filename: `QMPulse_Report_${redmineId ?? "report"}_${new Date().toISOString().slice(0, 10)}.png`,
         content: screenshotBuffer,
-        cid: "qapulse-report",
+        cid: "qmpulse-report",
         contentType: "image/png",
         contentDisposition: "inline",
       },

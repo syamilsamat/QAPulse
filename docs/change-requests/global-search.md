@@ -139,7 +139,7 @@ The server owns the `route` string (single source of truth for navigation), so t
 
 ## 6. Frontend design
 
-- **New component:** `artifacts/qa-pulse/src/components/GlobalSearch.tsx` — the command-palette overlay (search field, category chips, grouped results, keyboard nav, states) described in §2.
+- **New component:** `artifacts/qm-pulse/src/components/GlobalSearch.tsx` — the command-palette overlay (search field, category chips, grouped results, keyboard nav, states) described in §2.
 - **Trigger:** a **Global Search** button on the Dashboard, plus a `⌘K` / `Ctrl+K` global key listener. (Optional later: promote to the app header so it's reachable everywhere.)
 - **Data:** debounced `GET /search?q=` via react-query; category chip sets `type=`.
 - **Navigation:** follow each result's server-provided `route`; reuse the highlight/deep-link convention (`use-highlight.ts`).

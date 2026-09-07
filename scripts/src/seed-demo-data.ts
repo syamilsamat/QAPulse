@@ -7,7 +7,7 @@
  *
  * Run from the Replit shell:
  *   cd scripts
- *   QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-data.ts
+ *   QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-data.ts
  *
  * See scripts/DEMO_DATA.md for full instructions.
  */

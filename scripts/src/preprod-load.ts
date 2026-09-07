@@ -1,9 +1,9 @@
 export {};
 
-const rawBaseUrl = process.env.QAPULSE_BASE_URL;
-const password = process.env.QAPULSE_TEST_PASSWORD;
+const rawBaseUrl = process.env.QMPULSE_BASE_URL;
+const password = process.env.QMPULSE_TEST_PASSWORD;
 if (!rawBaseUrl || !password) {
-  console.error("Set QAPULSE_BASE_URL and QAPULSE_TEST_PASSWORD before running preprod:load.");
+  console.error("Set QMPULSE_BASE_URL and QMPULSE_TEST_PASSWORD before running preprod:load.");
   process.exit(2);
 }
 
@@ -11,7 +11,7 @@ const baseUrl = `${rawBaseUrl.replace(/\/$/, "")}/api`;
 const login = await fetch(`${baseUrl}/auth/login`, {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ email: "admin@qapulse.com", password }),
+  body: JSON.stringify({ email: "admin@qmpulse.com", password }),
   signal: AbortSignal.timeout(15_000),
 });
 if (!login.ok) throw new Error(`Login failed with ${login.status}`);

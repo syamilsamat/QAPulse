@@ -5,7 +5,7 @@ Internal QA management and analytics platform for tracking requirements, test ca
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080, proxied at `/api`)
-- `pnpm --filter @workspace/qa-pulse run dev` — run the React frontend (proxied at `/`)
+- `pnpm --filter @workspace/qm-pulse run dev` — run the React frontend (proxied at `/`)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -32,19 +32,19 @@ Internal QA management and analytics platform for tracking requirements, test ca
 - `lib/api-zod/` — generated Zod schemas (from Orval)
 - `lib/api-client-react/` — generated React Query hooks (from Orval)
 - `artifacts/api-server/src/routes/` — Express route handlers
-- `artifacts/qa-pulse/src/pages/` — React page components
-- `artifacts/qa-pulse/src/contexts/AuthContext.tsx` — auth state (localStorage, token getter)
+- `artifacts/qm-pulse/src/pages/` — React page components
+- `artifacts/qm-pulse/src/contexts/AuthContext.tsx` — auth state (localStorage, token getter)
 
 ## Authentication
 
 Token-based auth: token = `base64(id:email:role)`. Frontend stores in `localStorage` as `qa_pulse_token` and `qa_pulse_user`. The `setAuthTokenGetter` from the API client injects it as `Authorization: Bearer <token>`.
 
 Demo accounts:
-- `admin@qapulse.com` / `admin123` — admin role
-- `sarah@qapulse.com` / `password123` — qa_lead role
-- `james@qapulse.com` / `password123` — qa_member role
-- `priya@qapulse.com` / `password123` — qa_member role
-- `marcus@qapulse.com` / `password123` — qa_member role
+- `admin@qmpulse.com` / `admin123` — admin role
+- `sarah@qmpulse.com` / `password123` — qa_lead role
+- `james@qmpulse.com` / `password123` — qa_member role
+- `priya@qmpulse.com` / `password123` — qa_member role
+- `marcus@qmpulse.com` / `password123` — qa_member role
 
 ## Architecture decisions
 

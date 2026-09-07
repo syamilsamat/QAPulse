@@ -10,7 +10,7 @@
  *
  * Run from the Replit shell:
  *   cd scripts
- *   QAPULSE_API_URL=https://<your-repl-url> npx tsx src/seed-sparrow-testcases-bonus.ts
+ *   QMPULSE_API_URL=https://<your-repl-url> npx tsx src/seed-sparrow-testcases-bonus.ts
  * then:
  *   DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-testcases-bonus.ts
  */

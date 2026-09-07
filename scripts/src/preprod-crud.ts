@@ -2,11 +2,11 @@ type Json = Record<string, any> | any[] | null;
 
 export {};
 
-const rawBaseUrl = process.env.QAPULSE_BASE_URL;
-const password = process.env.QAPULSE_TEST_PASSWORD;
+const rawBaseUrl = process.env.QMPULSE_BASE_URL;
+const password = process.env.QMPULSE_TEST_PASSWORD;
 
 if (!rawBaseUrl || !password) {
-  console.error("Set QAPULSE_BASE_URL and QAPULSE_TEST_PASSWORD before running preprod:crud.");
+  console.error("Set QMPULSE_BASE_URL and QMPULSE_TEST_PASSWORD before running preprod:crud.");
   process.exit(2);
 }
 
@@ -66,8 +66,8 @@ async function patchAndVerify(label: string, path: string, body: Record<string, 
 }
 
 try {
-  adminToken = (await login("admin@qapulse.com")) ?? "";
-  const memberToken = (await login("qa1@qapulse.com")) ?? "";
+  adminToken = (await login("admin@qmpulse.com")) ?? "";
+  const memberToken = (await login("qa1@qmpulse.com")) ?? "";
 
   const anonymousMutations = [
     ["POST", "/projects", { name: runId }],

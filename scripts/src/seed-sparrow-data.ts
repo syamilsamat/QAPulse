@@ -22,7 +22,7 @@
  *
  * Run from the Replit shell (see scripts/SPARROW_DEMO.md):
  *   cd scripts
- *   QAPULSE_API_URL=https://<your-repl-url> npx tsx src/seed-sparrow-data.ts
+ *   QMPULSE_API_URL=https://<your-repl-url> npx tsx src/seed-sparrow-data.ts
  * then:
  *   DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-data.ts
  *
@@ -599,7 +599,7 @@ async function main() {
   console.log("\nNEXT STEP (required): backdate all timestamps to the storyline dates + stamp final defect statuses:");
   console.log("  DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-data.ts");
   console.log(`\nAll 11 personas log in with password: ${SPARROW_PASSWORD}`);
-  console.log("  e.g. salmah.idris@demo.qapulse.local (PMO), melissa.lim@demo.qapulse.local (QA Lead), daniel.wong@demo.qapulse.local (FA Lead)");
+  console.log("  e.g. salmah.idris@demo.qmpulse.local (PMO), melissa.lim@demo.qmpulse.local (QA Lead), daniel.wong@demo.qmpulse.local (FA Lead)");
 }
 
 main().catch((err) => {

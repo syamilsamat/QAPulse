@@ -47,17 +47,17 @@ export interface SparrowUser {
 }
 
 export const USERS: SparrowUser[] = [
-  { key: "salmah",  name: "Salmah Idris",    email: "salmah.idris@demo.qapulse.local",    role: "pm_member" },
-  { key: "rizal",   name: "Rizal Hamzah",    email: "rizal.hamzah@demo.qapulse.local",    role: "hod_pm" },
-  { key: "aina",    name: "Aina Zulkifli",   email: "aina.zulkifli@demo.qapulse.local",   role: "fa_member" },
-  { key: "daniel",  name: "Daniel Wong",     email: "daniel.wong@demo.qapulse.local",     role: "fa_lead" },
-  { key: "harith",  name: "Harith Rahman",   email: "harith.rahman@demo.qapulse.local",   role: "fa_member" },
-  { key: "farhan",  name: "Farhan Abdullah", email: "farhan.abdullah@demo.qapulse.local", role: "dev_lead" },
-  { key: "weijun",  name: "Wei Jun Tan",     email: "weijun.tan@demo.qapulse.local",      role: "dev_member" },
-  { key: "kavitha", name: "Kavitha Nair",    email: "kavitha.nair@demo.qapulse.local",    role: "dev_member" },
-  { key: "melissa", name: "Melissa Lim",     email: "melissa.lim@demo.qapulse.local",     role: "qa_lead" },
-  { key: "syafiq",  name: "Syafiq Osman",    email: "syafiq.osman@demo.qapulse.local",    role: "qa_member" },
-  { key: "nurul",   name: "Nurul Huda",      email: "nurul.huda@demo.qapulse.local",      role: "qa_member" },
+  { key: "salmah",  name: "Salmah Idris",    email: "salmah.idris@demo.qmpulse.local",    role: "pm_member" },
+  { key: "rizal",   name: "Rizal Hamzah",    email: "rizal.hamzah@demo.qmpulse.local",    role: "hod_pm" },
+  { key: "aina",    name: "Aina Zulkifli",   email: "aina.zulkifli@demo.qmpulse.local",   role: "fa_member" },
+  { key: "daniel",  name: "Daniel Wong",     email: "daniel.wong@demo.qmpulse.local",     role: "fa_lead" },
+  { key: "harith",  name: "Harith Rahman",   email: "harith.rahman@demo.qmpulse.local",   role: "fa_member" },
+  { key: "farhan",  name: "Farhan Abdullah", email: "farhan.abdullah@demo.qmpulse.local", role: "dev_lead" },
+  { key: "weijun",  name: "Wei Jun Tan",     email: "weijun.tan@demo.qmpulse.local",      role: "dev_member" },
+  { key: "kavitha", name: "Kavitha Nair",    email: "kavitha.nair@demo.qmpulse.local",    role: "dev_member" },
+  { key: "melissa", name: "Melissa Lim",     email: "melissa.lim@demo.qmpulse.local",     role: "qa_lead" },
+  { key: "syafiq",  name: "Syafiq Osman",    email: "syafiq.osman@demo.qmpulse.local",    role: "qa_member" },
+  { key: "nurul",   name: "Nurul Huda",      email: "nurul.huda@demo.qmpulse.local",      role: "qa_member" },
 ];
 
 export const TEAM = {

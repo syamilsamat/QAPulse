@@ -57,7 +57,7 @@ Open two terminal windows and run each separately:
 
 ```bash
 # Terminal 1 — Frontend
-cd artifacts/qa-pulse
+cd artifacts/qm-pulse
 pnpm dev
 
 # Terminal 2 — API server
@@ -75,7 +75,7 @@ Create a `.env` file at the workspace root with the following variables:
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string, e.g. `postgresql://user:pass@localhost:5432/qapulse` |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string, e.g. `postgresql://user:pass@localhost:5432/qmpulse` |
 | `JWT_SECRET` | ✅ | Secret used to sign JWT tokens. Use a strong random string in production. |
 | `CORS_ORIGIN` | ✅ | Allowed frontend origin, e.g. `http://localhost:5173` |
 | `REDMINE_API_KEY` | ✅ | System-level fallback Redmine API key. Individual users can override this with their own key in Settings. |
@@ -93,7 +93,7 @@ QM Pulse is a pnpm monorepo. The main packages are:
 ```
 QAPulse/
 ├── artifacts/
-│   ├── qa-pulse/           ← React frontend (Vite + TypeScript)
+│   ├── qm-pulse/           ← React frontend (Vite + TypeScript)
 │   ├── api-server/         ← Express REST API (TypeScript)
 │   └── mockup-sandbox/     ← Design playground
 ├── lib/
@@ -155,7 +155,7 @@ Authentication uses JWT Bearer tokens with an 8-hour expiry.
 pnpm install
 
 # Run frontend dev server
-cd artifacts/qa-pulse && pnpm dev
+cd artifacts/qm-pulse && pnpm dev
 
 # Run API server
 cd artifacts/api-server && pnpm dev

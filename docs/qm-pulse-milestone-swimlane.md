@@ -50,7 +50,7 @@ A requirement can be flagged `isBlocked` by FA/PM at any point, freezing dev han
 
 ## B · QA Pipeline
 
-Source: `artifacts/qa-pulse/src/pages/QAPipeline.tsx`, `src/components/qa-pipeline/Step1Milestone.tsx`–`Step8Complete.tsx`, `computePipelineState()` (`artifacts/api-server/src/routes/dashboard.ts`).
+Source: `artifacts/qm-pulse/src/pages/QAPipeline.tsx`, `src/components/qa-pipeline/Step1Milestone.tsx`–`Step8Complete.tsx`, `computePipelineState()` (`artifacts/api-server/src/routes/dashboard.ts`).
 
 ```mermaid
 flowchart LR

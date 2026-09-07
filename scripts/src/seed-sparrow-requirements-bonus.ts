@@ -11,7 +11,7 @@
  *
  * Run from the Replit shell (after the main seed):
  *   cd scripts
- *   QAPULSE_API_URL=https://<your-repl-url> npx tsx src/seed-sparrow-requirements-bonus.ts
+ *   QMPULSE_API_URL=https://<your-repl-url> npx tsx src/seed-sparrow-requirements-bonus.ts
  * then:
  *   DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-requirements-bonus.ts
  */

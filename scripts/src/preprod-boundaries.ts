@@ -2,10 +2,10 @@ type Json = Record<string, any> | any[] | null;
 
 export {};
 
-const rawBaseUrl = process.env.QAPULSE_BASE_URL;
-const password = process.env.QAPULSE_TEST_PASSWORD;
+const rawBaseUrl = process.env.QMPULSE_BASE_URL;
+const password = process.env.QMPULSE_TEST_PASSWORD;
 if (!rawBaseUrl || !password) {
-  console.error("Set QAPULSE_BASE_URL and QAPULSE_TEST_PASSWORD before running preprod:boundaries.");
+  console.error("Set QMPULSE_BASE_URL and QMPULSE_TEST_PASSWORD before running preprod:boundaries.");
   process.exit(2);
 }
 
@@ -36,7 +36,7 @@ function expect(check: string, actual: unknown, expected: unknown, detail?: stri
 
 const login = await request("/auth/login", undefined, {
   method: "POST",
-  body: JSON.stringify({ email: "admin@qapulse.com", password }),
+  body: JSON.stringify({ email: "admin@qmpulse.com", password }),
 });
 expect("admin login", login.status, 200, (login.body as any)?.error);
 const token = String((login.body as any)?.token ?? "");

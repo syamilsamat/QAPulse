@@ -16,8 +16,8 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR006](#cr006--ai-enhancements) | AI Enhancements | ✅ Deployed | 2026-06-27 |
 | [CR007](#cr007--auth--session-management) | Auth & Session Management | ✅ Deployed | 2026-06-29 |
 | [CR008](#cr008--execution-sheet-ux-overhaul) | Execution Sheet UX Overhaul | ✅ Deployed | 2026-06-28 |
-| [CR009](#cr009--playwrightqapulse-reporter) | Playwright→QM Pulse Reporter | ⏳ Pending | — |
-| [CR010](#cr010--trigger-playwright-from-qapulse-ui) | Trigger Playwright from QM Pulse UI | ⏳ Pending | — |
+| [CR009](#cr009--playwrightqmpulse-reporter) | Playwright→QM Pulse Reporter | ⏳ Pending | — |
+| [CR010](#cr010--trigger-playwright-from-qmpulse-ui) | Trigger Playwright from QM Pulse UI | ⏳ Pending | — |
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | ✅ Deployed | 2026-07-04 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
@@ -336,7 +336,7 @@ Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #231
 **Scope:**
 - `lib/api-spec/openapi.yaml` — replace singular `requirementDescription`/`requirementId` on `AIGenerateInput` with a `requirements: [{id, title, description}]` array; wrap `AIGenerateResponse` in per-requirement `results` groups; also correct `AIGeneratedTestCase` schema fields to match actual route output (drops stale `objective`/`automationCandidate`, which don't match what the route returns). Regenerate via `pnpm --filter @workspace/api-spec run codegen`.
 - `artifacts/api-server/src/routes/test-cases.ts:178-314` — extract single-generation logic into a per-requirement helper, fan out with `p-limit` + `Promise.allSettled`.
-- `artifacts/qa-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
+- `artifacts/qm-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
 
 Implemented as planned above; deployed 2026-07-04 (commit `2f356f3`). The mislink bug (all generated TCs saved under one `requirementId`) is fixed — generation and save are per-requirement.
 
@@ -354,7 +354,7 @@ Follow-up to CR005. Now that child requirements carry their own test case links,
 - Excel export mirrors the hierarchy: indented `↳` child rows, plus a rolled-up summary row for parents.
 - Module filter keeps a tree when the root or any descendant matches; status filter applies to the root's rolled-up status.
 
-**Scope:** `artifacts/api-server/src/routes/traceability.ts` (rewritten — tree assembly + recursive rollup), `artifacts/qa-pulse/src/pages/TraceabilityMatrix.tsx` (recursive rows + hierarchical export). No DB changes.
+**Scope:** `artifacts/api-server/src/routes/traceability.ts` (rewritten — tree assembly + recursive rollup), `artifacts/qm-pulse/src/pages/TraceabilityMatrix.tsx` (recursive rows + hierarchical export). No DB changes.
 
 ---
 
@@ -385,7 +385,7 @@ Extends the traceability matrix (CR005/CR016) now that milestones exist as a fir
 
 **Explicitly out of scope (first cut):** carry-over/trend view ("requirement slipped 3 sprints"), burndown charts — needs result history semantics not yet settled.
 
-**Scope estimate:** `lib/db/src/schema/` (milestones table + FKs — shared with the milestone feature), `artifacts/api-server/src/routes/traceability.ts` (milestoneId param, scoped LATERAL join, pruned rollup), `artifacts/qa-pulse/src/pages/TraceabilityMatrix.tsx` (milestone filter dropdown, milestone group headers, scoped summary cards, export column).
+**Scope estimate:** `lib/db/src/schema/` (milestones table + FKs — shared with the milestone feature), `artifacts/api-server/src/routes/traceability.ts` (milestoneId param, scoped LATERAL join, pruned rollup), `artifacts/qm-pulse/src/pages/TraceabilityMatrix.tsx` (milestone filter dropdown, milestone group headers, scoped summary cards, export column).
 
 ---
 
@@ -396,7 +396,7 @@ The "In N runs" badge on the Test Case Library (table and mobile card views) is 
 
 Supports impact analysis before editing/deleting a library TC, avoiding duplicate compiles (CR003), and jumping straight to a failing run.
 
-**Scope:** `artifacts/api-server/src/routes/test-cases.ts` (new `GET /test-cases/:id/executions` — on-demand, one entry per execution file, newest row wins), `artifacts/qa-pulse/src/pages/TestCases.tsx` (`ExecutionRunsDialog` + clickable badges). No DB changes.
+**Scope:** `artifacts/api-server/src/routes/test-cases.ts` (new `GET /test-cases/:id/executions` — on-demand, one entry per execution file, newest row wins), `artifacts/qm-pulse/src/pages/TestCases.tsx` (`ExecutionRunsDialog` + clickable badges). No DB changes.
 
 ---
 
@@ -434,7 +434,7 @@ First step toward native defect tracking in QM Pulse. QM Pulse becomes the **fro
 - Deliberately absent: comments, reassignment — those stay in Redmine until CR021. (Status editing was originally absent too, but was added post-deploy 2026-07-04 as write-through — see ownership rule 1.)
 - Fail-modal create dialog and Defects page mockups approved 2026-07-03.
 
-**Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qa-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
+**Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qm-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
 
 **Sequencing:** supersedes the earlier "read-only defect dashboard" idea. Implement after CR011 (reuses the `logActivity` audit pattern). Production defect workflow = CR020; full native cutover = CR021 (after CR014 so developers have proper roles).
 
@@ -456,7 +456,7 @@ Handles defects found in **production** — the mirror image of CR019: for prod 
 
 **Permanent vs bridge:** escape review, regression backfill, leakage metrics, Production tab = permanent (read QM Pulse tables only). Pull sync + read-only Redmine status = bridge, lives in `redmine-defect-bridge.ts`, deleted at CR021 cutover (prod intake then happens directly in QM Pulse or its replacement).
 
-**Scope estimate:** `artifacts/api-server/src/routes/defects.ts` (pull-sync job + escape-review endpoints), `artifacts/qa-pulse/src/pages/Defects.tsx` (Production tab, escape panel, create-regression-TC dialog), `pmo-report.ts` (leakage metrics). No schema change beyond CR019's tables.
+**Scope estimate:** `artifacts/api-server/src/routes/defects.ts` (pull-sync job + escape-review endpoints), `artifacts/qm-pulse/src/pages/Defects.tsx` (Production tab, escape panel, create-regression-TC dialog), `pmo-report.ts` (leakage metrics). No schema change beyond CR019's tables.
 
 ---
 
@@ -536,7 +536,7 @@ Filtering the TC Library by requirement previously matched only test cases linke
 - Extracted the recursive `getAllDescendants(parentId, allReqs, depth)` walk to module scope in `TestCases.tsx` — it previously existed only as an inline closure inside the AI Generate dialog's requirement picker. Both the filter and the AI dialog now share one implementation.
 - Client-side only: the filter builds a `Set` of {selected requirement id} ∪ all descendant ids and checks membership instead of strict equality, in both the normal and NL-search filter branches.
 
-**Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
+**Scope:** `artifacts/qm-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
 
 ---
 
@@ -549,7 +549,7 @@ Requirements and Tasks both gained a Milestone filter earlier the same day; TC L
 - `test_cases` has no `milestoneId` column of its own; a TC's milestone is derived through its linked requirement (`requirements.milestoneId`, mandatory per CR023 Part 3). A memoized `requirementId → milestoneId` lookup map drives the filter — a direct lookup, not a tree-expansion like CR024's requirement filter (each requirement, including children, already carries its own milestone value).
 - `?projectId=` and `?milestoneId=` URL params now pre-fill the Project and Milestone filters on load, extending the `?requirementId=` deep-link convention this page already had — enables future deep-links (e.g. from PM Dashboard or Milestones page) straight into a milestone-scoped TC list.
 
-**Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
+**Scope:** `artifacts/qm-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
 
 ---
 
@@ -639,7 +639,7 @@ URL params: `?projectId=&milestoneId=&start=&end=` — persisted on filter chang
 
 **Permission bootstrap:** add `nav:qa-analytics` to `admin` + `cto` backfill list and seed into `qa_lead` / `qa_manager` / `hod_qa` in the nav-permissions bootstrap — same narrow single-key pattern used for `hod_pm`'s `nav:pm-dashboard` backfill (does not blanket-reapply full permission sets).
 
-**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (new endpoint), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/QAAnalytics.tsx` (new page), `artifacts/qa-pulse/src/components/Layout.tsx` (nav entry), `artifacts/qa-pulse/src/components/icons/animated.tsx` (HoverBarChart icon). No schema changes. No DB migration.
+**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (new endpoint), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qm-pulse/src/pages/QAAnalytics.tsx` (new page), `artifacts/qm-pulse/src/components/Layout.tsx` (nav entry), `artifacts/qm-pulse/src/components/icons/animated.tsx` (HoverBarChart icon). No schema changes. No DB migration.
 
 **Delivery order:** backend endpoint first (verify all 7 queries), then frontend panel-by-panel: Panel 1 Execution Trend → Panel 3 Pass by Milestone → Panels 4–5 Defect panels → Panel 2 Velocity → Panel 6 Escape Funnel → Panel 7 Coverage snapshot → CSV export.
 
@@ -735,9 +735,9 @@ Backend:
 - `artifacts/api-server/src/routes/requirement_comments.ts` — `comment_posted`
 
 Frontend:
-- `artifacts/qa-pulse/src/components/Layout.tsx` — replace bell link with `NotificationDropdown`; open SSE `EventSource` on mount; keep 30s poll as fallback
-- `artifacts/qa-pulse/src/components/NotificationDropdown.tsx` (new) — 5-item quick-glance popover with Part 1 routing
-- `artifacts/qa-pulse/src/pages/Inbox.tsx` — deep-link routing on click, entity-type filter chips, type badge column, explicit `→` nav button, empty state
+- `artifacts/qm-pulse/src/components/Layout.tsx` — replace bell link with `NotificationDropdown`; open SSE `EventSource` on mount; keep 30s poll as fallback
+- `artifacts/qm-pulse/src/components/NotificationDropdown.tsx` (new) — 5-item quick-glance popover with Part 1 routing
+- `artifacts/qm-pulse/src/pages/Inbox.tsx` — deep-link routing on click, entity-type filter chips, type badge column, explicit `→` nav button, empty state
 
 No schema changes. No DB migration. `entityType` and `entityId` columns already exist on `notificationsTable`.
 
@@ -766,7 +766,7 @@ A fixed, QM Pulse-native defect taxonomy (Functional, UI/UX, Usability, Performa
 - **Lead-tier+ gate, enforced server-side, not just hidden in the UI:** added `getRoleTierRank(role)` to `middleware/access.ts` (admin → unrestricted, everyone else looked up from `roles.tier_rank`; Lead = 2 across every department by the existing tier convention). `POST /defects`, `POST /defects/register`, and `PATCH /defects/:id` all silently drop an incoming `defectCategory` if the caller's tier is below 2, rather than rejecting the whole request — a lower-tier caller hitting the API directly (bypassing the UI, which simply doesn't render the field for them) can't set it, but their otherwise-valid defect still gets created.
 - **`GET /auth/me` (and login/refresh) now return `tierRank`** so the frontend can decide whether to render the field at all — `formatUser()` in `auth.ts` was made async to join `roles.tier_rank` by the user's role name (admin hardcoded to a finite sentinel, 99, since `Infinity` doesn't survive `JSON.stringify`).
 - **Shared `DefectCategoryField` component** (dropdown + an (i) info button opening a dialog with all 10 categories and their descriptions) used identically by both creation dialogs — "all dialogs regarding defects" now means exactly these two, since a separate "Edit Defect" dialog doesn't exist (edits happen via small inline controls for `escapeStatus`/`escapeClass`/`escapeNotes` only). `PATCH /defects/:id` accepts `defectCategory` too, ahead of any future edit UI needing it.
-- **Scope estimate:** `lib/db/src/schema/defects.ts` (new column), `artifacts/api-server/src/middleware/access.ts` (`getRoleTierRank`), `artifacts/api-server/src/routes/auth.ts` (`tierRank` on the user payload), `artifacts/api-server/src/routes/defects.ts` (taxonomy constant + tier gate on all three write endpoints), `artifacts/qa-pulse/src/lib/defect-categories.ts` (taxonomy + label lookup, new), `artifacts/qa-pulse/src/components/DefectCategoryField.tsx` (new), `artifacts/qa-pulse/src/pages/Defects.tsx` + `DefectCreationModal.tsx` (both creation dialogs, plus a list-row display), `artifacts/qa-pulse/src/lib/execution-api.ts` (`registerLocalDefect` payload).
+- **Scope estimate:** `lib/db/src/schema/defects.ts` (new column), `artifacts/api-server/src/middleware/access.ts` (`getRoleTierRank`), `artifacts/api-server/src/routes/auth.ts` (`tierRank` on the user payload), `artifacts/api-server/src/routes/defects.ts` (taxonomy constant + tier gate on all three write endpoints), `artifacts/qm-pulse/src/lib/defect-categories.ts` (taxonomy + label lookup, new), `artifacts/qm-pulse/src/components/DefectCategoryField.tsx` (new), `artifacts/qm-pulse/src/pages/Defects.tsx` + `DefectCreationModal.tsx` (both creation dialogs, plus a list-row display), `artifacts/qm-pulse/src/lib/execution-api.ts` (`registerLocalDefect` payload).
 - **Not done:** no filter-by-category on the Defects list, and it isn't fed into CR026's planned defect-density dashboard yet — both natural follow-ups once real category data exists to look at.
 
 ---
@@ -802,7 +802,7 @@ Redmine assignment was previously read-only cache (`defects.assigneeName`, a pla
 
 **Also fixed in passing:** `lib/db/src/schema/requirements.ts` imported `z` from `"zod"` while every sibling schema file (and `drizzle-zod`'s own internals) uses `"zod/v4"` — a preexisting mismatch that was already failing typecheck on `main` before this CR (confirmed via `git stash`), and got worse (but not newly broken) as this CR added five more columns to the same table. Aligned the import with every other schema file.
 
-**Scope:** `lib/db/src/schema/defects.ts`, `lib/db/src/schema/requirements.ts` (new columns), `artifacts/api-server/src/routes/roles.ts` (bootstrap `ALTER TABLE`s, `nav:defects` permission key + narrow backfill), `artifacts/api-server/src/routes/redmine-defect-bridge.ts` (`pushAssigneeToRedmine`, `resolveRedmineUserIdByName`, reconciliation in `refreshDefectStatuses`), `artifacts/api-server/src/routes/defects.ts` (`PATCH /defects/:id/assign`, `view=mine`), `artifacts/api-server/src/routes/requirements.ts` (`PATCH /requirements/:id/dev`, `GET /requirements/dev-queue`, the route-ordering fix), `artifacts/qa-pulse/src/components/Layout.tsx` (nav), `artifacts/qa-pulse/src/pages/Defects.tsx`, `artifacts/qa-pulse/src/pages/RequirementDetail.tsx`, `artifacts/qa-pulse/src/pages/Requirements.tsx`.
+**Scope:** `lib/db/src/schema/defects.ts`, `lib/db/src/schema/requirements.ts` (new columns), `artifacts/api-server/src/routes/roles.ts` (bootstrap `ALTER TABLE`s, `nav:defects` permission key + narrow backfill), `artifacts/api-server/src/routes/redmine-defect-bridge.ts` (`pushAssigneeToRedmine`, `resolveRedmineUserIdByName`, reconciliation in `refreshDefectStatuses`), `artifacts/api-server/src/routes/defects.ts` (`PATCH /defects/:id/assign`, `view=mine`), `artifacts/api-server/src/routes/requirements.ts` (`PATCH /requirements/:id/dev`, `GET /requirements/dev-queue`, the route-ordering fix), `artifacts/qm-pulse/src/components/Layout.tsx` (nav), `artifacts/qm-pulse/src/pages/Defects.tsx`, `artifacts/qm-pulse/src/pages/RequirementDetail.tsx`, `artifacts/qm-pulse/src/pages/Requirements.tsx`.
 
 **DB change:** new columns only, all bootstrapped (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — no manual `db push` required, unlike CR029's `defects.defectCategory` (that table predates bootstrap coverage; these are the first bootstrap-owned columns added to it).
 
@@ -855,7 +855,7 @@ Today "something is wrong with this requirement" has exactly one outlet — flip
 
 **Stretch, not v1 scope:** a new `escapeClass` value (e.g. `bad_requirement`) on *production* defects, settable during CR020 escape review, to distinguish "QA missed a real code bug" from "the requirement itself was wrong" — and ideally auto-suggesting raising a requirement defect against the culprit requirement when that class is picked. Deferred until requirement defects have shipped and there's a production incident to validate the linkage against.
 
-**Scope:** `artifacts/api-server/src/routes/defects.ts` (`POST /defects` source handling + auto-assign, self-handoff exception on `PATCH /defects/:id/assign`), `artifacts/qa-pulse/src/pages/RequirementDetail.tsx` (Requirement Defect card), `artifacts/qa-pulse/src/pages/Requirements.tsx` (badge), `artifacts/qa-pulse/src/pages/Defects.tsx` (source filter). No schema files, no migration.
+**Scope:** `artifacts/api-server/src/routes/defects.ts` (`POST /defects` source handling + auto-assign, self-handoff exception on `PATCH /defects/:id/assign`), `artifacts/qm-pulse/src/pages/RequirementDetail.tsx` (Requirement Defect card), `artifacts/qm-pulse/src/pages/Requirements.tsx` (badge), `artifacts/qm-pulse/src/pages/Defects.tsx` (source filter). No schema files, no migration.
 
 **Open decisions before build starts:** (1) confirm the raiser role list above is complete — should `hod_dev`/`hod_qa` be explicit rather than implicit-via-tier; (2) confirm the self-handoff exception on `PATCH /defects/:id/assign` is the right mechanism vs. a dedicated `PATCH /defects/:id/route` action kept separate from Lead-tier assignment semantics.
 
@@ -891,13 +891,13 @@ Replace the fixed-named-phase model (`buildPhaseBreakdown`, `computeMilestonePha
 3. Return a flat ordered array (`{ key, cycle, label, start, end, days }`) instead of a fixed named object — `key` stays one of `requirements`/`develop`/`gap`/`qa`/`uat` for color-mapping purposes, `cycle` distinguishes the 1st occurrence from the 2nd/3rd for labeling ("Requirements (round 2)").
 4. Milestone-level aggregation: **sum a requirement's own per-cycle durations for a given phase key before averaging across requirements/milestones** (e.g. a requirement with two Requirements-phase cycles contributes their total, not two separate data points) — this answers "how much total time did requirements churn cost," which is the report's whole purpose, rather than diluting the average with cycle-count noise.
 
-**Frontend changes — `artifacts/qa-pulse/src/pages/PmDashboard.tsx`**
+**Frontend changes — `artifacts/qm-pulse/src/pages/PmDashboard.tsx`**
 
 `PhaseTimelineBar`/`phasesToSegments` (lines 225-280) already renders an arbitrary number of segments — it just needs to accept the new flat array shape instead of the fixed named object, plus a `develop` entry in `PHASE_COLOR` (lines 212-217). Repeated cycles of the same phase key can reuse that key's color (a repeating pattern reads more clearly than inventing new colors per cycle) with the round number available on hover/tooltip.
 
 **Stretch, not core scope:** labeling a Requirements-phase restart with *why* it reopened (CR031 requirement defect vs. a plain CR023 reject) by cross-referencing `defectLinksTable` for a `linkType: "requirement"` row created around that `requirement_submit` timestamp. Deferred — the phase timeline is useful without it, and the linkage is a nice-to-have, not required to fix the core distortion.
 
-**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (phase reconstruction rewrite), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (segment shape + Develop color). No schema files, no migration.
+**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (phase reconstruction rewrite), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (segment shape + Develop color). No schema files, no migration.
 
 ---
 
@@ -982,7 +982,7 @@ Risk score is derived at read time from a 3×3 probability×impact matrix (low/m
 - **Executing** as a live work-in-progress board — the task board and dev-handoff status already exist elsewhere in the app (`Tasks.tsx`, the Development card); duplicating a live WIP view into the PM Dashboard is a bigger, separate design question (what's the delta over just linking to those existing pages?) rather than a natural extension of what's here.
 - **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QM Pulse tracks cost at all.
 
-**Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).
+**Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qm-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).
 
 ---
 
@@ -1030,7 +1030,7 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 
 **Non-goals:** no new "assignment" table — this stays purely a read/derived view over existing task and execution-file data, same as the PM Dashboard's other panels. No historical trend of resource utilization over time (that's a QA Analytics-style panel, not this CR). No capacity *planning* (future allocation, what-if scenarios) — this is a current-state snapshot only.
 
-**Scope:** `artifacts/api-server/src/routes/roles.ts` (new `nav:resources` key + permission grants), `artifacts/api-server/src/routes/dashboard.ts` (new `resource-view` endpoint), `artifacts/qa-pulse/src/pages/Resources.tsx` (new page), `artifacts/qa-pulse/src/App.tsx`/`Layout.tsx` (new route + nav entry, gated on `nav:resources`). No schema changes, no DB migration.
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (new `nav:resources` key + permission grants), `artifacts/api-server/src/routes/dashboard.ts` (new `resource-view` endpoint), `artifacts/qm-pulse/src/pages/Resources.tsx` (new page), `artifacts/qm-pulse/src/App.tsx`/`Layout.tsx` (new route + nav entry, gated on `nav:resources`). No schema changes, no DB migration.
 
 ---
 
@@ -1068,7 +1068,7 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 
 **Non-goals:** not adding project-specific module *names* — `execution_modules` stays one global catalog of module names, `project_modules` only decides which of those names apply to which project(s) (a module can apply to more than one, per user 2026-07-13). Not touching Teams/Team Hangouts as a feature, only its role in project access. Not building module rename/delete tooling beyond the existing `POST /modules`.
 
-**Scope:** `lib/db/src/schema/project-members.ts` (3 new columns: `moduleId`, `assignedBy`, `assignedAt`), `lib/db/src/schema/project-modules.ts` (new junction table), `artifacts/api-server/src/routes/roles.ts` (remove bootstrap cross-join), `artifacts/api-server/src/middleware/access.ts` (rewrite `scopeToUserProjects`, new `canAccessModule`), `artifacts/api-server/src/routes/teams.ts` (extend members endpoints, HOD-tier gate, new project-modules endpoints), `artifacts/api-server/src/routes/{test-cases,requirements,test-execution,traceability,defects,tasks,dashboard}.ts` (module-scope checks), `artifacts/qa-pulse/src/pages/Configuration.tsx` (new Project Access panel + module association UI), `artifacts/qa-pulse/src/pages/Teams.tsx` (remove project-assignment UI), a new one-off migration script under `scripts/`. Requires a DB migration (new `project_modules` table + 3 new `project_members` columns) and a one-time data migration script.
+**Scope:** `lib/db/src/schema/project-members.ts` (3 new columns: `moduleId`, `assignedBy`, `assignedAt`), `lib/db/src/schema/project-modules.ts` (new junction table), `artifacts/api-server/src/routes/roles.ts` (remove bootstrap cross-join), `artifacts/api-server/src/middleware/access.ts` (rewrite `scopeToUserProjects`, new `canAccessModule`), `artifacts/api-server/src/routes/teams.ts` (extend members endpoints, HOD-tier gate, new project-modules endpoints), `artifacts/api-server/src/routes/{test-cases,requirements,test-execution,traceability,defects,tasks,dashboard}.ts` (module-scope checks), `artifacts/qm-pulse/src/pages/Configuration.tsx` (new Project Access panel + module association UI), `artifacts/qm-pulse/src/pages/Teams.tsx` (remove project-assignment UI), a new one-off migration script under `scripts/`. Requires a DB migration (new `project_modules` table + 3 new `project_members` columns) and a one-time data migration script.
 
 ---
 
@@ -1109,7 +1109,7 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 - **AI Risk Predictor** — CR037, own deploy (see Origin above).
 - No many-to-many dependency table, no Gantt/critical-path anything — `blockedByTaskId` is a field, not a scheduling engine.
 
-**Scope:** `lib/db/src/schema/tasks.ts` (+ bootstrap SQL) — one new column; `artifacts/api-server/src/routes/tasks.ts` (validation + cycle guard); `artifacts/qa-pulse/src/pages/Tasks.tsx` (picker + badge); `artifacts/qa-pulse/src/pages/PmoReport.tsx` + `artifacts/qa-pulse/src/components/Layout.tsx` (rename); `artifacts/qa-pulse/src/pages/Resources.tsx` (chip + filter). One `db push` for the tasks column; everything else additive.
+**Scope:** `lib/db/src/schema/tasks.ts` (+ bootstrap SQL) — one new column; `artifacts/api-server/src/routes/tasks.ts` (validation + cycle guard); `artifacts/qm-pulse/src/pages/Tasks.tsx` (picker + badge); `artifacts/qm-pulse/src/pages/PmoReport.tsx` + `artifacts/qm-pulse/src/components/Layout.tsx` (rename); `artifacts/qm-pulse/src/pages/Resources.tsx` (chip + filter). One `db push` for the tasks column; everything else additive.
 
 ---
 
@@ -1138,13 +1138,13 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 
 **Backend:** new `POST /ai/milestone-risk` in `artifacts/api-server/src/routes/ai.ts` — gathers the five input aggregates (reusing the dashboard/traceability query shapes, batched, no N+1), builds the prompt, stores + returns the assessment. `GET /milestones/:id/risk-assessments` for history. PM-tier + admin/cto gated, same `PM_ROLES` discipline as `dashboard.ts`.
 
-**Frontend:** `artifacts/qa-pulse/src/pages/PmDashboard.tsx` — Risk Assessment card (level badge reusing existing severity colors, top-3 factor list, mitigation line, Assess now button, last-assessed stamp, small history sparkline/list of prior levels).
+**Frontend:** `artifacts/qm-pulse/src/pages/PmDashboard.tsx` — Risk Assessment card (level badge reusing existing severity colors, top-3 factor list, mitigation line, Assess now button, last-assessed stamp, small history sparkline/list of prior levels).
 
 **Stretch, not v1:** AI-suggested new risk-register entries (write-path complexity — v2); utilization % rides along **only if** the capacity-model decision (per-user available hours vs. flat assumption) has been made by build time, else it stays parked.
 
 **Non-goals:** no automatic/scheduled assessment runs (a stale-data assessment silently going out to stakeholders is worse than an explicit button); no cross-milestone portfolio prediction (needs assessment history to exist first); no cost/CPI signals (no cost data — see CR033 non-goals).
 
-**Scope:** `lib/db/src/schema/` (new `milestone_risk_assessments` table + bootstrap `CREATE TABLE IF NOT EXISTS` in `roles.ts`, moved together per CR036 discipline), `artifacts/api-server/src/routes/ai.ts` (new endpoint), `artifacts/api-server/src/routes/milestones.ts` (history GET), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (card). One DB migration.
+**Scope:** `lib/db/src/schema/` (new `milestone_risk_assessments` table + bootstrap `CREATE TABLE IF NOT EXISTS` in `roles.ts`, moved together per CR036 discipline), `artifacts/api-server/src/routes/ai.ts` (new endpoint), `artifacts/api-server/src/routes/milestones.ts` (history GET), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (card). One DB migration.
 
 ---
 
@@ -1173,7 +1173,7 @@ Parked in CR034, CR036, and CR037 pending a decision on whether QM Pulse models 
 - `PmDashboard.tsx`'s `CapacityTable`: new "Utilization" column, red at ≥100%, amber at ≥80%, muted otherwise; tooltip notes the flat-40h assumption.
 - **Deliberately not added to the Resources page (CR034).** That page has no hours signal at all for any department, and QA/FA specifically have no natural hours-estimate source (execution PIC / requirement authorship don't carry effort estimates) — utilization there would need an entirely different proxy metric, not just this capacity-model decision. Only Dev/PM (task-based `estimatedHours`) get this column, on the page that already had the underlying data.
 
-**Scope:** `artifacts/api-server/src/middleware/access.ts` (2 threshold changes + doc comments), `artifacts/api-server/src/routes/dashboard.ts` (`WEEKLY_CAPACITY_HOURS`, `utilizationPct`), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (`CapacityEntry` type, Utilization column). No schema changes, no migration.
+**Scope:** `artifacts/api-server/src/middleware/access.ts` (2 threshold changes + doc comments), `artifacts/api-server/src/routes/dashboard.ts` (`WEEKLY_CAPACITY_HOURS`, `utilizationPct`), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (`CapacityEntry` type, Utilization column). No schema changes, no migration.
 
 ---
 
@@ -1216,7 +1216,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 - `GET /ai/requirement-chat/conversations/:id/messages` — full message list, ownership-checked.
 - Auth: `getAuthContext` required on all three (for `userId` ownership, not an added authorization layer — matches the lighter sibling precedent of `/ai/analyze-requirement`/`/ai/coverage-gap`, which rely on `nav:ai-hub` gating alone).
 
-**Frontend** (`artifacts/qa-pulse/src/pages/AiFeatures.tsx`):
+**Frontend** (`artifacts/qm-pulse/src/pages/AiFeatures.tsx`):
 - New 7th "Requirement Chat" tab — no picker, no requirement preview card. One header (label + "New Chat"), a message list, an input row.
 - An assistant message can carry a `matchedRequirement` badge (small pill above the bubble showing which requirement it answered from) or `candidates` (rendered as clickable chips instead of prose, for disambiguation).
 - History list (no active conversation) toggles with the live message thread (active conversation) — same panel, different content.
@@ -1226,7 +1226,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Non-goals:** no admin-facing browsing of other users' conversations; no project-scoping filter on the search (ambiguity is resolved by asking, confirmed as the intended behavior, not a gap to fix later); no reuse of `entityType`/`entityId` for anything beyond requirements in v1; no history-list browsing inside the floating widget's Requirement mode (AI Hub tab only).
 
-**Scope:** `lib/db/src/schema/conversations.ts` (3 new columns + 2 indexes), `lib/db/src/schema/index.ts` (missing exports), `artifacts/api-server/src/routes/roles.ts` (bootstrap table coverage), `artifacts/api-server/src/routes/ai.ts` (matching + grounding helpers, 3 new endpoints), `artifacts/qa-pulse/src/pages/AiFeatures.tsx` (new tab), `artifacts/qa-pulse/src/components/Layout.tsx` (Requirement mode toggle in the floating widget). Requires `pnpm --filter @workspace/db push` for existing dev databases (self-heals on fresh databases via the new bootstrap coverage).
+**Scope:** `lib/db/src/schema/conversations.ts` (3 new columns + 2 indexes), `lib/db/src/schema/index.ts` (missing exports), `artifacts/api-server/src/routes/roles.ts` (bootstrap table coverage), `artifacts/api-server/src/routes/ai.ts` (matching + grounding helpers, 3 new endpoints), `artifacts/qm-pulse/src/pages/AiFeatures.tsx` (new tab), `artifacts/qm-pulse/src/components/Layout.tsx` (Requirement mode toggle in the floating widget). Requires `pnpm --filter @workspace/db push` for existing dev databases (self-heals on fresh databases via the new bootstrap coverage).
 
 ---
 
@@ -1248,7 +1248,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Explicitly not granted:** `hod_qa`/`hod_fa`/`hod_dev` (marked Informed, not Consulted, in the RACI exercise) — Informed doesn't require page access; revisit only if there's a concrete ask for it, not preemptively.
 
-**Scope:** `artifacts/qa-pulse/src/components/` (new shared Risk Register component, extracted from `PmDashboard.tsx`), `artifacts/qa-pulse/src/pages/RiskRegister.tsx` (new), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (remove inline card, add link), `artifacts/qa-pulse/src/components/Layout.tsx` (nav entry + `pmo` special case), `artifacts/qa-pulse/src/App.tsx` (route), `artifacts/api-server/src/routes/roles.ts` (`nav:risk-register` key, grants, narrow backfill). No schema changes, no migration.
+**Scope:** `artifacts/qm-pulse/src/components/` (new shared Risk Register component, extracted from `PmDashboard.tsx`), `artifacts/qm-pulse/src/pages/RiskRegister.tsx` (new), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (remove inline card, add link), `artifacts/qm-pulse/src/components/Layout.tsx` (nav entry + `pmo` special case), `artifacts/qm-pulse/src/App.tsx` (route), `artifacts/api-server/src/routes/roles.ts` (`nav:risk-register` key, grants, narrow backfill). No schema changes, no migration.
 
 ---
 
@@ -1265,13 +1265,13 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 - New local `requireAdmin(req, res): boolean` (identical shape to `teams.ts`/`audit-log.ts`'s copies), called at the top of `POST /roles`, `PATCH /roles/:id`, `DELETE /roles/:id`, `PUT /roles/:id/permissions`. `GET /roles` and `GET /roles/:id/permissions` stay open — this closes the *change* gap the ask was actually about, not a blanket lockdown of reads that other parts of the app might depend on.
 - New `GET /roles/permissions-matrix`, `requireAdmin`-gated — returns `{ allKeys: string[], roles: [{ id, name, department, tierRank, isSystem, permissions: string[] }] }` in one call instead of N+1 (one `GET .../permissions` per role, which is what a naive matrix view would otherwise need). `admin`'s `permissions` is hardcoded to the full `ALL_NAV_KEYS` list, mirroring the same special case already in `GET /roles/:id/permissions` (line 527-529) rather than trusting DB rows that endpoint doesn't trust either; every other role reads its real `role_nav_permissions` rows, one query grouped in JS rather than N role-scoped queries.
 
-**Frontend (`artifacts/qa-pulse/src/pages/Roles.tsx`):**
+**Frontend (`artifacts/qm-pulse/src/pages/Roles.tsx`):**
 - Replaced the incomplete `NAV_PERMISSION_ITEMS` (11 of 18 keys — also missing the new `nav:risk-register` from CR040) with the full 18-key label map; the per-role permission editor's checkbox list now iterates it too, fixing the 6 previously-untoggleable keys as a side effect. The matrix view's columns come from the new endpoint's `allKeys` at runtime (`labelForNavKey()` falls back to a prettified key for anything not in the local map, so a future `nav:` key still renders instead of silently vanishing even before someone adds its label).
 - New "View Access Matrix" button (page header, alongside "New Role") opening a wide `Dialog` with a `Table`: roles as rows, grouped by department with a header row per group and sorted by tier descending within each group, permission keys as columns, read-only (a check icon per granted cell, no click-to-toggle), horizontal scroll for the 18 columns. Editing stays exclusively through the existing per-role permission dialog — the matrix is a reference view, not a second editing surface.
 
 **Non-goals:** no bulk/matrix-level editing (toggle cells directly in the grid) — that's meaningfully more UI/state complexity for a feature whose actual ask was "view," not "edit differently"; the existing per-role dialog remains the only way to change anything. No change to who can *view* `/roles` itself (still admin-only via the existing route gate) — this CR doesn't widen or narrow that.
 
-**Scope:** `artifacts/api-server/src/routes/roles.ts` (`requireAdmin` helper + 4 gate call-sites + new matrix endpoint), `artifacts/qa-pulse/src/pages/Roles.tsx` (matrix dialog, fixed permission-key label map). No schema changes, no migration.
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (`requireAdmin` helper + 4 gate call-sites + new matrix endpoint), `artifacts/qm-pulse/src/pages/Roles.tsx` (matrix dialog, fixed permission-key label map). No schema changes, no migration.
 
 ---
 
@@ -1286,7 +1286,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Deliberately unchanged:** raising requirement defects stays gated to `REQUIREMENT_DEFECT_ROLES` (dev/QA) — FA's RACI role is Consulted/receiver (they get assigned, fix, and resubmit via RequirementDetail), not raiser. Backend `GET /defects` needed no change (project-scoped, not department-gated).
 
-**Scope:** `artifacts/api-server/src/routes/roles.ts` (2 grants + backfill block), `artifacts/qa-pulse/src/components/Layout.tsx` (nav roles), `artifacts/qa-pulse/src/App.tsx` (route roles sync). No schema changes, no migration.
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (2 grants + backfill block), `artifacts/qm-pulse/src/components/Layout.tsx` (nav roles), `artifacts/qm-pulse/src/App.tsx` (route roles sync). No schema changes, no migration.
 
 ---
 
@@ -1295,14 +1295,14 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Origin:** after CR041's Access Matrix shipped, the user expected to see the RACI letters from the access-review analysis in it — but RACI (Responsible/Accountable/Consulted/Informed per page × role) is a governance judgment, not data the system stores, so the live matrix could only ever show checkmarks. Decision: static overlay (option 1) — hardcode the RACI designation map in the frontend and add a view toggle — rather than a new editable table (option 2), which is only worth building if RACI becomes a living artifact admins maintain in-app.
 
-**Frontend (`artifacts/qa-pulse/src/pages/Roles.tsx`):**
+**Frontend (`artifacts/qm-pulse/src/pages/Roles.tsx`):**
 - `RACI_MAP`: hardcoded `Record<navKey, Record<roleName, "R"|"A"|"C"|"I">>` covering 15 of the 18 nav keys — utility pages (`nav:inbox`, `nav:team-hangouts`, `nav:admin-search`) deliberately carry no RACI. The designations mirror the access-review exercise (e.g. Requirements: fa_member R / fa_lead A; Risk Register: pm_lead R / hod_pm A / qa_lead+fa_lead C; Milestones' A on pm_lead and Verdict Report's A on hod_qa were flagged as debatable judgment calls at the time).
 - Access/RACI toggle in the matrix dialog. Access view unchanged (live checkmarks). RACI view: colored letter chips (R blue, A purple, C amber, I muted), red `X!`-style flag when an R/A/C role lacks the actual permission (live gap detection — the map is static but the gap check runs against real `role_nav_permissions` data), muted `·` for access with no RACI stake, and blank for custom roles (e.g. a hand-added `devops`) that have no RACI defined.
 - Legend row shown only in RACI view.
 
 **Non-goals:** no RACI editing, no RACI storage, no backend changes at all. When the org's RACI thinking changes, `RACI_MAP` is a code edit — that's the accepted trade-off of option 1.
 
-**Scope:** `artifacts/qa-pulse/src/pages/Roles.tsx` only. No schema changes, no migration.
+**Scope:** `artifacts/qm-pulse/src/pages/Roles.tsx` only. No schema changes, no migration.
 
 ### CR044 — Multi-Module Project Access
 **Status:** ✅ Deployed (2026-07-17)
@@ -1532,7 +1532,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Status: DEPLOYED (2026-07-21)**
 
-**Origin:** direct follow-on to CR055/056 (Risk Log export) — same ask, different template. Found the source at `~/Desktop/QAPulse/5.1 Lesson Learned/eQuota FWe Approval Project Lessons Learnt.xlsx` (Ref. No. BSB-PMO-TEM–24–V1.0), a real client's actual retrospective content.
+**Origin:** direct follow-on to CR055/056 (Risk Log export) — same ask, different template. Found the source at `~/Desktop/QMPulse/5.1 Lesson Learned/eQuota FWe Approval Project Lessons Learnt.xlsx` (Ref. No. BSB-PMO-TEM–24–V1.0), a real client's actual retrospective content.
 
 **Template asset:** sanitized the same way as the Risk Log (client's 7 real lesson rows + project name stripped, structure/logo/dropdown validations kept). Data-validation dropdowns for Phase (a fixed 13-value PM-phase list) and Lessons Learnt Type (What went wrong / What went right / Best Practice) preserved and extended across the full row range; the source file's inconsistent 4-value variant on 2 rows (a stray extra "Recommendation" option) standardized to one clean 3-value list throughout. Row capacity extended: Lessons Learnt 10→60 rows, Doc Info history 5→60 rows. Row heights on the Lessons Learnt data rows set to a generous fixed height (110pt) — the source file's original per-row heights were sized for each row's own short sample text and clipped QM Pulse's longer real content.
 

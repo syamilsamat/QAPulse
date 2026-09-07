@@ -280,11 +280,11 @@ async function resolveRedmineUserIdByName(name: string, apiKey: string): Promise
 // of never blocking a QM Pulse-side action on Redmine being reachable.
 export async function pushAssigneeToRedmine(
   redmineIssueId: string,
-  qaPulseUserId: number,
+  qmPulseUserId: number,
   apiKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, qaPulseUserId));
+    const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, qmPulseUserId));
     if (!user?.name) return { ok: false, error: "Assignee not found" };
     const redmineUserId = await resolveRedmineUserIdByName(user.name, apiKey);
     if (!redmineUserId) return { ok: false, error: `No matching Redmine user for "${user.name}"` };
