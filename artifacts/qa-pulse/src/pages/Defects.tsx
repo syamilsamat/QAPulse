@@ -355,7 +355,7 @@ export default function Defects() {
         data.requirements ? `${data.requirements} requirement(s)` : null,
       ].filter(Boolean);
       toast({
-        title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QMPulse (ignored)`,
+        title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QM Pulse (ignored)`,
         description: destParts.length ? destParts.join(" · ") : undefined,
       });
       invalidate();
@@ -653,8 +653,8 @@ export default function Defects() {
                         RM #{d.redmineId} <ExternalLink className="w-2.5 h-2.5" />
                       </a>
                     ) : d.source === "requirement" ? (
-                      <Badge variant="outline" className="text-[10px]" title="Requirement defects are QMPulse-native — no Redmine tracker equivalent">
-                        QMPulse-native
+                      <Badge variant="outline" className="text-[10px]" title="Requirement defects are QM Pulse-native — no Redmine tracker equivalent">
+                        QM Pulse-native
                       </Badge>
                     ) : (
                       <Badge
@@ -700,7 +700,7 @@ export default function Defects() {
                 </div>
                 <SeverityBadge severity={d.severity} />
                 <StatusBadge status={d.status} />
-                <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QMPulse" : d.assigneeName ? "Redmine-only (unassigned in QMPulse)" : undefined}>
+                <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QM Pulse" : d.assigneeName ? "Redmine-only (unassigned in QM Pulse)" : undefined}>
                   {d.assigneeName ?? "Unassigned"}
                 </span>
               </div>
@@ -923,7 +923,7 @@ function SyncRedmineDialog({
   const [projectId, setProjectId] = useState<string>("");
   const [module, setModule] = useState<string>("");
   const [requirementId, setRequirementId] = useState<string>("");
-  // Typed straight from Redmine — the parent needn't exist in QMPulse yet.
+  // Typed straight from Redmine — the parent needn't exist in QM Pulse yet.
   const [parentRedmineId, setParentRedmineId] = useState<string>("");
   const [trackerName, setTrackerName] = useState<string>("all");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -987,7 +987,7 @@ function SyncRedmineDialog({
         data.qaDefects ? `${data.qaDefects} QA defect(s)` : null,
         data.prodDefects ? `${data.prodDefects} prod defect(s)` : null,
         data.others ? `${data.others} other(s)` : null,
-        data.ignored ? `${data.ignored} already in QMPulse (ignored)` : null,
+        data.ignored ? `${data.ignored} already in QM Pulse (ignored)` : null,
         data.skipped ? `${data.skipped} skipped by tracker filter` : null,
       ].filter(Boolean);
       toast({
@@ -1045,12 +1045,12 @@ function SyncRedmineDialog({
             />
             <p className="text-xs text-muted-foreground">
               The parent ticket is imported too, along with every child and grandchild beneath it — it doesn't need
-              to be in QMPulse first.
+              to be in QM Pulse first.
             </p>
             {reqOptions.length > 0 && (
               <details className="pt-1">
                 <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                  Or pick a requirement already in QMPulse
+                  Or pick a requirement already in QM Pulse
                 </summary>
                 <div className="pt-2">
                   <SearchableSelect
@@ -1099,7 +1099,7 @@ function SyncRedmineDialog({
 }
 
 // ─── CR061: Edit defect info — same field set/layout as the New Defect
-// dialog's QMPulse section, minus creation-only bits (Redmine project,
+// dialog's QM Pulse section, minus creation-only bits (Redmine project,
 // assignee, complexity, targeted dates, duplicate check, screenshots) that
 // either aren't stored post-creation or already have their own dedicated
 // flow (assignee). Reporter or qa_lead+ only (server-enforced too);
@@ -1223,7 +1223,7 @@ function EditDefectDialog({
           <Separator />
 
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QMPulse</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
@@ -1249,7 +1249,7 @@ function EditDefectDialog({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>QMPulse Project</Label>
+              <Label>QM Pulse Project</Label>
               <Select
                 value={form.projectId ? String(form.projectId) : ""}
                 onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, milestoneId: undefined })}
@@ -1426,7 +1426,7 @@ function NewDefectDialog({
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // QMPulse fields
+  // QM Pulse fields
   const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
 
   // Redmine fields
@@ -1611,9 +1611,9 @@ function NewDefectDialog({
 
           <Separator />
 
-          {/* QMPulse section */}
+          {/* QM Pulse section */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QMPulse</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
@@ -1639,7 +1639,7 @@ function NewDefectDialog({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>QMPulse Project</Label>
+              <Label>QM Pulse Project</Label>
               <Select
                 value={form.projectId ? String(form.projectId) : ""}
                 onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, requirementId: undefined, milestoneId: undefined })}

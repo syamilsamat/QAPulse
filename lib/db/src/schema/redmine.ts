@@ -30,7 +30,7 @@ export const redmineGlobalConfigTable = pgTable("redmine_global_config", {
 });
 
 // CR019 status write-through: the full Redmine status list, synced locally so
-// QAPulse can offer status editing (pushed back to Redmine on save).
+// QM Pulse can offer status editing (pushed back to Redmine on save).
 export const redmineStatusesTable = pgTable("redmine_statuses", {
   id: serial("id").primaryKey(),
   redmineId: integer("redmine_id").notNull().unique(),

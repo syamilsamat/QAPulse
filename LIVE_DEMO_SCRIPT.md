@@ -1,4 +1,4 @@
-# 🎙️ QMPulse — End-to-End Live Demo Script (Bilingual: Bahasa Melayu & English)
+# 🎙️ QM Pulse — End-to-End Live Demo Script (Bilingual: Bahasa Melayu & English)
 ### *Panduan Sesi Demo Sistem: Dari Penciptaan Milestone sehingga UAT Sign-Off & Penutupan Release*
 
 ---
@@ -41,7 +41,7 @@ flowchart TD
 **🖥️ Paparan Skrin:** Halaman Utama (Landing Page) atau Papan Pemuka Utama (Dashboard).
 
 **🗣️ Dialog Pembentang:**
-> *"Terima kasih kepada barisan kepimpinan. Sekarang mari kita lihat QMPulse beroperasi secara langsung.\n\n"
+> *"Terima kasih kepada barisan kepimpinan. Sekarang mari kita lihat QM Pulse beroperasi secara langsung.\n\n"
 > "Bayangkan organisasi kita sedang membangunkan inisiatif digital yang kritikal—contohnya Sistem Perbankan Pelanggan Baharu. Dalam kaedah konvensional, projek ini biasanya melibatkan lebih 15 fail Excel berasingan, puluhan rantaian emel, dan isu Redmine yang tidak disegerakkan secara langsung.\n\n"
 > "Hari ini, saya akan membawa tuan-tuan dan puan-puan merentasi keseluruhan 8 peringkat penghantaran—bermula dari penetapan sasaran oleh PMO, penapisan kualiti spesifikasi menggunakan AI, pembangunan kod, pelaksanaan ujian QA dengan pendaftaran defect automatik, sehinggalah kepada kelulusan UAT dan penjanaan laporan eksekutif satu klik."*
 
@@ -61,7 +61,7 @@ flowchart TD
 
 **🗣️ Dialog Pembentang:**
 > *"Segala-galanya bermula di Peringkat 1 bersama pihak PMO. PMO menetapkan skop milestone, menetapkan tarikh sasaran bagi setiap fasa, memperuntukkan persekitaran ujian (test environment), dan mengurus risiko awal.\n\n"
-> "Perhatikan fungsi 'Requires UAT Sign-Off'. Apabila diaktifkan, QMPulse menguatkuasakan pintu tadbir urus (governance gate) secara automatik—sistem tidak boleh ditutup atau dilepaskan ke 'Production' selagi dokumen penerimaan UAT belum disahkan.\n\n"
+> "Perhatikan fungsi 'Requires UAT Sign-Off'. Apabila diaktifkan, QM Pulse menguatkuasakan pintu tadbir urus (governance gate) secara automatik—sistem tidak boleh ditutup atau dilepaskan ke 'Production' selagi dokumen penerimaan UAT belum disahkan.\n\n"
 > "Sebaik sahaja PMO menyimpan milestone ini, notifikasi automatik akan dihantar terus kepada Penganalisis Fungsian (FA) dan Ketua Pembangun bahawa kitaran projek telah bermula."*
 
 **✨ Poin Wow Eksekutif:** *"Indeks Prestasi Jadual (SPI) dijejak secara langsung pada setiap fasa, membolehkan PMO mengesan kelewatan lebih awal tanpa menunggu laporan manual."*
@@ -80,7 +80,7 @@ flowchart TD
 
 **🗣️ Dialog Pembentang:**
 > *"Seterusnya, Penganalisis Fungsian (FA) merekodkan spesifikasi perniagaan. Dalam industri IT, lebih 50% kecacatan perisian berpunca daripada keperluan yang tidak jelas atau kabur.\n\n"
-> "Di sini, QMPulse mengintegrasikan Hab AI (Google GenAI) terbina dalam. Dalam beberapa saat, AI menganalisis teks spesifikasi dan mengesan kriteria yang tidak boleh diuji, logik yang mengelirukan, atau senario negatif yang tertinggal sebelum sebarang kod ditulis.\n\n"
+> "Di sini, QM Pulse mengintegrasikan Hab AI (Google GenAI) terbina dalam. Dalam beberapa saat, AI menganalisis teks spesifikasi dan mengesan kriteria yang tidak boleh diuji, logik yang mengelirukan, atau senario negatif yang tertinggal sebelum sebarang kod ditulis.\n\n"
 > "Ini bertindak sebagai penapis kualiti pertama kita—memastikan pemaju dan QA menerima spesifikasi yang kukuh dan tepat."*
 
 **✨ Poin Wow Eksekutif:** *"Memperbaiki ralat pada fasa keperluan menjimatkan kos sehingga 10 kali ganda berbanding membetulkannya di fasa QA atau selepas sistem digunakan."*
@@ -98,7 +98,7 @@ flowchart TD
 4. Klik **Approve** (sebagai penyemak rakan sekerja yang sah).
 
 **🗣️ Dialog Pembentang:**
-> *"Dari sudut tadbir urus dan pematuhan audit korporat, QMPulse menguatkuasakan prinsip 'Segregation of Duties' (Pengasingan Tugas) secara mutlak.\n\n"
+> *"Dari sudut tadbir urus dan pematuhan audit korporat, QM Pulse menguatkuasakan prinsip 'Segregation of Duties' (Pengasingan Tugas) secara mutlak.\n\n"
 > "Seseorang penganalisis tidak dibenarkan meluluskan hasil kerja mereka sendiri. Sistem mewajibkan semakan rakan sekerja (peer review) daripada FA lain dalam projek yang sama sebelum spesifikasi dikunci dan diserahkan kepada pasukan Pembangun serta QA."*
 
 ---
@@ -154,7 +154,7 @@ flowchart TD
 **🗣️ Dialog Pembentang:**
 > *"Kini QA melaksanakan ujian mengikut persekitaran. Apabila langkah ujian ditanda, peratusan kemajuan dikira secara masa nyata.\n\n"
 > "Sila perhatikan apa yang berlaku apabila sesuatu langkah GAGAL: Modal pendaftaran defect terbuka secara automatik. Penguji tidak perlu membuka Redmine secara manual, menyalin semula langkah ujian, atau menaip semula hasil jangkaan.\n\n"
-> "QMPulse merekodkan ralat tersebut, mencipta isu anak (child defect) dalam Redmine bersama tangkapan skrin, dan memautkannya kembali ke fail ujian. Sifar keciciran defect, sifar kerja penyalinan manual."*
+> "QM Pulse merekodkan ralat tersebut, mencipta isu anak (child defect) dalam Redmine bersama tangkapan skrin, dan memautkannya kembali ke fail ujian. Sifar keciciran defect, sifar kerja penyalinan manual."*
 
 **✨ Poin Wow Eksekutif:** Klik pada pautan tiket defect untuk membuktikan bahawa isu tersebut wujud dalam Redmine secara langsung.
 
@@ -172,7 +172,7 @@ flowchart TD
 **🗣️ Dialog Pembentang:**
 > *"Setelah ujian QA lulus 100%, projek beralih ke Peringkat 7: Ujian Penerimaan Pengguna (UAT).\n\n"
 > "Pihak berkepentingan bisnes dan pemilik produk (Product Owners) mengesahkan fungsi dalam persekitaran UAT. Setelah berpuas hati, sijil penerimaan UAT yang telah ditandatangani dimuat naik terus ke dalam sistem.\n\n"
-> "QMPulse mengesahkan dokumen tersebut, merekodkan cap masa audit, dan membuka kunci pintu penutupan milestone."*
+> "QM Pulse mengesahkan dokumen tersebut, merekodkan cap masa audit, dan membuka kunci pintu penutupan milestone."*
 
 ---
 
@@ -195,8 +195,8 @@ flowchart TD
 
 **🗣️ Dialog Pembentang:**
 > *"Akhir sekali, kita tiba di Peringkat 8: Penutupan Milestone.\n\n"
-> "Lihat senarai semakan keselamatan kami. QMPulse memastikan semua keperluan telah diluluskan, semua ujian telah selesai, tiada defect kritikal terbuka, dan penerimaan UAT telah lengkap. Tiada pelepasan yang boleh dibuat secara tergesa-gesa tanpa integriti kualiti.\n\n"
-> "Dengan hanya satu klik pada 'Send Verdict Report', QMPulse menjana emel eksekutif melalui Office 365, melampirkan sijil PDF rasmi, serta mengeksport buku kerja Excel yang mengandungi analisis Pareto dan penjejakan CAPA yang sedia untuk diaudit.\n\n"
+> "Lihat senarai semakan keselamatan kami. QM Pulse memastikan semua keperluan telah diluluskan, semua ujian telah selesai, tiada defect kritikal terbuka, dan penerimaan UAT telah lengkap. Tiada pelepasan yang boleh dibuat secara tergesa-gesa tanpa integriti kualiti.\n\n"
+> "Dengan hanya satu klik pada 'Send Verdict Report', QM Pulse menjana emel eksekutif melalui Office 365, melampirkan sijil PDF rasmi, serta mengeksport buku kerja Excel yang mengandungi analisis Pareto dan penjejakan CAPA yang sedia untuk diaudit.\n\n"
 > "Kita klik 'Complete Milestone'—pelepasan sistem disahkan secara rasmi, dan pengajaran projek (lessons learned) diarkibkan untuk penambahbaikan berterusan."*
 
 **✨ Poin Wow Eksekutif:** *"Penyediaan laporan audit dan Pareto yang dahulunya mengambil masa berhari-hari kini selesai dalam masa kurang daripada 60 saat."*
@@ -206,6 +206,6 @@ flowchart TD
 ### 🟢 PENUTUP & PEMBUKAAN SESI SOAL JAWAB (30 Saat)
 
 **🗣️ Dialog Pembentang:**
-> *"Secara kesimpulannya: Dalam masa 10 minit, kita telah menyaksikan bagaimana QMPulse mengurus keseluruhan kitaran penghantaran—dari perancangan milestone, spesifikasi berpandukan AI, pelaksanaan ujian selari, penyegerakan Redmine secara langsung, sehinggalah kepada kelulusan UAT dan pelaporan eksekutif berintegriti tinggi.\n\n"
-> "QMPulse menghapuskan titik buta operasi dan melindungi tarikh pelepasan sistem kita di seluruh perusahaan.\n\n"
+> *"Secara kesimpulannya: Dalam masa 10 minit, kita telah menyaksikan bagaimana QM Pulse mengurus keseluruhan kitaran penghantaran—dari perancangan milestone, spesifikasi berpandukan AI, pelaksanaan ujian selari, penyegerakan Redmine secara langsung, sehinggalah kepada kelulusan UAT dan pelaporan eksekutif berintegriti tinggi.\n\n"
+> "QM Pulse menghapuskan titik buta operasi dan melindungi tarikh pelepasan sistem kita di seluruh perusahaan.\n\n"
 > "Terima kasih atas perhatian barisan kepimpinan, dan saya membuka ruang bagi sebarang soalan atau perbincangan lanjut."*

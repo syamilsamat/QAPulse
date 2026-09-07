@@ -1,10 +1,10 @@
 /**
  * Shared helper for the demo-data scripts: authenticates against the real
- * QAPulse API (not the DB directly) and tracks every entity created so the
+ * QM Pulse API (not the DB directly) and tracks every entity created so the
  * clear script can reverse it precisely.
  *
  * Required env var:
- *   QAPULSE_API_URL — the same URL you open QAPulse at in your browser,
+ *   QAPULSE_API_URL — the same URL you open QM Pulse at in your browser,
  *   e.g. https://your-repl-name.username.repl.co (no trailing slash, no
  *   /api suffix — this script appends /api itself, same as the frontend's
  *   own getApiUrl()).
@@ -26,7 +26,7 @@ export function getBaseUrl(): string {
   const url = process.env.QAPULSE_API_URL;
   if (!url) {
     throw new Error(
-      "QAPULSE_API_URL is required — set it to the same URL you open QAPulse at in your browser " +
+      "QAPULSE_API_URL is required — set it to the same URL you open QM Pulse at in your browser " +
       "(e.g. https://your-repl-name.username.repl.co), with no trailing slash and no /api suffix.",
     );
   }

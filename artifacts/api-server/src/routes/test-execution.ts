@@ -440,7 +440,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       let actorId: number | null = null;
       try { actorId = verifyToken(req.headers.authorization?.slice(7) ?? "").id; } catch {}
       // CR050 — case-insensitive match; qaPic is a free-text name that may
-      // differ in casing from the QAPulse user record.
+      // differ in casing from the QM Pulse user record.
       const [picUser] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, file.qaPic));
       if (picUser) {
         await notifyUser(picUser.id, "Assigned as QA PIC", `You have been assigned as QA PIC for execution file "${file.title || file.redmineTicketId}".`, "execution", "execution_file", file.id, actorId).catch(() => {});

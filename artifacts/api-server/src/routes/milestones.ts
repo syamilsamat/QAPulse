@@ -160,7 +160,7 @@ router.get("/milestones/lessons-learned/export", async (req, res): Promise<void>
     lessonType: m.lessonsLearnedType ? (LESSON_TYPE_LABEL[m.lessonsLearnedType] ?? null) : null,
   }));
 
-  // Doc Info history: one row per milestone, since QMPulse doesn't log a
+  // Doc Info history: one row per milestone, since QM Pulse doesn't log a
   // distinct "lessons learned" activity event separately from the
   // completion transition itself (closedBy/completedAt IS that moment).
   const history: LessonLogHistoryRow[] = withLessons.map((m) => ({

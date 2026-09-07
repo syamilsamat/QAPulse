@@ -1,6 +1,6 @@
 /**
  * SPARROW / CR-2026-014 demo dataset — built 1:1 from the reference document
- * "QAPulse — End-to-End Delivery Workflow & Mock-Up Scenario Guide" (v1.0,
+ * "QM Pulse — End-to-End Delivery Workflow & Mock-Up Scenario Guide" (v1.0,
  * 17 July 2026). Every scenario S1.1…S12.3 in that PDF maps to data here or
  * to a scripted step in seed-sparrow-data.ts.
  *

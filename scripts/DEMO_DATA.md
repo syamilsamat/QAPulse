@@ -1,6 +1,6 @@
 # Client-demo data
 
-Populates QAPulse with a realistic, fully-linked dataset for demoing to a
+Populates QM Pulse with a realistic, fully-linked dataset for demoing to a
 client, and cleanly removes it again afterward. Everything is created
 through the real API — not raw SQL inserts — so validation, the FA review
 workflow, defect codes, and audit logging all fire exactly as they would for
@@ -43,7 +43,7 @@ show something real instead of empty states.
 
 ## Before you run it
 
-1. **Find your app's public URL** — the same one you use to open QAPulse in
+1. **Find your app's public URL** — the same one you use to open QM Pulse in
    your browser (e.g. `https://your-repl-name.username.repl.co`). The
    script appends `/api` itself, exactly like the frontend does.
 2. Make sure `admin@qapulse.com` / `admin123` is still the working admin

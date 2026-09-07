@@ -1,10 +1,10 @@
-# QMPulse — Executive Presentation Master Guide (C-Suite & Leadership)
+# QM Pulse — Executive Presentation Master Guide (C-Suite & Leadership)
 
 ## 📌 Presentation Overview
-- **Project Name:** QMPulse (Quality Management Pulse)
+- **Project Name:** QM Pulse (Quality Management Pulse)
 - **Target Audience:** C-Suite Executives (CEO, CTO, CIO, COO, Head of Engineering/QA/PMO) and their Right-Hand Directors/VPs.
 - **Estimated Duration:** 15 – 20 Minutes (10 min Presentation + 10 min Q&A).
-- **Core Narrative:** How QMPulse transforms fragmented software delivery into a unified, AI-accelerated, Redmine-synced quality heartbeat with 100% end-to-end traceability and zero spreadsheet chaos.
+- **Core Narrative:** How QM Pulse transforms fragmented software delivery into a unified, AI-accelerated, Redmine-synced quality heartbeat with 100% end-to-end traceability and zero spreadsheet chaos.
 
 ---
 
@@ -21,10 +21,10 @@
 ## 🖥️ Slide-by-Slide Executive Script & Talking Points
 
 ### Slide 1: Executive Title Slide
-- **Slide Headline:** *QMPulse: From First Requirement to Final Verdict — One Living Heartbeat.*
+- **Slide Headline:** *QM Pulse: From First Requirement to Final Verdict — One Living Heartbeat.*
 - **Core Numbers:** `100% Traceability` · `8 Lifecycle Beats` · `15 Governed Roles` · `1 Single Source of Truth`.
 - **Speaker Pitch (60 sec):**
-  > *"Good morning, Executive Leadership. Today, I am excited to present QMPulse—our unified Quality Management & Delivery Governance platform. In modern enterprise delivery, quality cannot be an afterthought or an isolated QA phase at the end of a sprint. QMPulse connects the entire delivery chain: from business requirements authored by Functional Analysts, through development and QA test execution, to real-time PMO oversight and automated sign-off. It provides complete transparency, guarantees compliance, eliminates spreadsheet chaos, and accelerates testing through built-in AI."*
+  > *"Good morning, Executive Leadership. Today, I am excited to present QM Pulse—our unified Quality Management & Delivery Governance platform. In modern enterprise delivery, quality cannot be an afterthought or an isolated QA phase at the end of a sprint. QM Pulse connects the entire delivery chain: from business requirements authored by Functional Analysts, through development and QA test execution, to real-time PMO oversight and automated sign-off. It provides complete transparency, guarantees compliance, eliminates spreadsheet chaos, and accelerates testing through built-in AI."*
 
 ---
 
@@ -33,7 +33,7 @@
 - **The Problem:** Fragmented silos between PMO, FAs, Devs, and QA; spreadsheets and emails flying around without version control; untracked defect loops; blind executive oversight.
 - **The Solution:** A unified system of record, non-disruptive Redmine sync, Google GenAI intelligence, and a single pane of glass for real-time schedule health (SPI) and stability.
 - **Speaker Pitch (90 sec):**
-  > *"Every enterprise IT organization faces the 'tool sprawl' dilemma. PMOs track milestones in one place, developers code against Redmine, analysts write specs in Confluence or Word, and QA tracks tests on spreadsheets. The result? Version mismatch, untracked defect drift, and eleventh-hour release panic. QMPulse establishes one continuous operational pulse across all five teams without forcing you to replace Redmine. It acts as an intelligent orchestration and quality layer."*
+  > *"Every enterprise IT organization faces the 'tool sprawl' dilemma. PMOs track milestones in one place, developers code against Redmine, analysts write specs in Confluence or Word, and QA tracks tests on spreadsheets. The result? Version mismatch, untracked defect drift, and eleventh-hour release panic. QM Pulse establishes one continuous operational pulse across all five teams without forcing you to replace Redmine. It acts as an intelligent orchestration and quality layer."*
 
 ---
 
@@ -46,7 +46,7 @@
   4. **QA Engineers:** Author test cases during build phase, AI test suite generation, auto-raise Redmine defects upon test failure.
   5. **C-Suite Leadership:** Single-screen executive dashboard, release stability, first-pass yield, and automated audit trails.
 - **Speaker Pitch (90 sec):**
-  > *"What makes QMPulse uniquely powerful is that it provides a tailored view for every leader in this room on top of the exact same live data. The PMO owns the milestone; Functional Analysts author specs with AI validation; Developers build with complete context; QA tests per environment; and Leadership gets an executive-level pulse of release readiness at any second."*
+  > *"What makes QM Pulse uniquely powerful is that it provides a tailored view for every leader in this room on top of the exact same live data. The PMO owns the milestone; Functional Analysts author specs with AI validation; Developers build with complete context; QA tests per environment; and Leadership gets an executive-level pulse of release readiness at any second."*
 
 ---
 
@@ -63,7 +63,7 @@
   - `08. UAT & Go-Live` (PMO + Lessons Learned)
 - **Cross-Cutting:** Instant smart notifications, dynamic risk register, continuous lessons learned.
 - **Speaker Pitch (90 sec):**
-  > *"Notice the enforced governance gates in this 8-stage flow: First, Segregation of Duties is baked into the code—an FA cannot sign off their own requirement. Second, Parallel Acceleration—QA writes test cases while developers are coding, so the instant a build is ready, testing starts immediately. Third, when a test step fails, QMPulse auto-creates a child defect in Redmine with exact step details and attachments."*
+  > *"Notice the enforced governance gates in this 8-stage flow: First, Segregation of Duties is baked into the code—an FA cannot sign off their own requirement. Second, Parallel Acceleration—QA writes test cases while developers are coding, so the instant a build is ready, testing starts immediately. Third, when a test step fails, QM Pulse auto-creates a child defect in Redmine with exact step details and attachments."*
 
 ---
 
@@ -73,7 +73,7 @@
   - **Redmine Sync:** Two-way live synchronization; insert-only safe architecture; zero data clobbering; custom field mapping.
   - **AI Hub:** Google GenAI Requirement Analyzer catches ambiguities and untestable logic early; automated test case generator creates multi-step matrices in seconds; QA Copilot answers workspace questions in plain English.
 - **Speaker Pitch (90 sec):**
-  > *"We built QMPulse on two strategic pillars: First, zero friction adoption. It integrates directly with your existing Redmine system, preserving your investment and historical records. Second, enterprise AI. We don't use AI as a novelty—we embed it where it counts: analyzing requirements before coding starts to prevent expensive rework, and auto-generating test suites to cut QA authoring time by 40%."*
+  > *"We built QM Pulse on two strategic pillars: First, zero friction adoption. It integrates directly with your existing Redmine system, preserving your investment and historical records. Second, enterprise AI. We don't use AI as a novelty—we embed it where it counts: analyzing requirements before coding starts to prevent expensive rework, and auto-generating test suites to cut QA authoring time by 40%."*
 
 ---
 
@@ -93,7 +93,7 @@
 - **Slide Headline:** *Architected for Regulated Enterprise Environments*
 - **Key Highlights:** 15 RBAC roles, immutable change history, Office 365 SMTP email delivery with PDF sign-off certificates, PostgreSQL with JWT authentication (8h expiry) and rate-limiting.
 - **Speaker Pitch (60 sec):**
-  > *"For our CIO, CISO, and compliance leaders: QMPulse is enterprise-grade by default. It provides complete audit trails, code-enforced segregation of duties, and secure internal deployment. Automated verdict sign-offs deliver formatted HTML emails and signed PDF certificates to PMO stakeholders with one click."*
+  > *"For our CIO, CISO, and compliance leaders: QM Pulse is enterprise-grade by default. It provides complete audit trails, code-enforced segregation of duties, and secure internal deployment. Automated verdict sign-offs deliver formatted HTML emails and signed PDF certificates to PMO stakeholders with one click."*
 
 ---
 
@@ -124,10 +124,10 @@
 ## 💡 Anticipated C-Suite Questions & Winning Answers
 
 1. **Q: How does this impact our existing developers and project managers using Redmine?**
-   - *Answer:* *"Zero disruption. Developers continue using Redmine as their tracker. QMPulse synchronizes bidirectionally so status changes, tickets, and defects reflect in both places automatically."*
+   - *Answer:* *"Zero disruption. Developers continue using Redmine as their tracker. QM Pulse synchronizes bidirectionally so status changes, tickets, and defects reflect in both places automatically."*
 
 2. **Q: Is our corporate data secure with the AI features?**
-   - *Answer:* *"Yes. AI features utilize enterprise Google GenAI API integrations with strict data privacy boundaries. Furthermore, QMPulse can be hosted completely on-premise or within your private cloud."*
+   - *Answer:* *"Yes. AI features utilize enterprise Google GenAI API integrations with strict data privacy boundaries. Furthermore, QM Pulse can be hosted completely on-premise or within your private cloud."*
 
 3. **Q: How difficult is the onboarding for teams?**
    - *Answer:* *"Because the interface is intuitive and maps directly to their existing daily roles (FA, Dev, QA, PMO), onboarding takes under 2 hours per role. Phase 1 pilot takes only 2 weeks to prove value."*

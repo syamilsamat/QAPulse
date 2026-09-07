@@ -51,7 +51,7 @@ const eyeToggle =
 const primaryBtn =
   "w-full h-11 rounded-full bg-gradient-to-r from-teal-400 to-sky-500 text-[#04070f] font-semibold border-0 shadow-lg shadow-teal-500/25 hover:shadow-teal-400/40 hover:scale-[1.02] transition-all";
 
-// Shared shell: the QMPulse dark backdrop + 3D pulse scene + vignette.
+// Shared shell: the QM Pulse dark backdrop + 3D pulse scene + vignette.
 // Defined at module scope so it keeps a stable identity across renders
 // (a shell defined inside Login would remount the form on every keystroke).
 function Shell({

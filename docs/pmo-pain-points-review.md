@@ -1,6 +1,6 @@
-# PMO Pain Points — Cross-Check Against QAPulse
+# PMO Pain Points — Cross-Check Against QM Pulse
 
-Review of a proposed "PMO Digital Platform" pain-point list against what QAPulse actually has built today, grounded in the codebase (not just feature names). Purpose: decide what to fold into QAPulse's roadmap vs. what belongs to a different product surface entirely.
+Review of a proposed "PMO Digital Platform" pain-point list against what QM Pulse actually has built today, grounded in the codebase (not just feature names). Purpose: decide what to fold into QM Pulse's roadmap vs. what belongs to a different product surface entirely.
 
 **Source table reviewed:** 7 pain points (No Single Source of Truth, Uncontrolled Project Intake & Scope Creep, Poor Resource Visibility & Over/Under Allocation, Planning Disconnect vs Execution Reality, Weak Dependency & Risk Management, Lack of Real-Time Visibility, Fragmented Tools & No Integration), each with challenges/symptoms/idea columns from the original pitch deck material.
 
@@ -46,7 +46,7 @@ Review of a proposed "PMO Digital Platform" pain-point list against what QAPulse
 
 ## 4. Planning Disconnect vs Execution Reality
 
-**Then:** The phase-timeline widget (plan dates vs. real activity) was already QAPulse's most differentiated capability against this pain point; CR032 was planned to deepen it with multi-cycle rework tracking.
+**Then:** The phase-timeline widget (plan dates vs. real activity) was already QM Pulse's most differentiated capability against this pain point; CR032 was planned to deepen it with multi-cycle rework tracking.
 
 **Now:** CR032 shipped. CR033's own IPECC audit confirms the dashboard's "Controlling" coverage is now "comprehensive — Burn Rate, SPI, First-Pass Rate, Req Stability, Top Blockers, the multi-cycle phase timeline, and the cross-milestone benchmark trend all live here." The honest read from that audit: it's a strong Controlling dashboard that had been mislabeled as a general PM dashboard — which is exactly why CR033 added the missing Closing and Planning/Risk pieces around it rather than touching this core.
 
@@ -75,4 +75,4 @@ Review of a proposed "PMO Digital Platform" pain-point list against what QAPulse
 
 ## Bottom line
 
-Five of the seven pain points are now resolved, in most cases through the exact scoping this review recommended (small first, defer AI until the data model exists, extend rather than rebuild). The two still open — project-intake governance and Git linkage — are open by deliberate choice, documented as non-goals with a stated reason, not oversights. The original recommendation stands: keep framing this as "QAPulse: source of truth for delivery execution," not a generic PMO platform, and keep those two items explicitly out of scope rather than letting them drift into implied future work.
+Five of the seven pain points are now resolved, in most cases through the exact scoping this review recommended (small first, defer AI until the data model exists, extend rather than rebuild). The two still open — project-intake governance and Git linkage — are open by deliberate choice, documented as non-goals with a stated reason, not oversights. The original recommendation stands: keep framing this as "QM Pulse: source of truth for delivery execution," not a generic PMO platform, and keep those two items explicitly out of scope rather than letting them drift into implied future work.

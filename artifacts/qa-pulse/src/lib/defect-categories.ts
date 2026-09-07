@@ -1,4 +1,4 @@
-// QAPulse-native defect classification — fixed taxonomy, independent of
+// QM Pulse-native defect classification — fixed taxonomy, independent of
 // whatever a given Redmine project's own "category" field holds. Settable
 // only by Lead-tier and above (tierRank >= 2) — see canSetDefectCategory
 // in api-server/src/routes/defects.ts.

@@ -20,8 +20,8 @@ const WORD: Record<Size, string> = {
 };
 
 /**
- * Shared QMPulse brand mark — the teal→sky gradient tile with the pulse icon,
- * optionally followed by the "QMPulse" wordmark. Hovering the logo fires a
+ * Shared QM Pulse brand mark — the teal→sky gradient tile with the pulse icon,
+ * optionally followed by the "QM Pulse" wordmark. Hovering the logo fires a
  * radar-ping "pulse" ring and scales the icon. Used in the landing nav and on
  * the login screen so the two stay identical.
  */

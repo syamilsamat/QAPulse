@@ -116,7 +116,7 @@ def create_deck():
     tf.word_wrap = True
     tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
     p1 = tf.paragraphs[0]
-    p1.text = "QMPulse (Quality Management Pulse)"
+    p1.text = "QM Pulse (Quality Management Pulse)"
     p1.font.size = Pt(38)
     p1.font.bold = True
     p1.font.color.rgb = TEXT_WHITE
@@ -170,9 +170,9 @@ def create_deck():
 
     s1.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"Good morning, Executive Leadership. Today, I am proud to present QMPulse—our unified Quality Management platform.\n"
+        "\"Good morning, Executive Leadership. Today, I am proud to present QM Pulse—our unified Quality Management platform.\n"
         "In software and product delivery, quality cannot simply be an afterthought or an isolated QA phase before release. "
-        "QMPulse connects the entire delivery chain: from the very first business requirement authored by Functional Analysts, "
+        "QM Pulse connects the entire delivery chain: from the very first business requirement authored by Functional Analysts, "
         "through sprint build, QA test execution, and real-time PMO governance, straight to final go-live sign-off. "
         "It gives leadership 100% end-to-end visibility, guarantees compliance, eliminates spreadsheet chaos, and accelerates testing with built-in AI.\""
     )
@@ -182,7 +182,7 @@ def create_deck():
     # =========================================================================
     s2 = prs.slides.add_slide(blank_layout)
     apply_background(s2)
-    add_header(s2, "Strategic Context", "The Delivery Dilemma vs. The Unified Pulse", "Why traditional enterprise delivery breaks down—and how QMPulse fixes it.")
+    add_header(s2, "Strategic Context", "The Delivery Dilemma vs. The Unified Pulse", "Why traditional enterprise delivery breaks down—and how QM Pulse fixes it.")
 
     # Left Column: The Problem (Current Friction)
     add_card(s2, Inches(0.8), Inches(2.0), Inches(5.6), Inches(4.8), BG_CARD, RGBColor(180, 50, 50))
@@ -224,7 +224,7 @@ def create_deck():
         p_b.font.color.rgb = TEXT_MUTED
         p_b.space_before = Pt(2)
 
-    # Right Column: The Solution (QMPulse Advantage)
+    # Right Column: The Solution (QM Pulse Advantage)
     add_card(s2, Inches(6.8), Inches(2.0), Inches(5.7), Inches(4.8), BG_CARD, RGBColor(20, 184, 166))
     s_badge = s2.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(7.1), Inches(2.2), Inches(2.2), Inches(0.35))
     s_badge.fill.solid()
@@ -266,10 +266,10 @@ def create_deck():
 
     s2.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"To understand why QMPulse is vital, let us look at the industry's common bottleneck: tool sprawl.\n"
+        "\"To understand why QM Pulse is vital, let us look at the industry's common bottleneck: tool sprawl.\n"
         "Currently, PMOs track in one tool, developers write in Redmine/Jira, FAs write specs in Word or Confluence, and QA runs test cases on spreadsheets. "
         "This leads to version skew, untracked defects, and eleventh-hour release panic. \n"
-        "QMPulse solves this by establishing one single operational pulse. We are not discarding Redmine—we are supercharging it with automated workflows, "
+        "QM Pulse solves this by establishing one single operational pulse. We are not discarding Redmine—we are supercharging it with automated workflows, "
         "AI assistance, and instant executive analytics. Everything is transparent, tracked, and verifiable.\""
     )
 
@@ -356,7 +356,7 @@ def create_deck():
 
     s3.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"Here is how QMPulse serves every single leader in this room:\n"
+        "\"Here is how QM Pulse serves every single leader in this room:\n"
         "- For our PMO: You open the milestone, assign capacity, track Schedule Performance Index (SPI), and manage risks.\n"
         "- For Functional Analysts: Requirements are captured with AI gap analysis, and peer-approval enforces segregation of duties.\n"
         "- For Dev Leads & Developers: Tasks flow seamlessly from approved requirements to code with zero ambiguity.\n"
@@ -450,7 +450,7 @@ def create_deck():
 
     s4.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"This 8-stage lifecycle is the core engine of QMPulse. \n"
+        "\"This 8-stage lifecycle is the core engine of QM Pulse. \n"
         "Notice the built-in governance gates: \n"
         "1. Segregation of Duties: A Functional Analyst can never sign off their own requirement—it must be peer-reviewed by a colleague in the same project.\n"
         "2. Parallel Acceleration: QA writes test cases during the build phase (Stage 5) so no time is wasted when code is deployed.\n"
@@ -487,7 +487,7 @@ def create_deck():
     tf_r.margin_left = tf_r.margin_right = tf_r.margin_top = tf_r.margin_bottom = 0
 
     redmine_pts = [
-        ("Non-Disruptive Adoption", "QMPulse leverages your existing Redmine installation—no costly data migrations or team re-training required."),
+        ("Non-Disruptive Adoption", "QM Pulse leverages your existing Redmine installation—no costly data migrations or team re-training required."),
         ("Two-Way Real-Time Synchronization", "Requirements and tickets import with full hierarchy; defects and status transitions write straight back."),
         ("Safe Insert-Only Sync Architecture", "Existing Redmine data is never overwritten or clobbered; project custom fields map seamlessly."),
         ("Auto-Defect Creation on Test Failure", "One click converts a failed test step into a fully populated Redmine defect with logs and attachments.")
@@ -549,9 +549,9 @@ def create_deck():
 
     s5.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"Two strategic technological pillars set QMPulse apart:\n"
+        "\"Two strategic technological pillars set QM Pulse apart:\n"
         "1. We integrate seamlessly with Redmine. Many platforms force you to migrate data or rip out existing tracking. "
-        "QMPulse acts as a modern quality layer over Redmine, synchronizing in real time without overwriting history.\n"
+        "QM Pulse acts as a modern quality layer over Redmine, synchronizing in real time without overwriting history.\n"
         "2. We embed Google GenAI directly into the workflow. Instead of using AI as a gimmick, our AI Requirement Analyzer acts as an early quality gate "
         "to catch bad requirements before they reach development, while AI Test Generation cuts test design effort by over 40%.\""
     )
@@ -627,7 +627,7 @@ def create_deck():
 
     s6.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
-        "\"This slide demonstrates the complete depth of QMPulse across 4 disciplines and 12 core modules. \n"
+        "\"This slide demonstrates the complete depth of QM Pulse across 4 disciplines and 12 core modules. \n"
         "Whether it is milestone planning, test case management, defect analytics, or enterprise compliance, "
         "every team operates within the same governed environment. "
         "Notice the automated Excel generation: it automatically produces Review Effort logs, Pareto analysis, and CAPA corrective action sheets on demand.\""
@@ -702,7 +702,7 @@ def create_deck():
     s7.notes_slide.notes_text_frame.text = (
         "SPEAKER SCRIPT / NOTES FOR C-SUITE:\n"
         "\"Governance and security are fundamental requirements for our leadership team. \n"
-        "- Security & Access: QMPulse enforces 15 granular roles. PMO members get an executive portal; FAs and QA get specialized workspaces.\n"
+        "- Security & Access: QM Pulse enforces 15 granular roles. PMO members get an executive portal; FAs and QA get specialized workspaces.\n"
         "- Compliance: Every test run, status flip, requirement edit, and sign-off is logged in an immutable audit trail.\n"
         "- One-Click Verdicts: Sending release sign-offs to PMO stakeholders takes one click—generating rich HTML emails, PDF certificates, and pre-formatted Excel deliverables with Pareto defect analysis and CAPA tracking.\""
     )
@@ -841,7 +841,7 @@ def create_deck():
     p_ctat.font.color.rgb = TEAL_ACCENT
 
     p_ctab = tf_cta.add_paragraph()
-    p_ctab.text = "QMPulse is fully built, integrated, and ready to deploy. We invite executive leadership to approve the Phase 1 Pilot rollout starting this week.\n\nThank you — Opening the floor for Questions & Strategic Discussion."
+    p_ctab.text = "QM Pulse is fully built, integrated, and ready to deploy. We invite executive leadership to approve the Phase 1 Pilot rollout starting this week.\n\nThank you — Opening the floor for Questions & Strategic Discussion."
     p_ctab.font.size = Pt(12)
     p_ctab.font.color.rgb = TEXT_WHITE
     p_ctab.space_before = Pt(6)

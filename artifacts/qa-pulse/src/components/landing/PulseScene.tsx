@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { scrollState } from "./scrollState";
 
 /**
- * QMPulse landing — WebGL scene.
+ * QM Pulse landing — WebGL scene.
  *
  * Concept: the viewer flies along a giant ECG "pulse" line running into the
  * depth of the scene. Scroll progress drives the camera down the corridor;

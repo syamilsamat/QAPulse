@@ -137,7 +137,7 @@ function Router() {
 
   return (
     <Switch>
-      {/* QMPulse 3D landing page (previous landing: @/pages/Main2)
+      {/* QM Pulse 3D landing page (previous landing: @/pages/Main2)
         If logged in, go to the app. If logged out, show the landing page.
       */}
       <Route path="/">

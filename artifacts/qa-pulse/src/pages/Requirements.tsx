@@ -324,7 +324,7 @@ export default function Requirements() {
   // Edit permission mirrors the backend check in PATCH /requirements/:id:
   // author/assignee always can; a Redmine-imported requirement can also be
   // edited by any FA-tier reviewer, since its "author" is often just a
-  // Redmine-resolved fallback rather than a real accountable QAPulse user.
+  // Redmine-resolved fallback rather than a real accountable QM Pulse user.
   const canEditReq = (r: any) =>
     ["admin", "cto"].includes(user?.role ?? "") ||
     r.createdBy === user?.id ||

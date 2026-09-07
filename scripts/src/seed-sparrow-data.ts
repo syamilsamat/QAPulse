@@ -1,7 +1,7 @@
 /**
  * Seeds the SPARROW / CR-2026-014 dataset from the reference PDF
  * ("End-to-End Delivery Workflow & Mock-Up Scenario Guide") through the REAL
- * QAPulse API — so the review workflow, segregation-of-duties blocks, dev
+ * QM Pulse API — so the review workflow, segregation-of-duties blocks, dev
  * hand-off gates, defect codes, notifications and audit trail all fire
  * exactly as they would for real users.
  *

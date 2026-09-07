@@ -1,4 +1,4 @@
-# QAPulse — Two Delivery Pipelines
+# QM Pulse — Two Delivery Pipelines
 
 Every milestone runs through exactly one of **two independent delivery flows**, decided by a single flag: `pipelineEnabled`. They share the same underlying tables (requirements, execution files, defects) but different owners, gates, and UI.
 

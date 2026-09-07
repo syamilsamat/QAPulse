@@ -128,7 +128,7 @@ async function resolveUserIdByName(name: string | null): Promise<number | null> 
   return user?.id ?? null;
 }
 
-// QAPulse-native defect category taxonomy — fixed set, independent of
+// QM Pulse-native defect category taxonomy — fixed set, independent of
 // whatever a given Redmine project's own "category" field happens to hold.
 const DEFECT_CATEGORIES = [
   "functional", "ui_ux", "usability", "performance", "security",
@@ -315,7 +315,7 @@ router.get("/defects", async (req, res): Promise<void> => {
       result = result.filter((d: any) => !CLOSED_STATUS.test(d.status));
     } else if (view === "mine") {
       // CR030 — "My Defects": native assignment only (Redmine-only cached
-      // assignee names aren't matched back to a QAPulse user id).
+      // assignee names aren't matched back to a QM Pulse user id).
       result = result.filter((d: any) => d.assigneeId === ctx.userId);
     }
 
@@ -472,7 +472,7 @@ router.post("/defects", async (req, res): Promise<void> => {
 
     const actorId = actorFromReq(req);
     // CR045 — the dialog's assignee is a Redmine member; assigneeName is the
-    // display name we can match against QAPulse users.
+    // display name we can match against QM Pulse users.
     const localAssigneeId = isRequirementDefect
       ? null
       : await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
@@ -526,7 +526,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       });
     }
 
-    // Requirement defects are QAPulse-native only — no Redmine tracker
+    // Requirement defects are QM Pulse-native only — no Redmine tracker
     // equivalent, so skip the write-through entirely (consistent with the
     // standing principle that Redmine integrations stay thin/disposable).
     if (isRequirementDefect) {
@@ -870,7 +870,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     }
 
     // Code-review gate — only for defects natively assigned to a dev in
-    // QAPulse (assigneeId set) and only QA-sourced ones; production defects
+    // QM Pulse (assigneeId set) and only QA-sourced ones; production defects
     // keep their separate escape-review lifecycle (escapeStatus/escapeClass)
     // untouched, since that process is built for firefighting speed, not a
     // peer-review gate. A defect with no native assignee has no reviewer to
@@ -1261,7 +1261,7 @@ router.post("/defects/pull-production", async (req, res): Promise<void> => {
     }
     await logActivity({
       type: "defects_pulled",
-      description: `Pulled Redmine tracker "${trackerName}": ${result.imported} new (${result.qaDefects} QA, ${result.prodDefects} prod, ${result.others} others, ${result.requirements} requirements), ${result.ignored} already in QMPulse (ignored)`,
+      description: `Pulled Redmine tracker "${trackerName}": ${result.imported} new (${result.qaDefects} QA, ${result.prodDefects} prod, ${result.others} others, ${result.requirements} requirements), ${result.ignored} already in QM Pulse (ignored)`,
       userId: actorFromReq(req),
       entityType: "defect",
       newValue: { trackerName, ...result },
@@ -1300,11 +1300,11 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
     const actorId = actorFromReq(req);
     const syncDate = new Date();
     let created = 0;
-    let ignored = 0; // already in QAPulse → left untouched (insert-only sync)
+    let ignored = 0; // already in QM Pulse → left untouched (insert-only sync)
     let skipped = 0;
     const counts = { requirements: 0, qaDefects: 0, prodDefects: 0, others: 0 };
 
-    // The tree walk hangs everything off a QAPulse requirement (it supplies the
+    // The tree walk hangs everything off a QM Pulse requirement (it supplies the
     // project/module/milestone defaults and the hierarchy root). Two ways to get
     // one:
     //   • requirementId — pick an already-imported requirement (original flow).
@@ -1329,7 +1329,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
         .from(requirementsTable)
         .where(eq(requirementsTable.redmineTicketId, typedParentId));
       if (requirement) {
-        ignored++; // parent already in QAPulse — reuse it as the anchor
+        ignored++; // parent already in QM Pulse — reuse it as the anchor
       } else {
         const [row] = await db
           .insert(requirementsTable)
@@ -1374,7 +1374,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
       return;
     }
 
-    // Hierarchy anchors: for each Redmine id, the QAPulse requirement to hang
+    // Hierarchy anchors: for each Redmine id, the QM Pulse requirement to hang
     // children off. Root = the selected requirement. Defects and skipped
     // issues pass their parent's anchor through, so grandchildren still link.
     const anchorByRedmineId = new Map<string, number>();
@@ -1401,7 +1401,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
           .where(eq(requirementsTable.redmineTicketId, rid));
         let reqId: number;
         if (existing) {
-          // already in QAPulse → ignore untouched; still anchor children to it
+          // already in QM Pulse → ignore untouched; still anchor children to it
           reqId = existing.id;
           ignored++;
         } else {
@@ -1436,7 +1436,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
       };
       const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, rid));
       if (existing) {
-        // already in QAPulse → ignore untouched; children still anchor through
+        // already in QM Pulse → ignore untouched; children still anchor through
         anchorByRedmineId.set(rid, anchorReqId);
         ignored++;
         continue;
@@ -1492,7 +1492,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
 
     await logActivity({
       type: "defects_synced",
-      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QMPulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects, ${counts.others} others${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
+      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QM Pulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects, ${counts.others} others${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
       userId: actorId,
       entityId: requirement.id,
       entityType: "defect",
@@ -1543,7 +1543,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
     // reporter or qa_lead+ only. If already synced to Redmine, push
     // title/description/tracker there first (fail-closed, same pattern as
     // status write-through) before the local row changes — severity/module/
-    // expectedResult/actualResult/foundIn/milestoneId are QAPulse-local only.
+    // expectedResult/actualResult/foundIn/milestoneId are QM Pulse-local only.
     const infoFields = ["title", "description", "tracker", "severity", "module", "expectedResult", "actualResult", "foundIn", "milestoneId"].filter((k) => k in patch);
     if (infoFields.length > 0) {
       if (!(await canEditDefectInfo(ctx, before))) {

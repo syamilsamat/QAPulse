@@ -1,6 +1,6 @@
 # SPARROW / CR-2026-014 demo data
 
-Seeds QAPulse with the exact end-to-end storyline from "QAPulse — End-to-End
+Seeds QM Pulse with the exact end-to-end storyline from "QM Pulse — End-to-End
 Delivery Workflow & Mock-Up Scenario Guide" (v1.0, 17 July 2026): one
 project (SPARROW — ePayment Gateway Revamp), 11 named users across every
 role in the lifecycle, the CR-2026-014 "FPX Online Payment Integration"
@@ -44,7 +44,7 @@ the main steps below, each independent of the others:
   and a milestone that's still just a placeholder nobody's touched.
 - `seed-sparrow-uat-signoff-bonus.ts` — uploads a real UAT sign-off document
   for CR-2026-014, showing CR056's gap between the business acceptance pack
-  landing and the FA Lead formally closing the milestone in QAPulse.
+  landing and the FA Lead formally closing the milestone in QM Pulse.
 - `seed-sparrow-data-prep-bonus.ts` — the CR070 Data Prep milestone type
   (MS-10 — CR-2026-029): auto-populated "what QA needs to prepare"
   description, multi-assignee staffing (qa_lead + qa_member), a
@@ -69,7 +69,7 @@ both are logged as "✓ blocked as expected."
 
 ## Before you run it
 
-1. Find your app's public URL (the one you open QAPulse at in a browser),
+1. Find your app's public URL (the one you open QM Pulse at in a browser),
    e.g. `https://your-repl-name.username.repl.co`.
 2. Make sure `admin@qapulse.com` is still a working admin login (override
    via `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` if you changed it).
