@@ -2,7 +2,7 @@ Product Requirements Document (PRD)
 
 Product Name 
 
-QA Pulse 
+QM Pulse 
 
 Product Type 
 
@@ -12,7 +12,7 @@ Shape
 
 1. Purpose 
 
-QA Pulse is an internal platform designed to improve the daily workflow of QA teams by centralizing requirement intake, test case creation, QA task tracking, reporting, analytics, and admin visibility. 
+QM Pulse is an internal platform designed to improve the daily workflow of QA teams by centralizing requirement intake, test case creation, QA task tracking, reporting, analytics, and admin visibility. 
 
 The platform supports both: 
 
@@ -52,7 +52,7 @@ Shape
 
 To provide a centralized QA operations platform that simplifies requirement handling, accelerates test case creation, improves work tracking, and gives QA leads and admins clear visibility into team productivity and progress. 
 
-QA Pulse should become the operational workspace where QA teams can manage their daily work more efficiently while preserving consistency and traceability across the testing lifecycle. 
+QM Pulse should become the operational workspace where QA teams can manage their daily work more efficiently while preserving consistency and traceability across the testing lifecycle. 
 
 Shape 
 
@@ -728,7 +728,7 @@ Shape
 
 Description 
 
-Connect QA Pulse with Redmine for requirement, bug, and task references. 
+Connect QM Pulse with Redmine for requirement, bug, and task references. 
 
 Functional Requirements 
 
@@ -740,7 +740,7 @@ Link bugs from Redmine to test cases or tasks
 
 Display Redmine ticket ID and status 
 
-Allow users to open Redmine ticket links from QA Pulse 
+Allow users to open Redmine ticket links from QM Pulse 
 
 Support future synchronization with Redmine through API integration 
 
@@ -1014,7 +1014,7 @@ Shape
 
 21. Summary 
 
-QA Pulse is a centralized QA operations platform that helps QA teams manage requirements, create and reuse test cases, track tasks, and view team performance in one place. It integrates with Redmine for traceability and adds an AI-assisted Create Test Cases page that helps QA generate structured test case drafts based on previously saved team knowledge and templates. 
+QM Pulse is a centralized QA operations platform that helps QA teams manage requirements, create and reuse test cases, track tasks, and view team performance in one place. It integrates with Redmine for traceability and adds an AI-assisted Create Test Cases page that helps QA generate structured test case drafts based on previously saved team knowledge and templates. 
 
 The MVP focuses on delivering immediate operational value through: 
 

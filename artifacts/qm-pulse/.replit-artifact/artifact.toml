@@ -2,7 +2,7 @@ kind = "web"
 previewPath = "/"
 title = "QM Pulse"
 version = "1.0.0"
-id = "artifacts/qa-pulse"
+id = "artifacts/qm-pulse"
 router = "path"
 
 [[integratedSkills]]
@@ -15,11 +15,11 @@ paths = [ "/" ]
 localPort = 18440
 
 [services.development]
-run = "pnpm --filter @workspace/qa-pulse run dev"
+run = "pnpm --filter @workspace/qm-pulse run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/qa-pulse", "run", "build" ]
-publicDir = "artifacts/qa-pulse/dist/public"
+build = [ "pnpm", "--filter", "@workspace/qm-pulse", "run", "build" ]
+publicDir = "artifacts/qm-pulse/dist/public"
 serve = "static"
 
 [[services.production.rewrites]]

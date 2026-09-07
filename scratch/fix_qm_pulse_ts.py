@@ -1,7 +1,7 @@
 import os
 import re
 
-qa_pulse_pages_dir = r"c:\Users\raimi.rosman\QAPulse\artifacts\qa-pulse\src\pages"
+qa_pulse_pages_dir = r"c:\Users\raimi.rosman\QMPulse\artifacts\qm-pulse\src\pages"
 
 def patch_file(filename, patches):
     path = os.path.join(qa_pulse_pages_dir, filename)

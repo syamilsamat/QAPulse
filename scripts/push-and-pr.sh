@@ -1,8 +1,8 @@
 #!/bin/bash
-# Push to fork (origin) and directly to Autoraimix/QAPulse (upstream).
+# Push to fork (origin) and directly to Autoraimix/QMPulse (upstream).
 #
-# Autoraimix/QAPulse went private at some point, which detached this repo
-# from its fork network (syamilsamat/QAPulse now reports fork:false on
+# Autoraimix/QMPulse went private at some point, which detached this repo
+# from its fork network (syamilsamat/QMPulse now reports fork:false on
 # GitHub's API). The old flow — open a cross-repo PR via REST API and
 # auto-merge — silently no-ops now, most likely because the Keychain-stored
 # GITHUB_TOKEN used for that API call lacks 'repo' scope for private repos.

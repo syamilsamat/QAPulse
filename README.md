@@ -22,8 +22,8 @@ Before you begin, make sure you have the following installed and available:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Autoraimix/QAPulse.git
-cd QAPulse
+git clone https://github.com/Autoraimix/QMPulse.git
+cd QMPulse
 ```
 
 ### 2. Set up environment variables
@@ -91,7 +91,7 @@ Create a `.env` file at the workspace root with the following variables:
 QM Pulse is a pnpm monorepo. The main packages are:
 
 ```
-QAPulse/
+QMPulse/
 ├── artifacts/
 │   ├── qm-pulse/           ← React frontend (Vite + TypeScript)
 │   ├── api-server/         ← Express REST API (TypeScript)

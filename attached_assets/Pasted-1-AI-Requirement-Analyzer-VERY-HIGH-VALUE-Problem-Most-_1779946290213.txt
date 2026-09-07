@@ -94,7 +94,7 @@ AI suggests:
 •	negative amount, 
 •	decimal precision issue. 
 ________________________________________
-This Makes QA Pulse Different
+This Makes QM Pulse Different
 Most AI tools generate only happy-path tests.
 Real QA value comes from:
 •	abnormal behavior, 
@@ -347,7 +347,7 @@ Expected result is too generic:
 Suggested:
 “User is redirected to Dashboard page with success toast message”
 ________________________________________
-15. AI Chat Assistant Inside QA Pulse
+15. AI Chat Assistant Inside QM Pulse
 Internal QA copilot.
 ________________________________________
 Users can ask:
@@ -366,14 +366,14 @@ Highest ROI:
 4.	AI Weekly Summary 
 5.	AI Coverage Gap Detection 
 ________________________________________
-Features That Make QA Pulse Stand Out in Market
+Features That Make QM Pulse Stand Out in Market
 These are the killer differentiators:
 •	AI Risk Scoring 
 •	AI Smart Regression Selection 
 •	AI Root Cause Trend Analysis 
 •	AI Release Readiness 
 •	AI Coverage Intelligence 
-These move QA Pulse from:
+These move QM Pulse from:
 “QA management tool”
 to:
 “AI-powered QA intelligence platform”.

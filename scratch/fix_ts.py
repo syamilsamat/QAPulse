@@ -1,8 +1,8 @@
 import os
 import re
 
-api_routes_dir = r"c:\Users\raimi.rosman\QAPulse\artifacts\api-server\src\routes"
-mockup_ui_dir = r"c:\Users\raimi.rosman\QAPulse\artifacts\mockup-sandbox\src\components\ui"
+api_routes_dir = r"c:\Users\raimi.rosman\QMPulse\artifacts\api-server\src\routes"
+mockup_ui_dir = r"c:\Users\raimi.rosman\QMPulse\artifacts\mockup-sandbox\src\components\ui"
 
 for root, _, files in os.walk(api_routes_dir):
     for file in files:

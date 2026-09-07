@@ -18,15 +18,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push main to a sync branch on Autoraimix/QAPulse
+      - name: Push main to a sync branch on Autoraimix/QMPulse
         env:
           # The built-in GITHUB_TOKEN is scoped to this repo only, so it can't
-          # see a different repo owned by another account (Autoraimix/QAPulse).
+          # see a different repo owned by another account (Autoraimix/QMPulse).
           # UPSTREAM_PAT is a PAT from an account with push access there
           # (Settings → Secrets and variables → Actions on this repo).
           GH_TOKEN: ${{ secrets.UPSTREAM_PAT }}
         run: |
-          git push "https://x-access-token:${GH_TOKEN}@github.com/Autoraimix/QAPulse.git" \
+          git push "https://x-access-token:${GH_TOKEN}@github.com/Autoraimix/QMPulse.git" \
             "HEAD:refs/heads/sync/from-syamilsamat" --force
 
       - name: Open Pull Request using GitHub CLI
@@ -38,9 +38,9 @@ jobs:
           # doesn't have — it fails with "Head repository can't be blank" /
           # "not all refs are readable" even with a valid token. Using a
           # same-repo branch (pushed above) as the head sidesteps that: it
-          # only needs push access to Autoraimix/QAPulse, not a fork edge.
+          # only needs push access to Autoraimix/QMPulse, not a fork edge.
           gh pr create \
-            --repo "Autoraimix/QAPulse" \
+            --repo "Autoraimix/QMPulse" \
             --head "sync/from-syamilsamat" \
             --base "main" \
             --title "SAS: fix/improve code" \
