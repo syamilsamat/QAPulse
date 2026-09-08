@@ -18,6 +18,10 @@ export const redmineProjectConfigsTable = pgTable("redmine_project_configs", {
   complexityFieldId: integer("complexity_field_id"),
   targetedStartDateFieldId: integer("targeted_start_date_field_id"),
   targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
+  // Redmine custom field that holds the reporting department (qa/dev/fa/pm)
+  // on a defect — value is always derived server-side from the reporter's
+  // role, never client-supplied. Null means the project has no such field.
+  sourceFieldId: integer("source_field_id"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -26,6 +30,7 @@ export const redmineGlobalConfigTable = pgTable("redmine_global_config", {
   complexityFieldId: integer("complexity_field_id"),
   targetedStartDateFieldId: integer("targeted_start_date_field_id"),
   targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
+  sourceFieldId: integer("source_field_id"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

@@ -1299,7 +1299,7 @@ export default function TestCasesExecutionProgressPage() {
     [libraryTestCases],
   );
   const [libraryProjects, setLibraryProjects] = useState<any[]>([]);
-  const [pullFilter, setPullFilter] = useState<{ projectId?: number; module?: string }>({});
+  const [pullFilter, setPullFilter] = useState<{ projectId?: number; module?: string; requirementId?: number; authorId?: number }>({});
   const [selectedPullIds, setSelectedPullIds] = useState<Set<number>>(new Set());
 
   // The picker belongs to one execution file, so only offer library cases
@@ -1327,9 +1327,37 @@ export default function TestCasesExecutionProgressPage() {
     eligibleLibraryTestCases.filter((tc: any) => {
       if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
       if (pullFilter.module && tc.module !== pullFilter.module) return false;
+      if (pullFilter.requirementId && tc.requirementId !== pullFilter.requirementId) return false;
+      if (pullFilter.authorId && tc.authorId !== pullFilter.authorId) return false;
       return true;
     }),
   [eligibleLibraryTestCases, pullFilter]);
+
+  // Options for the Requirement / Author filters, scoped to what's actually
+  // pullable right now rather than the full library.
+  const pullRequirementOptions = useMemo(() => {
+    const ids = new Set(
+      eligibleLibraryTestCases
+        .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+        .map((tc: any) => tc.requirementId)
+        .filter((id: any): id is number => typeof id === "number"),
+    );
+    return requirementsList
+      .filter((r) => ids.has(r.id))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [eligibleLibraryTestCases, pullFilter.projectId, requirementsList]);
+
+  const pullAuthorOptions = useMemo(() => {
+    const byId = new Map<number, string>();
+    eligibleLibraryTestCases
+      .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+      .forEach((tc: any) => {
+        if (typeof tc.authorId === "number") byId.set(tc.authorId, tc.authorName || "Unknown");
+      });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [eligibleLibraryTestCases, pullFilter.projectId]);
   const [isPulling, setIsPulling] = useState(false);
   const [isPullLoading, setIsPullLoading] = useState(false);
 
@@ -1954,7 +1982,7 @@ export default function TestCasesExecutionProgressPage() {
       caseName: tc.title || "",
       testSteps: tc.testSteps || "",
       expectedResult: tc.expectedResult || "",
-      preCondition: tc.preConditions || "",
+      preCondition: tc.preconditions || "",
       libraryTcId: tc.id,
       requirementId: tc.requirementId ?? null,
     }));
@@ -2861,6 +2889,25 @@ export default function TestCasesExecutionProgressPage() {
     ? data.find((r) => r.id === pendingFailRowId)
     : null;
 
+  // The defect must be created under the Redmine ticket that's actually
+  // linked to the failing test case — not blindly this file's own ticketId,
+  // which may cover several requirements (and therefore several distinct
+  // Redmine tickets) bundled into one execution file. Prefer the row's own
+  // requirement's linked ticket; if the row has no requirement (e.g. a
+  // manually added row), fall back to the first linked ticket among this
+  // file's own requirements, then to the file's own ticketId.
+  const defectParentIssueId = (() => {
+    const ownReq = defectRow?.requirementId
+      ? requirementsList.find((r) => r.id === Number(defectRow.requirementId))
+      : null;
+    if (ownReq?.redmineTicketId) return ownReq.redmineTicketId;
+    const fileScoped = requirementsList.filter(
+      (r) => currentFileMilestoneId == null || r.milestoneId === currentFileMilestoneId,
+    );
+    const firstLinked = fileScoped.find((r) => r.redmineTicketId)?.redmineTicketId;
+    return firstLinked ?? ticketId ?? null;
+  })();
+
   return (
     <div className="space-y-3 flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100vh-6rem)] relative">
       <DefectCreationModal
@@ -2875,7 +2922,7 @@ export default function TestCasesExecutionProgressPage() {
         stepName={defectRow?.testSteps ?? undefined}
         testCaseId={defectRow?.testCaseId ?? undefined}
         expectedResult={defectRow?.expectedResult ?? undefined}
-        parentIssueId={ticketId ?? null}
+        parentIssueId={defectParentIssueId}
         executionTcId={typeof defectRow?.id === "number" ? defectRow.id : null}
         onSkip={() => {
           setDefectModalOpen(false);
@@ -4191,6 +4238,18 @@ export default function TestCasesExecutionProgressPage() {
                       .map((tc: any) => tc.module).filter(Boolean)
                     )).map(m => <option key={m as string} value={m as string}>{m as string}</option>)}
                   </select>
+                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
+                    value={pullFilter.requirementId ?? ""}
+                    onChange={e => setPullFilter(f => ({ ...f, requirementId: e.target.value ? Number(e.target.value) : undefined }))}>
+                    <option value="">All Requirements</option>
+                    {pullRequirementOptions.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+                  </select>
+                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
+                    value={pullFilter.authorId ?? ""}
+                    onChange={e => setPullFilter(f => ({ ...f, authorId: e.target.value ? Number(e.target.value) : undefined }))}>
+                    <option value="">All Authors</option>
+                    {pullAuthorOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
                   <span className="text-xs text-muted-foreground self-center">{selectedPullIds.size} selected</span>
                 </div>
                 <div className="border rounded-md divide-y divide-border overflow-y-auto max-h-[340px]">
@@ -4217,9 +4276,12 @@ export default function TestCasesExecutionProgressPage() {
             )}
           </div>
           <DialogFooter className="shrink-0 border-t pt-4 flex-row justify-between gap-2">
-            <Button variant="ghost" size="sm" onClick={() => {
-              setSelectedPullIds(new Set(filteredEligibleLibraryTestCases.map((tc: any) => tc.id)));
-            }}>Select All Filtered</Button>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => {
+                setSelectedPullIds(new Set(filteredEligibleLibraryTestCases.map((tc: any) => tc.id)));
+              }}>Select All</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedPullIds(new Set())}>Unselect All</Button>
+            </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setPullDialogOpen(false)}>Cancel</Button>
               <Button onClick={handleConfirmPull} disabled={selectedPullIds.size === 0 || isPulling} className="gap-2">

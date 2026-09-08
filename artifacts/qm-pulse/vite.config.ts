@@ -98,6 +98,20 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Local-only convenience: point /api at a running instance (e.g. the seeded
+    // Replit dev deployment) instead of standing up a local API server + DB.
+    // Inert unless VITE_API_PROXY_TARGET is set.
+    ...(process.env.VITE_API_PROXY_TARGET
+      ? {
+          proxy: {
+            "/api": {
+              target: process.env.VITE_API_PROXY_TARGET,
+              changeOrigin: true,
+              secure: true,
+            },
+          },
+        }
+      : {}),
   },
   preview: {
     port,

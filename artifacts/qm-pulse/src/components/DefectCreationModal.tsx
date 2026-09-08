@@ -71,9 +71,14 @@ export default function DefectCreationModal({
   const { toast } = useToast();
   const { user } = useAuth();
   const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
+  // Display-only mirror of the server's getRoleDepartment() — the actual
+  // value sent to Redmine is always derived from the reporter's role there,
+  // never from this. admin/cto have no department and send nothing.
+  const reporterDepartment = user?.role?.startsWith("hod_")
+    ? user.role.slice(4)
+    : ["qa", "dev", "fa", "pm"].find((d) => user?.role?.startsWith(`${d}_`)) ?? null;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [scope, setScope] = useState<"step" | "testcase">("testcase");
   const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
   const [actualResult, setActualResult] = useState("");
   const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
@@ -112,6 +117,10 @@ export default function DefectCreationModal({
   useEffect(() => {
     if (!open) return;
     setExpectedResultValue(expectedResult ?? "");
+    // Default the subject to the test case's own name — the user can still
+    // edit it manually below.
+    const prefix = parentIssueId ? `#${parentIssueId} - ` : "";
+    setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName}`);
     fetchQmpulseProjects().then(setQmpulseProjects).catch(() => {});
     fetchRedmineProjects().then(setProjects).catch(() => {});
     fetchRedmineTrackers()
@@ -121,17 +130,7 @@ export default function DefectCreationModal({
         setQaDefectTrackerId(qa?.id ?? list[0]?.id ?? null);
       })
       .catch(() => {});
-  }, [open, expectedResult]);
-
-  // Auto-generate subject from scope
-  useEffect(() => {
-    const prefix = parentIssueId ? `#${parentIssueId} - ` : "";
-    if (scope === "step" && stepName) {
-      setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName} - ${stepName}`);
-    } else {
-      setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName}`);
-    }
-  }, [scope, testCaseName, stepName, testCaseId, parentIssueId]);
+  }, [open, expectedResult, testCaseName, testCaseId, parentIssueId]);
 
   // Load project config + members when project changes
   useEffect(() => {
@@ -257,6 +256,7 @@ export default function DefectCreationModal({
         targetedStartDate,
         targetedCompletionDateFieldId: projectConfig?.targetedCompletionDateFieldId,
         targetedCompletionDate: targetedCompletionDate || undefined,
+        sourceFieldId: projectConfig?.sourceFieldId,
         uploads: screenshots,
       });
 
@@ -320,28 +320,6 @@ export default function DefectCreationModal({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Scope toggle */}
-          <div className="space-y-1.5">
-            <Label>Defect Scope</Label>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant={scope === "testcase" ? "default" : "outline"}
-                onClick={() => setScope("testcase")}
-              >
-                Entire Test Case
-              </Button>
-              <Button
-                size="sm"
-                variant={scope === "step" ? "default" : "outline"}
-                onClick={() => setScope("step")}
-                disabled={!stepName}
-              >
-                This Step Only
-              </Button>
-            </div>
-          </div>
-
           {/* Description */}
           <div className="space-y-1.5">
             <Label>
@@ -461,6 +439,15 @@ export default function DefectCreationModal({
           {/* Redmine Fields */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
+
+            {projectConfig?.sourceFieldId && (
+              <div className="space-y-1.5">
+                <Label>Source</Label>
+                <p className="text-sm text-muted-foreground capitalize">
+                  {reporterDepartment ?? "Not set for your role"}
+                </p>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>Subject <span className="text-destructive">*</span></Label>

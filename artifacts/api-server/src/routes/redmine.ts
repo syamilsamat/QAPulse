@@ -8,7 +8,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import { getAuthUser } from "./auth";
-import { getAuthContext } from "../middleware/access";
+import { getAuthContext, getRoleDepartment } from "../middleware/access";
 
 const router: IRouter = Router();
 
@@ -208,7 +208,7 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
     res.status(400).json({ error: "Invalid project ID" });
     return;
   }
-  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId } = req.body;
+  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId, sourceFieldId } = req.body;
   try {
     const [config] = await db
       .insert(redmineProjectConfigsTable)
@@ -217,6 +217,7 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
         complexityFieldId: complexityFieldId ?? null,
         targetedStartDateFieldId: targetedStartDateFieldId ?? null,
         targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+        sourceFieldId: sourceFieldId ?? null,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -225,6 +226,7 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
           complexityFieldId: complexityFieldId ?? null,
           targetedStartDateFieldId: targetedStartDateFieldId ?? null,
           targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          sourceFieldId: sourceFieldId ?? null,
           updatedAt: new Date(),
         },
       })
@@ -247,7 +249,7 @@ router.get("/redmine/global-config", async (_req, res): Promise<void> => {
 });
 
 router.post("/redmine/global-config", async (req, res): Promise<void> => {
-  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId } = req.body;
+  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId, sourceFieldId } = req.body;
   try {
     const [existing] = await db.select().from(redmineGlobalConfigTable);
     let config;
@@ -258,6 +260,7 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
           complexityFieldId: complexityFieldId ?? null,
           targetedStartDateFieldId: targetedStartDateFieldId ?? null,
           targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          sourceFieldId: sourceFieldId ?? null,
           updatedAt: new Date(),
         })
         .returning();
@@ -268,6 +271,7 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
           complexityFieldId: complexityFieldId ?? null,
           targetedStartDateFieldId: targetedStartDateFieldId ?? null,
           targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          sourceFieldId: sourceFieldId ?? null,
           updatedAt: new Date(),
         })
         .returning();
@@ -347,6 +351,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     targetedStartDate,
     targetedCompletionDateFieldId,
     targetedCompletionDate,
+    sourceFieldId,
     uploads,
   } = req.body;
 
@@ -357,6 +362,10 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
 
   try {
     const apiKey = await resolveApiKey(req);
+    // Source is always the reporter's own department (qa/dev/fa/pm) — never
+    // client-supplied, same trust boundary as defectCategory's tier gate.
+    const ctx = getAuthContext(req);
+    const sourceValue = ctx ? await getRoleDepartment(ctx.role) : null;
 
     // Upload attachments first if any
     const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
@@ -391,6 +400,9 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     }
     if (targetedCompletionDateFieldId && targetedCompletionDate) {
       customFields.push({ id: Number(targetedCompletionDateFieldId), value: targetedCompletionDate });
+    }
+    if (sourceFieldId && sourceValue) {
+      customFields.push({ id: Number(sourceFieldId), value: sourceValue });
     }
 
     const issuePayload: any = {

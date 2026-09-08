@@ -385,6 +385,7 @@ export interface RedmineProjectConfigItem {
   complexityFieldId: number | null;
   targetedStartDateFieldId: number | null;
   targetedCompletionDateFieldId: number | null;
+  sourceFieldId: number | null;
 }
 
 export interface RedmineTracker {
@@ -455,6 +456,9 @@ export interface CreateDefectPayload {
   targetedStartDate?: string;
   targetedCompletionDateFieldId?: number | null;
   targetedCompletionDate?: string;
+  // Value is derived server-side from the reporter's own department (qa/dev/
+  // fa/pm) — only the target custom field ID is sent from here.
+  sourceFieldId?: number | null;
   uploads?: { filename: string; contentType: string; base64: string }[];
 }
 

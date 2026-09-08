@@ -287,6 +287,7 @@ async function generateForRequirement(
   const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 to 10 highly detailed test cases for the single requirement provided.
     CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
     If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
+    "expectedResult" must be short and direct: state the outcome as one imperative sentence (or a tight list of outcomes), no explanation, no narrative, no filler words.
     Return ONLY a valid JSON object with a "testCases" array.`;
 
   const userPrompt = `Requirement: [#${req.id}] ${req.title}\nDescription: ${req.description || "No description provided"}\n\nModule: ${opts.featureModule || "N/A"}\nTracker: ${opts.selectedTracker || "N/A"}\nFocus Scenarios: ${opts.caseTypes.join(", ")}\nNotes: ${opts.additionalNotes || "None"}${existingContext}`;

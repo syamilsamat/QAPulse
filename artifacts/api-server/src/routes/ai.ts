@@ -2018,7 +2018,8 @@ router.post("/ai/generate-bdd-test-cases", async (req, res): Promise<void> => {
   if (!milestoneId || !gherkin) { res.status(400).json({ error: "Missing milestoneId or gherkin text" }); return; }
 
   try {
-    const prompt = `You are a QA automation expert. Convert this BDD Gherkin snippet into formal test cases. 
+    const prompt = `You are a QA automation expert. Convert this BDD Gherkin snippet into formal test cases.
+"expectedResult" must be short and direct: one imperative sentence (or a tight list of outcomes) stating the outcome — no explanation, no narrative, no filler words.
 Format output as JSON: { "testCases": [ { "title": "...", "preCondition": "...", "steps": "...", "expectedResult": "..." } ] }
 Gherkin:
 ${gherkin}`;

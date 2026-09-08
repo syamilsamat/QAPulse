@@ -40,6 +40,7 @@ interface RedmineProjectConfig {
   complexityFieldId: number | null;
   targetedStartDateFieldId: number | null;
   targetedCompletionDateFieldId: number | null;
+  sourceFieldId: number | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -75,7 +76,7 @@ export default function Settings() {
 
   // Redmine Integration (QA Lead / admin)
   const [redmineProjects, setRedmineProjects] = useState<RedmineProject[]>([]);
-  const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "" });
+  const [configForm, setConfigForm] = useState({ complexityFieldId: "", targetedStartDateFieldId: "", targetedCompletionDateFieldId: "", sourceFieldId: "" });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
@@ -169,6 +170,7 @@ export default function Settings() {
           complexityFieldId: data.complexityFieldId?.toString() ?? "",
           targetedStartDateFieldId: data.targetedStartDateFieldId?.toString() ?? "",
           targetedCompletionDateFieldId: data.targetedCompletionDateFieldId?.toString() ?? "",
+          sourceFieldId: data.sourceFieldId?.toString() ?? "",
         });
       })
       .catch(() => {});
@@ -265,6 +267,7 @@ export default function Settings() {
           complexityFieldId: configForm.complexityFieldId ? Number(configForm.complexityFieldId) : null,
           targetedStartDateFieldId: configForm.targetedStartDateFieldId ? Number(configForm.targetedStartDateFieldId) : null,
           targetedCompletionDateFieldId: configForm.targetedCompletionDateFieldId ? Number(configForm.targetedCompletionDateFieldId) : null,
+          sourceFieldId: configForm.sourceFieldId ? Number(configForm.sourceFieldId) : null,
         }),
       });
       const data = await res.json();
@@ -580,6 +583,18 @@ export default function Settings() {
                       value={configForm.targetedCompletionDateFieldId}
                       onChange={(e) => setConfigForm((f) => ({ ...f, targetedCompletionDateFieldId: e.target.value }))}
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Source Field ID</Label>
+                    <Input
+                      type="number"
+                      placeholder="e.g. 14"
+                      value={configForm.sourceFieldId}
+                      onChange={(e) => setConfigForm((f) => ({ ...f, sourceFieldId: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Auto-filled with the reporter's department (qa/dev/fa/pm) on every new defect.
+                    </p>
                   </div>
                 </div>
                 <Button
