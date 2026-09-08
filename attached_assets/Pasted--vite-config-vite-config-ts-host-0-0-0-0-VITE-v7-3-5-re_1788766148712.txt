@@ -1,0 +1,140 @@
+$ vite --config vite.config.ts --host 0.0.0.0
+
+  VITE v7.3.5  ready in 1951 ms
+
+  ➜  Local:   http://localhost:18440/
+  ➜  Network: http://172.24.0.2:18440/
+  ➜  press h + enter to show help
+2:10:10 AM [vite] (client) page reload index.html
+2:10:10 AM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/index.css, /src/components/DefectCreationModal.tsx
+2:10:10 AM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/index.css, /src/components/PulseLogo.tsx
+2:10:10 AM [vite] (client) hmr update /src/index.css, /src/components/landing/PulseScene.tsx
+2:10:10 AM [vite] (client) hmr update /src/index.css, /src/pages/Defects.tsx, /src/components/DefectCategoryField.tsx
+2:10:10 AM [vite] (client) hmr update /src/index.css, /src/pages/TestExecutionDetail.tsx, /src/pages/VerdictReport.tsx, /src/pages/TestCasesExecution.tsx, /src/pages/ModuleAndProject.tsx, /src/pages/Defects.tsx, /src/pages/Teams.tsx, /src/pages/TestCasesExecutionProgressPage.tsx, /src/components/DefectCreationModal.tsx
+2:10:10 AM [vite] (client) hmr update /src/pages/Defects.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/Login.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/MyWorkToday.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/QMPulseLanding.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/ReportDashboard.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/RequirementDetail.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/Requirements.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/Settings.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/Team.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/UatSignoffs.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/pages/VerdictReport.tsx, /src/index.css
+2:10:10 AM [vite] (client) hmr update /src/contexts/AuthContext.tsx, /src/pages/Login.tsx, /src/components/Layout.tsx, /src/pages/AdminSearch.tsx, /src/pages/Inbox.tsx, /src/pages/Team.tsx, /src/pages/Tasks.tsx, /src/pages/Dashboard.tsx, /src/pages/Requirements.tsx, /src/pages/TestCases.tsx, /src/pages/TeamHangouts.tsx, /src/pages/Settings.tsx, /src/pages/AiFeatures.tsx, /src/pages/ModuleAndProject.tsx, /src/pages/RequirementDetail.tsx, /src/components/NotificationDropdown.tsx
+2:10:10 AM [vite] (client) hmr update /src/contexts/AuthContext.tsx, /src/pages/Login.tsx, /src/components/Layout.tsx, /src/pages/AdminSearch.tsx, /src/pages/Inbox.tsx, /src/pages/Team.tsx, /src/pages/Tasks.tsx, /src/pages/Dashboard.tsx, /src/pages/Requirements.tsx, /src/pages/TestCases.tsx, /src/pages/TeamHangouts.tsx, /src/pages/Settings.tsx, /src/pages/AiFeatures.tsx, /src/pages/ModuleAndProject.tsx, /src/pages/RequirementDetail.tsx, /src/components/NotificationDropdown.tsx (x2)
+6:41:23 AM [vite] (client) page reload index.html
+6:41:23 AM [vite] (client) hmr update /src/App.tsx, /src/index.css
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ContactMultiSelect.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/DefectCategoryField.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/DefectCreationModal.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/DefectReviewSection.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/DevTasksPanel.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/GlobalSearch.tsx
+6:41:23 AM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/MilestonePicker.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/NotificationDropdown.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/PulseLogo.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/RiskRegisterCard.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/SendReportModal.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/SendVerdictModal.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ThemeToggle.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/execution/CompileToExecutionDialog.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/icons/animated.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/landing/PulseScene.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/pages/Login.tsx, /src/pages/QMPulseLanding.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step1Milestone.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step2Requirements.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step3TestCases.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step4Approval.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step5Execution.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step6SignOff.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step7UAT.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/qa-pipeline/Step8Complete.tsx
+6:41:23 AM [vite] (client) page reload src/components/qa-pipeline/useMilestoneTestCases.ts
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/alert-dialog.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/alert.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/avatar.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/badge.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/button.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/card.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/checkbox.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/command.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/dialog.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/dropdown-menu.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/form.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/input.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/label.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/popover.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/progress.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/scroll-area.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/searchable-multi-select.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/searchable-select.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/select.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/separator.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/sheet.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/skeleton.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/switch.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/table.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/tabs.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/textarea.tsx
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/components/ui/toast.tsx
+6:41:23 AM [vite] (client) hmr update /src/components/ui/toaster.tsx, /src/index.css
+6:41:23 AM [vite] (client) hmr update /src/components/ui/tooltip.tsx, /src/index.css
+6:41:23 AM [vite] (client) hmr update /src/contexts/AuthContext.tsx, /src/index.css
+6:41:23 AM [vite] (client) hmr update /src/index.css, /src/pages/Team.tsx, /src/pages/Tasks.tsx, /src/pages/ModuleAndProject.tsx, /src/pages/Defects.tsx, /src/pages/Milestones.tsx, /src/pages/UatSignoffs.tsx
+6:41:23 AM [vite] changed tsconfig file detected: /home/runner/workspace/artifacts/qa-pulse/tsconfig.json - Clearing cache and forcing full-reload to ensure TypeScript is compiled with updated config values.
+6:41:23 AM [vite] vite.config.ts changed, restarting server...
+6:41:23 AM [vite] (client) page reload src/hooks/use-role-labels.ts
+6:41:23 AM [vite] (client) page reload src/hooks/use-toast.ts
+6:41:23 AM [vite] (client) hmr update /src/index.css
+6:41:23 AM [vite] (client) page reload src/lib/api.ts
+6:41:23 AM [vite] (client) page reload src/lib/defect-categories.ts
+6:41:23 AM [vite] (client) page reload src/lib/execution-api.ts
+6:41:23 AM [vite] (client) page reload src/lib/utils.ts
+6:41:23 AM [vite] (client) page reload src/main.tsx
+6:41:23 AM [vite] (client) page reload src/pages/AdminSearch.tsx
+6:41:23 AM [vite] (client) page reload src/pages/AiFeatures.tsx
+6:41:23 AM [vite] (client) page reload src/pages/AuditLog.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Dashboard.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Defects.tsx
+6:41:23 AM [vite] (client) page reload src/pages/HistoryTrail.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Inbox.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Login.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Main2.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Milestones.tsx
+6:41:23 AM [vite] (client) page reload src/pages/ModuleAndProject.tsx
+6:41:23 AM [vite] (client) page reload src/pages/MyWorkToday.tsx
+6:41:23 AM [vite] (client) page reload src/pages/PmDashboard.tsx
+6:41:23 AM [vite] (client) page reload src/pages/QAAnalytics.tsx
+6:41:23 AM [vite] (client) page reload src/pages/QAPipeline.tsx
+6:41:23 AM [vite] (client) page reload src/pages/QMPulseLanding.tsx
+6:41:23 AM [vite] (client) page reload src/pages/ReportDashboard.tsx
+6:41:23 AM [vite] (client) page reload src/pages/RequirementDetail.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Requirements.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Resources.tsx
+6:41:23 AM [vite] (client) page reload src/pages/RiskRegister.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Roles.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Settings.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Tasks.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Team.tsx
+6:41:23 AM [vite] (client) page reload src/pages/Teams.tsx
+6:41:23 AM [vite] (client) page reload src/pages/TestCases.tsx
+6:41:23 AM [vite] (client) page reload src/pages/TestCasesExecution.tsx
+6:41:23 AM [vite] (client) page reload src/pages/TeamHangouts.tsx
+6:41:23 AM [vite] (client) page reload src/pages/TestCasesExecutionProgressPage.tsx
+6:41:23 AM [vite] (client) page reload src/pages/TestExecutionDetail.tsx
+6:41:23 AM [vite] (client) page reload src/pages/TraceabilityMatrix.tsx
+6:41:23 AM [vite] (client) page reload src/pages/UatSignoffs.tsx
+6:41:23 AM [vite] (client) page reload src/pages/VerdictReport.tsx
+6:41:23 AM [vite] (client) page reload src/pages/not-found.tsx
+6:41:23 AM [vite] (client) page reload tsconfig.json
+✘ [ERROR] Could not resolve "/home/runner/workspace/artifacts/qa-pulse/vite.config.ts"
+
+failed to load config from /home/runner/workspace/artifacts/qa-pulse/vite.config.ts
+6:41:23 AM [vite] Build failed with 1 error:
+error: Could not resolve "/home/runner/workspace/artifacts/qa-pulse/vite.config.ts"
+6:41:23 AM [vite] server restart failed
