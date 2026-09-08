@@ -464,7 +464,7 @@ export interface CreateDefectPayload {
 
 export const createRedmineDefect = async (
   payload: CreateDefectPayload,
-): Promise<{ id: number; url: string }> => {
+): Promise<{ id: number; url: string; customFieldsDropped?: boolean }> => {
   const res = await fetch("/api/redmine/issues", {
     method: "POST",
     headers: getHeaders(),

@@ -405,23 +405,36 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       customFields.push({ id: Number(sourceFieldId), value: sourceValue });
     }
 
-    const issuePayload: any = {
-      issue: {
-        project_id: projectId,
-        tracker_id: trackerId,
-        subject,
-        description: description ?? "",
-        ...(parentIssueId && { parent_issue_id: Number(parentIssueId) }),
-        ...(assigneeId && { assigned_to_id: Number(assigneeId) }),
-        ...(customFields.length > 0 && { custom_fields: customFields }),
-        ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
-      },
+    const baseIssue: any = {
+      project_id: projectId,
+      tracker_id: trackerId,
+      subject,
+      description: description ?? "",
+      ...(parentIssueId && { parent_issue_id: Number(parentIssueId) }),
+      ...(assigneeId && { assigned_to_id: Number(assigneeId) }),
+      ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
     };
 
-    const response = await redmineFetch("/issues.json", apiKey, {
+    let response = await redmineFetch("/issues.json", apiKey, {
       method: "POST",
-      body: JSON.stringify(issuePayload),
+      body: JSON.stringify({
+        issue: { ...baseIssue, ...(customFields.length > 0 && { custom_fields: customFields }) },
+      }),
     });
+
+    // Complexity/date/source custom fields are configured globally, but not
+    // every Redmine project actually has all of them enabled — Redmine then
+    // rejects the whole issue rather than ignoring the fields it doesn't
+    // recognize. Retry once with no custom fields at all so the defect still
+    // gets created; only the metadata that project doesn't support is lost.
+    let customFieldsDropped = false;
+    if (!response.ok && customFields.length > 0) {
+      response = await redmineFetch("/issues.json", apiKey, {
+        method: "POST",
+        body: JSON.stringify({ issue: baseIssue }),
+      });
+      customFieldsDropped = response.ok;
+    }
 
     if (!response.ok) {
       const errBody = await response.text();
@@ -429,7 +442,11 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     }
 
     const data: any = await response.json();
-    res.status(201).json({ id: data.issue.id, url: `${getBaseUrl()}/issues/${data.issue.id}` });
+    res.status(201).json({
+      id: data.issue.id,
+      url: `${getBaseUrl()}/issues/${data.issue.id}`,
+      customFieldsDropped,
+    });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to create issue: ${err.message}` });
   }

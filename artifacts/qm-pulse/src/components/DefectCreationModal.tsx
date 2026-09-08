@@ -260,7 +260,12 @@ export default function DefectCreationModal({
         uploads: screenshots,
       });
 
-      toast({ title: `Defect #${result.id} created in Redmine` });
+      toast({
+        title: `Defect #${result.id} created in Redmine`,
+        description: result.customFieldsDropped
+          ? "This Redmine project doesn't have Complexity/Date/Source fields set up — they were skipped."
+          : undefined,
+      });
       // CR019: record locally so the Defects page tracks it (best-effort)
       registerLocalDefect({
         redmineId: result.id.toString(),
