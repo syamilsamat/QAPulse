@@ -91,6 +91,9 @@ interface DefectRow {
   defectCode: string | null;
   title: string;
   description: string | null;
+  stepsToReproduce: string | null;
+  expectedResult: string | null;
+  actualResult: string | null;
   severity: string;
   status: string;
   module: string | null;
@@ -837,6 +840,35 @@ export default function Defects() {
                       </Button>
                     )}
                   </div>
+
+                  {(d.description || d.stepsToReproduce || d.expectedResult || d.actualResult) && (
+                    <div className="rounded-md border bg-background px-3 py-2.5 space-y-2.5">
+                      {d.description && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Description</p>
+                          <p className="text-xs whitespace-pre-wrap">{d.description}</p>
+                        </div>
+                      )}
+                      {d.stepsToReproduce && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Steps to Reproduce</p>
+                          <p className="text-xs whitespace-pre-wrap">{d.stepsToReproduce}</p>
+                        </div>
+                      )}
+                      {d.expectedResult && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Expected Result</p>
+                          <p className="text-xs whitespace-pre-wrap">{d.expectedResult}</p>
+                        </div>
+                      )}
+                      {d.actualResult && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Actual Result</p>
+                          <p className="text-xs whitespace-pre-wrap text-red-700 dark:text-red-400">{d.actualResult}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {d.verificationEvidence.length > 0 && (
                     <div className="rounded-md border bg-background px-3 py-2.5 space-y-2">
