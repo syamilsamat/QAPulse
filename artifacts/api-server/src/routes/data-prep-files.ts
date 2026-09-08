@@ -64,17 +64,23 @@ router.post("/data-prep-files", async (req, res): Promise<void> => {
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
-  const sizeBytes = Math.floor((String(dataBase64).length * 3) / 4);
+  const cleanBase64 = String(dataBase64).replace(/^data:[^;]+;base64,/, "");
+  if (cleanBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
+    res.status(400).json({ error: "File data is invalid" }); return;
+  }
+  const bytes = Buffer.from(cleanBase64, "base64");
+  const sizeBytes = bytes.length;
+  if (sizeBytes === 0) { res.status(400).json({ error: "File is empty or invalid" }); return; }
   if (sizeBytes > MAX_BYTES) { res.status(400).json({ error: "File too large (max 15 MB)" }); return; }
 
   const [row] = await db.insert(dataPrepFilesTable).values({
     projectId: m.projectId,
     milestoneId: m.id,
-    fileName: String(fileName).slice(0, 255),
-    mimeType: String(mimeType ?? "application/octet-stream"),
+    fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
+    mimeType: String(mimeType ?? "application/octet-stream").slice(0, 150),
     sizeBytes,
     note: note ? String(note) : null,
-    dataBase64: String(dataBase64),
+    dataBase64: cleanBase64,
     uploadedBy: ctx.userId,
   }).returning({ id: dataPrepFilesTable.id });
 
@@ -92,7 +98,8 @@ router.post("/data-prep-files", async (req, res): Promise<void> => {
 router.get("/data-prep-files/:id/download", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const id = parseInt(req.params.id);
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid file ID" }); return; }
   const [row] = await db.select().from(dataPrepFilesTable).where(eq(dataPrepFilesTable.id, id));
   if (!row) { res.status(404).json({ error: "File not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, row.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
@@ -107,9 +114,11 @@ router.get("/data-prep-files/:id/download", async (req, res): Promise<void> => {
 router.delete("/data-prep-files/:id", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const id = parseInt(req.params.id);
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid file ID" }); return; }
   const [row] = await db.select().from(dataPrepFilesTable).where(eq(dataPrepFilesTable.id, id));
   if (!row) { res.status(404).json({ error: "File not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, row.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
   const privileged = ["admin", "cto"].includes(ctx.role);
   if (!privileged && row.uploadedBy !== ctx.userId) {
     res.status(403).json({ error: "Only the uploader or an admin can delete this file" }); return;

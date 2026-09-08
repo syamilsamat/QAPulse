@@ -4,6 +4,7 @@ import {
   db,
   defectsTable,
   defectLinksTable,
+  defectVerificationEvidenceTable,
   testCasesTable,
   requirementsTable,
   projectsTable,
@@ -39,7 +40,7 @@ const router: IRouter = Router();
 // runs earlier in that same handler, before the Redmine write-through) can
 // test against the same "resolved-ish" bucket the reopen-detection below it
 // already uses — one definition of "this status means dev says it's fixed".
-const RESOLVED_STATES = /fixed|resolved|verified|closed/i;
+const RESOLVED_STATES = /fixed|resolved|\bverified\b|closed/i;
 const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
 
 // Deliberately separate from RESOLVED_STATES above (which only feeds the
@@ -47,7 +48,7 @@ const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
 // tracker's actual status list includes a plain "Done" that the narrower
 // regex doesn't catch, which let a defect reach a resolved-shaped state with
 // the code-review gate never firing (found via smoke test on DEF-0001).
-const GATE_RESOLVED_STATES = /fixed|resolved|verified|closed|done/i;
+const GATE_RESOLVED_STATES = /fixed|resolved|\bverified\b|closed|done/i;
 
 // CR014 access control. Defects with no project are visible to any
 // authenticated user (Redmine pulls can land without a project); scoping
@@ -68,7 +69,13 @@ async function canAccessDefectProject(
 
 // Redmine statuses that mean "fix landed, QA should retest"
 const RETEST_STATUS = /fixed|resolved|ready/i;
-const CLOSED_STATUS = /closed|verified|rejected|cancelled/i;
+const CLOSED_STATUS = /closed|\bverified\b|rejected|cancelled/i;
+// A word boundary is important here: tracker-specific statuses such as
+// "Unverified" must not trigger the mandatory verification workflow.
+const VERIFIED_STATUS = /\bverified\b/i;
+const MAX_VERIFICATION_EVIDENCE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_VERIFICATION_EVIDENCE_MIME = /^(image\/(png|jpeg|gif|webp)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|application\/vnd\.ms-excel|text\/(plain|csv))$/i;
+const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
 
 // CR027 — defect_opened: fan out to the project's qa_lead+ users so quality
 // leads see new defects without needing to check the Defects page.
@@ -224,6 +231,17 @@ router.get("/defects", async (req, res): Promise<void> => {
     }
 
     const ids = defects.map((d: any) => d.id);
+    const verificationEvidence = ids.length
+      ? await db.select({
+          id: defectVerificationEvidenceTable.id,
+          defectId: defectVerificationEvidenceTable.defectId,
+          fileName: defectVerificationEvidenceTable.fileName,
+          mimeType: defectVerificationEvidenceTable.mimeType,
+          sizeBytes: defectVerificationEvidenceTable.sizeBytes,
+          uploadedBy: defectVerificationEvidenceTable.uploadedBy,
+          createdAt: defectVerificationEvidenceTable.createdAt,
+        }).from(defectVerificationEvidenceTable).where(inArray(defectVerificationEvidenceTable.defectId, ids))
+      : [];
     const links = ids.length
       ? await db.select().from(defectLinksTable).where(inArray(defectLinksTable.defectId, ids))
       : [];
@@ -302,6 +320,9 @@ router.get("/defects", async (req, res): Promise<void> => {
         links: dLinks,
         retestNeeded: dLinks.some((l: any) => l.retestNeeded),
         hasRegressionTc: dLinks.some((l: any) => l.linkType === "regression_tc"),
+        verificationEvidence: verificationEvidence
+          .filter((e) => e.defectId === d.id)
+          .map((e) => ({ ...e, createdAt: e.createdAt.toISOString() })),
       };
     });
 
@@ -386,7 +407,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName, defectCategory,
       assigneeId, assigneeName, complexity, targetedStartDate, targetedCompletionDate,
-      source, milestoneId, tracker,
+      source, milestoneId, tracker, uploads,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -439,6 +460,24 @@ router.post("/defects", async (req, res): Promise<void> => {
     // dropped rather than failing the whole defect creation over it. Doesn't
     // apply to requirement defects at all (product taxonomy, not authoring).
     const categoryAllowed = !isRequirementDefect && defectCategory != null && (await canSetDefectCategory(ctx.role));
+    const validatedUploads: { filename: string; contentType: string; base64: string }[] = [];
+    if (uploads != null) {
+      if (!Array.isArray(uploads) || uploads.length > 10) {
+        res.status(400).json({ error: "uploads must contain at most 10 images" });
+        return;
+      }
+      for (const file of uploads) {
+        const filename = typeof file?.filename === "string" ? file.filename.replace(/[\r\n]/g, " ").slice(0, 255) : "";
+        const contentType = typeof file?.contentType === "string" ? file.contentType : "";
+        const base64 = typeof file?.base64 === "string" ? file.base64 : "";
+        const size = base64 ? Buffer.from(base64, "base64").length : 0;
+        if (!filename || !contentType.startsWith("image/") || !base64 || size === 0 || size > 5 * 1024 * 1024) {
+          res.status(400).json({ error: `Invalid screenshot attachment: ${filename || "unnamed file"}` });
+          return;
+        }
+        validatedUploads.push({ filename, contentType, base64 });
+      }
+    }
 
     // Resolve the link target *before* inserting the defect, so milestoneId
     // can be set directly on defectsTable at creation time — explicit param
@@ -565,6 +604,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       complexity: complexity ?? null,
       targetedStartDate: targetedStartDate ?? null,
       targetedCompletionDate: targetedCompletionDate ?? null,
+      uploads: validatedUploads,
     });
 
     if (push.ok && push.redmineId) {
@@ -841,6 +881,30 @@ router.post("/defects/sync-statuses", async (req, res): Promise<void> => {
 
 // ─── Status edit (write-through: Redmine first, local cache on success) ──────
 
+router.get("/defects/:id/verification-evidence/:evidenceId/download", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const id = Number(req.params.id);
+  const evidenceId = Number(req.params.evidenceId);
+  if (!Number.isInteger(id) || !Number.isInteger(evidenceId)) {
+    res.status(400).json({ error: "Invalid ID" }); return;
+  }
+  const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+  if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+  if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+  const [evidence] = await db.select().from(defectVerificationEvidenceTable).where(
+    and(eq(defectVerificationEvidenceTable.id, evidenceId), eq(defectVerificationEvidenceTable.defectId, id)),
+  );
+  if (!evidence) { res.status(404).json({ error: "Verification evidence not found" }); return; }
+  const inlineSafe = /^(image\/|application\/pdf$|text\/plain$)/.test(evidence.mimeType);
+  const inline = (req.query.inline === "1" || req.query.inline === "true") && inlineSafe;
+  res.setHeader("Content-Type", evidence.mimeType);
+  res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${evidence.fileName.replace(/"/g, "")}"`);
+  res.send(Buffer.from(evidence.dataBase64, "base64"));
+});
+
 router.patch("/defects/:id/status", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
@@ -869,6 +933,43 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       return;
     }
 
+    let verificationEvidence: typeof defectVerificationEvidenceTable.$inferSelect | null = null;
+    if (VERIFIED_STATUS.test(statusRow.name)) {
+      if (!QA_VERIFY_ROLES.has(ctx.role)) {
+        res.status(403).json({ error: "Only QA roles can verify a defect" });
+        return;
+      }
+      const evidence = req.body?.evidence;
+      const fileName = typeof evidence?.fileName === "string" ? evidence.fileName.replace(/[\r\n]/g, " ").slice(0, 255) : "";
+      const mimeType = typeof evidence?.mimeType === "string" ? evidence.mimeType.slice(0, 150) : "application/octet-stream";
+      const dataBase64 = typeof evidence?.dataBase64 === "string" ? evidence.dataBase64.replace(/^data:[^;]+;base64,/, "") : "";
+      if (!dataBase64 || dataBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(dataBase64)) {
+        res.status(400).json({ error: "Verification evidence data is invalid" });
+        return;
+      }
+      const bytes = dataBase64 ? Buffer.from(dataBase64, "base64") : Buffer.alloc(0);
+      if (!fileName || bytes.length === 0) {
+        res.status(400).json({ error: "Verification evidence attachment is required" });
+        return;
+      }
+      if (!ALLOWED_VERIFICATION_EVIDENCE_MIME.test(mimeType)) {
+        res.status(400).json({ error: "Unsupported verification evidence file type" });
+        return;
+      }
+      if (bytes.length > MAX_VERIFICATION_EVIDENCE_BYTES) {
+        res.status(400).json({ error: "Verification evidence exceeds the 10 MB limit" });
+        return;
+      }
+      [verificationEvidence] = await db.insert(defectVerificationEvidenceTable).values({
+        defectId: id,
+        fileName,
+        mimeType,
+        sizeBytes: bytes.length,
+        dataBase64,
+        uploadedBy: ctx.userId,
+      }).returning();
+    }
+
     // Code-review gate — only for defects natively assigned to a dev in
     // QM Pulse (assigneeId set) and only QA-sourced ones; production defects
     // keep their separate escape-review lifecycle (escapeStatus/escapeClass)
@@ -878,6 +979,9 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     if (GATE_RESOLVED_STATES.test(statusRow.name) && defect.assigneeId != null && defect.source === "qa") {
       const latestReview = await getLatestReview("defect", id);
       if (!latestReview || latestReview.status !== "approved") {
+        if (verificationEvidence) {
+          await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));
+        }
         res.status(409).json({ error: "Code review required before this defect can be marked Resolved — submit it for review first" });
         return;
       }
@@ -889,6 +993,9 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
       const push = await pushStatusToRedmine(defect.redmineId, statusRedmineId, apiKey);
       if (!push.ok) {
+        if (verificationEvidence) {
+          await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));
+        }
         res.status(502).json({ error: push.error ?? "Redmine rejected the status change" });
         return;
       }
@@ -909,7 +1016,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       entityId: id,
       entityType: "defect",
       oldValue: { status: oldStatus },
-      newValue: { status: statusRow.name },
+      newValue: { status: statusRow.name, verificationEvidenceId: verificationEvidence?.id ?? null },
     });
 
     // CR027 — defect_status_changed to the reporter + the linked TC's last

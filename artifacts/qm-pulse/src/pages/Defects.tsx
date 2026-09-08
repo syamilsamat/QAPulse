@@ -25,6 +25,9 @@ import {
   X,
   Link2,
   Pencil,
+  Eye,
+  Download,
+  FileCheck2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DefectReviewSection } from "@/components/DefectReviewSection";
@@ -113,6 +116,15 @@ interface DefectRow {
   links: DefectLink[];
   retestNeeded: boolean;
   hasRegressionTc: boolean;
+  verificationEvidence: Array<{
+    id: number;
+    defectId: number;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    uploadedBy: number | null;
+    createdAt: string;
+  }>;
 }
 
 interface Metrics {
@@ -152,7 +164,7 @@ function StatusBadge({ status }: { status: string }) {
   let cls = "bg-gray-100 text-gray-600 hover:bg-gray-100";
   if (/progress|assigned/.test(s)) cls = "bg-blue-100 text-blue-700 hover:bg-blue-100";
   else if (/fixed|resolved|ready/.test(s)) cls = "bg-amber-100 text-amber-700 hover:bg-amber-100";
-  else if (/closed|verified/.test(s)) cls = "bg-green-100 text-green-700 hover:bg-green-100";
+  else if (/closed|\bverified\b/.test(s)) cls = "bg-green-100 text-green-700 hover:bg-green-100";
   else if (/rejected|cancelled/.test(s)) cls = "bg-gray-200 text-gray-500 hover:bg-gray-200";
   else if (/new|open/.test(s)) cls = "bg-red-100 text-red-700 hover:bg-red-100";
   return <Badge className={`${cls} text-[10px] whitespace-nowrap`}>{status}</Badge>;
@@ -169,10 +181,18 @@ function TcResultBadge({ result }: { result: string | null }) {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const DEV_ROLES = new Set(["dev_member", "dev_lead", "hod_dev"]);
+const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
+const VERIFICATION_EVIDENCE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv";
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(0.1, sizeBytes / 1024).toFixed(1)} KB`;
+}
 
 export default function Defects() {
   const { token, user } = useAuth();
   const canAssign = ((user as any)?.tierRank ?? 1) >= 2;
+  const canVerify = QA_VERIFY_ROLES.has(user?.role ?? "");
   // CR061 — linking is a shared QA workflow action, not restricted to the
   // reporter/qa_lead like editing the defect's own info.
   const canLinkTc = (user as any)?.department === "qa" || user?.role === "admin" || user?.role === "cto";
@@ -206,6 +226,9 @@ export default function Defects() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [editingDefect, setEditingDefect] = useState<DefectRow | null>(null);
   const [linkingDefect, setLinkingDefect] = useState<DefectRow | null>(null);
+  const [verificationTarget, setVerificationTarget] = useState<{ defect: DefectRow; statusRedmineId: number } | null>(null);
+  const [verificationFile, setVerificationFile] = useState<File | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   // CR061 — title/description/tracker editing: the reporter (they know what
   // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
@@ -397,12 +420,12 @@ export default function Defects() {
     }
   };
 
-  const handleStatusChange = async (d: DefectRow, statusRedmineId: number) => {
+  const submitStatusChange = async (d: DefectRow, statusRedmineId: number, evidence?: { fileName: string; mimeType: string; dataBase64: string }) => {
     try {
       const res = await fetch(`${getApiUrl()}/defects/${d.id}/status`, {
         method: "PATCH",
         headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ statusRedmineId }),
+        body: JSON.stringify({ statusRedmineId, evidence }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Status update failed");
@@ -412,8 +435,77 @@ export default function Defects() {
           : "Status updated locally (defect not yet in Redmine)",
       });
       invalidate();
+      return true;
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
+      return false;
+    }
+  };
+
+  const handleStatusChange = async (d: DefectRow, statusRedmineId: number) => {
+    const targetStatus = statuses.find((status) => status.redmineId === statusRedmineId)?.name ?? "";
+    if (/\bverified\b/i.test(targetStatus)) {
+      if (!canVerify) {
+        toast({ variant: "destructive", title: "Only QA can verify a defect" });
+        return;
+      }
+      setVerificationTarget({ defect: d, statusRedmineId });
+      setVerificationFile(null);
+      return;
+    }
+    await submitStatusChange(d, statusRedmineId);
+  };
+
+  const handleVerifyWithEvidence = async () => {
+    if (!verificationTarget || !verificationFile) return;
+    if (verificationFile.size > 10 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+        reader.onerror = () => reject(new Error("Could not read verification evidence"));
+        reader.readAsDataURL(verificationFile);
+      });
+      const ok = await submitStatusChange(verificationTarget.defect, verificationTarget.statusRedmineId, {
+        fileName: verificationFile.name,
+        mimeType: verificationFile.type || "application/octet-stream",
+        dataBase64,
+      });
+      if (ok) {
+        setVerificationTarget(null);
+        setVerificationFile(null);
+      }
+    } catch (error: any) {
+      toast({ variant: "destructive", title: error?.message ?? "Could not read verification evidence" });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const openVerificationEvidence = async (defectId: number, evidenceId: number, fileName: string, inline: boolean) => {
+    const previewWindow = inline ? window.open("", "_blank") : null;
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${defectId}/verification-evidence/${evidenceId}/download${inline ? "?inline=1" : ""}`, { headers: authHeaders });
+      if (!res.ok) throw new Error("Unable to open verification evidence");
+      const url = URL.createObjectURL(await res.blob());
+      if (inline) {
+        if (!previewWindow) throw new Error("Preview was blocked by the browser");
+        previewWindow.opener = null;
+        previewWindow.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error: any) {
+      previewWindow?.close();
+      toast({ variant: "destructive", title: error.message });
     }
   };
 
@@ -720,7 +812,13 @@ export default function Defects() {
                         </SelectTrigger>
                         <SelectContent>
                           {statuses.map((s) => (
-                            <SelectItem key={s.redmineId} value={String(s.redmineId)}>{s.name}</SelectItem>
+                            <SelectItem
+                              key={s.redmineId}
+                              value={String(s.redmineId)}
+                              disabled={/\bverified\b/i.test(s.name) && !canVerify}
+                            >
+                              {s.name}{/\bverified\b/i.test(s.name) ? " · evidence required" : ""}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -739,6 +837,31 @@ export default function Defects() {
                       </Button>
                     )}
                   </div>
+
+                  {d.verificationEvidence.length > 0 && (
+                    <div className="rounded-md border bg-background px-3 py-2.5 space-y-2">
+                      <p className="text-xs font-semibold flex items-center gap-1.5">
+                        <FileCheck2 className="w-3.5 h-3.5 text-green-600" />
+                        Verification evidence
+                      </p>
+                      {d.verificationEvidence.map((evidence) => (
+                        <div key={evidence.id} className="flex items-center gap-2 text-xs rounded border px-2 py-1.5">
+                          <span className="flex-1 min-w-0 truncate" title={evidence.fileName}>{evidence.fileName}</span>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                            {formatFileSize(evidence.sizeBytes)} · {format(new Date(evidence.createdAt), "dd MMM yyyy, HH:mm")}
+                          </span>
+                          {/^(image\/|application\/pdf$|text\/plain$)/.test(evidence.mimeType) && (
+                            <Button variant="ghost" size="sm" className="h-6 px-2 gap-1" onClick={() => openVerificationEvidence(d.id, evidence.id, evidence.fileName, true)}>
+                              <Eye className="w-3 h-3" /> View
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" className="h-6 px-2 gap-1" onClick={() => openVerificationEvidence(d.id, evidence.id, evidence.fileName, false)}>
+                            <Download className="w-3 h-3" /> Download
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Dev assignment — Lead-tier+ only (CR030), plus a CR031 self-handoff
                       exception: a requirement defect's current assignee can hand it off
@@ -865,6 +988,68 @@ export default function Defects() {
           ))}
         </div>
       )}
+
+      <Dialog
+        open={!!verificationTarget}
+        onOpenChange={(open) => {
+          if (!open && !isVerifying) {
+            setVerificationTarget(null);
+            setVerificationFile(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileCheck2 className="w-5 h-5 text-green-600" /> Verify defect
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border bg-muted/30 px-3 py-2">
+              <p className="text-xs font-semibold">{verificationTarget?.defect.defectCode ?? `DEF-${verificationTarget?.defect.id}`}</p>
+              <p className="text-sm mt-0.5">{verificationTarget?.defect.title}</p>
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Upload evidence showing the defect was retested successfully. The attachment is mandatory and will remain available in the defect history.
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="defect-verification-evidence">Verification attachment <span className="text-destructive">*</span></Label>
+              <Input
+                id="defect-verification-evidence"
+                type="file"
+                accept={VERIFICATION_EVIDENCE_ACCEPT}
+                disabled={isVerifying}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  if (file && file.size === 0) {
+                    toast({ variant: "destructive", title: "Attachment is empty", description: "Choose a file that contains verification evidence." });
+                    event.target.value = "";
+                    setVerificationFile(null);
+                    return;
+                  }
+                  if (file && file.size > 10 * 1024 * 1024) {
+                    toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
+                    event.target.value = "";
+                    setVerificationFile(null);
+                    return;
+                  }
+                  setVerificationFile(file);
+                }}
+              />
+              <p className="text-[10px] text-muted-foreground">Images, PDF, Word, Excel, TXT or CSV · maximum 10 MB</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={isVerifying} onClick={() => { setVerificationTarget(null); setVerificationFile(null); }}>
+              Cancel
+            </Button>
+            <Button disabled={!verificationFile || isVerifying} onClick={handleVerifyWithEvidence}>
+              {isVerifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck2 className="w-4 h-4 mr-2" />}
+              Verify with evidence
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <NewDefectDialog
         open={newOpen}
@@ -1539,6 +1724,7 @@ function NewDefectDialog({
           complexity,
           targetedStartDate: targetedStartDate || undefined,
           targetedCompletionDate: targetedCompletionDate || undefined,
+          uploads: screenshots,
         }),
       });
       const data = await res.json();

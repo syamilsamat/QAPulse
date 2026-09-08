@@ -1755,6 +1755,8 @@ router.get("/requirements/dev-tasks/evidence/:evidenceId/download", async (req, 
 // ─── Requirement Attachments ──────────────────────────────────────────────────
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads", "requirements");
+const MAX_REQUIREMENT_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const ALLOWED_REQUIREMENT_ATTACHMENT_MIME = /^(image\/|application\/pdf$|application\/msword$|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$|application\/vnd\.ms-excel$|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|text\/plain$|text\/csv$)/;
 
 async function ensureUploadsDir() {
   await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
@@ -1811,6 +1813,11 @@ router.post("/requirements/:id/sync-redmine-attachments", async (req, res): Prom
 
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const [requirement] = await db.select({ projectId: requirementsTable.projectId }).from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+  if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
 
   const attachments: any[] = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
   const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
@@ -1826,6 +1833,11 @@ router.get("/requirements/:id/attachments", async (req, res): Promise<void> => {
 
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const [requirement] = await db.select({ projectId: requirementsTable.projectId }).from(requirementsTable).where(eq(requirementsTable.id, id));
+  if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+  if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
 
   const attachments = await db
     .select()
@@ -1855,10 +1867,13 @@ router.post("/requirements/:id/attachments", async (req, res): Promise<void> => 
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const [requirement] = await db
-    .select({ id: requirementsTable.id })
+    .select({ id: requirementsTable.id, projectId: requirementsTable.projectId })
     .from(requirementsTable)
     .where(eq(requirementsTable.id, id));
   if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+  if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
 
   const { filename, mimeType, data } = req.body ?? {};
   if (!filename || !data) {
@@ -1869,14 +1884,22 @@ router.post("/requirements/:id/attachments", async (req, res): Promise<void> => 
   try {
     await ensureUploadsDir();
     const buffer = Buffer.from(data, "base64");
-    const ext = path.extname(filename) || "";
+    if (buffer.length === 0 || buffer.length > MAX_REQUIREMENT_ATTACHMENT_BYTES) {
+      res.status(400).json({ error: "Attachment must be between 1 byte and 10 MB" }); return;
+    }
+    const safeMime = String(mimeType ?? "application/octet-stream");
+    if (!ALLOWED_REQUIREMENT_ATTACHMENT_MIME.test(safeMime)) {
+      res.status(400).json({ error: "Unsupported attachment type" }); return;
+    }
+    const safeFilename = String(filename).replace(/[\r\n]/g, " ").slice(0, 255);
+    const ext = path.extname(safeFilename) || "";
     const storageFilename = `${crypto.randomUUID()}${ext}`;
     await fs.promises.writeFile(path.join(UPLOADS_DIR, storageFilename), buffer);
 
     const [attachment] = await db.insert(requirementAttachmentsTable).values({
       requirementId: id,
-      filename,
-      mimeType: mimeType ?? "application/octet-stream",
+      filename: safeFilename,
+      mimeType: safeMime,
       size: buffer.length,
       storagePath: storageFilename,
       uploadedBy: ctx.userId,
@@ -1901,6 +1924,12 @@ router.get("/requirements/attachments/:attachmentId/download", async (req, res):
     .from(requirementAttachmentsTable)
     .where(eq(requirementAttachmentsTable.id, attachmentId));
   if (!attachment) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+  const [requirement] = await db.select({ projectId: requirementsTable.projectId })
+    .from(requirementsTable).where(eq(requirementsTable.id, attachment.requirementId));
+  if (!requirement || (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId)))) {
+    res.status(403).json({ error: "Access denied" }); return;
+  }
 
   const filePath = path.join(UPLOADS_DIR, attachment.storagePath);
   try {
@@ -1929,6 +1958,15 @@ router.delete("/requirements/attachments/:attachmentId", async (req, res): Promi
     .from(requirementAttachmentsTable)
     .where(eq(requirementAttachmentsTable.id, attachmentId));
   if (!attachment) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+  const [requirement] = await db.select({ projectId: requirementsTable.projectId })
+    .from(requirementsTable).where(eq(requirementsTable.id, attachment.requirementId));
+  if (!requirement || (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId)))) {
+    res.status(403).json({ error: "Access denied" }); return;
+  }
+  if (attachment.uploadedBy !== ctx.userId && !["admin", "cto"].includes(ctx.role)) {
+    res.status(403).json({ error: "Only the uploader or an admin can delete this attachment" }); return;
+  }
 
   await db.delete(requirementAttachmentsTable).where(eq(requirementAttachmentsTable.id, attachmentId));
 

@@ -1508,10 +1508,18 @@ tracker: v })}
                 <input
                   type="file"
                   multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
                   className="hidden"
                   onChange={(e) => {
                     const files = Array.from(e.target.files ?? []);
-                    setPendingFiles(prev => [...prev, ...files]);
+                    const valid = files.filter((file) => {
+                      if (file.size > 10 * 1024 * 1024) {
+                        toast({ variant: "destructive", title: `${file.name} exceeds 10 MB` });
+                        return false;
+                      }
+                      return true;
+                    });
+                    setPendingFiles(prev => [...prev, ...valid]);
                     e.target.value = "";
                   }}
                 />

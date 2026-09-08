@@ -79,17 +79,23 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
-  const sizeBytes = Math.floor((String(dataBase64).length * 3) / 4);
+  const cleanBase64 = String(dataBase64).replace(/^data:[^;]+;base64,/, "");
+  if (cleanBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
+    res.status(400).json({ error: "File data is invalid" }); return;
+  }
+  const bytes = Buffer.from(cleanBase64, "base64");
+  const sizeBytes = bytes.length;
+  if (sizeBytes === 0) { res.status(400).json({ error: "File is empty or invalid" }); return; }
   if (sizeBytes > MAX_BYTES) { res.status(400).json({ error: "File too large (max 15 MB)" }); return; }
 
   const [row] = await db.insert(uatSignoffsTable).values({
     projectId: m.projectId,
     milestoneId: m.id,
-    fileName: String(fileName).slice(0, 255),
-    mimeType: String(mimeType ?? "application/octet-stream"),
+    fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
+    mimeType: String(mimeType ?? "application/octet-stream").slice(0, 150),
     sizeBytes,
     note: note ? String(note) : null,
-    dataBase64: String(dataBase64),
+    dataBase64: cleanBase64,
     uploadedBy: ctx.userId,
   }).returning({ id: uatSignoffsTable.id });
 
@@ -107,14 +113,16 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
 router.get("/uat-signoffs/:id/download", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const id = parseInt(req.params.id);
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid sign-off ID" }); return; }
   const [row] = await db.select().from(uatSignoffsTable).where(eq(uatSignoffsTable.id, id));
   if (!row) { res.status(404).json({ error: "Sign-off not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, row.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
   // ?inline=1 lets the browser render PDFs/images in a tab for review instead
   // of forcing a save — the registry page's own export path still downloads.
-  const inline = req.query.inline === "1" || req.query.inline === "true";
+  const inlineSafe = /^(image\/(png|jpeg|gif|webp)|application\/pdf)$/i.test(row.mimeType);
+  const inline = (req.query.inline === "1" || req.query.inline === "true") && inlineSafe;
   const buf = Buffer.from(row.dataBase64, "base64");
   res.setHeader("Content-Type", row.mimeType);
   res.setHeader(
@@ -128,9 +136,11 @@ router.get("/uat-signoffs/:id/download", async (req, res): Promise<void> => {
 router.delete("/uat-signoffs/:id", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const id = parseInt(req.params.id);
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid sign-off ID" }); return; }
   const [row] = await db.select().from(uatSignoffsTable).where(eq(uatSignoffsTable.id, id));
   if (!row) { res.status(404).json({ error: "Sign-off not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, row.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
   const privileged = ["admin", "cto"].includes(ctx.role);
   if (!privileged && row.uploadedBy !== ctx.userId) {
     res.status(403).json({ error: "Only the uploader or an admin can delete a sign-off" }); return;

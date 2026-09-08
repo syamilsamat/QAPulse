@@ -462,6 +462,59 @@ router.post("/test-cases", async (req, res): Promise<void> => {
   res.status(201).json(await formatTestCase(tc));
 });
 
+// Save an AI-generated preview as one database statement. The previous UI
+// issued one request per row, so a 30+ case generation could partially save
+// when any individual request failed. This endpoint validates every row first
+// and then inserts the complete set atomically.
+router.post("/test-cases/bulk", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const input = req.body?.testCases;
+  if (!Array.isArray(input) || input.length === 0) {
+    res.status(400).json({ error: "testCases must be a non-empty array" });
+    return;
+  }
+  if (input.length > 200) {
+    res.status(400).json({ error: "A maximum of 200 test cases can be saved at once" });
+    return;
+  }
+
+  const payloads: any[] = [];
+  for (let index = 0; index < input.length; index++) {
+    const parsed = CreateTestCaseBody.safeParse(input[index]);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `Test case ${index + 1} is invalid: ${parsed.error.issues[0]?.message ?? "validation failed"}`,
+        rowIndex: index,
+      });
+      return;
+    }
+    const payload: any = { ...parsed.data };
+    if (!payload.authorId) payload.authorId = ctx.userId;
+    payloads.push(payload);
+  }
+
+  const projectIds = [...new Set(payloads.map((payload) => payload.projectId).filter((id): id is number => Number.isInteger(id)))];
+  for (const projectId of projectIds) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) {
+      res.status(403).json({ error: `Access denied to project ${projectId}` });
+      return;
+    }
+  }
+
+  const created = await db.insert(testCasesTable).values(payloads).returning();
+  await Promise.all(created.map((tc) => logActivity({
+    type: "test_case_created",
+    description: `Test case "${tc.title}" was created${tc.aiAssisted ? " (AI-assisted)" : ""}`,
+    userId: tc.authorId,
+    entityId: tc.id,
+    entityType: "test_case",
+  })));
+
+  res.status(201).json({ saved: created.length, ids: created.map((tc) => tc.id) });
+});
+
 // Execution files that contain this library TC (one entry per file, newest
 // row wins when the TC appears in a file more than once).
 router.get("/test-cases/:id/executions", async (req, res): Promise<void> => {

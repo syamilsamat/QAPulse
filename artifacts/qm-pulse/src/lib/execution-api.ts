@@ -70,6 +70,7 @@ export interface ExecutionTestCase {
   actualResult?: string;
   defectNumber: string;
   defectScreenshots?: string; // JSON array of { name, contentType, base64 }
+  passEvidence?: ExecutionEvidence[];
   comments: string;
   qaPic: string;
   rowOrder?: number;
@@ -77,6 +78,16 @@ export interface ExecutionTestCase {
   // CR023p4 — requirement-change re-review flow
   reviewAcknowledgedAt?: string | null;
   alertRevised?: boolean;
+}
+
+export interface ExecutionEvidence {
+  id: number;
+  executionTestCaseId: number;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: number | null;
+  createdAt: string;
 }
 
 const getRedmineKey = (): string | null => {
@@ -134,6 +145,8 @@ export interface RequirementOption {
   id: number;
   title: string;
   redmineTicketId?: string | null;
+  projectId?: number | null;
+  milestoneId?: number | null;
   isBlocked?: boolean;
   blockedReason?: string | null;
 }
@@ -241,6 +254,45 @@ export const saveTestCases = async (
   if (!res.ok) throw new Error("Failed to save test cases");
   return res.json();
 };
+
+export const uploadExecutionEvidence = async (
+  executionTestCaseId: number,
+  file: File,
+): Promise<ExecutionEvidence> => {
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(new Error("Failed to read attachment"));
+    reader.readAsDataURL(file);
+  });
+  const res = await fetch(`/api/execution-test-cases/${executionTestCaseId}/evidence`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify({ fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64 }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? "Failed to upload attachment");
+  }
+  return res.json();
+};
+
+export const deleteExecutionEvidence = async (
+  executionTestCaseId: number,
+  evidenceId: number,
+): Promise<void> => {
+  const res = await fetch(`/api/execution-test-cases/${executionTestCaseId}/evidence/${evidenceId}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? "Failed to delete attachment");
+  }
+};
+
+export const executionEvidenceUrl = (executionTestCaseId: number, evidenceId: number, inline = false) =>
+  `/api/execution-test-cases/${executionTestCaseId}/evidence/${evidenceId}/download${inline ? "?inline=1" : ""}`;
 
 // --- Projects ---
 export const fetchProjects = async (): Promise<ExecutionProject[]> => {

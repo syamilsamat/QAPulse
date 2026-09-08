@@ -90,7 +90,28 @@ export const defectLinksTable = pgTable(
   (t) => [index("defect_links_defect_idx").on(t.defectId)],
 );
 
+// Mandatory QA evidence captured whenever a defect is moved to Verified.
+// Stored separately from code-review evidence because this proves retest
+// verification, not implementation review.
+export const defectVerificationEvidenceTable = pgTable(
+  "defect_verification_evidence",
+  {
+    id: serial("id").primaryKey(),
+    defectId: integer("defect_id")
+      .references(() => defectsTable.id, { onDelete: "cascade" })
+      .notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    dataBase64: text("data_base64").notNull(),
+    uploadedBy: integer("uploaded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("defect_verification_evidence_defect_idx").on(t.defectId)],
+);
+
 export const insertDefectSchema = createInsertSchema(defectsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertDefect = z.infer<typeof insertDefectSchema>;
 export type Defect = typeof defectsTable.$inferSelect;
 export type DefectLink = typeof defectLinksTable.$inferSelect;
+export type DefectVerificationEvidence = typeof defectVerificationEvidenceTable.$inferSelect;

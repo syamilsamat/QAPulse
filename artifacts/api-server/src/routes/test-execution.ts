@@ -5,6 +5,7 @@ import {
   executionFilesTable,
   executionModulesTable,
   executionTestCasesTable,
+  executionTcEvidenceTable,
   executionTcHistoryTable,
   executionSummariesTable,
   executionFileAuditTable,
@@ -26,6 +27,25 @@ import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./verdict-report";
 
 const router: IRouter = Router();
+
+const MAX_EXECUTION_EVIDENCE_BYTES = 10 * 1024 * 1024;
+const SAFE_INLINE_EVIDENCE_MIME = new Set(["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain"]);
+
+async function getExecutionEvidenceScope(rowId: number) {
+  const [scope] = await db
+    .select({
+      rowId: executionTestCasesTable.id,
+      testCaseId: executionTestCasesTable.testCaseId,
+      caseName: executionTestCasesTable.caseName,
+      executionFileId: executionFilesTable.id,
+      projectId: executionFilesTable.projectId,
+      fileTitle: executionFilesTable.title,
+    })
+    .from(executionTestCasesTable)
+    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+    .where(eq(executionTestCasesTable.id, rowId));
+  return scope ?? null;
+}
 
 // CR014 access control (per-route, not router-level, because /execution-events
 // authenticates its EventSource connection through a token query parameter).
@@ -1033,6 +1053,28 @@ router.get(
         }
       }
 
+      const executionRowIds = testCases.map((t) => t.id).filter((id): id is number => typeof id === "number");
+      const evidenceRows = executionRowIds.length > 0
+        ? await db
+            .select({
+              id: executionTcEvidenceTable.id,
+              executionTestCaseId: executionTcEvidenceTable.executionTestCaseId,
+              fileName: executionTcEvidenceTable.fileName,
+              mimeType: executionTcEvidenceTable.mimeType,
+              sizeBytes: executionTcEvidenceTable.sizeBytes,
+              uploadedBy: executionTcEvidenceTable.uploadedBy,
+              createdAt: executionTcEvidenceTable.createdAt,
+            })
+            .from(executionTcEvidenceTable)
+            .where(inArray(executionTcEvidenceTable.executionTestCaseId, executionRowIds))
+        : [];
+      const evidenceByRow = new Map<number, typeof evidenceRows>();
+      for (const evidence of evidenceRows) {
+        const list = evidenceByRow.get(evidence.executionTestCaseId) ?? [];
+        list.push(evidence);
+        evidenceByRow.set(evidence.executionTestCaseId, list);
+      }
+
       // CR023p4 — flag rows whose library test case's linked requirement was
       // revised since this execution instance last acknowledged a revision.
       // Same lookup also carries the library test case's own peer-review
@@ -1077,9 +1119,14 @@ router.get(
             testData: t.testData,
             expectedResult: t.expectedResult,
             result: t.result,
+            executedAt: t.executedAt?.toISOString() ?? null,
             actualResult: t.actualResult,
             defectNumber: t.defectNumber,
             defectScreenshots: t.defectScreenshots,
+            passEvidence: (evidenceByRow.get(t.id) ?? []).map((e) => ({
+              ...e,
+              createdAt: e.createdAt.toISOString(),
+            })),
             comments: t.comments,
             qaPic: t.qaPic,
             rowOrder: t.rowOrder,
@@ -1531,6 +1578,108 @@ router.post(
     }
   },
 );
+
+// Optional evidence for a passed test-case execution result.
+router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const rowId = Number(req.params.id);
+  if (!Number.isInteger(rowId)) { res.status(400).json({ error: "Invalid test case ID" }); return; }
+  const scope = await getExecutionEvidenceScope(rowId);
+  if (!scope) { res.status(404).json({ error: "Execution test case not found" }); return; }
+  if (!(await canAccessFileProject(ctx, scope.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const [executionRow] = await db
+    .select({ result: executionTestCasesTable.result })
+    .from(executionTestCasesTable)
+    .where(eq(executionTestCasesTable.id, rowId));
+  if ((executionRow?.result ?? "").trim().toLowerCase() !== "passed") {
+    res.status(409).json({ error: "Evidence can only be attached to a passed test case" }); return;
+  }
+
+  const { fileName, mimeType, dataBase64 } = req.body ?? {};
+  if (!fileName || !dataBase64) { res.status(400).json({ error: "fileName and dataBase64 are required" }); return; }
+  const cleanBase64 = String(dataBase64).replace(/^data:[^;]+;base64,/, "");
+  if (cleanBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
+    res.status(400).json({ error: "Attachment data is invalid" }); return;
+  }
+  const sizeBytes = Buffer.from(cleanBase64, "base64").length;
+  if (sizeBytes === 0) { res.status(400).json({ error: "Attachment is empty" }); return; }
+  if (sizeBytes > MAX_EXECUTION_EVIDENCE_BYTES) { res.status(400).json({ error: "File too large (max 10 MB)" }); return; }
+
+  const [created] = await db.insert(executionTcEvidenceTable).values({
+    executionTestCaseId: rowId,
+    fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
+    mimeType: String(mimeType || "application/octet-stream").slice(0, 150),
+    sizeBytes,
+    dataBase64: cleanBase64,
+    uploadedBy: ctx.userId,
+  }).returning({
+    id: executionTcEvidenceTable.id,
+    executionTestCaseId: executionTcEvidenceTable.executionTestCaseId,
+    fileName: executionTcEvidenceTable.fileName,
+    mimeType: executionTcEvidenceTable.mimeType,
+    sizeBytes: executionTcEvidenceTable.sizeBytes,
+    uploadedBy: executionTcEvidenceTable.uploadedBy,
+    createdAt: executionTcEvidenceTable.createdAt,
+  });
+
+  await logActivity({
+    type: "execution_evidence_uploaded",
+    description: `Evidence "${created.fileName}" attached to ${scope.testCaseId ?? scope.caseName ?? `test case #${rowId}`}`,
+    userId: ctx.userId,
+    entityId: scope.executionFileId,
+    entityType: "execution",
+  });
+  res.status(201).json({ ...created, createdAt: created.createdAt.toISOString() });
+});
+
+router.get("/execution-test-cases/:rowId/evidence/:evidenceId/download", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const rowId = Number(req.params.rowId);
+  const evidenceId = Number(req.params.evidenceId);
+  if (!Number.isInteger(rowId) || !Number.isInteger(evidenceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const scope = await getExecutionEvidenceScope(rowId);
+  if (!scope) { res.status(404).json({ error: "Execution test case not found" }); return; }
+  if (!(await canAccessFileProject(ctx, scope.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+  const [evidence] = await db.select().from(executionTcEvidenceTable).where(
+    and(eq(executionTcEvidenceTable.id, evidenceId), eq(executionTcEvidenceTable.executionTestCaseId, rowId)),
+  );
+  if (!evidence) { res.status(404).json({ error: "Evidence not found" }); return; }
+  const wantsInline = req.query.inline === "1" || req.query.inline === "true";
+  const disposition = wantsInline && SAFE_INLINE_EVIDENCE_MIME.has(evidence.mimeType) ? "inline" : "attachment";
+  res.setHeader("Content-Type", evidence.mimeType);
+  res.setHeader("Content-Disposition", `${disposition}; filename="${evidence.fileName.replace(/"/g, "")}"`);
+  res.send(Buffer.from(evidence.dataBase64, "base64"));
+});
+
+router.delete("/execution-test-cases/:rowId/evidence/:evidenceId", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const rowId = Number(req.params.rowId);
+  const evidenceId = Number(req.params.evidenceId);
+  if (!Number.isInteger(rowId) || !Number.isInteger(evidenceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const scope = await getExecutionEvidenceScope(rowId);
+  if (!scope) { res.status(404).json({ error: "Execution test case not found" }); return; }
+  if (!(await canAccessFileProject(ctx, scope.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+  const [evidence] = await db.select().from(executionTcEvidenceTable).where(
+    and(eq(executionTcEvidenceTable.id, evidenceId), eq(executionTcEvidenceTable.executionTestCaseId, rowId)),
+  );
+  if (!evidence) { res.status(404).json({ error: "Evidence not found" }); return; }
+  if (evidence.uploadedBy !== ctx.userId && !["admin", "cto"].includes(ctx.role)) {
+    res.status(403).json({ error: "Only the uploader or an admin can delete this evidence" }); return;
+  }
+  await db.delete(executionTcEvidenceTable).where(eq(executionTcEvidenceTable.id, evidenceId));
+  await logActivity({
+    type: "execution_evidence_deleted",
+    description: `Evidence "${evidence.fileName}" removed from ${scope.testCaseId ?? scope.caseName ?? `test case #${rowId}`}`,
+    userId: ctx.userId,
+    entityId: scope.executionFileId,
+    entityType: "execution",
+  });
+  res.status(204).end();
+});
 
 /* ────────────────────────────────
    DOWNLOAD — template-based Excel (same as Send Verdict)

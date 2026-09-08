@@ -64,6 +64,22 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   reviewAcknowledgedAt: timestamp("review_acknowledged_at"),
 });
 
+// Optional evidence for a passed execution result. File bytes live in the
+// database so evidence survives application restarts and backup/restore.
+// Multiple files are supported per test-case execution row.
+export const executionTcEvidenceTable = pgTable("execution_tc_evidence", {
+  id: serial("id").primaryKey(),
+  executionTestCaseId: integer("execution_test_case_id")
+    .references(() => executionTestCasesTable.id, { onDelete: "cascade" })
+    .notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  dataBase64: text("data_base64").notNull(),
+  uploadedBy: integer("uploaded_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // 4. Status Change History Table (audit trail for CAPA / Pareto analysis)
 export const executionTcHistoryTable = pgTable("execution_tc_history", {
   id: serial("id").primaryKey(),

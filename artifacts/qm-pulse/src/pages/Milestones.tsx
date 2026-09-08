@@ -758,6 +758,7 @@ function DataPrepFilesSection({ milestone, token, canWrite, userId }: { mileston
 
   const handlePick = async (file: File | null) => {
     if (!file) return;
+    if (file.size === 0) { toast({ variant: "destructive", title: "File is empty" }); return; }
     if (file.size > 15 * 1024 * 1024) { toast({ variant: "destructive", title: "File too large (max 15 MB)" }); return; }
     setUploading(true);
     try {

@@ -107,6 +107,7 @@ export async function pushDefectToRedmine(
     complexity?: string | null;
     targetedStartDate?: string | null;
     targetedCompletionDate?: string | null;
+    uploads?: { filename: string; contentType: string; base64: string }[];
   } = {},
 ): Promise<PushResult> {
   if (defect.redmineId) return { ok: true, redmineId: defect.redmineId };
@@ -146,6 +147,25 @@ export async function pushDefectToRedmine(
   ].filter(Boolean);
 
   try {
+    const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
+    for (const file of opts.uploads ?? []) {
+      const uploadRes = await fetch(`${getBaseUrl()}/uploads.json?filename=${encodeURIComponent(file.filename)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          ...(apiKey ? { "X-Redmine-API-Key": apiKey } : {}),
+        },
+        body: Buffer.from(file.base64, "base64"),
+      });
+      if (!uploadRes.ok) {
+        const body = await uploadRes.text().catch(() => "");
+        return { ok: false, error: `Redmine attachment upload ${uploadRes.status}: ${body.slice(0, 200)}` };
+      }
+      const uploadData: any = await uploadRes.json();
+      if (uploadData?.upload?.token) {
+        uploadTokens.push({ token: uploadData.upload.token, filename: file.filename, content_type: file.contentType });
+      }
+    }
     const res = await redmineFetch(`/issues.json`, apiKey, {
       method: "POST",
       body: JSON.stringify({
@@ -156,6 +176,7 @@ export async function pushDefectToRedmine(
           description: descriptionParts.join("\n\n"),
           ...(opts.assigneeId ? { assigned_to_id: opts.assigneeId } : {}),
           ...(customFields.length ? { custom_fields: customFields } : {}),
+          ...(uploadTokens.length ? { uploads: uploadTokens } : {}),
         },
       }),
     });

@@ -47,6 +47,9 @@ import {
   Tag,
   ArrowDownToLine,
   CalendarClock,
+  Paperclip,
+  Eye,
+  FileText,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -73,6 +76,9 @@ import {
   type TrackerOption,
   type RequirementOption,
   type PhaseTimelineEntry,
+  uploadExecutionEvidence,
+  deleteExecutionEvidence,
+  executionEvidenceUrl,
 } from "@/lib/execution-api";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
@@ -1295,6 +1301,35 @@ export default function TestCasesExecutionProgressPage() {
   const [libraryProjects, setLibraryProjects] = useState<any[]>([]);
   const [pullFilter, setPullFilter] = useState<{ projectId?: number; module?: string }>({});
   const [selectedPullIds, setSelectedPullIds] = useState<Set<number>>(new Set());
+
+  // The picker belongs to one execution file, so only offer library cases
+  // from that file's milestone requirements and hide cases already pulled.
+  // Previously it offered the entire project library (358 cases for #40826),
+  // making "Select All" both unsafe and duplicate-prone.
+  const eligibleLibraryTestCases = useMemo(() => {
+    const existingLibraryIds = new Set(
+      data.map((row) => row.libraryTcId).filter((id): id is number => typeof id === "number"),
+    );
+    const milestoneRequirementIds = currentFileMilestoneId == null
+      ? null
+      : new Set(
+          requirementsList
+            .filter((requirement) => requirement.milestoneId === currentFileMilestoneId)
+            .map((requirement) => requirement.id),
+        );
+    return libraryTestCases.filter((tc: any) =>
+      !existingLibraryIds.has(tc.id) &&
+      (milestoneRequirementIds == null || milestoneRequirementIds.has(tc.requirementId)),
+    );
+  }, [libraryTestCases, data, requirementsList, currentFileMilestoneId]);
+
+  const filteredEligibleLibraryTestCases = useMemo(() =>
+    eligibleLibraryTestCases.filter((tc: any) => {
+      if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
+      if (pullFilter.module && tc.module !== pullFilter.module) return false;
+      return true;
+    }),
+  [eligibleLibraryTestCases, pullFilter]);
   const [isPulling, setIsPulling] = useState(false);
   const [isPullLoading, setIsPullLoading] = useState(false);
 
@@ -1361,6 +1396,14 @@ export default function TestCasesExecutionProgressPage() {
   const [defectModalOpen, setDefectModalOpen] = useState(false);
   const [pendingFailRowId, setPendingFailRowId] = useState<string | number | null>(null);
   const pendingFailRowIdRef = useRef<string | number | null>(null);
+
+  // Passed-result evidence is optional. The same dialog is reused when a user
+  // adds evidence later to a row already marked Passed.
+  const [passEvidenceDialogOpen, setPassEvidenceDialogOpen] = useState(false);
+  const [pendingPassRowId, setPendingPassRowId] = useState<string | number | null>(null);
+  const [passEvidenceMode, setPassEvidenceMode] = useState<"pass" | "attach">("pass");
+  const [passEvidenceFile, setPassEvidenceFile] = useState<File | null>(null);
+  const [isUploadingPassEvidence, setIsUploadingPassEvidence] = useState(false);
 
   // Dismissible warning banners
   const [editWarningDismissed, setEditWarningDismissed] = useState(false);
@@ -1593,9 +1636,18 @@ export default function TestCasesExecutionProgressPage() {
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
       // Update ref immediately so blur-save and polling see it without waiting for useEffect
-      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
-      setDirtyRowIds(dirtyRowIdsRef.current);
       if (field === "result") {
+        if (value === "Passed") {
+          // Do not change the result until the optional-evidence choice is
+          // explicit. Cancel therefore preserves the previous result.
+          setPendingPassRowId(id);
+          setPassEvidenceMode("pass");
+          setPassEvidenceFile(null);
+          setPassEvidenceDialogOpen(true);
+          return;
+        }
+        dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
+        setDirtyRowIds(dirtyRowIdsRef.current);
         const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
         setData((prev) => {
           const updated = prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row);
@@ -1610,6 +1662,8 @@ export default function TestCasesExecutionProgressPage() {
         }
         return;
       }
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
+      setDirtyRowIds(dirtyRowIdsRef.current);
       setData((prev) => {
         const updated = prev.map((row) => (row.id === id ? { ...row, [field]: value } : row));
         dataRef.current = updated;
@@ -1893,7 +1947,7 @@ export default function TestCasesExecutionProgressPage() {
 
   const handleConfirmPull = () => {
     setIsPulling(true);
-    const toPull = libraryTestCases.filter((tc: any) => selectedPullIds.has(tc.id));
+    const toPull = eligibleLibraryTestCases.filter((tc: any) => selectedPullIds.has(tc.id));
     const newRows: AppExecutionTestCase[] = toPull.map((tc: any) => ({
       ...createEmptyRow(),
       moduleName: tc.module || "",
@@ -1942,6 +1996,171 @@ export default function TestCasesExecutionProgressPage() {
           libraryTcId: mapped.libraryTcId ?? row.libraryTcId,
         };
       }),
+    );
+  };
+
+  const markPassedLocally = (rowId: string | number) => {
+    const executedAt = new Date().toISOString();
+    setData((prev) => {
+      const updated = prev.map((row) => row.id === rowId ? { ...row, result: "Passed", executedAt } : row);
+      dataRef.current = updated;
+      return updated;
+    });
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, rowId]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    setHasUnsavedChanges(true);
+  };
+
+  const handlePassWithoutEvidence = () => {
+    if (pendingPassRowId == null) return;
+    markPassedLocally(pendingPassRowId);
+    setPassEvidenceDialogOpen(false);
+    setPendingPassRowId(null);
+    toast({ title: "Test case marked Passed", description: "No attachment was added. You can attach evidence later." });
+  };
+
+  const openAddPassEvidence = (rowId: string | number) => {
+    setPendingPassRowId(rowId);
+    setPassEvidenceMode("attach");
+    setPassEvidenceFile(null);
+    setPassEvidenceDialogOpen(true);
+  };
+
+  const handleSavePassEvidence = async () => {
+    if (pendingPassRowId == null || !passEvidenceFile) return;
+    if (passEvidenceFile.size > 10 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
+      return;
+    }
+    const originalId = pendingPassRowId;
+    setIsUploadingPassEvidence(true);
+    try {
+      const currentData = dataRef.current;
+      const row = currentData.find((item) => item.id === originalId);
+      if (!row) throw new Error("Test case row was not found");
+      const passedRow = {
+        ...row,
+        result: "Passed",
+        executedAt: normalizeResultValue(row.result) === "Passed" ? row.executedAt : new Date().toISOString(),
+        _tempId: typeof row.id === "string" ? row.id : undefined,
+        rowOrder: currentData.indexOf(row),
+      };
+      const saved = await saveTestCases(ticketId, [passedRow as any], []);
+      const inserted = typeof originalId === "string"
+        ? saved?.testCases?.find((item: any) => item._tempId === originalId)
+        : null;
+      const dbRowId = typeof originalId === "number" ? originalId : inserted?.id;
+      if (typeof dbRowId !== "number") throw new Error("Test case must be saved before evidence can be attached");
+      if (saved?.testCases) applyReturnedRows(saved.testCases);
+      const evidence = await uploadExecutionEvidence(dbRowId, passEvidenceFile);
+      setData((prev) => {
+        const updated = prev.map((item) =>
+          item.id === originalId || item.id === dbRowId
+            ? { ...item, id: dbRowId, result: "Passed", executedAt: passedRow.executedAt, passEvidence: [...(item.passEvidence ?? []), evidence] }
+            : item,
+        );
+        dataRef.current = updated;
+        return updated;
+      });
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((id) => id !== originalId && id !== dbRowId));
+      setDirtyRowIds(dirtyRowIdsRef.current);
+      setHasUnsavedChanges(dirtyRowIdsRef.current.size > 0 || deletedDbIdsRef.current.size > 0);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      setPassEvidenceDialogOpen(false);
+      setPendingPassRowId(null);
+      setPassEvidenceFile(null);
+      toast({ title: "Evidence attached", description: passEvidenceFile.name });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Failed to attach evidence", description: error?.message });
+    } finally {
+      setIsUploadingPassEvidence(false);
+    }
+  };
+
+  const viewPassEvidence = async (rowId: number, evidenceId: number, fileName: string, inline = true) => {
+    const previewWindow = inline ? window.open("", "_blank") : null;
+    try {
+      const res = await fetch(executionEvidenceUrl(rowId, evidenceId, inline), { headers: getHeaders() });
+      if (!res.ok) throw new Error("Unable to open attachment");
+      const url = URL.createObjectURL(await res.blob());
+      if (inline) {
+        if (!previewWindow) throw new Error("Preview was blocked by the browser");
+        previewWindow.opener = null;
+        previewWindow.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error: any) {
+      previewWindow?.close();
+      toast({ variant: "destructive", title: "Attachment unavailable", description: error?.message });
+    }
+  };
+
+  const removePassEvidence = async (rowId: number, evidenceId: number) => {
+    if (!window.confirm("Delete this evidence attachment? This cannot be undone.")) return;
+    try {
+      await deleteExecutionEvidence(rowId, evidenceId);
+      setData((prev) => {
+        const updated = prev.map((row) => row.id === rowId
+          ? { ...row, passEvidence: (row.passEvidence ?? []).filter((item) => item.id !== evidenceId) }
+          : row);
+        dataRef.current = updated;
+        return updated;
+      });
+      toast({ title: "Evidence removed" });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Failed to remove evidence", description: error?.message });
+    }
+  };
+
+  const renderPassEvidence = (row: AppExecutionTestCase, canEditEvidence: boolean, compact = false) => {
+    if (normalizeResultValue(row.result) !== "Passed") return null;
+    // Evidence from an older pass attempt stays in the audit record but must
+    // not make a newly-passed result look evidenced. Only files uploaded for
+    // the current execution timestamp count in the active UI.
+    const executedAtMs = row.executedAt ? new Date(row.executedAt).getTime() : 0;
+    const files = (row.passEvidence ?? []).filter((file) =>
+      !executedAtMs || new Date(file.createdAt).getTime() >= executedAtMs - 2_000,
+    );
+    const textSize = compact ? "text-[10px]" : "text-xs";
+    if (files.length === 0) {
+      return (
+        <div className={`mt-2 flex flex-wrap items-center gap-2 ${textSize}`}>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-1 font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            <AlertTriangle className="w-3 h-3" /> Passed · No attachment
+          </span>
+          {canEditEvidence && (
+            <button className="inline-flex items-center gap-1 font-medium text-primary hover:underline" onClick={() => openAddPassEvidence(row.id as string | number)}>
+              <Paperclip className="w-3 h-3" /> Add attachment
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className={`mt-2 space-y-1.5 ${textSize}`}>
+        {files.map((file) => (
+          <div key={file.id} className="flex min-w-0 items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2 py-1.5 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+            <FileText className="w-3.5 h-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>
+            <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
+            <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
+            {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
+              <button className="hover:text-destructive" title="Delete attachment" onClick={() => removePassEvidence(row.id as number, file.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+            )}
+          </div>
+        ))}
+        {canEditEvidence && (
+          <button className="inline-flex items-center gap-1 font-medium text-primary hover:underline" onClick={() => openAddPassEvidence(row.id as string | number)}>
+            <Paperclip className="w-3 h-3" /> Add another attachment
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -2667,6 +2886,53 @@ export default function TestCasesExecutionProgressPage() {
       />
 
       {/* CAPA Intelligence Dialog */}
+      <Dialog open={passEvidenceDialogOpen} onOpenChange={(open) => {
+        if (!isUploadingPassEvidence) {
+          setPassEvidenceDialogOpen(open);
+          if (!open) { setPendingPassRowId(null); setPassEvidenceFile(null); }
+        }
+      }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Paperclip className="w-5 h-5 text-primary" />
+              {passEvidenceMode === "pass" ? "Add pass evidence" : "Attach evidence"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              {passEvidenceMode === "pass"
+                ? "Supporting evidence is optional. You can pass this test now and attach a document later."
+                : "Add supporting evidence without changing or rerunning this Passed result."}
+            </p>
+            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/60 hover:bg-muted/30">
+              <Upload className="w-6 h-6 text-muted-foreground" />
+              <span className="text-sm font-medium">{passEvidenceFile ? passEvidenceFile.name : "Choose screenshot or document"}</span>
+              <span className="text-xs text-muted-foreground">Images, PDF, Word or Excel · maximum 10 MB</span>
+              <input
+                type="file"
+                className="hidden"
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                onChange={(event) => setPassEvidenceFile(event.target.files?.[0] ?? null)}
+                disabled={isUploadingPassEvidence}
+              />
+            </label>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={() => setPassEvidenceDialogOpen(false)} disabled={isUploadingPassEvidence}>Cancel</Button>
+            <div className="flex gap-2">
+              {passEvidenceMode === "pass" && (
+                <Button variant="secondary" onClick={handlePassWithoutEvidence} disabled={isUploadingPassEvidence}>Pass without attachment</Button>
+              )}
+              <Button onClick={handleSavePassEvidence} disabled={!passEvidenceFile || isUploadingPassEvidence} className="gap-2">
+                {isUploadingPassEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {passEvidenceMode === "pass" ? "Save as Passed" : "Upload attachment"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={capaOpen} onOpenChange={setCapaOpen}>
         <DialogContent className="max-w-3xl w-[96vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -3632,6 +3898,7 @@ export default function TestCasesExecutionProgressPage() {
                               </span>
                             );
                           })()}
+                          {renderPassEvidence(row, canEdit)}
                         </div>
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
@@ -3846,6 +4113,7 @@ export default function TestCasesExecutionProgressPage() {
                                             </span>
                                           );
                                         })()}
+                                        {renderPassEvidence(row, canEdit, true)}
                                       </div>
                                       <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA PIC</div>
@@ -3918,7 +4186,7 @@ export default function TestCasesExecutionProgressPage() {
                     value={pullFilter.module ?? ""}
                     onChange={e => setPullFilter(f => ({ ...f, module: e.target.value || undefined }))}>
                     <option value="">All Modules</option>
-                    {Array.from(new Set(libraryTestCases
+                    {Array.from(new Set(eligibleLibraryTestCases
                       .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
                       .map((tc: any) => tc.module).filter(Boolean)
                     )).map(m => <option key={m as string} value={m as string}>{m as string}</option>)}
@@ -3926,11 +4194,7 @@ export default function TestCasesExecutionProgressPage() {
                   <span className="text-xs text-muted-foreground self-center">{selectedPullIds.size} selected</span>
                 </div>
                 <div className="border rounded-md divide-y divide-border overflow-y-auto max-h-[340px]">
-                  {libraryTestCases.filter((tc: any) => {
-                    if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
-                    if (pullFilter.module && tc.module !== pullFilter.module) return false;
-                    return true;
-                  }).map((tc: any) => (
+                  {filteredEligibleLibraryTestCases.map((tc: any) => (
                     <label key={tc.id} className="flex items-start gap-3 px-3 py-2 hover:bg-muted/40 cursor-pointer">
                       <input type="checkbox" className="mt-0.5 w-4 h-4 rounded border-gray-300 shrink-0"
                         checked={selectedPullIds.has(tc.id)}
@@ -3945,12 +4209,8 @@ export default function TestCasesExecutionProgressPage() {
                       </div>
                     </label>
                   ))}
-                  {libraryTestCases.filter((tc: any) => {
-                    if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
-                    if (pullFilter.module && tc.module !== pullFilter.module) return false;
-                    return true;
-                  }).length === 0 && (
-                    <div className="py-8 text-center text-sm text-muted-foreground">No test cases match your filters.</div>
+                  {filteredEligibleLibraryTestCases.length === 0 && (
+                    <div className="py-8 text-center text-sm text-muted-foreground">No missing test cases match your filters.</div>
                   )}
                 </div>
               </>
@@ -3958,12 +4218,7 @@ export default function TestCasesExecutionProgressPage() {
           </div>
           <DialogFooter className="shrink-0 border-t pt-4 flex-row justify-between gap-2">
             <Button variant="ghost" size="sm" onClick={() => {
-              const filtered = libraryTestCases.filter((tc: any) => {
-                if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
-                if (pullFilter.module && tc.module !== pullFilter.module) return false;
-                return true;
-              });
-              setSelectedPullIds(new Set(filtered.map((tc: any) => tc.id)));
+              setSelectedPullIds(new Set(filteredEligibleLibraryTestCases.map((tc: any) => tc.id)));
             }}>Select All Filtered</Button>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setPullDialogOpen(false)}>Cancel</Button>

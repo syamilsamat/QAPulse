@@ -73,6 +73,15 @@ async function callAiGet(token: string | null, endpoint: string) {
   return res.json();
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(new Error("Could not read the selected document"));
+    reader.readAsDataURL(file);
+  });
+}
+
 function LoadingSpinner() {
   return <Loader2 className="w-4 h-4 animate-spin" />;
 }
@@ -116,6 +125,7 @@ export default function AiFeatures() {
 
   const [coverageReqId, setCoverageReqId] = useState<string>("all");
   const [coverageFileName, setCoverageFileName] = useState<string>("");
+  const [coverageFile, setCoverageFile] = useState<File | null>(null);
 
   const [weeklySummaryResult, setWeeklySummaryResult] = useState<any>(null);
   const [weeklySummaryLoading, setWeeklySummaryLoading] = useState(false);
@@ -715,9 +725,18 @@ export default function AiFeatures() {
                       type="file"
                       accept=".xlsx,.pdf,.xls"
                       className="hidden"
-                      onChange={(e) =>
-                        setCoverageFileName(e.target.files?.[0]?.name ?? "")
-                      }
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        if (file && file.size > 8 * 1024 * 1024) {
+                          toast({ variant: "destructive", title: "Document too large", description: "Maximum file size is 8 MB." });
+                          e.target.value = "";
+                          setCoverageFile(null);
+                          setCoverageFileName("");
+                          return;
+                        }
+                        setCoverageFile(file);
+                        setCoverageFileName(file?.name ?? "");
+                      }}
                     />
                     {coverageFileName && (
                       <p className="text-xs text-primary mt-1">
@@ -731,13 +750,17 @@ export default function AiFeatures() {
                 <Button
                   disabled={coverageLoading}
                   onClick={() =>
-                    run(setCoverageLoading, setCoverageResult, () =>
+                    run(setCoverageLoading, setCoverageResult, async () =>
                       callAiEndpoint(token, "/ai/coverage-gap", {
                         requirementId:
                           coverageReqId && coverageReqId !== "all"
                             ? Number(coverageReqId)
                             : undefined,
-                        fileName: coverageFileName || undefined,
+                        attachment: coverageFile ? {
+                          fileName: coverageFile.name,
+                          mimeType: coverageFile.type || "application/octet-stream",
+                          dataBase64: await fileToBase64(coverageFile),
+                        } : undefined,
                       }),
                     )
                   }

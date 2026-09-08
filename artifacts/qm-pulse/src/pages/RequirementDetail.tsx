@@ -355,7 +355,13 @@ export default function RequirementDetail() {
     });
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+    const files = Array.from(e.target.files ?? []).filter((file) => {
+      if (file.size > 10 * 1024 * 1024) {
+        toast({ variant: "destructive", title: `${file.name} exceeds 10 MB` });
+        return false;
+      }
+      return true;
+    });
     if (!files.length) return;
     e.target.value = "";
     setUploadingFiles(true);
@@ -1033,7 +1039,7 @@ export default function RequirementDetail() {
                     ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                     : <span className="text-xs text-primary hover:underline flex items-center gap-1"><Paperclip className="w-3 h-3" />Attach file</span>
                   }
-                  <input type="file" multiple className="hidden" onChange={handleFileSelect} disabled={uploadingFiles} />
+                  <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden" onChange={handleFileSelect} disabled={uploadingFiles} />
                 </label>
               </div>
             </CardHeader>

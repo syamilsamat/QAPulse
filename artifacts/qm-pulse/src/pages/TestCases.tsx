@@ -77,13 +77,13 @@ import {
   List,
 } from "lucide-react";
 import { format } from "date-fns";
-import { getApiUrl } from "@/lib/api";
+import { authHeaders, getApiUrl } from "@/lib/api";
 import { Clock, AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
   const res = await fetch(`${getApiUrl()}/test-cases/export`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ testCases, senderName }),
   });
   if (!res.ok) throw new Error("Export failed");
@@ -136,6 +136,7 @@ function AIGenerateDialog({
   const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<{ requirementId: number; requirementTitle: string; testCases: any[]; error?: string }[]>([]);
   const [step, setStep] = useState<"form" | "preview">("form");
+  const [isSavingGenerated, setIsSavingGenerated] = useState(false);
   const generateMutation = useGenerateTestCasesWithAI();
 
   const handleGenerate = () => {
@@ -178,6 +179,7 @@ function AIGenerateDialog({
     setAvailableReqs([]);
     setSelectedReqIds(new Set());
     setAiFormModules([]);
+    setIsSavingGenerated(false);
     setForm({
       generatePositive: true,
       generateNegative: false,
@@ -188,7 +190,7 @@ function AIGenerateDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen && !isSavingGenerated) handleClose(); }}>
       <DialogContent className="max-w-8xl max-h-[85vh] overflow-y-auto w-[95vw] sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -537,6 +539,7 @@ function AIGenerateDialog({
           <Button
             variant="outline"
             onClick={handleClose}
+            disabled={isSavingGenerated}
             className="w-full sm:w-auto"
           >
             Cancel
@@ -561,14 +564,17 @@ function AIGenerateDialog({
             </Button>
           ) : (
             <Button
-              onClick={() => {
-                onSuccess(preview, { ...form, module: aiFormModules.join(",") });
-                handleClose();
+              onClick={async () => {
+                setIsSavingGenerated(true);
+                const saved = await onSuccess(preview, { ...form, module: aiFormModules.join(",") });
+                setIsSavingGenerated(false);
+                if (saved) handleClose();
               }}
+              disabled={isSavingGenerated}
               className="gap-2 w-full sm:w-auto"
             >
-              <Plus className="w-4 h-4" />
-              Save All ({preview.reduce((sum, g) => sum + g.testCases.length, 0)})
+              {isSavingGenerated ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {isSavingGenerated ? "Saving all..." : `Save All (${preview.reduce((sum, g) => sum + g.testCases.length, 0)})`}
             </Button>
           )}
         </DialogFooter>
@@ -728,6 +734,7 @@ export default function TestCases() {
   const [runsDialogTc, setRunsDialogTc] = useState<any | null>(null);
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const [tcToClone, setTcToClone] = useState<any | null>(null);
@@ -1178,7 +1185,7 @@ export default function TestCases() {
     return groups;
   }, [filtered, groupByModule]);
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const toExport =
       selectedIds.size > 0
         ? testCases.filter((t) => selectedIds.has(t.id))
@@ -1190,7 +1197,20 @@ export default function TestCases() {
       });
       return;
     }
-    exportToExcel(toExport, user?.name).then(() => toast({ title: "Export complete" }));
+    setIsExporting(true);
+    try {
+      await exportToExcel(toExport, user?.name);
+      toast({ title: "Export complete" });
+    } catch (error) {
+      console.error("Failed to export test cases", error);
+      toast({
+        variant: "destructive",
+        title: "Export failed",
+        description: "The Excel file could not be generated. Please try again.",
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -1363,62 +1383,49 @@ export default function TestCases() {
           .filter(([, v]) => v !== null && v !== undefined),
       );
 
-    const saves = groups.flatMap((group) =>
-      group.testCases.map((tc) =>
-        fetch(`${getApiUrl()}/test-cases`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(
-            cleanPayload({
-              title: tc.title,
-              redmineUserStory: tc.redmineUserStory,
-              tracker: formData?.tracker || tc.tracker,
-              scenario: tc.scenario,
-              preconditions: tc.preconditions,
-              testSteps: tc.testSteps,
-              testData: tc.testData,
-              expectedResult: tc.expectedResult,
-              tags: tc.tags,
-              type: tc.type || "manual",
-              priority: tc.priority || "medium",
-              status: "active",
-              aiAssisted: true,
-              requirementId: group.requirementId,
-              projectId: formData?.projectId,
-              module: formData?.module,
-              authorId: formData?.authorId || user?.id,
-            }),
-          ),
-        }).then(async (r) => {
-          if (!r.ok) {
-            // Surface what the server actually rejected — a bare status code
-            // sent everyone hunting for a login problem that wasn't there.
-            const body = await r.json().catch(() => null);
-            throw new Error(body?.error ? `HTTP ${r.status}: ${body.error}` : `HTTP ${r.status}`);
-          }
-          return r;
-        }),
-      ),
+    const testCasesToSave = groups.flatMap((group) =>
+      group.testCases.map((tc) => cleanPayload({
+        title: tc.title,
+        redmineUserStory: tc.redmineUserStory,
+        tracker: formData?.tracker || tc.tracker,
+        scenario: tc.scenario,
+        preconditions: tc.preconditions,
+        testSteps: tc.testSteps,
+        testData: tc.testData,
+        expectedResult: tc.expectedResult,
+        tags: tc.tags,
+        type: tc.type || "manual",
+        priority: tc.priority || "medium",
+        status: "active",
+        aiAssisted: true,
+        requirementId: group.requirementId,
+        projectId: formData?.projectId,
+        module: formData?.module,
+        authorId: formData?.authorId || user?.id,
+      })),
     );
-    const results = await Promise.allSettled(saves);
-    const saved = results.filter((r) => r.status === "fulfilled").length;
-    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-    await queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
-    if (rejected.length > 0) {
-      const reason = String(rejected[0].reason?.message ?? rejected[0].reason);
-      console.error("AI test case save failures:", rejected.map((r) => r.reason));
+
+    try {
+      const response = await fetch(`${getApiUrl()}/test-cases/bulk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ testCases: testCasesToSave }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? `Save failed (HTTP ${response.status})`);
+      await queryClient.invalidateQueries({ queryKey: getListTestCasesQueryKey() });
+      toast({ title: `${result.saved} AI test cases saved` });
+      return true;
+    } catch (error: any) {
       toast({
         variant: "destructive",
-        title: `${saved} saved, ${rejected.length} failed`,
-        description: reason.startsWith("HTTP 401") || reason.startsWith("HTTP 403")
-          ? "You may have been signed out — try logging in again."
-          : reason.slice(0, 300),
+        title: "No AI test cases were saved",
+        description: String(error?.message ?? "Bulk save failed").slice(0, 300),
       });
-    } else {
-      toast({ title: `${saved} AI test cases saved` });
+      return false;
     }
   };
 
@@ -1638,10 +1645,15 @@ export default function TestCases() {
           <Button
             variant="outline"
             onClick={handleExport}
+            disabled={isExporting}
             className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 w-full sm:w-auto"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            {selectedIds.size > 0 ? `Export ${selectedIds.size}` : "Export"}
+            {isExporting
+              ? "Exporting…"
+              : selectedIds.size > 0
+                ? `Export ${selectedIds.size}`
+                : "Export"}
           </Button>
           <div className="flex gap-2 w-full sm:w-auto">
             <Button

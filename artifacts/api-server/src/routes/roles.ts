@@ -224,6 +224,33 @@ export async function bootstrap() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
+  // Optional evidence attached to Passed execution test cases.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS execution_tc_evidence (
+      id SERIAL PRIMARY KEY,
+      execution_test_case_id INTEGER NOT NULL REFERENCES execution_test_cases(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      data_base64 TEXT NOT NULL,
+      uploaded_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS execution_tc_evidence_row_idx ON execution_tc_evidence(execution_test_case_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS defect_verification_evidence (
+      id SERIAL PRIMARY KEY,
+      defect_id INTEGER NOT NULL REFERENCES defects(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      data_base64 TEXT NOT NULL,
+      uploaded_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS defect_verification_evidence_defect_idx ON defect_verification_evidence(defect_id)`);
   // CR067 — tracks who set qaPic, so the Tasks page can show "who assigned
   // QA" alongside the assignee, matching devAssignedBy's existing coverage of Dev.
   await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS qa_pic_set_by INTEGER`);
