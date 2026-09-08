@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,40 +8,58 @@ import { Layout } from "@/components/Layout";
 import { getApiUrl } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
+// Login and the 3D landing page are the only routes an unauthenticated (or
+// not-yet-authenticated) visitor can hit, so they stay eager — everything
+// past auth is lazy-loaded per route instead of shipping in the initial
+// bundle. This is what keeps three.js/gsap/framer-motion/xlsx/jspdf/
+// html-to-image (only used by specific pages below) out of the chunk every
+// visitor downloads before first paint.
 import Login from "@/pages/Login";
 import QMPulseLanding from "@/pages/QMPulseLanding";
-import Dashboard from "@/pages/Dashboard";
-import Requirements from "@/pages/Requirements";
-import TestCases from "@/pages/TestCases";
-import Tasks from "@/pages/Tasks";
-import HistoryTrail from "@/pages/HistoryTrail";
-import Team from "@/pages/Team";
-import AdminSearch from "@/pages/AdminSearch";
-import Settings from "@/pages/Settings";
-import Inbox from "@/pages/Inbox";
-import TeamHangouts from "@/pages/TeamHangouts";
-import NotFound from "@/pages/not-found";
-import VerdictReport from "@/pages/VerdictReport";
-import AiFeatures from "@/pages/AiFeatures";
-import ReportDashboard from "@/pages/ReportDashboard";
-import TestExecutionDetails from "@/pages/TestExecutionDetail";
-import TestCasesExecution from "@/pages/TestCasesExecution";
-import TestCasesExecutionProgressPage from "@/pages/TestCasesExecutionProgressPage";
-import ModuleAndProject from "@/pages/ModuleAndProject";
-import Roles from "@/pages/Roles";
-import TraceabilityMatrix from "@/pages/TraceabilityMatrix";
-import AuditLog from "@/pages/AuditLog";
-import Defects from "@/pages/Defects";
-import Teams from "@/pages/Teams";
-import RequirementDetail from "@/pages/RequirementDetail";
-import Milestones from "@/pages/Milestones";
-import PmDashboard from "@/pages/PmDashboard";
-import RiskRegister from "@/pages/RiskRegister";
-import UatSignoffs from "@/pages/UatSignoffs";
-import Resources from "@/pages/Resources";
-import QAAnalytics from "@/pages/QAAnalytics";
-import QAPipeline from "@/pages/QAPipeline";
-import MyWorkToday from "@/pages/MyWorkToday";
+
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Requirements = lazy(() => import("@/pages/Requirements"));
+const TestCases = lazy(() => import("@/pages/TestCases"));
+const Tasks = lazy(() => import("@/pages/Tasks"));
+const HistoryTrail = lazy(() => import("@/pages/HistoryTrail"));
+const Team = lazy(() => import("@/pages/Team"));
+const AdminSearch = lazy(() => import("@/pages/AdminSearch"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const Inbox = lazy(() => import("@/pages/Inbox"));
+const TeamHangouts = lazy(() => import("@/pages/TeamHangouts"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const VerdictReport = lazy(() => import("@/pages/VerdictReport"));
+const AiFeatures = lazy(() => import("@/pages/AiFeatures"));
+const ReportDashboard = lazy(() => import("@/pages/ReportDashboard"));
+const TestExecutionDetails = lazy(() => import("@/pages/TestExecutionDetail"));
+const TestCasesExecution = lazy(() => import("@/pages/TestCasesExecution"));
+const TestCasesExecutionProgressPage = lazy(() => import("@/pages/TestCasesExecutionProgressPage"));
+const ModuleAndProject = lazy(() => import("@/pages/ModuleAndProject"));
+const Roles = lazy(() => import("@/pages/Roles"));
+const TraceabilityMatrix = lazy(() => import("@/pages/TraceabilityMatrix"));
+const AuditLog = lazy(() => import("@/pages/AuditLog"));
+const Defects = lazy(() => import("@/pages/Defects"));
+const Teams = lazy(() => import("@/pages/Teams"));
+const RequirementDetail = lazy(() => import("@/pages/RequirementDetail"));
+const Milestones = lazy(() => import("@/pages/Milestones"));
+const PmDashboard = lazy(() => import("@/pages/PmDashboard"));
+const RiskRegister = lazy(() => import("@/pages/RiskRegister"));
+const UatSignoffs = lazy(() => import("@/pages/UatSignoffs"));
+const Resources = lazy(() => import("@/pages/Resources"));
+const QAAnalytics = lazy(() => import("@/pages/QAAnalytics"));
+const QAPipeline = lazy(() => import("@/pages/QAPipeline"));
+const MyWorkToday = lazy(() => import("@/pages/MyWorkToday"));
+
+// Shared fallback for lazy page chunks — same spinner ProtectedRoute already
+// shows while auth/permissions resolve, so a route transition and a chunk
+// download look identical to the user.
+function PageLoadingFallback() {
+  return (
+    <div className="h-screen w-full flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -119,7 +138,9 @@ function ProtectedRoute({
 
   return (
     <Layout>
-      <Component />
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Component />
+      </Suspense>
     </Layout>
   );
 }
@@ -390,19 +411,23 @@ function Router() {
           <Redirect to="/login" />
         ) : (
           <Layout>
-            <VerdictReport />
+            <Suspense fallback={<PageLoadingFallback />}>
+              <VerdictReport />
+            </Suspense>
           </Layout>
         )}
       </Route>
 
       <Route>
-        {user ? (
-          <Layout>
+        <Suspense fallback={<PageLoadingFallback />}>
+          {user ? (
+            <Layout>
+              <NotFound />
+            </Layout>
+          ) : (
             <NotFound />
-          </Layout>
-        ) : (
-          <NotFound />
-        )}
+          )}
+        </Suspense>
       </Route>
     </Switch>
   );

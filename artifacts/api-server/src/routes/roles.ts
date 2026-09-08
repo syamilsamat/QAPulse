@@ -71,238 +71,11 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
 
 let bootstrapped = false;
 
-export async function bootstrap() {
-  if (bootstrapped) return;
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS roles (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_system BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS role_nav_permissions (
-      role_id INTEGER NOT NULL,
-      permission_key TEXT NOT NULL,
-      PRIMARY KEY (role_id, permission_key)
-    )
-  `);
-
-  // CR014 Part 1 — add department/tierRank columns to roles (idempotent)
-  await pool.query(`ALTER TABLE roles ADD COLUMN IF NOT EXISTS department TEXT`);
-  await pool.query(`ALTER TABLE roles ADD COLUMN IF NOT EXISTS tier_rank INTEGER`);
-
-  // CR014 Part 1 — teams and project membership tables
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS teams (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      department TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS user_teams (
-      team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role TEXT NOT NULL DEFAULT 'member',
-      PRIMARY KEY (team_id, user_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS project_teams (
-      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-      PRIMARY KEY (project_id, team_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS project_members (
-      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      PRIMARY KEY (project_id, user_id)
-    )
-  `);
-
-  // CR035 — the old cross-join backfill that grandfathered every user into
-  // every project on every server restart was removed. project_members now
-  // only ever gets rows from real, explicit assignment (see teams.ts —
-  // POST /projects/:id/members) — access should be intentional, not an
-  // accident of when the server last restarted.
-
-  // CR035/CR044 — scope + audit columns. The CREATE TABLE above predates
-  // CR035, so a fresh database needs these added explicitly. module_ids
-  // (CR044) is the multi-module scope; legacy single module_id is kept for
-  // pre-CR044 rows (readers fall back to it when module_ids is null).
-  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS module_id INTEGER`);
-  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS module_ids INTEGER[]`);
-  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS assigned_by INTEGER`);
-  await pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ DEFAULT NOW()`);
-
-  // CR014 Part 2 — milestones
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS milestones (
-      id SERIAL PRIMARY KEY,
-      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'cr',
-      status TEXT NOT NULL DEFAULT 'planned',
-      target_date TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  // CR023p1.2 — was added to the Drizzle schema but missed here; a brand-new
-  // database's bootstrap-created milestones table never got this column.
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS created_by INTEGER`);
-  // Auto-stamped end-of-QA-phase boundary for the PM Dashboard's phase
-  // breakdown — see PATCH /milestones/:id.
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
-  // Planned go-live date — last phase marker on the PM Dashboard, set by the PM.
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`);
-  // Test environment (ENV1…ENV6) the milestone runs in, set by the PM.
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS environment TEXT`);
-  // CR060 — PM-set milestone urgency (Low/Medium/High/Critical), shown on the
-  // redesigned Tasks page alongside per-requirement phase status.
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS priority TEXT`);
-  // CR057 follow-up — classifies the lessons-learned text (matches the
-  // "Lessons Learnt Type" dropdown in Bestinet's export template).
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS lessons_learned_type TEXT`);
-  // CR070 — free-form scope note, auto-populated for 'data_prep' milestones.
-  await pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS description TEXT`);
-
-  // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS milestone_assignees (
-      id SERIAL PRIMARY KEY,
-      milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      assigned_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (milestone_id, user_id)
-    )
-  `);
-
-  // CR054p3 — UAT sign-off documents (file bytes stored base64 in-row)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS uat_signoffs (
-      id SERIAL PRIMARY KEY,
-      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
-      file_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      note TEXT,
-      data_base64 TEXT NOT NULL,
-      uploaded_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  // CR070 — data-prep source files (QA uploads, PM downloads to hand off to client)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS data_prep_files (
-      id SERIAL PRIMARY KEY,
-      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
-      file_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      note TEXT,
-      data_base64 TEXT NOT NULL,
-      uploaded_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`);
-  // Optional evidence attached to Passed execution test cases.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS execution_tc_evidence (
-      id SERIAL PRIMARY KEY,
-      execution_test_case_id INTEGER NOT NULL REFERENCES execution_test_cases(id) ON DELETE CASCADE,
-      file_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      data_base64 TEXT NOT NULL,
-      uploaded_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS execution_tc_evidence_row_idx ON execution_tc_evidence(execution_test_case_id)`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS defect_verification_evidence (
-      id SERIAL PRIMARY KEY,
-      defect_id INTEGER NOT NULL REFERENCES defects(id) ON DELETE CASCADE,
-      file_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      data_base64 TEXT NOT NULL,
-      uploaded_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS defect_verification_evidence_defect_idx ON defect_verification_evidence(defect_id)`);
-  // CR067 — tracks who set qaPic, so the Tasks page can show "who assigned
-  // QA" alongside the assignee, matching devAssignedBy's existing coverage of Dev.
-  await pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS qa_pic_set_by INTEGER`);
-  // PM Dashboard prerequisite — ties tasks to a milestone (nullable; ad-hoc tasks stay unassigned)
-  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`);
-
-  // CR036 — single-blocker task dependency (same-project + cycle guard enforced in tasks.ts)
-  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL`);
-
-  // CR022 Part 1 — acceptance criteria (JSON array of strings stored as text)
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT`);
-
-  // CR014 Part 4 — FA review workflow
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft'`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ`);
-
-  // CR030 — native dev assignment on defects (defects table itself predates
-  // bootstrap coverage — created via drizzle-kit push in CR019 — so these are
-  // the first bootstrap-owned columns on it)
-  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assignee_assigned_at TIMESTAMPTZ`);
-
-  // CR030 — requirement dev handoff (approved requirement → dev → ready for QA)
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_status TEXT`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_at TIMESTAMPTZ`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS ready_for_qa_at TIMESTAMPTZ`);
-
-  // CR063 — FA/PM blocked flag (e.g. "needs more time, exclude from this
-  // release, transfer to a new milestone"), freezes dev-handoff actions.
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT false`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_reason TEXT`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ`);
-  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
-
-  // QA Pipeline — per-department owners named in Step 2, used by the Tasks
-  // board for requirements in a pipeline milestone. Arrays: several people per
-  // department is normal. No FK on an array column (Postgres can't) — the
-  // route validates each id against users before writing.
-  //
-  // Run on a dedicated connection with a short lock_timeout, and never let a
-  // failure here escape: ALTER TABLE needs ACCESS EXCLUSIVE on `requirements`,
-  // so a competing lock (a concurrent drizzle push, an idle-in-transaction
-  // session) would otherwise block forever — and since index.ts waits for
-  // bootstrap() before app.listen, a hang here means the server never starts.
-  // Failing fast and logging leaves the rest of bootstrap intact; the next
-  // boot retries. `SET` is per-connection, hence the explicit client.
+// Runs the pipeline-owner-columns migration on its own connection with a
+// short lock_timeout (see the comment at its call site for why). Extracted
+// so it can execute concurrently with the rest of stage 1 instead of
+// blocking in front of it.
+async function migratePipelineOwnerColumns(): Promise<void> {
   try {
     const client = await pool.connect();
     try {
@@ -336,323 +109,16 @@ export async function bootstrap() {
   } catch (e) {
     console.error("[bootstrap] pipeline owner columns migration skipped:", e);
   }
+}
 
-  // CR022 Part 2 — discussion thread
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS requirement_comments (
-      id SERIAL PRIMARY KEY,
-      requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
-      author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      body TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  // AI Requirement Analyzer suggestion triage — persists accept/ignore/solved
-  // decisions per suggestion so re-running the analyzer doesn't re-surface
-  // items already handled.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS requirement_ai_suggestions (
-      id SERIAL PRIMARY KEY,
-      requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL,
-      suggestion_text TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      updated_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS requirement_ai_suggestions_req_idx ON requirement_ai_suggestions (requirement_id)`);
-
-  // CR033p2 — Risk Register. Found-and-fixed during CR037 (2026-07-15): this
-  // table existed only via drizzle-kit push, so a brand-new database's
-  // bootstrap never created it and the PM Dashboard Risk Register would 500.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS risks (
-      id SERIAL PRIMARY KEY,
-      project_id INTEGER NOT NULL,
-      milestone_id INTEGER,
-      title TEXT NOT NULL,
-      description TEXT,
-      category TEXT NOT NULL DEFAULT 'other',
-      probability TEXT NOT NULL DEFAULT 'medium',
-      impact TEXT NOT NULL DEFAULT 'medium',
-      status TEXT NOT NULL DEFAULT 'open',
-      mitigation_plan TEXT,
-      owner_id INTEGER,
-      raised_by INTEGER,
-      closed_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS risks_project_idx ON risks (project_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS risks_milestone_idx ON risks (milestone_id)`);
-  // CR056 — PMBOK response-strategy category, distinct from the free-text mitigationPlan.
-  await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS response_strategy TEXT`);
-  // CR077 — AI Risk Assessment -> Risk Register bridge. source distinguishes
-  // manually-raised risks from ones pre-filled off an AI assessment;
-  // source_assessment_id is traceability only, NOT the dedup key. The partial
-  // unique index is the real duplicate-proofing mechanism — at most one open
-  // (open/mitigating) ai_assessment risk per milestone, enforced by Postgres
-  // itself so concurrent clicks can never create two.
-  await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`);
-  await pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS source_assessment_id INTEGER`);
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS risks_one_open_ai_per_milestone_idx
-    ON risks (milestone_id)
-    WHERE source = 'ai_assessment' AND status IN ('open', 'mitigating') AND milestone_id IS NOT NULL
-  `);
-
-  // CR037 — stored AI milestone risk assessments (append-only history)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS milestone_risk_assessments (
-      id SERIAL PRIMARY KEY,
-      milestone_id INTEGER NOT NULL,
-      project_id INTEGER NOT NULL,
-      risk_level TEXT NOT NULL,
-      factors TEXT NOT NULL,
-      mitigation TEXT,
-      data_snapshot TEXT,
-      model TEXT,
-      created_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`);
-
-  // AI release-risk / defect-leakage assessments for a milestone's test
-  // execution (QA Pipeline step 5). Same append-only shape as
-  // milestone_risk_assessments above, but judged from execution results
-  // rather than schedule/rework signals.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS execution_risk_assessments (
-      id SERIAL PRIMARY KEY,
-      milestone_id INTEGER NOT NULL,
-      project_id INTEGER,
-      release_risk TEXT NOT NULL,
-      leakage_probability INTEGER NOT NULL,
-      risk_rationale TEXT,
-      leakage_rationale TEXT,
-      factors TEXT,
-      recommendation TEXT,
-      data_snapshot TEXT,
-      created_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS execution_risk_assessments_milestone_idx ON execution_risk_assessments (milestone_id)`);
-
-  // CR068 — editable event log on a requirement (Blocker/Server down/
-  // Automation unavailable/custom), date-ranged and closeable via endDate.
-  // Replaces the frozen ad-hoc taskEventsTable as what History Trail shows.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS requirement_events (
-      id SERIAL PRIMARY KEY,
-      requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
-      type TEXT NOT NULL,
-      description TEXT,
-      start_date TIMESTAMPTZ NOT NULL,
-      end_date TIMESTAMPTZ,
-      created_by INTEGER,
-      updated_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS requirement_events_requirement_idx ON requirement_events (requirement_id)`);
-
-  // CR039 — Requirement Q&A Chat. conversations/messages predate bootstrap
-  // coverage entirely (existed only via an early ad-hoc drizzle-kit push,
-  // same class of gap CR037 found for `risks` above) — first bootstrap-owned
-  // entry for both. entity_type/entity_id stay null until a conversation
-  // resolves to a matched requirement.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS conversations (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      user_id INTEGER NOT NULL,
-      entity_type TEXT,
-      entity_id INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS conversations_entity_idx ON conversations (entity_type, entity_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations (user_id)`);
-  // ALTER path for a dev DB where conversations already exists from the old
-  // ad-hoc push (pre-dates user_id/entity_type/entity_id) — DEFAULT 0 on
-  // user_id only matters for that branch; the CREATE path above always
-  // starts from zero rows since the table was previously unused.
-  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id INTEGER NOT NULL DEFAULT 0`);
-  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS entity_type TEXT`);
-  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS entity_id INTEGER`);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id SERIAL PRIMARY KEY,
-      conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  for (const role of DEFAULT_ROLES) {
-    await pool.query(
-      `INSERT INTO roles (name, description, is_system, department, tier_rank) VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (name) DO UPDATE
-         SET description = EXCLUDED.description,
-             is_system   = EXCLUDED.is_system,
-             department  = COALESCE(roles.department, EXCLUDED.department),
-             tier_rank   = COALESCE(roles.tier_rank,  EXCLUDED.tier_rank)`,
-      [role.name, role.description, role.isSystem, role.department, role.tierRank]
-    );
-  }
-
-  // Seed default nav permissions for each built-in role (only if they have none yet)
-  for (const [roleName, keys] of Object.entries(DEFAULT_PERMISSIONS)) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    const roleId = rows[0].id;
-
-    const { rows: existing } = await pool.query(
-      `SELECT 1 FROM role_nav_permissions WHERE role_id = $1 LIMIT 1`, [roleId]
-    );
-    if (existing.length > 0) continue; // already seeded
-
-    for (const key of keys) {
-      await pool.query(
-        `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [roleId, key]
-      );
-    }
-  }
-
-  // admin and cto always have every nav key — backfills keys added by later
-  // CRs (e.g. nav:audit-log, nav:pm-dashboard) into DBs seeded before the key
-  // existed. NOT generalized to every role: PUT /roles/:id/permissions lets
-  // admins deliberately remove a default key from a role, and a blanket
-  // backfill across all DEFAULT_PERMISSIONS would silently undo that on
-  // every restart.
-  for (const roleName of ["admin", "cto"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    for (const key of ALL_NAV_KEYS) {
-      await pool.query(
-        `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [rows[0].id, key]
-      );
-    }
-  }
-
-  // nav:pm-dashboard specifically for hod_pm/pm_lead — narrow, single-key
-  // backfill (not their whole DEFAULT_PERMISSIONS list) so any deliberate
-  // customization on their other keys survives a restart.
-  for (const roleName of ["hod_pm", "pm_lead"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:pm-dashboard') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // nav:qa-analytics for qa_lead/qa_manager/hod_qa — same narrow pattern.
-  for (const roleName of ["qa_lead", "qa_manager", "hod_qa"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:qa-analytics') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // nav:qa-pipeline for qa_member/qa_lead/qa_manager/hod_qa — narrow
-  // single-key backfill for the QA Pipeline flow (admin/cto already covered
-  // by the "always have every nav key" loop above). The nav item itself is
-  // additionally gated at runtime by pipeline_settings.qa_flow_enabled.
-  for (const roleName of ["qa_member", "qa_lead", "qa_manager", "hod_qa"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:qa-pipeline') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // nav:defects for roles that already had Defects via the static role-array
-  // fallback (qa_member/qa_lead were role-gated with no permKey before CR030)
-  // plus the newly-onboarded dev department — narrow single-key backfill so
-  // no role's other customizations get reapplied.
-  for (const roleName of ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:defects') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // nav:risk-register for hod_pm/pm_lead (preserves existing PM
-  // Dashboard-side access to the Risk Register, now that it's split out)
-  // plus qa_lead/fa_lead (CR040 — the new grant this CR exists for) — narrow
-  // single-key backfill so no role's other customizations get reapplied.
-  for (const roleName of ["hod_pm", "pm_lead", "qa_lead", "fa_lead"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:risk-register') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // nav:uat-signoffs (CR054p3) — PM family owns the sign-off registry;
-  // QA managers/leads get read access to check UAT closure evidence.
-  for (const roleName of ["hod_pm", "pm_lead", "pm_member", "cto", "qa_manager", "hod_qa", "qa_lead"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:uat-signoffs') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // nav:defects for fa_lead/fa_member (CR042 — requirement defects route to
-  // FA authors since CR031, but the FA department couldn't open the Defects
-  // page at all) — narrow single-key backfill, same pattern as above.
-  for (const roleName of ["fa_lead", "fa_member"]) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM roles WHERE name = $1`, [roleName]
-    );
-    if (!rows[0]) continue;
-    await pool.query(
-      `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, 'nav:defects') ON CONFLICT DO NOTHING`,
-      [rows[0].id]
-    );
-  }
-
-  // CR051 — partial UNIQUE index on defects.redmine_id backs the idempotent
-  // register upsert. Dedupe any pre-existing duplicates first (repoint their
-  // links to the surviving lowest-id row — FK cascades on delete, so repoint
-  // before deleting or the links vanish), then create the index. All guarded:
-  // a failure here must never block the rest of bootstrap.
+// CR051 — partial UNIQUE index on defects.redmine_id backs the idempotent
+// register upsert. Dedupe any pre-existing duplicates first (repoint their
+// links to the surviving lowest-id row — FK cascades on delete, so repoint
+// before deleting or the links vanish), then create the index. All guarded:
+// a failure here must never block the rest of bootstrap. Only needs
+// `defects`/`defect_links`, both pre-existing external tables, so — like
+// migratePipelineOwnerColumns above — it can run concurrently with stage 1.
+async function dedupeAndIndexDefectRedmineIds(): Promise<void> {
   try {
     await pool.query(`
       UPDATE defect_links dl SET defect_id = s.keep_id
@@ -671,6 +137,512 @@ export async function bootstrap() {
   } catch (e) {
     console.error("[bootstrap] CR051: failed to create defects.redmine_id unique index", e);
   }
+}
+
+export async function bootstrap() {
+  if (bootstrapped) return;
+
+  // bootstrap() used to run ~104 DDL/seed statements as sequential awaits,
+  // each a full network round trip to the DB — on Replit autoscale, every
+  // cold start reruns this and index.ts blocks app.listen() on it finishing
+  // (bounded at 60s), so a cold start could hang for a very long time before
+  // the server accepted a single request. Below, independent statements run
+  // concurrently via Promise.all, staged only where a real dependency exists
+  // (a table must exist before something ALTERs it or points a FK at it, and
+  // the nav-permission seeding has a read-then-write race — see stage
+  // comments). All SQL is unchanged and still idempotent
+  // (CREATE/ALTER ... IF NOT EXISTS, ON CONFLICT), so a failure partway
+  // through is safe to retry on the next call.
+
+  // ─── Stage 1 — tables/columns that only depend on tables that already
+  // existed before bootstrap ever ran (users, projects, requirements, tasks,
+  // defects, execution_files, execution_test_cases, defect_links). Also
+  // where the two self-contained migrations above are kicked off, since
+  // neither depends on anything bootstrap creates. ──────────────────────────
+  await Promise.all([
+    migratePipelineOwnerColumns(),
+    dedupeAndIndexDefectRedmineIds(),
+
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS roles (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        is_system BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR014 Part 1 — teams and project membership tables. role_nav_permissions
+    // and project_members carry no FK to roles/teams, so both are stage-1 too.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS role_nav_permissions (
+        role_id INTEGER NOT NULL,
+        permission_key TEXT NOT NULL,
+        PRIMARY KEY (role_id, permission_key)
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS teams (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        department TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        PRIMARY KEY (project_id, user_id)
+      )
+    `),
+    // CR014 Part 2 — milestones
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestones (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'cr',
+        status TEXT NOT NULL DEFAULT 'planned',
+        target_date TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`),
+    // Optional evidence attached to Passed execution test cases.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS execution_tc_evidence (
+        id SERIAL PRIMARY KEY,
+        execution_test_case_id INTEGER NOT NULL REFERENCES execution_test_cases(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data_base64 TEXT NOT NULL,
+        uploaded_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS defect_verification_evidence (
+        id SERIAL PRIMARY KEY,
+        defect_id INTEGER NOT NULL REFERENCES defects(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data_base64 TEXT NOT NULL,
+        uploaded_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR067 — tracks who set qaPic, so the Tasks page can show "who assigned
+    // QA" alongside the assignee, matching devAssignedBy's existing coverage of Dev.
+    pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS qa_pic_set_by INTEGER`),
+    // CR036 — single-blocker task dependency (same-project + cycle guard enforced in tasks.ts)
+    pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL`),
+    // CR022 Part 1 — acceptance criteria (JSON array of strings stored as text)
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT`),
+    // CR014 Part 4 — FA review workflow
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft'`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ`),
+    // CR030 — native dev assignment on defects (defects table itself predates
+    // bootstrap coverage — created via drizzle-kit push in CR019 — so these are
+    // the first bootstrap-owned columns on it)
+    pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assignee_assigned_at TIMESTAMPTZ`),
+    // CR030 — requirement dev handoff (approved requirement → dev → ready for QA)
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_status TEXT`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_at TIMESTAMPTZ`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS ready_for_qa_at TIMESTAMPTZ`),
+    // CR063 — FA/PM blocked flag (e.g. "needs more time, exclude from this
+    // release, transfer to a new milestone"), freezes dev-handoff actions.
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT false`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_reason TEXT`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS blocked_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
+    // CR022 Part 2 — discussion thread
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_comments (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+        author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // AI Requirement Analyzer suggestion triage — persists accept/ignore/solved
+    // decisions per suggestion so re-running the analyzer doesn't re-surface
+    // items already handled.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_ai_suggestions (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        suggestion_text TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        updated_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR033p2 — Risk Register. Found-and-fixed during CR037 (2026-07-15): this
+    // table existed only via drizzle-kit push, so a brand-new database's
+    // bootstrap never created it and the PM Dashboard Risk Register would 500.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS risks (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        milestone_id INTEGER,
+        title TEXT NOT NULL,
+        description TEXT,
+        category TEXT NOT NULL DEFAULT 'other',
+        probability TEXT NOT NULL DEFAULT 'medium',
+        impact TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'open',
+        mitigation_plan TEXT,
+        owner_id INTEGER,
+        raised_by INTEGER,
+        closed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR037 — stored AI milestone risk assessments (append-only history)
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestone_risk_assessments (
+        id SERIAL PRIMARY KEY,
+        milestone_id INTEGER NOT NULL,
+        project_id INTEGER NOT NULL,
+        risk_level TEXT NOT NULL,
+        factors TEXT NOT NULL,
+        mitigation TEXT,
+        data_snapshot TEXT,
+        model TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // AI release-risk / defect-leakage assessments for a milestone's test
+    // execution (QA Pipeline step 5). Same append-only shape as
+    // milestone_risk_assessments above, but judged from execution results
+    // rather than schedule/rework signals.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS execution_risk_assessments (
+        id SERIAL PRIMARY KEY,
+        milestone_id INTEGER NOT NULL,
+        project_id INTEGER,
+        release_risk TEXT NOT NULL,
+        leakage_probability INTEGER NOT NULL,
+        risk_rationale TEXT,
+        leakage_rationale TEXT,
+        factors TEXT,
+        recommendation TEXT,
+        data_snapshot TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR068 — editable event log on a requirement (Blocker/Server down/
+    // Automation unavailable/custom), date-ranged and closeable via endDate.
+    // Replaces the frozen ad-hoc taskEventsTable as what History Trail shows.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_events (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        description TEXT,
+        start_date TIMESTAMPTZ NOT NULL,
+        end_date TIMESTAMPTZ,
+        created_by INTEGER,
+        updated_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR039 — Requirement Q&A Chat. conversations/messages predate bootstrap
+    // coverage entirely (existed only via an early ad-hoc drizzle-kit push,
+    // same class of gap CR037 found for `risks` above) — first bootstrap-owned
+    // entry for both. entity_type/entity_id stay null until a conversation
+    // resolves to a matched requirement.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS conversations (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        entity_type TEXT,
+        entity_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+  ]);
+
+  // ─── Stage 2 — everything that ALTERs or indexes a stage-1 table, or
+  // creates a table that FKs into one. ─────────────────────────────────────
+  await Promise.all([
+    // CR014 Part 1 — add department/tierRank columns to roles (idempotent)
+    pool.query(`ALTER TABLE roles ADD COLUMN IF NOT EXISTS department TEXT`),
+    pool.query(`ALTER TABLE roles ADD COLUMN IF NOT EXISTS tier_rank INTEGER`),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS user_teams (
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL DEFAULT 'member',
+        PRIMARY KEY (team_id, user_id)
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS project_teams (
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        PRIMARY KEY (project_id, team_id)
+      )
+    `),
+    // CR023p1.2 — was added to the Drizzle schema but missed here; a brand-new
+    // database's bootstrap-created milestones table never got this column.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS created_by INTEGER`),
+    // Auto-stamped end-of-QA-phase boundary for the PM Dashboard's phase
+    // breakdown — see PATCH /milestones/:id.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`),
+    // Planned go-live date — last phase marker on the PM Dashboard, set by the PM.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS go_live_date TIMESTAMPTZ`),
+    // Test environment (ENV1…ENV6) the milestone runs in, set by the PM.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS environment TEXT`),
+    // CR060 — PM-set milestone urgency (Low/Medium/High/Critical), shown on the
+    // redesigned Tasks page alongside per-requirement phase status.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS priority TEXT`),
+    // CR057 follow-up — classifies the lessons-learned text (matches the
+    // "Lessons Learnt Type" dropdown in Bestinet's export template).
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS lessons_learned_type TEXT`),
+    // CR070 — free-form scope note, auto-populated for 'data_prep' milestones.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS description TEXT`),
+    // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestone_assignees (
+        id SERIAL PRIMARY KEY,
+        milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        assigned_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (milestone_id, user_id)
+      )
+    `),
+    // CR054p3 — UAT sign-off documents (file bytes stored base64 in-row)
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS uat_signoffs (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        note TEXT,
+        data_base64 TEXT NOT NULL,
+        uploaded_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // CR070 — data-prep source files (QA uploads, PM downloads to hand off to client)
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS data_prep_files (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        note TEXT,
+        data_base64 TEXT NOT NULL,
+        uploaded_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`),
+    pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`),
+    // PM Dashboard prerequisite — ties tasks to a milestone (nullable; ad-hoc tasks stay unassigned)
+    pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`),
+    pool.query(`CREATE INDEX IF NOT EXISTS execution_tc_evidence_row_idx ON execution_tc_evidence(execution_test_case_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS defect_verification_evidence_defect_idx ON defect_verification_evidence(defect_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS requirement_ai_suggestions_req_idx ON requirement_ai_suggestions (requirement_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS risks_project_idx ON risks (project_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS risks_milestone_idx ON risks (milestone_id)`),
+    // CR056 — PMBOK response-strategy category, distinct from the free-text mitigationPlan.
+    pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS response_strategy TEXT`),
+    // CR077 — AI Risk Assessment -> Risk Register bridge. source distinguishes
+    // manually-raised risks from ones pre-filled off an AI assessment;
+    // source_assessment_id is traceability only, NOT the dedup key. The partial
+    // unique index (stage 3, needs this column) is the real duplicate-proofing
+    // mechanism — at most one open (open/mitigating) ai_assessment risk per
+    // milestone, enforced by Postgres itself so concurrent clicks can never
+    // create two.
+    pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`),
+    pool.query(`ALTER TABLE risks ADD COLUMN IF NOT EXISTS source_assessment_id INTEGER`),
+    pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS execution_risk_assessments_milestone_idx ON execution_risk_assessments (milestone_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS requirement_events_requirement_idx ON requirement_events (requirement_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS conversations_entity_idx ON conversations (entity_type, entity_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations (user_id)`),
+    // ALTER path for a dev DB where conversations already exists from the old
+    // ad-hoc push (pre-dates user_id/entity_type/entity_id) — DEFAULT 0 on
+    // user_id only matters for that branch; the CREATE path above always
+    // starts from zero rows since the table was previously unused.
+    pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id INTEGER NOT NULL DEFAULT 0`),
+    pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS entity_type TEXT`),
+    pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS entity_id INTEGER`),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+  ]);
+
+  // ─── Stage 3 — depends on stage 2 (project_members columns need
+  // project_members from stage 1, and the partial index needs risks.source,
+  // added in stage 2). ──────────────────────────────────────────────────────
+  await Promise.all([
+    // CR035 — the old cross-join backfill that grandfathered every user into
+    // every project on every server restart was removed. project_members now
+    // only ever gets rows from real, explicit assignment (see teams.ts —
+    // POST /projects/:id/members) — access should be intentional, not an
+    // accident of when the server last restarted.
+    //
+    // CR035/CR044 — scope + audit columns. The CREATE TABLE (stage 1)
+    // predates CR035, so a fresh database needs these added explicitly.
+    // module_ids (CR044) is the multi-module scope; legacy single module_id
+    // is kept for pre-CR044 rows (readers fall back to it when module_ids is
+    // null).
+    pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS module_id INTEGER`),
+    pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS module_ids INTEGER[]`),
+    pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS assigned_by INTEGER`),
+    pool.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ DEFAULT NOW()`),
+    pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS risks_one_open_ai_per_milestone_idx
+      ON risks (milestone_id)
+      WHERE source = 'ai_assessment' AND status IN ('open', 'mitigating') AND milestone_id IS NOT NULL
+    `),
+  ]);
+
+  // ─── Seeding — needs the roles/role_nav_permissions tables from stage 1.
+  // Split into its own three sub-stages (not folded into stages 1-3 above)
+  // because of a real read-then-write race: the "seed defaults if empty"
+  // step below reads role_nav_permissions to decide whether a role has been
+  // seeded yet, and every later backfill blindly inserts specific keys. If
+  // those ran concurrently, a backfill's insert landing first on a fresh DB
+  // would make the "is it empty" check see a non-empty table and skip
+  // seeding that role's full default permission list. ─────────────────────
+
+  // Sub-stage A — insert/upsert the built-in roles. Each upsert is keyed on
+  // a distinct unique `name`, so the 15 are independent of each other.
+  await Promise.all(
+    DEFAULT_ROLES.map((role) =>
+      pool.query(
+        `INSERT INTO roles (name, description, is_system, department, tier_rank) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (name) DO UPDATE
+           SET description = EXCLUDED.description,
+               is_system   = EXCLUDED.is_system,
+               department  = COALESCE(roles.department, EXCLUDED.department),
+               tier_rank   = COALESCE(roles.tier_rank,  EXCLUDED.tier_rank)`,
+        [role.name, role.description, role.isSystem, role.department, role.tierRank]
+      )
+    )
+  );
+
+  // Sub-stage B — seed default nav permissions for each built-in role (only
+  // if it has none yet). Each role's read-check-then-insert only ever
+  // touches its own role_id, so the 15 roles are independent of each other —
+  // just not of sub-stage C below, which must wait for all of these inserts
+  // to land first.
+  await Promise.all(
+    Object.entries(DEFAULT_PERMISSIONS).map(async ([roleName, keys]) => {
+      const { rows } = await pool.query<{ id: number }>(
+        `SELECT id FROM roles WHERE name = $1`, [roleName]
+      );
+      if (!rows[0]) return;
+      const roleId = rows[0].id;
+
+      const { rows: existing } = await pool.query(
+        `SELECT 1 FROM role_nav_permissions WHERE role_id = $1 LIMIT 1`, [roleId]
+      );
+      if (existing.length > 0) return; // already seeded
+
+      await Promise.all(
+        keys.map((key) =>
+          pool.query(
+            `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [roleId, key]
+          )
+        )
+      );
+    })
+  );
+
+  // Sub-stage C — narrow, single/few-key backfills. Each targets specific
+  // (role, key) pairs with a plain ON CONFLICT DO NOTHING insert (no
+  // existence check gating the decision to seed), so all of these are safe
+  // to run concurrently with each other — they just have to come after
+  // sub-stage B finishes, per the race explained above.
+  async function backfillNavKey(roleNames: string[], key: string): Promise<void> {
+    await Promise.all(
+      roleNames.map(async (roleName) => {
+        const { rows } = await pool.query<{ id: number }>(
+          `SELECT id FROM roles WHERE name = $1`, [roleName]
+        );
+        if (!rows[0]) return;
+        await pool.query(
+          `INSERT INTO role_nav_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [rows[0].id, key]
+        );
+      })
+    );
+  }
+
+  await Promise.all([
+    // admin and cto always have every nav key — backfills keys added by later
+    // CRs (e.g. nav:audit-log, nav:pm-dashboard) into DBs seeded before the key
+    // existed. NOT generalized to every role: PUT /roles/:id/permissions lets
+    // admins deliberately remove a default key from a role, and a blanket
+    // backfill across all DEFAULT_PERMISSIONS would silently undo that on
+    // every restart.
+    ...ALL_NAV_KEYS.map((key) => backfillNavKey(["admin", "cto"], key)),
+    // nav:pm-dashboard specifically for hod_pm/pm_lead — narrow, single-key
+    // backfill (not their whole DEFAULT_PERMISSIONS list) so any deliberate
+    // customization on their other keys survives a restart.
+    backfillNavKey(["hod_pm", "pm_lead"], "nav:pm-dashboard"),
+    // nav:qa-analytics for qa_lead/qa_manager/hod_qa — same narrow pattern.
+    backfillNavKey(["qa_lead", "qa_manager", "hod_qa"], "nav:qa-analytics"),
+    // nav:qa-pipeline for qa_member/qa_lead/qa_manager/hod_qa — narrow
+    // single-key backfill for the QA Pipeline flow (admin/cto already covered
+    // by the "always have every nav key" loop above). The nav item itself is
+    // additionally gated at runtime by pipeline_settings.qa_flow_enabled.
+    backfillNavKey(["qa_member", "qa_lead", "qa_manager", "hod_qa"], "nav:qa-pipeline"),
+    // nav:defects for roles that already had Defects via the static role-array
+    // fallback (qa_member/qa_lead were role-gated with no permKey before CR030)
+    // plus the newly-onboarded dev department — narrow single-key backfill so
+    // no role's other customizations get reapplied.
+    backfillNavKey(["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev"], "nav:defects"),
+    // nav:risk-register for hod_pm/pm_lead (preserves existing PM
+    // Dashboard-side access to the Risk Register, now that it's split out)
+    // plus qa_lead/fa_lead (CR040 — the new grant this CR exists for) — narrow
+    // single-key backfill so no role's other customizations get reapplied.
+    backfillNavKey(["hod_pm", "pm_lead", "qa_lead", "fa_lead"], "nav:risk-register"),
+    // nav:uat-signoffs (CR054p3) — PM family owns the sign-off registry;
+    // QA managers/leads get read access to check UAT closure evidence.
+    backfillNavKey(["hod_pm", "pm_lead", "pm_member", "cto", "qa_manager", "hod_qa", "qa_lead"], "nav:uat-signoffs"),
+    // nav:defects for fa_lead/fa_member (CR042 — requirement defects route to
+    // FA authors since CR031, but the FA department couldn't open the Defects
+    // page at all) — narrow single-key backfill, same pattern as above.
+    backfillNavKey(["fa_lead", "fa_member"], "nav:defects"),
+  ]);
 
   bootstrapped = true;
 }
