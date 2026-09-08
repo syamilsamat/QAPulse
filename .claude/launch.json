@@ -6,7 +6,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/syamilabdulsamat/Desktop/Project/QMPulse/QMPulse && PORT=18440 BASE_PATH=/ /opt/homebrew/bin/pnpm --filter @workspace/qm-pulse run dev"
+        "cd /Users/syamilabdulsamat/Desktop/Project/QAPulse/QMPulse && PORT=18440 BASE_PATH=/ VITE_API_PROXY_TARGET=https://f8797326-41b7-46a4-bc0a-2d433f67b99d-00-2phf2z4952yqn.pike.replit.dev /opt/homebrew/bin/pnpm --filter @workspace/qm-pulse run dev"
       ],
       "port": 18440
     },
