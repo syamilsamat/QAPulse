@@ -448,8 +448,8 @@ export default function DefectCreationModal({
             {projectConfig?.sourceFieldId && (
               <div className="space-y-1.5">
                 <Label>Source</Label>
-                <p className="text-sm text-muted-foreground capitalize">
-                  {reporterDepartment ?? "Not set for your role"}
+                <p className="text-sm text-muted-foreground">
+                  {reporterDepartment ? reporterDepartment.toUpperCase() : "Not set for your role"}
                 </p>
               </div>
             )}

@@ -364,8 +364,12 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     const apiKey = await resolveApiKey(req);
     // Source is always the reporter's own department (qa/dev/fa/pm) — never
     // client-supplied, same trust boundary as defectCategory's tier gate.
+    // Redmine's Source custom field is a fixed list whose values are the
+    // uppercase department code (QA/DEV/FA/PM), not the lowercase role
+    // department string QM Pulse stores internally.
     const ctx = getAuthContext(req);
-    const sourceValue = ctx ? await getRoleDepartment(ctx.role) : null;
+    const department = ctx ? await getRoleDepartment(ctx.role) : null;
+    const sourceValue = department ? department.toUpperCase() : null;
 
     // Upload attachments first if any
     const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
