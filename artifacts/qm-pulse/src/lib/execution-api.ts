@@ -147,6 +147,7 @@ export interface RequirementOption {
   redmineTicketId?: string | null;
   projectId?: number | null;
   milestoneId?: number | null;
+  parentId?: number | null;
   isBlocked?: boolean;
   blockedReason?: string | null;
 }

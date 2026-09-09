@@ -80,6 +80,7 @@ import {
   deleteExecutionEvidence,
   executionEvidenceUrl,
 } from "@/lib/execution-api";
+import { getAllDescendants } from "@/lib/utils";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
 const RESULT_OPTIONS = [
@@ -1323,15 +1324,26 @@ export default function TestCasesExecutionProgressPage() {
     );
   }, [libraryTestCases, data, requirementsList, currentFileMilestoneId]);
 
+  // Selecting a requirement in the picker should also surface TCs linked to
+  // any of its descendants (child/grandchild requirements) — matching the
+  // Test Case Library page's own requirement filter (TestCases.tsx). Without
+  // this, picking a parent requirement here only found TCs attached directly
+  // to it, silently hiding everything under its children.
+  const pullRequirementFilterIds = useMemo(() => {
+    if (!pullFilter.requirementId) return null;
+    const descendants = getAllDescendants(pullFilter.requirementId, requirementsList as any[]);
+    return new Set([pullFilter.requirementId, ...descendants.map((d) => d.id)]);
+  }, [pullFilter.requirementId, requirementsList]);
+
   const filteredEligibleLibraryTestCases = useMemo(() =>
     eligibleLibraryTestCases.filter((tc: any) => {
       if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
       if (pullFilter.module && tc.module !== pullFilter.module) return false;
-      if (pullFilter.requirementId && tc.requirementId !== pullFilter.requirementId) return false;
+      if (pullRequirementFilterIds && !pullRequirementFilterIds.has(tc.requirementId)) return false;
       if (pullFilter.authorId && tc.authorId !== pullFilter.authorId) return false;
       return true;
     }),
-  [eligibleLibraryTestCases, pullFilter]);
+  [eligibleLibraryTestCases, pullFilter, pullRequirementFilterIds]);
 
   // Options for the Requirement / Author filters, scoped to what's actually
   // pullable right now rather than the full library.

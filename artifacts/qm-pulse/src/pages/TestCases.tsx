@@ -78,6 +78,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { authHeaders, getApiUrl } from "@/lib/api";
+import { getAllDescendants } from "@/lib/utils";
 import { Clock, AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
@@ -96,20 +97,6 @@ async function exportToExcel(testCases: any[], senderName?: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-// Recursive descendant walk over a flat requirement list (parentId-linked).
-// Shared by the AI Generate dialog's requirement picker and the TC Library's
-// requirement filter, so filtering by a parent also surfaces TCs linked to
-// any child, grandchild, etc. — not just the exact requirement selected.
-function getAllDescendants(parentId: number, allReqs: any[], depth = 1): any[] {
-  const children = allReqs.filter((r: any) => r.parentId === parentId);
-  let desc: any[] = [];
-  for (const child of children) {
-    desc.push({ ...child, depth });
-    desc = desc.concat(getAllDescendants(child.id, allReqs, depth + 1));
-  }
-  return desc;
 }
 
 function AIGenerateDialog({
