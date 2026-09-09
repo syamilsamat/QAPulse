@@ -315,11 +315,19 @@ async function generateForRequirement(
   }
 
   const parsed = safeParseJSON(finalRawText, { testCases: [] });
-  const testCases = (parsed.testCases ?? []).map((tc: any) => {
+  const testCases = (parsed.testCases ?? []).map((tc: any, i: number) => {
     // An array arrived one step per line already; only a run-together string needs re-breaking below.
     const stepsWereList = Array.isArray(tc.testSteps);
     // Flatten every text field first, so nothing downstream sees an object.
     for (const f of AI_TEXT_FIELDS) tc[f] = toText(tc[f]);
+    // "title" is the one field CreateTestCaseBody requires (not `.optional()`),
+    // so a missing/blank one 400s the entire bulk save — and the whole batch
+    // is inserted atomically, so one bad row blocks every sibling in it too.
+    // Gemini's responseSchema marks title "required", but that's a hint, not
+    // an enforced guarantee, and the OpenRouter fallback models (used when
+    // Gemini errors) have no schema enforcement at all — either can still
+    // hand back a case with no title. Derive one rather than losing the row.
+    if (!tc.title) tc.title = tc.scenario ? tc.scenario.slice(0, 120) : `${req.title} — case ${i + 1}`;
     // Tags read better inline than one per line.
     if (tc.tags) tc.tags = tc.tags.split("\n").join(", ");
     // Re-break run-together numbered steps ("1. a 2. b") onto their own lines.
