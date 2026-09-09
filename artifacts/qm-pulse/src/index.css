@@ -68,6 +68,15 @@
 }
 
 :root {
+  /* Tells the browser which palette to use for chrome it draws itself —
+     native <select> dropdown popups, checkboxes, scrollbars — since those
+     aren't styleable via our CSS variables above. Without this, Windows
+     Chrome renders native <select> popups in its light default regardless
+     of .dark being active (macOS happens to follow the OS-level appearance
+     for these even without the hint, which is why this only showed up on
+     Windows: the raw <select> filters in the "Pull from Library" modal). */
+  color-scheme: light;
+
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
 
@@ -129,6 +138,8 @@
 }
 
 .dark {
+  color-scheme: dark;
+
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
 
