@@ -1348,12 +1348,27 @@ export default function TestCasesExecutionProgressPage() {
   // Options for the Requirement / Author filters, scoped to what's actually
   // pullable right now rather than the full library.
   const pullRequirementOptions = useMemo(() => {
-    const ids = new Set(
+    const directIds = new Set(
       eligibleLibraryTestCases
         .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
         .map((tc: any) => tc.requirementId)
         .filter((id: any): id is number => typeof id === "number"),
     );
+    // A parent requirement stays selectable even once its own directly
+    // attached cases are exhausted, as long as any descendant still has an
+    // eligible one — selecting it pulls from the whole subtree (see
+    // pullRequirementFilterIds above). Without this, a parent whose direct
+    // cases were all already pulled would silently drop out of the dropdown,
+    // hiding the still-eligible cases sitting on its children.
+    const reqById = new Map(requirementsList.map((r) => [r.id, r]));
+    const ids = new Set(directIds);
+    for (const id of directIds) {
+      let cur = reqById.get(id);
+      while (cur?.parentId != null && !ids.has(cur.parentId)) {
+        ids.add(cur.parentId);
+        cur = reqById.get(cur.parentId);
+      }
+    }
     return requirementsList
       .filter((r) => ids.has(r.id))
       .sort((a, b) => a.title.localeCompare(b.title));
