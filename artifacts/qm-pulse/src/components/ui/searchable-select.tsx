@@ -70,7 +70,17 @@ export function SearchableSelect({
           <CommandInput placeholder={searchPlaceholder} />
           <div
             className="max-h-[240px] overflow-y-auto overflow-x-hidden"
-            onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; }}
+            onWheel={(e) => {
+              // When this popover opens from inside a Dialog (e.g. the AI Test
+              // Case Generation modal's Tracker field), Radix's Dialog scroll
+              // lock can intercept wheel events before native scroll ever
+              // reaches this nested list. Drive scrollTop manually and stop
+              // the event here so neither the lock nor a native scroll that
+              // does get through can fight this or double it up.
+              e.preventDefault();
+              e.stopPropagation();
+              e.currentTarget.scrollTop += e.deltaY;
+            }}
           >
           <CommandList className="max-h-none overflow-visible">
             <CommandEmpty>{emptyText}</CommandEmpty>
