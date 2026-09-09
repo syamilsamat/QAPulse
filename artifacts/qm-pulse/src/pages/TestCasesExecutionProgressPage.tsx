@@ -4250,33 +4250,57 @@ export default function TestCasesExecutionProgressPage() {
             ) : (
               <>
                 <div className="flex gap-2 flex-wrap">
-                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
-                    value={pullFilter.projectId ?? ""}
-                    onChange={e => setPullFilter(f => ({ ...f, projectId: e.target.value ? Number(e.target.value) : undefined, module: undefined }))}>
-                    <option value="">All Projects</option>
-                    {libraryProjects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
+                  {/* Native <select> popups are drawn by the OS, not our CSS — Windows
+                      in particular ignores color-scheme for them (unlike macOS), so
+                      these 4 filters use the app's own themed SearchableSelect instead,
+                      same as everywhere else, rather than relying on browser chrome. */}
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.projectId != null ? String(pullFilter.projectId) : ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, projectId: v ? Number(v) : undefined, module: undefined }))}
+                    options={[
+                      { value: "", label: "All Projects" },
+                      ...libraryProjects.map((p: any) => ({ value: String(p.id), label: p.name })),
+                    ]}
+                    placeholder="All Projects"
+                    searchPlaceholder="Search project..."
+                  />
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
                     value={pullFilter.module ?? ""}
-                    onChange={e => setPullFilter(f => ({ ...f, module: e.target.value || undefined }))}>
-                    <option value="">All Modules</option>
-                    {Array.from(new Set(eligibleLibraryTestCases
-                      .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
-                      .map((tc: any) => tc.module).filter(Boolean)
-                    )).map(m => <option key={m as string} value={m as string}>{m as string}</option>)}
-                  </select>
-                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
-                    value={pullFilter.requirementId ?? ""}
-                    onChange={e => setPullFilter(f => ({ ...f, requirementId: e.target.value ? Number(e.target.value) : undefined }))}>
-                    <option value="">All Requirements</option>
-                    {pullRequirementOptions.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
-                  </select>
-                  <select className="flex h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm flex-1 min-w-[140px]"
-                    value={pullFilter.authorId ?? ""}
-                    onChange={e => setPullFilter(f => ({ ...f, authorId: e.target.value ? Number(e.target.value) : undefined }))}>
-                    <option value="">All Authors</option>
-                    {pullAuthorOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
+                    onValueChange={v => setPullFilter(f => ({ ...f, module: v || undefined }))}
+                    options={[
+                      { value: "", label: "All Modules" },
+                      ...Array.from(new Set(eligibleLibraryTestCases
+                        .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+                        .map((tc: any) => tc.module).filter(Boolean)
+                      )).map((m) => ({ value: m as string, label: m as string })),
+                    ]}
+                    placeholder="All Modules"
+                    searchPlaceholder="Search module..."
+                  />
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.requirementId != null ? String(pullFilter.requirementId) : ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, requirementId: v ? Number(v) : undefined }))}
+                    options={[
+                      { value: "", label: "All Requirements" },
+                      ...pullRequirementOptions.map((r) => ({ value: String(r.id), label: r.title })),
+                    ]}
+                    placeholder="All Requirements"
+                    searchPlaceholder="Search requirement..."
+                  />
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.authorId != null ? String(pullFilter.authorId) : ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, authorId: v ? Number(v) : undefined }))}
+                    options={[
+                      { value: "", label: "All Authors" },
+                      ...pullAuthorOptions.map((a) => ({ value: String(a.id), label: a.name })),
+                    ]}
+                    placeholder="All Authors"
+                    searchPlaceholder="Search author..."
+                  />
                   <span className="text-xs text-muted-foreground self-center">{selectedPullIds.size} selected</span>
                 </div>
                 <div className="border rounded-md divide-y divide-border overflow-y-auto max-h-[340px]">
