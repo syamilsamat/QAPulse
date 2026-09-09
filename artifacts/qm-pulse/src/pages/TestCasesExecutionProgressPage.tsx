@@ -3726,6 +3726,13 @@ export default function TestCasesExecutionProgressPage() {
             <div className="w-72 shrink-0 border-r border-border overflow-y-auto">
               {groupByModule(filteredData).map(({ name: moduleName, rows: moduleRows }) => {
                 const isCollapsed = focusCollapsedModules.has(moduleName);
+                // Bulk-select support (reuses the same selectedRows/handleSelectRow/
+                // confirmDeleteMulti already wired to the toolbar's "Delete Selected"
+                // button — this tree view is the only thing that never fed it rows).
+                const moduleIds = moduleRows.map(row => row.id as string | number);
+                const selectedInModule = moduleIds.filter(id => selectedRows.includes(id)).length;
+                const moduleAllSelected = moduleIds.length > 0 && selectedInModule === moduleIds.length;
+                const moduleSomeSelected = selectedInModule > 0 && !moduleAllSelected;
                 return (
                   <div key={moduleName}>
                     <div
@@ -3736,6 +3743,22 @@ export default function TestCasesExecutionProgressPage() {
                         return s;
                       })}
                     >
+                      {mode === "edit" && (
+                        <input
+                          type="checkbox"
+                          className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer shrink-0"
+                          checked={moduleAllSelected}
+                          ref={(el) => { if (el) el.indeterminate = moduleSomeSelected; }}
+                          title={`Select all in ${moduleName}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            setSelectedRows(prev => {
+                              const withoutModule = prev.filter(id => !moduleIds.includes(id));
+                              return e.target.checked ? [...withoutModule, ...moduleIds] : withoutModule;
+                            });
+                          }}
+                        />
+                      )}
                       {isCollapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />}
                       <span className="font-semibold text-xs flex-1 truncate">{moduleName}</span>
                       <Badge variant="secondary" className="text-[10px] shrink-0">{moduleRows.length}</Badge>
@@ -3744,12 +3767,22 @@ export default function TestCasesExecutionProgressPage() {
                       <div className="divide-y divide-border/50">
                         {moduleRows.map(row => {
                           const isActive = focusRow?.id === row.id;
+                          const isRowSelected = selectedRows.includes(row.id as string | number);
                           return (
                             <div
                               key={row.id as string}
                               onClick={() => setFocusRowId(row.id ?? null)}
-                              className={`flex items-center gap-2 pl-6 pr-3 py-2 text-xs cursor-pointer border-l-2 transition-colors ${isActive ? "bg-primary/10 border-primary" : "border-transparent hover:bg-muted/40"}`}
+                              className={`flex items-center gap-2 pl-6 pr-3 py-2 text-xs cursor-pointer border-l-2 transition-colors ${isActive ? "bg-primary/10 border-primary" : "border-transparent hover:bg-muted/40"} ${isRowSelected ? "bg-destructive/5" : ""}`}
                             >
+                              {mode === "edit" && (
+                                <input
+                                  type="checkbox"
+                                  className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer shrink-0"
+                                  checked={isRowSelected}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleSelectRow(row.id as string | number, e.target.checked)}
+                                />
+                              )}
                               <span className={`w-2 h-2 rounded-full shrink-0 ${RESULT_DOT_COLOR[row.result || ""] || "bg-slate-300"}`} />
                               <div className="min-w-0 flex-1">
                                 <div className={`font-mono text-[10px] ${isActive ? "text-primary" : "text-muted-foreground"}`}>{row.caseId || row.testCaseId || "—"}</div>
