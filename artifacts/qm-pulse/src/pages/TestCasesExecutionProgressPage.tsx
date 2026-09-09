@@ -2981,7 +2981,7 @@ export default function TestCasesExecutionProgressPage() {
             </p>
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/60 hover:bg-muted/30">
               <Upload className="w-6 h-6 text-muted-foreground" />
-              <span className="text-sm font-medium">{passEvidenceFile ? passEvidenceFile.name : "Choose screenshot or document"}</span>
+              <span className="text-sm font-medium max-w-full break-words px-2">{passEvidenceFile ? passEvidenceFile.name : "Choose screenshot or document"}</span>
               <span className="text-xs text-muted-foreground">Images, PDF, Word or Excel · maximum 10 MB</span>
               <input
                 type="file"
