@@ -278,6 +278,13 @@ export interface ExcelBuildOptions {
   refNo?: string;
   // CR011 P4: a PASS verdict closes the CAPA loop — fills empty Actual Closure Dates
   capaClosureDate?: string;
+  // Execution-file peer review: the name/date of whoever approved this file
+  // (executionFilesTable.approvedBy/approvedAt), once it's actually gone
+  // through submit-for-review -> approve. Undefined/null when the file isn't
+  // approved yet — Doc Info's Reviewed By/Date stay blank for manual fill,
+  // same as before this existed.
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -413,7 +420,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo, capaClosureDate } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo, capaClosureDate, reviewedByName, reviewedAt } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -434,7 +441,16 @@ export async function buildTestCaseExcel(
         docSheet.cell(`C${row}`).value(fmtShortDate(createdAt));
         docSheet.cell(`D${row}`).value(updatedByName ?? "");
         docSheet.cell(`E${row}`).value(summary);
-        // F = Reviewed by, G = Reviewed date — left blank for manual fill
+        // F = Reviewed by, G = Reviewed date. Stamped only on the most recent
+        // row — reviewedByName/reviewedAt reflect the file's current approval
+        // state as a whole, not a per-edit review, so it belongs on the latest
+        // entry rather than repeated (falsely) across every past edit. Left
+        // blank for manual fill when the file hasn't been through peer review
+        // (submit-for-review -> approve) yet.
+        if (i === entries.length - 1 && reviewedByName) {
+          docSheet.cell(`F${row}`).value(reviewedByName);
+          docSheet.cell(`G${row}`).value(fmtShortDate(reviewedAt));
+        }
       });
     }
 

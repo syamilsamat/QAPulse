@@ -1719,6 +1719,18 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         console.warn("[send-verdict] document register lookup failed:", err);
       }
 
+      // Peer review: fill Doc Info's Reviewed By/Date once the file has
+      // actually gone through submit-for-review -> approve, same as the
+      // Execution Dashboard's own "Download" button.
+      let reviewedByName: string | null = null;
+      if (execFile && (execFile as any).reviewStatus === "approved" && (execFile as any).approvedBy) {
+        const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, (execFile as any).approvedBy));
+        reviewedByName = reviewer?.name ?? null;
+      }
+      const reviewedAt = execFile && (execFile as any).reviewStatus === "approved"
+        ? ((execFile as any).approvedAt instanceof Date ? (execFile as any).approvedAt.toISOString() : (execFile as any).approvedAt ?? null)
+        : null;
+
       const xlsxBuffer = await buildTestCaseExcel(testCases as any, {
         redmineId: String(redmineId),
         issueType: typeLabel,
@@ -1746,6 +1758,8 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
         // CR011 P4: a PASS verdict closes the CAPA loop — fills empty Actual Closure Dates
         capaClosureDate: verdict === "PASS" ? new Date().toISOString() : undefined,
+        reviewedByName,
+        reviewedAt,
       });
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {

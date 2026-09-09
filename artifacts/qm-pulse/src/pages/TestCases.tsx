@@ -122,6 +122,10 @@ function AIGenerateDialog({
   const [availableReqs, setAvailableReqs] = useState<any[]>([]);
   const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<{ requirementId: number; requirementTitle: string; testCases: any[]; error?: string }[]>([]);
+  // Which generated cases get saved — keyed by `${requirementId}-${index in group}`,
+  // stable for the lifetime of one generation (the array itself is only replaced,
+  // never reordered, between "Generate" calls). Defaults to everything checked.
+  const [selectedPreviewKeys, setSelectedPreviewKeys] = useState<Set<string>>(new Set());
   const [step, setStep] = useState<"form" | "preview">("form");
   const [isSavingGenerated, setIsSavingGenerated] = useState(false);
   const generateMutation = useGenerateTestCasesWithAI();
@@ -144,7 +148,11 @@ function AIGenerateDialog({
       },
       {
         onSuccess: (data: any) => {
-          setPreview(data.results ?? []);
+          const results = data.results ?? [];
+          setPreview(results);
+          setSelectedPreviewKeys(new Set(
+            results.flatMap((g: any) => g.testCases.map((_tc: any, i: number) => `${g.requirementId}-${i}`)),
+          ));
           setStep("preview");
         },
       },
@@ -163,6 +171,7 @@ function AIGenerateDialog({
   const handleClose = () => {
     setStep("form");
     setPreview([]);
+    setSelectedPreviewKeys(new Set());
     setAvailableReqs([]);
     setSelectedReqIds(new Set());
     setAiFormModules([]);
@@ -477,6 +486,38 @@ function AIGenerateDialog({
                 Back
               </Button>
             </div>
+
+            {/* Select which generated cases actually get saved — everything
+                starts checked, same convention as the requirement picker's
+                own Select All / Deselect All above. */}
+            <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/40">
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[10px] px-2 text-primary hover:text-primary hover:bg-primary/10"
+                  onClick={() => setSelectedPreviewKeys(new Set(
+                    preview.flatMap((g) => g.testCases.map((_tc, i) => `${g.requirementId}-${i}`)),
+                  ))}
+                >
+                  Select All
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[10px] px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => setSelectedPreviewKeys(new Set())}
+                >
+                  Unselect All
+                </Button>
+              </div>
+              <Badge variant="secondary" className="text-[10px] bg-background shrink-0">
+                {selectedPreviewKeys.size} / {preview.reduce((sum, g) => sum + g.testCases.length, 0)} selected
+              </Badge>
+            </div>
+
             <div className="space-y-5 max-h-[50vh] overflow-y-auto pr-1">
               {preview.map((group) => (
                 <div key={group.requirementId} className="space-y-2">
@@ -490,32 +531,48 @@ function AIGenerateDialog({
                   {group.error && (
                     <p className="text-xs text-destructive px-1">{group.error}</p>
                   )}
-                  {group.testCases.map((tc, i) => (
-                    <Card key={i} className="border">
-                      <CardContent className="p-4 space-y-2">
-                        <p className="font-medium text-sm">{tc.title}</p>
-                        {tc.scenario && (
-                          <p className="text-xs text-muted-foreground">
-                            <strong className="text-foreground">Scenario:</strong>{" "}
-                            {tc.scenario}
-                          </p>
-                        )}
-                        {tc.testSteps && (
-                          <div className="text-xs bg-muted/50 rounded p-2 whitespace-pre-line font-mono mt-2">
-                            {tc.testSteps}
-                          </div>
-                        )}
-                        {tc.expectedResult && (
-                          <div className="text-xs mt-2">
-                            <strong className="text-foreground">Expected Result:</strong>{" "}
-                            <span className="text-green-700 dark:text-green-400 font-medium whitespace-pre-line">
-                              {tc.expectedResult}
-                            </span>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
+                  {group.testCases.map((tc, i) => {
+                    const key = `${group.requirementId}-${i}`;
+                    const isChecked = selectedPreviewKeys.has(key);
+                    return (
+                      <Card key={i} className={`border ${isChecked ? "" : "opacity-50"}`}>
+                        <CardContent className="p-4 flex gap-3">
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => setSelectedPreviewKeys((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key); else next.add(key);
+                              return next;
+                            })}
+                            id={`preview-tc-${key}`}
+                            className="mt-1 min-w-[18px] min-h-[18px] shrink-0"
+                          />
+                          <label htmlFor={`preview-tc-${key}`} className="flex-1 min-w-0 space-y-2 cursor-pointer">
+                            <p className="font-medium text-sm">{tc.title}</p>
+                            {tc.scenario && (
+                              <p className="text-xs text-muted-foreground">
+                                <strong className="text-foreground">Scenario:</strong>{" "}
+                                {tc.scenario}
+                              </p>
+                            )}
+                            {tc.testSteps && (
+                              <div className="text-xs bg-muted/50 rounded p-2 whitespace-pre-line font-mono mt-2">
+                                {tc.testSteps}
+                              </div>
+                            )}
+                            {tc.expectedResult && (
+                              <div className="text-xs mt-2">
+                                <strong className="text-foreground">Expected Result:</strong>{" "}
+                                <span className="text-green-700 dark:text-green-400 font-medium whitespace-pre-line">
+                                  {tc.expectedResult}
+                                </span>
+                              </div>
+                            )}
+                          </label>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               ))}
             </div>
@@ -552,16 +609,19 @@ function AIGenerateDialog({
           ) : (
             <Button
               onClick={async () => {
+                const toSave = preview
+                  .map((g) => ({ ...g, testCases: g.testCases.filter((_tc, i) => selectedPreviewKeys.has(`${g.requirementId}-${i}`)) }))
+                  .filter((g) => g.testCases.length > 0);
                 setIsSavingGenerated(true);
-                const saved = await onSuccess(preview, { ...form, module: aiFormModules.join(",") });
+                const saved = await onSuccess(toSave, { ...form, module: aiFormModules.join(",") });
                 setIsSavingGenerated(false);
                 if (saved) handleClose();
               }}
-              disabled={isSavingGenerated}
+              disabled={isSavingGenerated || selectedPreviewKeys.size === 0}
               className="gap-2 w-full sm:w-auto"
             >
               {isSavingGenerated ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {isSavingGenerated ? "Saving all..." : `Save All (${preview.reduce((sum, g) => sum + g.testCases.length, 0)})`}
+              {isSavingGenerated ? "Saving..." : `Save Selected (${selectedPreviewKeys.size})`}
             </Button>
           )}
         </DialogFooter>

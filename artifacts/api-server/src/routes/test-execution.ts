@@ -1722,6 +1722,18 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
           .catch(() => [] as any[])
       : [];
 
+    // Peer review: fill Doc Info's Reviewed By/Date once the file has actually
+    // gone through submit-for-review -> approve, instead of leaving it blank
+    // for manual fill regardless of whether the review already happened.
+    let reviewedByName: string | null = null;
+    if (file && (file as any).reviewStatus === "approved" && (file as any).approvedBy) {
+      const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, (file as any).approvedBy));
+      reviewedByName = reviewer?.name ?? null;
+    }
+    const reviewedAt = file && (file as any).reviewStatus === "approved"
+      ? ((file as any).approvedAt instanceof Date ? (file as any).approvedAt.toISOString() : (file as any).approvedAt ?? null)
+      : null;
+
     const typeLabel = issueType || "Issue";
 
     // CR006: AI-generated CAPA items
@@ -1740,6 +1752,8 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
         createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
         tcCount: a.tcCount ?? 0,
       })),
+      reviewedByName,
+      reviewedAt,
     });
 
     if (!buffer) {
