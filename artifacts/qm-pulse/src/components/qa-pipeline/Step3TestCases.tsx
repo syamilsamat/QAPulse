@@ -161,6 +161,8 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
         description: "A reviewer can now review these test cases on the Execution Dashboard.",
       });
       queryClient.invalidateQueries({ queryKey: ["execution-files"] });
+      // Keeps the pipeline rail's per-step icons in step with the work.
+      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Submit failed", description: String(err?.message ?? err) });
     } finally {
@@ -375,6 +377,8 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
         onCompiled={(ticketId) => {
           setSelectedIds(new Set());
           queryClient.invalidateQueries({ queryKey: ["execution-files"] });
+          // Keeps the pipeline rail's per-step icons in step with the work.
+          queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
           queryClient.invalidateQueries({ queryKey: ["compiled-library-tc-ids"] });
           setLocation(`/test-cases/execution/${ticketId}`);
         }}
