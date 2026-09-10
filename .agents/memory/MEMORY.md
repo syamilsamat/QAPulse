@@ -1,0 +1,1 @@
+- [GitHub sync authentication](github-sync.md) — refresh the gh-managed HTTPS credential helper when a connected GitHub push still uses stale credentials.

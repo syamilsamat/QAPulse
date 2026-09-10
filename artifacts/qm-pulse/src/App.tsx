@@ -66,6 +66,11 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+      // Reuse recently loaded page data during normal navigation instead of
+      // showing the same loading state again. Mutations still invalidate the
+      // affected query keys when fresh data is required.
+      staleTime: 30 * 1000,
+      gcTime: 10 * 60 * 1000,
     },
   },
 });

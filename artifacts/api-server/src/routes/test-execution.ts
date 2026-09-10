@@ -1052,7 +1052,7 @@ router.get(
         .where(eq(executionFilesTable.redmineTicketId, ticketId));
 
       if (!file) {
-        res.json({ testCases: [], lastUpdatedAt: null });
+        res.json({ testCases: [], lastUpdatedAt: null, file: null });
         return;
       }
       if (!(await canAccessFileProject(ctx, file.projectId))) {
@@ -1117,6 +1117,22 @@ router.get(
 
       res.json({
         lastUpdatedAt: file.updatedAt,
+        file: {
+          id: file.id,
+          redmineTicketId: file.redmineTicketId,
+          title: file.title,
+          qaPic: file.qaPic,
+          remarks: file.remarks,
+          selectedModules: file.selectedModules,
+          tracker: file.tracker,
+          projectId: file.projectId,
+          requirementId: file.requirementId,
+          milestoneId: (file as any).milestoneId ?? null,
+          reviewStatus: (file as any).reviewStatus ?? "draft",
+          rejectionReason: (file as any).rejectionReason ?? null,
+          qaPicSetBy: (file as any).qaPicSetBy ?? null,
+          updatedAt: file.updatedAt,
+        },
         testCases: testCases.map((t) => {
           const revisedAt = t.libraryTcId != null ? revisedMap.get(t.libraryTcId) : undefined;
           const reviewAcknowledgedAt = (t as any).reviewAcknowledgedAt ?? null;
