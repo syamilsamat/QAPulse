@@ -82,6 +82,38 @@ const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
 // who can start a pipeline milestone can also edit/delete it from here.
 const PIPELINE_WRITE_ROLES = ["admin", "qa_member", "qa_lead", "qa_manager", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"];
 
+// A step's icon reflects what has actually been completed, not where the
+// user happens to be standing. The two are independent: navigation is
+// free-roam (goToStep allows any step at any time, and two QA members often
+// work different steps in parallel), so "the step before the one I'm viewing"
+// says nothing about whether that work is done. The server computes the real
+// gates — see computePipelineStepStates in routes/milestones.ts — and which
+// step you're currently viewing is shown by the highlight, not the icon.
+type StepState = "done" | "in_progress" | "not_started" | "skipped";
+
+function StepStateIcon({ state }: { state: StepState }) {
+  const size = "w-4 h-4 md:w-5 md:h-5";
+  switch (state) {
+    case "done":
+      return <CheckCircle2 className={`${size} text-green-500`} />;
+    case "in_progress":
+      // Same clock StatusBadge already uses for Active/UAT, so "underway"
+      // reads the same way everywhere in the app.
+      return <Clock className={`${size} text-amber-500`} />;
+    case "skipped":
+      return <MinusCircle className={`${size} text-muted-foreground`} />;
+    default:
+      return <Circle className={`${size} text-muted-foreground`} />;
+  }
+}
+
+const STEP_STATE_LABEL: Record<StepState, string> = {
+  done: "Completed",
+  in_progress: "In progress",
+  not_started: "Not started",
+  skipped: "Not required for this milestone",
+};
+
 // Placeholder Steps for the 8-step wizard
 const PIPELINE_STEPS = [
   { id: 1, title: "Milestone & UAT", desc: "Create milestone & configure UAT" },
@@ -264,6 +296,20 @@ export default function QAPipeline() {
   // one can retro-edit a signed-off pipeline. Milestone dates and details stay
   // editable via the Edit Milestone dialog.
   const isLocked = milestone?.status === "completed";
+
+  // Real per-step state from the server (computePipelineStepStates in
+  // routes/milestones.ts). Falls back to the old position-based reading only
+  // while the milestone is still loading, or against an API that predates
+  // the field — never guessing "done" for work it cannot verify: an
+  // unverified earlier step shows as in-progress, not as a green tick.
+  const stepStateFor = (stepId: number): StepState => {
+    const fromServer = milestone?.pipelineStepStates?.[stepId];
+    if (fromServer) return fromServer;
+    // Still loading — show a neutral rail rather than a wrong one.
+    if (!milestone) return "not_started";
+    if (stepId === 7 && !milestone.requiresUat) return "skipped";
+    return stepId <= currentStep ? "in_progress" : "not_started";
+  };
 
   const goToStep = (step: number) => {
     setCurrentStep(step);
@@ -638,36 +684,34 @@ export default function QAPipeline() {
             <div className="flex md:flex-col gap-2 md:gap-3 overflow-x-auto md:overflow-x-visible -mx-1 px-1 pb-2 md:pb-0 snap-x">
               {PIPELINE_STEPS.map((step) => {
                 const isActive = step.id === currentStep;
-                const isPast = step.id < currentStep;
-                // Step 7 doesn't apply when the milestone has no UAT phase —
-                // dim it and say so, but keep it reachable so the step itself
-                // can explain why it's skipped.
-                const notApplicable = step.id === 7 && !!milestone && !milestone.requiresUat;
+                const state = stepStateFor(step.id);
+                const isSkipped = state === "skipped";
                 return (
                   <button
                     key={step.id}
                     type="button"
                     onClick={() => goToStep(step.id)}
-                    className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : notApplicable ? "opacity-40" : "opacity-70"}`}
+                    title={`${step.title} — ${STEP_STATE_LABEL[state]}`}
+                    aria-current={isActive ? "step" : undefined}
+                    className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : isSkipped ? "opacity-40" : state === "not_started" ? "opacity-60" : "opacity-85"}`}
                   >
                     <div className="mt-0.5 shrink-0">
-                      {notApplicable ? (
-                        <MinusCircle className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />
-                      ) : isPast ? (
-                        <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-green-500" />
-                      ) : isActive ? (
-                        <Circle className="w-4 h-4 md:w-5 md:h-5 fill-primary text-primary" />
-                      ) : (
-                        <Circle className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />
-                      )}
+                      <StepStateIcon state={state} />
                     </div>
                     <div className="min-w-0">
-                      <p className={`font-medium text-xs md:text-sm ${isActive ? "text-primary" : ""} ${notApplicable ? "line-through decoration-muted-foreground/50" : ""}`}>
+                      <p className={`font-medium text-xs md:text-sm ${isActive ? "text-primary" : ""} ${isSkipped ? "line-through decoration-muted-foreground/50" : ""}`}>
                         {step.id}. {step.title}
                       </p>
                       <p className="hidden md:block text-xs text-muted-foreground mt-0.5">
-                        {notApplicable ? "Not required for this milestone" : step.desc}
+                        {isSkipped ? STEP_STATE_LABEL.skipped : step.desc}
                       </p>
+                      {/* Says what the icon means, so the rail is readable
+                          without decoding colours (and for the colour-blind). */}
+                      {state !== "not_started" && !isSkipped && (
+                        <p className={`hidden md:block text-[11px] mt-0.5 font-medium ${state === "done" ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"}`}>
+                          {STEP_STATE_LABEL[state]}
+                        </p>
+                      )}
                     </div>
                   </button>
                 );

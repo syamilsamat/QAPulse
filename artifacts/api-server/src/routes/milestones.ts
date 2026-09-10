@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, and, inArray } from "drizzle-orm";
-import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, dataPrepFilesTable, risksTable } from "@workspace/db";
+import { eq, and, ne, inArray, sql } from "drizzle-orm";
+import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, executionTestCasesTable, uatSignoffsTable, dataPrepFilesTable, risksTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
@@ -52,6 +52,85 @@ const LESSON_TYPE_LABEL: Record<string, string> = {
   best_practice: "Best Practice",
 };
 const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
+
+/**
+ * Per-step state for the QA Deployment Pipeline stepper.
+ *
+ * The stepper used to colour its icons purely by position - anything before
+ * the step you happened to be viewing rendered as a green tick. Navigation is
+ * free-roam (goToStep lets anyone jump to any step, and two QA members often
+ * work different steps at once), so position says nothing about whether the
+ * work is actually done. These are the real gates.
+ *
+ * The eight entries line up with PIPELINE_STEPS on the client, and gates 2-8
+ * mirror the conditions computePipelineState() uses for the dashboard's
+ * pipeline progress bar, with two deliberate differences on the execution
+ * gate (Step 5):
+ *
+ *   - group rows are excluded here. They are section banners, never carry a
+ *     result, and counting them leaves any file that uses one permanently
+ *     short of "fully executed". computePipelineState() still counts them,
+ *     so its progress bar can under-report on such a milestone.
+ *   - only QA files count here. UAT execution has its own gate at Step 7;
+ *     computePipelineState() pools both.
+ *
+ * Worth aligning computePipelineState() to match, but that changes the
+ * dashboard's numbers, so it is left as a separate decision.
+ */
+export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped";
+
+function computePipelineStepStates(input: {
+  requirementCount: number;
+  execFileCount: number;
+  approvedFileCount: number;
+  totalExecRows: number;
+  executedRows: number;
+  signedOff: boolean;
+  requiresUat: boolean;
+  uatDocCount: number;
+  deployed: boolean;
+}): Record<number, PipelineStepState> {
+  const {
+    requirementCount, execFileCount, approvedFileCount,
+    totalExecRows, executedRows, signedOff, requiresUat, uatDocCount, deployed,
+  } = input;
+
+  // "partial" is the difference between not-started and in-progress: some of
+  // the work exists but the gate has not cleared yet.
+  const states: Record<number, PipelineStepState> = {
+    // Step 1 is satisfied by the milestone existing at all - reaching this
+    // endpoint means it does.
+    1: "done",
+    2: requirementCount > 0 ? "done" : "not_started",
+    3: execFileCount > 0 ? "done" : "not_started",
+    4: execFileCount > 0 && approvedFileCount >= execFileCount
+      ? "done"
+      : approvedFileCount > 0
+        ? "in_progress"
+        : "not_started",
+    5: totalExecRows > 0 && executedRows >= totalExecRows
+      ? "done"
+      : executedRows > 0
+        ? "in_progress"
+        : "not_started",
+    6: signedOff ? "done" : "not_started",
+    7: !requiresUat ? "skipped" : uatDocCount > 0 ? "done" : "not_started",
+    8: deployed ? "done" : "not_started",
+  };
+
+  // The earliest unfinished step is where the pipeline actually sits right
+  // now, so show it as in-progress rather than as an untouched step - that is
+  // the "current work" signal the rail exists to give.
+  for (let id = 1; id <= 8; id++) {
+    if (states[id] === "not_started") {
+      states[id] = "in_progress";
+      break;
+    }
+    if (states[id] === "in_progress") break;
+  }
+
+  return states;
+}
 
 function fmt(m: typeof milestonesTable.$inferSelect) {
   return {
@@ -295,10 +374,46 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   // Counts for the milestone
   const reqs = await db.select({ id: requirementsTable.id, reviewStatus: requirementsTable.reviewStatus })
     .from(requirementsTable).where(eq(requirementsTable.milestoneId, id));
-  const execFiles = await db.select({ id: executionFilesTable.id, fileType: executionFilesTable.fileType })
+  const execFiles = await db.select({ id: executionFilesTable.id, fileType: executionFilesTable.fileType, reviewStatus: executionFilesTable.reviewStatus })
     .from(executionFilesTable).where(eq(executionFilesTable.milestoneId, id));
   const dataFiles = await db.select({ id: dataPrepFilesTable.id })
     .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
+
+  const qaFiles = execFiles.filter((f) => f.fileType === "qa");
+
+  // Execution row tallies drive the stepper's Step 5 state, so they count QA
+  // files only - UAT execution is gated separately at Step 7, and including
+  // it here would hold Step 5 open until UAT finished. Group rows are section
+  // banners rather than tests: counting them would leave any file that uses
+  // one permanently short of "fully executed".
+  const qaFileIds = qaFiles.map((f) => f.id);
+  const [execTally] = qaFileIds.length
+    ? await db
+        .select({
+          total: sql<number>`count(*)::int`,
+          executed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('passed', 'pass', 'failed', 'fail', 'blocked'))::int`,
+        })
+        .from(executionTestCasesTable)
+        .where(and(
+          inArray(executionTestCasesTable.executionFileId, qaFileIds),
+          ne(executionTestCasesTable.rowType, "group"),
+        ))
+    : [{ total: 0, executed: 0 }];
+
+  const uatDocs = await db.select({ id: uatSignoffsTable.id })
+    .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, id));
+
+  const pipelineStepStates = computePipelineStepStates({
+    requirementCount: reqs.length,
+    execFileCount: qaFiles.length,
+    approvedFileCount: qaFiles.filter((f) => f.reviewStatus === "approved").length,
+    totalExecRows: execTally?.total ?? 0,
+    executedRows: execTally?.executed ?? 0,
+    signedOff: !!m.signedOffAt,
+    requiresUat: !!m.requiresUat,
+    uatDocCount: uatDocs.length,
+    deployed: m.status === "completed",
+  });
 
   // Resolve the sign-off signer so the pipeline's sign-off step can name who
   // approved it — fmt() only carries the raw user id.
@@ -321,7 +436,11 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     approvedCount: reqs.filter(r => r.reviewStatus === "approved").length,
     executionFileCount: execFiles.filter(f => f.fileType === "qa").length,
     uatFileCount: execFiles.filter(f => f.fileType === "uat").length,
+    uatSignoffCount: uatDocs.length,
     dataPrepFileCount: dataFiles.length,
+    execRowCount: execTally?.total ?? 0,
+    execExecutedCount: execTally?.executed ?? 0,
+    pipelineStepStates,
   });
 });
 

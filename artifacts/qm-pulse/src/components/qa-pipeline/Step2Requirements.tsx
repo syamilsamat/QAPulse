@@ -164,6 +164,8 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
       toast({ title: "Owners updated", description: "These names now show on the Tasks page." });
       setAssignFor(null);
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
+      // Keeps the pipeline rail's per-step icons in step with the work.
+      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
       queryClient.invalidateQueries({ queryKey: ["task-board"] });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Could not save", description: String(err?.message ?? err) });
@@ -302,6 +304,8 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     try {
       await processRedmineSync(redmineId.trim(), undefined, true, added);
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
+      // Keeps the pipeline rail's per-step icons in step with the work.
+      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
       setSyncSummary(added);
       setSyncSummaryOpen(true);
       setRedmineId("");
@@ -395,6 +399,8 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
       if (!res.ok) throw new Error("Failed to add to acceptance criteria");
       await patchSuggestionStatus(suggestionId, "accepted");
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
+      // Keeps the pipeline rail's per-step icons in step with the work.
+      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
       toast({ title: "Added to acceptance criteria" });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message ?? "Failed to accept suggestion" });
