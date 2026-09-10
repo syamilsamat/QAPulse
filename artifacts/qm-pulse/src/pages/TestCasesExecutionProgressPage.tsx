@@ -3749,7 +3749,14 @@ export default function TestCasesExecutionProgressPage() {
                 return (
                   <div key={moduleName}>
                     <div
-                      className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b border-border cursor-pointer select-none hover:bg-muted/80 transition-colors sticky top-0 z-10"
+                      /* Opaque, not tinted: this header is `sticky`, so the
+                         test case rows scroll underneath it. At bg-muted/50
+                         they showed straight through the module name. The
+                         hover tone has to be opaque for the same reason —
+                         --border reads as darker in light mode and lighter in
+                         dark, so it works as an affordance either way, whereas
+                         --accent/--secondary are both identical to --muted. */
+                      className="flex items-center gap-2 px-3 py-2 bg-muted border-b border-border cursor-pointer select-none hover:bg-border transition-colors sticky top-0 z-10"
                       onClick={() => setFocusCollapsedModules(prev => {
                         const s = new Set(prev);
                         s.has(moduleName) ? s.delete(moduleName) : s.add(moduleName);
