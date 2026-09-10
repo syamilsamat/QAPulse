@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { verifyToken } from "../routes/auth";
 import type { Request } from "express";
+import { cachedForRequest } from "./request-cache";
 
 export interface AuthContext {
   userId: number;
@@ -42,9 +43,14 @@ export function getAuthContext(req: Request): AuthContext | null {
  */
 export async function scopeToUserProjects(userId: number, role: string): Promise<number[] | null> {
   if (role === "admin") return null;
+  // Called several times per request (once per handler, again inside
+  // canAccessProject); the answer cannot change mid-request.
+  return cachedForRequest(`scope:${userId}:${role}`, () => computeUserProjectScope(userId, role));
+}
 
+async function computeUserProjectScope(userId: number, role: string): Promise<number[] | null> {
   try {
-    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+    const roleRow = await getRoleRow(role);
     const tierRank = roleRow?.tierRank ?? 1;
     const department = roleRow?.department ?? null;
 
@@ -106,8 +112,15 @@ export interface ModuleScope {
  */
 export async function getModuleScope(userId: number, role: string, projectId: number): Promise<ModuleScope> {
   if (role === "admin") return { restricted: false, moduleNames: [] };
+  // Fanned out per distinct project by every list endpoint, so the
+  // role lookup below was repeating once per project on one page load.
+  return cachedForRequest(`modscope:${userId}:${role}:${projectId}`, () =>
+    computeModuleScope(userId, role, projectId),
+  );
+}
 
-  const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+async function computeModuleScope(userId: number, role: string, projectId: number): Promise<ModuleScope> {
+  const roleRow = await getRoleRow(role);
   const tierRank = roleRow?.tierRank ?? 1;
   if (tierRank >= 3) return { restricted: false, moduleNames: [] };
 
@@ -139,12 +152,27 @@ export async function canAccessModule(userId: number, role: string, projectId: n
  */
 export async function getRoleTierRank(role: string): Promise<number> {
   if (role === "admin") return Infinity;
-  try {
-    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
-    return roleRow?.tierRank ?? 1;
-  } catch {
-    return 1;
-  }
+  const row = await getRoleRow(role);
+  return row?.tierRank ?? 1;
+}
+
+/**
+ * The `roles` row for a role name, memoised per request.
+ *
+ * Every access helper here re-read this same single row, and several
+ * handlers call two or three of them, so one page load was issuing the same
+ * lookup repeatedly. Returns null on failure to preserve each caller's
+ * existing "table not there yet / fall back to the safe default" behaviour.
+ */
+async function getRoleRow(role: string) {
+  return cachedForRequest(`role:${role}`, async () => {
+    try {
+      const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
+      return roleRow ?? null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /**
@@ -154,10 +182,6 @@ export async function getRoleTierRank(role: string): Promise<number> {
  */
 export async function getRoleDepartment(role: string): Promise<string | null> {
   if (role === "admin" || role === "cto") return null;
-  try {
-    const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, role));
-    return roleRow?.department ?? null;
-  } catch {
-    return null;
-  }
+  const row = await getRoleRow(role);
+  return row?.department ?? null;
 }

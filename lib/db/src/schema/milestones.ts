@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, index } from "drizzle-orm/pg-core";
 
 export const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
@@ -47,7 +47,12 @@ export const milestonesTable = pgTable("milestones", {
   description: text("description"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  // Every dashboard path starts by scoping milestones to accessible projects
+  // and ordering by target date.
+  index("milestones_project_idx").on(t.projectId),
+  index("milestones_target_date_idx").on(t.targetDate),
+]);
 
 export type Milestone = typeof milestonesTable.$inferSelect;
 export type InsertMilestone = typeof milestonesTable.$inferInsert;
@@ -60,7 +65,10 @@ export const milestoneAssigneesTable = pgTable("milestone_assignees", {
   userId: integer("user_id").notNull(),
   assignedBy: integer("assigned_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("milestone_assignees_milestone_idx").on(t.milestoneId),
+  index("milestone_assignees_user_idx").on(t.userId),
+]);
 
 // CR054p3 — UAT sign-off documents. File bytes stored base64 in-row: sign-off
 // packs are small (a few MB) and this keeps backup/restore trivial; revisit
@@ -76,7 +84,10 @@ export const uatSignoffsTable = pgTable("uat_signoffs", {
   dataBase64: text("data_base64").notNull(),
   uploadedBy: integer("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("uat_signoffs_milestone_idx").on(t.milestoneId),
+  index("uat_signoffs_project_idx").on(t.projectId),
+]);
 
 // CR070 — data-prep source files. QA uploads the prepared dataset against a
 // 'data_prep' milestone; PM downloads it to hand off to the client. Same
@@ -92,7 +103,9 @@ export const dataPrepFilesTable = pgTable("data_prep_files", {
   dataBase64: text("data_base64").notNull(),
   uploadedBy: integer("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("data_prep_files_milestone_idx").on(t.milestoneId),
+]);
 
 export type MilestoneAssignee = typeof milestoneAssigneesTable.$inferSelect;
 export type UatSignoff = typeof uatSignoffsTable.$inferSelect;

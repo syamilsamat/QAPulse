@@ -5,6 +5,7 @@ import {
   timestamp,
   integer,
   boolean,
+  index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -53,7 +54,12 @@ export const testCasesTable = pgTable("test_cases", {
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
-});
+}, (t) => [
+  // Traceability + the requirements list both fan out from requirement_id.
+  index("test_cases_requirement_idx").on(t.requirementId),
+  index("test_cases_project_idx").on(t.projectId),
+  index("test_cases_author_idx").on(t.authorId),
+]);
 
 export const insertTestCaseSchema = createInsertSchema(testCasesTable).omit({
   id: true,

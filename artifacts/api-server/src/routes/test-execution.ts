@@ -21,7 +21,7 @@ import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { logActivity } from "./_audit";
 import { notifyUser } from "./_notify";
-import { computeRequirementTimelines, buildPhaseTimelineRollup } from "./dashboard";
+import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { fetchActiveDefectsForIssue } from "./verdict-report";
@@ -243,9 +243,14 @@ router.get("/execution-files", async (req, res): Promise<void> => {
     // file, since several files can share a milestone.
     const phaseBreakdownByMilestone = new Map<number, { requirement: number; development: number; testing: number; uat: number }>();
     const timelineEntriesByMilestone = new Map<number, Awaited<ReturnType<typeof computeRequirementTimelines>>>();
-    await Promise.all(milestoneIds.map(async (mid) => {
-      const milestone = milestoneById.get(mid);
-      const entries = await computeRequirementTimelines(mid, milestone?.completedAt ?? null);
+    // One batched pass for every milestone in this file list — previously
+    // three queries per milestone, fired concurrently and then queued behind
+    // the connection pool.
+    const batched = await computeRequirementTimelinesBatch(
+      milestoneIds.map((mid) => ({ id: mid, completedAt: milestoneById.get(mid)?.completedAt ?? null })),
+    );
+    milestoneIds.forEach((mid) => {
+      const entries = batched.get(mid) ?? [];
       timelineEntriesByMilestone.set(mid, entries);
       const breakdown = { requirement: 0, development: 0, testing: 0, uat: 0 };
       for (const entry of entries) {
@@ -257,7 +262,7 @@ router.get("/execution-files", async (req, res): Promise<void> => {
         else breakdown.requirement += 1; // "requirements" or "gap"
       }
       phaseBreakdownByMilestone.set(mid, breakdown);
-    }));
+    });
 
     // CR075 — per-file phase timeline rollup (Requirement Detail's phase
     // timeline, generalized across every requirement this file's test cases
@@ -337,24 +342,39 @@ router.get("/execution-progress", async (req, res): Promise<void> => {
     const fileIds = visibleFiles.map((f) => f.id);
     const ticketByFileId = new Map(visibleFiles.map((f) => [f.id, f.redmineTicketId]));
 
-    const tcRows = await db
-      .select({ executionFileId: executionTestCasesTable.executionFileId, result: executionTestCasesTable.result })
+    // Counted in the database rather than by streaming every execution row
+    // into Node — this endpoint reads the largest table in the product and
+    // only ever needs six integers per file. Bucketing matches the previous
+    // in-memory logic exactly: trim, lowercase, and anything unrecognised
+    // (including null/empty) falls into notExecuted.
+    const bucketExpr = sql<string>`lower(trim(coalesce(${executionTestCasesTable.result}, '')))`;
+    const countRows = await db
+      .select({
+        executionFileId: executionTestCasesTable.executionFileId,
+        total: sql<number>`count(*)::int`,
+        passed: sql<number>`count(*) filter (where ${bucketExpr} = 'passed')::int`,
+        failed: sql<number>`count(*) filter (where ${bucketExpr} = 'failed')::int`,
+        blocked: sql<number>`count(*) filter (where ${bucketExpr} = 'blocked')::int`,
+        inProgress: sql<number>`count(*) filter (where ${bucketExpr} = 'in progress')::int`,
+        notExecuted: sql<number>`count(*) filter (where ${bucketExpr} not in ('passed', 'failed', 'blocked', 'in progress'))::int`,
+      })
       .from(executionTestCasesTable)
-      .where(inArray(executionTestCasesTable.executionFileId, fileIds));
+      .where(inArray(executionTestCasesTable.executionFileId, fileIds))
+      .groupBy(executionTestCasesTable.executionFileId);
 
     const agg: Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }> = {};
-    for (const row of tcRows) {
+    for (const row of countRows) {
       const ticketId = ticketByFileId.get(row.executionFileId);
       if (!ticketId) continue;
-      if (!agg[ticketId]) agg[ticketId] = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
-      const bucket = agg[ticketId];
-      bucket.total += 1;
-      const result = (row.result?.trim() || "").toLowerCase();
-      if (result === "passed") bucket.passed += 1;
-      else if (result === "failed") bucket.failed += 1;
-      else if (result === "blocked") bucket.blocked += 1;
-      else if (result === "in progress") bucket.inProgress += 1;
-      else bucket.notExecuted += 1;
+      // Two files can share a ticket id only if the data is inconsistent;
+      // summing rather than overwriting preserves the old behaviour.
+      const bucket = agg[ticketId] ?? (agg[ticketId] = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 });
+      bucket.total += row.total;
+      bucket.passed += row.passed;
+      bucket.failed += row.failed;
+      bucket.blocked += row.blocked;
+      bucket.inProgress += row.inProgress;
+      bucket.notExecuted += row.notExecuted;
     }
     res.json(agg);
   } catch (err: any) {
