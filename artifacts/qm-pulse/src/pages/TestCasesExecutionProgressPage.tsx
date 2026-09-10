@@ -2294,6 +2294,15 @@ export default function TestCasesExecutionProgressPage() {
         if (globalSearch.trim()) {
           const searchLower = globalSearch.toLowerCase();
           const rowValues = Object.values(row).map((v) => String(v).toLowerCase());
+          
+          if (row.requirementId) {
+            const linkedReq = requirementsList.find((r) => r.id === Number(row.requirementId));
+            if (linkedReq) {
+              if (linkedReq.title) rowValues.push(String(linkedReq.title).toLowerCase());
+              if (linkedReq.redmineTicketId) rowValues.push(String(linkedReq.redmineTicketId).toLowerCase());
+            }
+          }
+
           if (!rowValues.some((v) => v.includes(searchLower))) return false;
         }
         if (moduleFilters.length > 0) {
@@ -2312,7 +2321,7 @@ export default function TestCasesExecutionProgressPage() {
         const bO = typeof (b as any).rowOrder === "number" ? (b as any).rowOrder : Infinity;
         return aO - bO;
       });
-  }, [data, globalSearch, moduleFilters, resultFilters, qaFilters]);
+  }, [data, globalSearch, moduleFilters, resultFilters, qaFilters, requirementsList]);
 
   // Focus view: keep the selection valid as filters/data change, defaulting to the first row
   useEffect(() => {
