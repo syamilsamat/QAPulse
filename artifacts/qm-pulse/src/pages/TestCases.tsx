@@ -730,7 +730,7 @@ function ExecutionRunsDialog({ tc, onClose }: { tc: any | null; onClose: () => v
                     <span className="text-xs font-mono text-muted-foreground shrink-0">
                       #{run.redmineTicketId}
                     </span>
-                    <span className="text-sm font-medium truncate">
+                    <span className="text-sm font-medium break-words line-clamp-2" title={run.fileTitle ?? "Untitled execution file"}>
                       {run.fileTitle ?? "Untitled execution file"}
                     </span>
                   </div>
@@ -1535,7 +1535,7 @@ export default function TestCases() {
           </TableCell>
           <TableCell className={cellPy}>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium line-clamp-1">{tc.title}</span>
+              <span className="font-medium break-words line-clamp-2" title={tc.title}>{tc.title}</span>
               {tc.aiAssisted && (
                 <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary uppercase shrink-0">
                   <Sparkles className="w-2 h-2 text-primary" />
