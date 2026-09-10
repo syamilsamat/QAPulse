@@ -66,7 +66,6 @@ import {
   saveTestCases,
   fetchModules,
   fetchUsers,
-  fetchExecutionFiles,
   fetchTrackers,
   fetchRequirements,
   resolveRequirementByRedmine,
@@ -1532,41 +1531,27 @@ export default function TestCasesExecutionProgressPage() {
   };
 
   useEffect(() => {
-    Promise.all([
-      fetchTestCases(ticketId),
-      fetchModules(),
-      fetchUsers(),
-      fetchExecutionFiles(),
-      fetchTrackers(),
-      fetchRequirements(),
-      fetch("/api/test-cases", { headers: getHeaders() }).then(r => r.ok ? r.json() : []),
-    ])
-      .then(([result, allModules, users, files, trackersData, requirementsData, libraryTcs]) => {
-        setAvailableTrackers(trackersData || []);
-        setRequirementsList(requirementsData || []);
-        setLibraryTestCases(libraryTcs || []);
+    let cancelled = false;
+
+    // Load only the data required to paint the page first. Large reference
+    // lists used by editor dialogs are fetched after the spreadsheet is shown.
+    fetchTestCases(ticketId)
+      .then((result) => {
+        if (cancelled) return;
         const testCases = result?.testCases || [];
-        const file = files.find((f) => String(f.redmineTicketId) === String(ticketId));
+        const file = result?.file;
         setCurrentFileMilestoneId(file?.milestoneId ?? null);
         setCurrentFileId(file?.id ?? null);
         setCurrentFileProjectId(file?.projectId ?? null);
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
-        setCurrentFileReviewStatus((file as any)?.reviewStatus ?? null);
-        setCurrentFileRejectionReason((file as any)?.rejectionReason ?? null);
-        setCurrentFileQaPicSetBy((file as any)?.qaPicSetBy ?? null);
+        setCurrentFileReviewStatus(file?.reviewStatus ?? null);
+        setCurrentFileRejectionReason(file?.rejectionReason ?? null);
+        setCurrentFileQaPicSetBy(file?.qaPicSetBy ?? null);
         setCurrentFileQaPic(file?.qaPic ?? null);
-        setCurrentFilePhaseTimeline(file?.phaseTimeline ?? null);
-        setCurrentFileLinkedReqCount(file?.linkedRequirementCount ?? 0);
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
-
-        const selectedModuleLower = selectedModuleNames.map(n => n.toLowerCase());
-        const filteredModules =
-          selectedModuleLower.length > 0
-            ? allModules.filter((m) => selectedModuleLower.includes(m.name.trim().toLowerCase()))
-            : allModules;
 
         if (testCases.length === 0) {
           const firstRow = createEmptyRow();
@@ -1579,8 +1564,28 @@ export default function TestCasesExecutionProgressPage() {
             : testCases;
           setData(filled);
         }
-        setAvailableModules(filteredModules);
-        setQaUsers(users);
+
+        // These lists support pickers and dialogs, but must not delay the
+        // initial page render. Each request is isolated so one optional
+        // service failure does not blank the execution page.
+        Promise.allSettled([
+          fetchModules(),
+          fetchUsers(),
+          fetchTrackers(),
+          fetchRequirements(),
+        ]).then(([modulesResult, usersResult, trackersResult, requirementsResult]) => {
+          if (cancelled) return;
+          if (modulesResult.status === "fulfilled") {
+            const selectedModuleLower = selectedModuleNames.map(n => n.toLowerCase());
+            const filteredModules = selectedModuleLower.length > 0
+              ? modulesResult.value.filter((m) => selectedModuleLower.includes(m.name.trim().toLowerCase()))
+              : modulesResult.value;
+            setAvailableModules(filteredModules);
+          }
+          if (usersResult.status === "fulfilled") setQaUsers(usersResult.value);
+          if (trackersResult.status === "fulfilled") setAvailableTrackers(trackersResult.value || []);
+          if (requirementsResult.status === "fulfilled") setRequirementsList(requirementsResult.value || []);
+        });
       })
       .catch(() =>
         toast({
@@ -1588,7 +1593,13 @@ export default function TestCasesExecutionProgressPage() {
           title: "Failed to load spreadsheet data",
         }),
       )
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [ticketId, toast]);
 
   // Only needed to populate the "link a milestone" picker for a file that
@@ -1904,16 +1915,18 @@ export default function TestCasesExecutionProgressPage() {
     });
   }, []);
 
-  // Poll server every 8s for changes from other users
+  // Refresh collaborative changes without continuously loading the full
+  // spreadsheet while the tab is hidden or the user has unsaved edits.
   useEffect(() => {
     const interval = setInterval(async () => {
+      if (document.visibilityState !== "visible" || dirtyRowIdsRef.current.size > 0) return;
       try {
         const result = await fetchTestCases(ticketId);
         if (result?.testCases) mergeServerData(result.testCases as AppExecutionTestCase[]);
       } catch {
         // silent — don't interrupt user on background poll failure
       }
-    }, 8000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [ticketId, mergeServerData]);
 

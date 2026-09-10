@@ -41,6 +41,9 @@ export interface ExecutionFile {
   milestonePhaseBreakdown?: { requirement: number; development: number; testing: number; uat: number } | null;
   phaseTimeline?: PhaseTimelineEntry[] | null;
   linkedRequirementCount?: number;
+  reviewStatus?: string | null;
+  rejectionReason?: string | null;
+  qaPicSetBy?: number | null;
   updatedAt: string;
 }
 
@@ -231,6 +234,7 @@ export const fetchTestCases = async (
 ): Promise<{
   testCases: ExecutionTestCase[];
   lastUpdatedAt: string | null;
+  file: ExecutionFile | null;
 }> => {
   const res = await fetch(`/api/execution-files/${ticketId}/test-cases`, {
     headers: getHeaders(),
