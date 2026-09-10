@@ -205,4 +205,29 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  /* Native <select> popups, part two.
+     `color-scheme: dark` above only works while the browser is left to pick
+     the control's colours itself. The moment an author background is set —
+     and shadcn's field recipe sets `bg-transparent`, which several selects
+     were copied from — Chrome paints the popup from the control instead of
+     from the colour scheme. A transparent control gave a light popup whose
+     option text still inherited the dark theme's light foreground, so the
+     names were rendered light-on-light and effectively invisible.
+
+     Giving the options their own themed surface fixes every native select
+     at once, including the in-cell ones that intentionally stay transparent
+     so they blend into the table row. macOS draws these popups as real OS
+     menus and ignores option styling, but it already followed the system
+     appearance correctly, so this is inert there rather than conflicting. */
+  select option,
+  select optgroup {
+    @apply bg-popover text-popover-foreground;
+  }
+
+  /* Any select that doesn't set its own background gets the themed one.
+     Utilities still win, so a deliberate `bg-transparent` is unaffected. */
+  select {
+    background-color: hsl(var(--popover));
+  }
 }

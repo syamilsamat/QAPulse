@@ -1361,7 +1361,7 @@ export default function ModuleAndProject() {
                     <div className="space-y-1.5">
                       <Label className="text-xs">Project</Label>
                       <select
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm"
                         value={docRegForm.projectName}
                         onChange={(e) => setDocRegForm((f) => ({ ...f, projectName: e.target.value }))}
                       >
@@ -1372,7 +1372,7 @@ export default function ModuleAndProject() {
                     <div className="space-y-1.5">
                       <Label className="text-xs">Module</Label>
                       <select
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm"
                         value={docRegForm.moduleName}
                         onChange={(e) => setDocRegForm((f) => ({ ...f, moduleName: e.target.value }))}
                       >
@@ -1383,7 +1383,7 @@ export default function ModuleAndProject() {
                     <div className="space-y-1.5">
                       <Label className="text-xs">Tracker</Label>
                       <select
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm"
                         value={docRegForm.tracker}
                         onChange={(e) => setDocRegForm((f) => ({ ...f, tracker: e.target.value }))}
                       >
