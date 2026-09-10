@@ -3,6 +3,7 @@ import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
+import { getNameDirectory } from "../lib/lookups";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { computeRequirementTimelines, buildPhaseTimeline } from "./dashboard";
 import { getLatestReview, getEvidenceForReview, resolveEvidencePath } from "./_code-review";
@@ -47,49 +48,24 @@ router.use((req, res, next) => {
 });
 
 async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
-  let assigneeName: string | null = null;
-  let projectName: string | null = null;
-  let milestoneName: string | null = null;
-  let devAssigneeName: string | null = null;
-  let blockedByName: string | null = null;
+  // One request-scoped directory instead of up to six single-row lookups per
+  // requirement — see lib/lookups.ts. Formatting a 400-row list used to cost
+  // low thousands of queries; it now costs three for the whole request.
+  const names = await getNameDirectory();
 
-  if (req.assigneeId) {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.assigneeId));
-    assigneeName = user?.name ?? null;
-  }
-  if ((req as any).devAssigneeId) {
-    const [devUser] = await db.select().from(usersTable).where(eq(usersTable.id, (req as any).devAssigneeId));
-    devAssigneeName = devUser?.name ?? null;
-  }
-  if ((req as any).blockedBy) {
-    const [blockedByUser] = await db.select().from(usersTable).where(eq(usersTable.id, (req as any).blockedBy));
-    blockedByName = blockedByUser?.name ?? null;
-  }
+  const assigneeName = names.userName(req.assigneeId);
+  const devAssigneeName = names.userName((req as any).devAssigneeId);
+  const blockedByName = names.userName((req as any).blockedBy);
+  const projectName = names.projectName(req.projectId);
+  const milestoneName = names.milestoneName(req.milestoneId);
 
-  // QA Pipeline per-department owners — one lookup for all three departments.
+  // QA Pipeline per-department owners.
   const faIds: number[] = (req as any).pipelineFaIds ?? [];
   const devIds: number[] = (req as any).pipelineDevIds ?? [];
   const qaIds: number[] = (req as any).pipelineQaIds ?? [];
-  const pipelineIds = [...new Set([...faIds, ...devIds, ...qaIds])];
-  const pipelineNameById = new Map<number, string>();
-  if (pipelineIds.length > 0) {
-    const rows = await db
-      .select({ id: usersTable.id, name: usersTable.name })
-      .from(usersTable)
-      .where(inArray(usersTable.id, pipelineIds));
-    for (const r of rows) pipelineNameById.set(r.id, r.name);
-  }
   // Deleted users drop out rather than rendering as a blank name.
   const namesOf = (ids: number[]) =>
-    ids.map((id) => pipelineNameById.get(id)).filter((n): n is string => !!n);
-  if (req.projectId) {
-    const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, req.projectId));
-    projectName = project?.name ?? null;
-  }
-  if (req.milestoneId) {
-    const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, req.milestoneId));
-    milestoneName = milestone?.name ?? null;
-  }
+    ids.map((id) => names.userName(id)).filter((n): n is string => !!n);
 
   return {
     id: req.id,

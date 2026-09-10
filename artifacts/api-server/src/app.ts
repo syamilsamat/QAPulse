@@ -1,14 +1,21 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import compression from "compression";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { requestCache } from "./middleware/request-cache";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
 app.set("etag", false);
 app.set("trust proxy", 1);
+
+// Dashboard/list endpoints return large, highly repetitive JSON (arrays of
+// rows sharing the same keys), which gzips to roughly a tenth of its size.
+// Registered before the routes so every JSON response is covered.
+app.use(compression({ threshold: 1024 }));
 
 app.use(
   helmet({
@@ -73,6 +80,10 @@ app.use(cors({
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+// Establishes the per-request memo store the access helpers read from.
+// Must wrap the API router, not sit beside it.
+app.use("/api", requestCache);
 
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/refresh", authLimiter);

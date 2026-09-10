@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, index } from "drizzle-orm/pg-core";
 
 // 1. Reusable Modules Table
 export const executionModulesTable = pgTable("execution_modules", {
@@ -30,7 +30,15 @@ export const executionFilesTable = pgTable("execution_files", {
   rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // Every list/dashboard endpoint scopes files by project or milestone before
+  // doing anything else; without these both were sequential scans.
+  index("execution_files_project_idx").on(t.projectId),
+  index("execution_files_milestone_idx").on(t.milestoneId),
+  // rollupExecutionByMilestone() filters on the pair, not either alone.
+  index("execution_files_milestone_type_idx").on(t.milestoneId, t.fileType),
+  index("execution_files_requirement_idx").on(t.requirementId),
+]);
 
 // 3. Child Test Cases Table (The spreadsheet rows)
 export const executionTestCasesTable = pgTable("execution_test_cases", {
@@ -62,7 +70,18 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   rowType: text("row_type").notNull().default("testcase"), // "testcase" | "group" — group rows are section banners, label lives in caseName
   // CR023p4 — per-execution-instance ack of a requirement revision
   reviewAcknowledgedAt: timestamp("review_acknowledged_at"),
-});
+}, (t) => [
+  // This is the largest table in the product and previously had no index at
+  // all. Both of these columns are the join/filter key for essentially every
+  // dashboard, progress and traceability query, so each one of those was a
+  // full sequential scan of the whole table.
+  index("exec_tc_file_idx").on(t.executionFileId),
+  index("exec_tc_requirement_idx").on(t.requirementId),
+  // The execution progress page reads one file's rows in sheet order.
+  index("exec_tc_file_order_idx").on(t.executionFileId, t.rowOrder),
+  // Library-linked dedupe in the requirements list.
+  index("exec_tc_library_tc_idx").on(t.libraryTcId),
+]);
 
 // Optional evidence for a passed execution result. File bytes live in the
 // database so evidence survives application restarts and backup/restore.
@@ -78,7 +97,9 @@ export const executionTcEvidenceTable = pgTable("execution_tc_evidence", {
   dataBase64: text("data_base64").notNull(),
   uploadedBy: integer("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("exec_tc_evidence_row_idx").on(t.executionTestCaseId),
+]);
 
 // 4. Status Change History Table (audit trail for CAPA / Pareto analysis)
 export const executionTcHistoryTable = pgTable("execution_tc_history", {
@@ -89,7 +110,9 @@ export const executionTcHistoryTable = pgTable("execution_tc_history", {
   fromStatus: text("from_status"),
   toStatus: text("to_status"),
   changedAt: timestamp("changed_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("exec_tc_history_file_idx").on(t.executionFileId),
+]);
 
 // 5. Execution File Audit Log (populates Doc Info + Review Log sheets)
 export const executionFileAuditTable = pgTable("execution_file_audit", {
@@ -101,7 +124,9 @@ export const executionFileAuditTable = pgTable("execution_file_audit", {
   summary: text("summary").notNull(),
   tcCount: integer("tc_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("exec_file_audit_file_idx").on(t.executionFileId),
+]);
 
 // 6. Document Register (Project + Module → Ref No for Excel G4)
 export const documentRegisterTable = pgTable("document_register", {
@@ -134,4 +159,6 @@ export const executionSummariesTable = pgTable("execution_summaries", {
   notExecuted: integer("not_executed").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("execution_summaries_ticket_idx").on(t.redmineTicketId),
+]);

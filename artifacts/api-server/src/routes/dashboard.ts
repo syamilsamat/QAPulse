@@ -495,25 +495,51 @@ interface RequirementTimelineEntry {
 // Batches activity-log and execution rows for the whole milestone in two
 // queries (not one per requirement) and partitions them in memory — same
 // no-N+1 discipline as the CR026 analytics endpoint.
+//
+// Prefer computeRequirementTimelinesBatch() when you have more than one
+// milestone: this single-milestone entry point costs three round trips, and
+// callers that looped it over every milestone were paying 3N.
 export async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
-  const reqs = await db
-    .select({ id: requirementsTable.id, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, parentId: requirementsTable.parentId, createdAt: requirementsTable.createdAt })
+  const byMilestone = await computeRequirementTimelinesBatch([{ id: milestoneId, completedAt: milestoneCompletedAt }]);
+  return byMilestone.get(milestoneId) ?? [];
+}
+
+/**
+ * Same computation as computeRequirementTimelines, for many milestones in a
+ * fixed three queries total instead of three per milestone.
+ *
+ * The per-milestone version was being called inside a loop over every
+ * milestone the user can see (the Tasks board, /dashboard/summary,
+ * /dashboard/weekly-trend, the execution file list), which is where most of
+ * those pages' load time was going.
+ */
+export async function computeRequirementTimelinesBatch(
+  milestones: { id: number; completedAt: Date | null }[],
+): Promise<Map<number, RequirementTimelineEntry[]>> {
+  const out = new Map<number, RequirementTimelineEntry[]>();
+  const milestoneIds = [...new Set(milestones.map((m) => m.id))];
+  if (milestoneIds.length === 0) return out;
+  for (const id of milestoneIds) out.set(id, []);
+
+  const allReqs = await db
+    .select({ id: requirementsTable.id, milestoneId: requirementsTable.milestoneId, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, parentId: requirementsTable.parentId, createdAt: requirementsTable.createdAt })
     .from(requirementsTable)
-    .where(eq(requirementsTable.milestoneId, milestoneId));
-  if (reqs.length === 0) return [];
-  const reqIds = reqs.map((r) => r.id);
+    .where(inArray(requirementsTable.milestoneId, milestoneIds));
+  if (allReqs.length === 0) return out;
+  const reqIds = allReqs.map((r) => r.id);
 
-  const activityRows = await db
-    .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
-    .from(activityTable)
-    .where(and(eq(activityTable.entityType, "requirement"), inArray(activityTable.entityId, reqIds)))
-    .orderBy(activityTable.createdAt);
-
-  const execRows = await db
-    .select({ requirementId: executionTestCasesTable.requirementId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
-    .from(executionTestCasesTable)
-    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
-    .where(inArray(executionTestCasesTable.requirementId, reqIds));
+  const [activityRows, execRows] = await Promise.all([
+    db
+      .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+      .from(activityTable)
+      .where(and(eq(activityTable.entityType, "requirement"), inArray(activityTable.entityId, reqIds)))
+      .orderBy(activityTable.createdAt),
+    db
+      .select({ requirementId: executionTestCasesTable.requirementId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
+      .from(executionTestCasesTable)
+      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+      .where(inArray(executionTestCasesTable.requirementId, reqIds)),
+  ]);
 
   const activityByReq = new Map<number, { type: string; createdAt: Date }[]>();
   for (const row of activityRows) {
@@ -530,7 +556,13 @@ export async function computeRequirementTimelines(milestoneId: number, milestone
     else if (row.fileType === "uat") bucket.uat.push(row.executedAt);
   }
 
-  return reqs.map((r) => {
+  // completedAt is per-milestone, so it has to be looked up per requirement
+  // rather than closed over as it was in the single-milestone version.
+  const completedAtById = new Map(milestones.map((m) => [m.id, m.completedAt]));
+
+  for (const r of allReqs) {
+    if (r.milestoneId == null) continue;
+    const milestoneCompletedAt = completedAtById.get(r.milestoneId) ?? null;
     const events = activityByReq.get(r.id) ?? [];
     const exec = execByReq.get(r.id) ?? { qa: [], uat: [] };
     const qaExecTimes = [...exec.qa].sort((a, b) => a.getTime() - b.getTime());
@@ -557,8 +589,10 @@ export async function computeRequirementTimelines(milestoneId: number, milestone
       status = "Approved · awaiting Dev";
     }
 
-    return { id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline };
-  });
+    out.get(r.milestoneId)!.push({ id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline });
+  }
+
+  return out;
 }
 
 interface PhaseSummaryEntry {
@@ -783,8 +817,9 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     .limit(5);
 
   const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; developDays: number | null; qaDays: number | null; uatDays: number | null; firstPassPct: number | null; stabilityPct: number | null }[] = [];
+  const trendTimelines = await computeRequirementTimelinesBatch(completedMilestones.map((m) => ({ id: m.id, completedAt: m.completedAt })));
   for (const m of completedMilestones) {
-    const entries = await computeRequirementTimelines(m.id, m.completedAt);
+    const entries = trendTimelines.get(m.id) ?? [];
     if (entries.length === 0) continue;
     const summary = summarizeTimelines(entries);
     const byKey = Object.fromEntries(summary.map((s) => [s.key, s.avgDays])) as Partial<Record<PhaseKey, number | null>>;
@@ -1006,104 +1041,162 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
 
   const rows: any[] = [];
 
-  for (const m of milestones) {
-    const entries = await computeRequirementTimelines(m.id, m.completedAt);
-    if (entries.length === 0) continue;
-    const reqIds = entries.map((e) => e.id);
+  // One batched pass for every milestone the user can see, instead of three
+  // queries per milestone inside the loop below.
+  const timelinesByMilestone = await computeRequirementTimelinesBatch(
+    milestones.map((m) => ({ id: m.id, completedAt: m.completedAt })),
+  );
 
-    const extra = await db
-      .select({
-        id: requirementsTable.id,
-        createdBy: requirementsTable.createdBy,
-        approvedBy: requirementsTable.approvedBy,
-        devAssigneeId: requirementsTable.devAssigneeId,
-        devAssignedBy: requirementsTable.devAssignedBy,
-        reviewStatus: requirementsTable.reviewStatus,
-        devStatus: requirementsTable.devStatus,
-        projectId: requirementsTable.projectId,
-        isBlocked: requirementsTable.isBlocked,
-        pipelineFaIds: requirementsTable.pipelineFaIds,
-        pipelineDevIds: requirementsTable.pipelineDevIds,
-        pipelineQaIds: requirementsTable.pipelineQaIds,
-      })
-      .from(requirementsTable)
-      .where(inArray(requirementsTable.id, reqIds));
-    const extraById = new Map(extra.map((e) => [e.id, e]));
+  // Every lookup below used to run once per milestone inside the loop.
+  // Requirement ids are globally unique and each belongs to exactly one
+  // milestone, so batching them across all milestones builds identical maps
+  // for a fixed number of queries instead of roughly six per milestone.
+  const allReqIds = [...new Set([...timelinesByMilestone.values()].flat().map((e) => e.id))];
+  const pipelineMilestones = milestones.filter((m) => m.pipelineEnabled);
+  const pipelineMilestoneIds = pipelineMilestones.map((m) => m.id);
+  const uatMilestoneIds = pipelineMilestones.filter((m) => m.requiresUat).map((m) => m.id);
 
-    // Dev Tasks — {done, total} per requirement for the Tasks board's "N/M
+  const [extra, devTaskRows, execRows, pipelineFileRows, uatDocRows] = await Promise.all([
+    allReqIds.length
+      ? db
+          .select({
+            id: requirementsTable.id,
+            createdBy: requirementsTable.createdBy,
+            approvedBy: requirementsTable.approvedBy,
+            devAssigneeId: requirementsTable.devAssigneeId,
+            devAssignedBy: requirementsTable.devAssignedBy,
+            reviewStatus: requirementsTable.reviewStatus,
+            devStatus: requirementsTable.devStatus,
+            projectId: requirementsTable.projectId,
+            isBlocked: requirementsTable.isBlocked,
+            pipelineFaIds: requirementsTable.pipelineFaIds,
+            pipelineDevIds: requirementsTable.pipelineDevIds,
+            pipelineQaIds: requirementsTable.pipelineQaIds,
+          })
+          .from(requirementsTable)
+          .where(inArray(requirementsTable.id, allReqIds))
+      : [],
+    // Dev Tasks - {done, total} per requirement for the Tasks board's "N/M
     // dev tasks" annotation. Additive alongside devStatusProgress's 33/66/100
-    // bucket below (that bucket stays as-is for zero-task requirements —
-    // this is display-only, it doesn't change progress math).
-    const devTaskRows = await db
-      .select({ requirementId: tasksTable.requirementId, status: tasksTable.status })
-      .from(tasksTable)
-      .where(inArray(tasksTable.requirementId, reqIds));
-    const devTaskCountsByReq = new Map<number, { done: number; total: number }>();
-    for (const t of devTaskRows) {
-      if (t.requirementId == null) continue;
-      const counts = devTaskCountsByReq.get(t.requirementId) ?? { done: 0, total: 0 };
-      counts.total += 1;
-      if (t.status === "done") counts.done += 1;
-      devTaskCountsByReq.set(t.requirementId, counts);
+    // bucket below (that bucket stays as-is for zero-task requirements -
+    // this is display-only, it does not change progress math).
+    allReqIds.length
+      ? db
+          .select({ requirementId: tasksTable.requirementId, status: tasksTable.status })
+          .from(tasksTable)
+          .where(inArray(tasksTable.requirementId, allReqIds))
+      : [],
+    // QA PIC and QA/UAT results come off the same joined rows, so the big
+    // execution table is read once here rather than twice.
+    //
+    // QA "assignee" - resolved from linked execution file(s)' qaPic
+    // (file-level first, falling back to the per-row qaPic), not a dedicated
+    // column. The "who assigned" name (qaPicSetBy, CR067) is file-level only.
+    //
+    // Pass-rate keeps the same simplification rollupExecutionByMilestone
+    // documents: whatever is currently saved on each row, not "latest result
+    // per TC identity."
+    allReqIds.length
+      ? db
+          .select({
+            requirementId: executionTestCasesTable.requirementId,
+            executionFileId: executionTestCasesTable.executionFileId,
+            filePic: executionFilesTable.qaPic,
+            rowPic: executionTestCasesTable.qaPic,
+            filePicSetBy: executionFilesTable.qaPicSetBy,
+            result: executionTestCasesTable.result,
+            fileType: executionFilesTable.fileType,
+          })
+          .from(executionTestCasesTable)
+          .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+          .where(inArray(executionTestCasesTable.requirementId, allReqIds))
+      : [],
+    pipelineMilestoneIds.length
+      ? db
+          .select({ id: executionFilesTable.id, milestoneId: executionFilesTable.milestoneId, reviewStatus: executionFilesTable.reviewStatus })
+          .from(executionFilesTable)
+          .where(inArray(executionFilesTable.milestoneId, pipelineMilestoneIds))
+      : [],
+    uatMilestoneIds.length
+      ? db
+          .select({ id: uatSignoffsTable.id, milestoneId: uatSignoffsTable.milestoneId })
+          .from(uatSignoffsTable)
+          .where(inArray(uatSignoffsTable.milestoneId, uatMilestoneIds))
+      : [],
+  ]);
+
+  const extraById = new Map(extra.map((e) => [e.id, e]));
+
+  const devTaskCountsByReq = new Map<number, { done: number; total: number }>();
+  for (const t of devTaskRows) {
+    if (t.requirementId == null) continue;
+    const counts = devTaskCountsByReq.get(t.requirementId) ?? { done: 0, total: 0 };
+    counts.total += 1;
+    if (t.status === "done") counts.done += 1;
+    devTaskCountsByReq.set(t.requirementId, counts);
+  }
+
+  const qaPicNamesByReq = new Map<number, Set<string>>();
+  const qaSetterIdsByReq = new Map<number, Set<number>>();
+  const qaFileIdByReq = new Map<number, number>();
+  const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
+  for (const r of execRows) {
+    if (r.requirementId == null) continue;
+    if (!qaFileIdByReq.has(r.requirementId)) qaFileIdByReq.set(r.requirementId, r.executionFileId);
+    const pic = r.filePic || r.rowPic;
+    if (pic) {
+      if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
+      qaPicNamesByReq.get(r.requirementId)!.add(pic);
     }
-
-    // QA "assignee" — resolved from linked execution file(s)' qaPic (file-level
-    // first, falling back to the per-row qaPic), not a dedicated column. The
-    // "who assigned" name (qaPicSetBy, CR067) is only tracked at file level.
-    const qaPicRows = await db
-      .select({ requirementId: executionTestCasesTable.requirementId, executionFileId: executionTestCasesTable.executionFileId, filePic: executionFilesTable.qaPic, rowPic: executionTestCasesTable.qaPic, filePicSetBy: executionFilesTable.qaPicSetBy })
-      .from(executionTestCasesTable)
-      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
-      .where(inArray(executionTestCasesTable.requirementId, reqIds));
-    const qaPicNamesByReq = new Map<number, Set<string>>();
-    const qaSetterIdsByReq = new Map<number, Set<number>>();
-    const qaFileIdByReq = new Map<number, number>();
-    for (const r of qaPicRows) {
-      if (r.requirementId == null) continue;
-      if (!qaFileIdByReq.has(r.requirementId)) qaFileIdByReq.set(r.requirementId, r.executionFileId);
-      const pic = r.filePic || r.rowPic;
-      if (pic) {
-        if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
-        qaPicNamesByReq.get(r.requirementId)!.add(pic);
-      }
-      if (r.filePicSetBy != null) {
-        if (!qaSetterIdsByReq.has(r.requirementId)) qaSetterIdsByReq.set(r.requirementId, new Set());
-        qaSetterIdsByReq.get(r.requirementId)!.add(r.filePicSetBy);
-      }
+    if (r.filePicSetBy != null) {
+      if (!qaSetterIdsByReq.has(r.requirementId)) qaSetterIdsByReq.set(r.requirementId, new Set());
+      qaSetterIdsByReq.get(r.requirementId)!.add(r.filePicSetBy);
     }
+    if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
+    const bucket = resultsByReq.get(r.requirementId)!;
+    (r.fileType === "uat" ? bucket.uat : bucket.qa).push(classifyResult(r.result));
+  }
 
-    // QA/UAT execution pass-rate per requirement — same simplification
-    // rollupExecutionByMilestone already documents: counts whatever's
-    // currently saved on each row, not "latest result per TC identity."
-    const execResultRows = await db
-      .select({ requirementId: executionTestCasesTable.requirementId, result: executionTestCasesTable.result, fileType: executionFilesTable.fileType })
-      .from(executionTestCasesTable)
-      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
-      .where(inArray(executionTestCasesTable.requirementId, reqIds));
+  // Pipeline milestones get their stage/progress from the pipeline's gates
+  // instead of the requirement activity timeline - see computePipelineState.
+  const pipelineFilesByMilestone = new Map<number, { id: number; reviewStatus: string }[]>();
+  for (const f of pipelineFileRows) {
+    if (f.milestoneId == null) continue;
+    if (!pipelineFilesByMilestone.has(f.milestoneId)) pipelineFilesByMilestone.set(f.milestoneId, []);
+    pipelineFilesByMilestone.get(f.milestoneId)!.push({ id: f.id, reviewStatus: f.reviewStatus });
+  }
+  const uatDocCountByMilestone = new Map<number, number>();
+  for (const d of uatDocRows) {
+    uatDocCountByMilestone.set(d.milestoneId, (uatDocCountByMilestone.get(d.milestoneId) ?? 0) + 1);
+  }
+  // Scoped by execution file, not requirementId, so rows that were never
+  // linked back to a requirement still count toward "everything executed".
+  const pipelineFileIds = pipelineFileRows.map((f) => f.id);
+  const pipelineExecRows = pipelineFileIds.length
+    ? await db
+        .select({ executionFileId: executionTestCasesTable.executionFileId, result: executionTestCasesTable.result })
+        .from(executionTestCasesTable)
+        .where(inArray(executionTestCasesTable.executionFileId, pipelineFileIds))
+    : [];
+  const milestoneIdByFileId = new Map(pipelineFileRows.map((f) => [f.id, f.milestoneId]));
+  const pipelineExecByMilestone = new Map<number, { result: string | null }[]>();
+  for (const r of pipelineExecRows) {
+    const mid = milestoneIdByFileId.get(r.executionFileId);
+    if (mid == null) continue;
+    if (!pipelineExecByMilestone.has(mid)) pipelineExecByMilestone.set(mid, []);
+    pipelineExecByMilestone.get(mid)!.push({ result: r.result });
+  }
 
-    // Pipeline milestones get their stage/progress from the pipeline's gates
-    // instead of the requirement activity timeline — see computePipelineState.
+  const passPct = (results: string[]) => (results.length ? Math.round((results.filter((r) => r === "passed").length / results.length) * 100) : 0);
+
+  for (const m of milestones) {
+    const entries = timelinesByMilestone.get(m.id) ?? [];
+    if (entries.length === 0) continue;
+
     let pipelineState: PipelineState | null = null;
     if (m.pipelineEnabled) {
-      const milestoneFiles = await db
-        .select({ id: executionFilesTable.id, reviewStatus: executionFilesTable.reviewStatus })
-        .from(executionFilesTable)
-        .where(eq(executionFilesTable.milestoneId, m.id));
-
-      const fileIds = milestoneFiles.map((f) => f.id);
-      // Scoped by execution file, not requirementId, so rows that were never
-      // linked back to a requirement still count toward "everything executed".
-      const execRowsForMilestone = fileIds.length > 0
-        ? await db
-            .select({ result: executionTestCasesTable.result })
-            .from(executionTestCasesTable)
-            .where(inArray(executionTestCasesTable.executionFileId, fileIds))
-        : [];
-
-      const uatDocs = m.requiresUat
-        ? await db.select({ id: uatSignoffsTable.id }).from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, m.id))
-        : [];
-
+      const milestoneFiles = pipelineFilesByMilestone.get(m.id) ?? [];
+      const execRowsForMilestone = pipelineExecByMilestone.get(m.id) ?? [];
       pipelineState = computePipelineState({
         requirementCount: entries.length,
         executionFileCount: milestoneFiles.length,
@@ -1112,18 +1205,10 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
         executedRows: execRowsForMilestone.filter((r) => classifyResult(r.result) !== "notRun").length,
         signedOff: !!m.signedOffAt,
         requiresUat: !!m.requiresUat,
-        uatDocCount: uatDocs.length,
+        uatDocCount: m.requiresUat ? uatDocCountByMilestone.get(m.id) ?? 0 : 0,
         deployed: m.status === "completed",
       });
     }
-    const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
-    for (const r of execResultRows) {
-      if (r.requirementId == null) continue;
-      if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
-      const bucket = resultsByReq.get(r.requirementId)!;
-      (r.fileType === "uat" ? bucket.uat : bucket.qa).push(classifyResult(r.result));
-    }
-    const passPct = (results: string[]) => (results.length ? Math.round((results.filter((r) => r === "passed").length / results.length) * 100) : 0);
 
     for (const entry of entries) {
       const info = extraById.get(entry.id);
@@ -1270,8 +1355,9 @@ router.get("/dashboard/closed-milestones", async (req, res): Promise<void> => {
   const closedByName = new Map(closedByUsers.map(u => [u.id, u.name]));
 
   const result = [];
+  const closedTimelines = await computeRequirementTimelinesBatch(closed.map((m) => ({ id: m.id, completedAt: m.completedAt })));
   for (const m of closed) {
-    const entries = await computeRequirementTimelines(m.id, m.completedAt);
+    const entries = closedTimelines.get(m.id) ?? [];
     const phaseSummary = entries.length > 0 ? summarizeTimelines(entries) : [];
     result.push({
       id: m.id,
@@ -1509,8 +1595,27 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  let testCases = await db.select().from(testCasesTable);
-  let requirements = await db.select().from(requirementsTable);
+  // Only the columns the counters below actually read. `select()` pulled
+  // every column of both tables - including the long description/test-step
+  // text - across the wire just to produce a handful of integers.
+  const [testCasesAll, requirementsAll] = await Promise.all([
+    db
+      .select({
+        projectId: testCasesTable.projectId,
+        authorId: testCasesTable.authorId,
+        aiAssisted: testCasesTable.aiAssisted,
+        type: testCasesTable.type,
+      })
+      .from(testCasesTable),
+    db
+      .select({
+        projectId: requirementsTable.projectId,
+        status: requirementsTable.status,
+      })
+      .from(requirementsTable),
+  ]);
+  let testCases = testCasesAll;
+  let requirements = requirementsAll;
 
   // "Tasks" here are the same requirement/milestone rows the Tasks page
   // itself shows (computeTaskBoardRows) — not the orphaned tasksTable,

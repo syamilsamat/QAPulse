@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -76,7 +76,16 @@ export const requirementsTable = pgTable("requirements", {
   pipelineQaId: integer("pipeline_qa_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  // computeRequirementTimelines() reads one milestone's requirements; the
+  // list endpoints scope by project. Both were sequential scans.
+  index("requirements_milestone_idx").on(t.milestoneId),
+  index("requirements_project_idx").on(t.projectId),
+  index("requirements_parent_idx").on(t.parentId),
+  index("requirements_redmine_ticket_idx").on(t.redmineTicketId),
+  // GET /requirements always orders by created_at.
+  index("requirements_created_at_idx").on(t.createdAt),
+]);
 
 export const insertRequirementSchema = createInsertSchema(requirementsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRequirement = z.infer<typeof insertRequirementSchema>;
@@ -102,6 +111,8 @@ export const requirementEventsTable = pgTable("requirement_events", {
   updatedBy: integer("updated_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("requirement_events_requirement_idx").on(t.requirementId),
+]);
 
 export type RequirementEvent = typeof requirementEventsTable.$inferSelect;
