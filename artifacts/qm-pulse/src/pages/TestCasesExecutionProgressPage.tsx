@@ -1484,7 +1484,10 @@ export default function TestCasesExecutionProgressPage() {
       const saved = localStorage.getItem(`qa_pulse_hidden_cols_${userId}`);
       if (saved) try { return new Set(JSON.parse(saved)); } catch {}
     }
-    return new Set(["tracker", "preCondition", "userStory"]);
+    // tracker + userStory are exported columns (Tracker / Redmine User Story in
+    // the template). Hiding them by default meant nobody ever filled them and
+    // they exported blank, so only preCondition stays hidden out of the box.
+    return new Set(["preCondition"]);
   });
   const [showColPicker, setShowColPicker] = useState(false);
 

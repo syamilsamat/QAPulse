@@ -1770,7 +1770,9 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       ? ((file as any).approvedAt instanceof Date ? (file as any).approvedAt.toISOString() : (file as any).approvedAt ?? null)
       : null;
 
-    const typeLabel = issueType || "Issue";
+    // The tracker also feeds the Excel's Tracker column for rows that have no
+    // tracker of their own, so fall back to the file's before the placeholder.
+    const typeLabel = issueType || file?.tracker || "Issue";
 
     // CR006: AI-generated CAPA items
     const capaItems = await runCapaAI(ticketId, testCases);

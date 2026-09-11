@@ -220,6 +220,11 @@ export function trackerCode(issueType: string): string {
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface TestCaseRow {
   caseId?: string;
+  // The execution grid never writes caseId — it stores the visible id in
+  // testCaseId (caseId only ever arrives from a clone or a linked library
+  // case), so column A has to fall back to it the same way the UI does.
+  testCaseId?: string;
+  rowType?: string;
   userStory?: string;
   tracker?: string;
   scenario?: string;
@@ -338,6 +343,34 @@ function buildCapaRows(
   }));
 }
 
+// ── Columns A-C: file-level fallbacks ─────────────────────────────────────────
+// The template's first three columns (Case ID, Redmine User Story, Tracker) are
+// the ones the execution grid does not itself fill, so writing the row field
+// alone exported them blank even though the app displayed a value:
+//   · Case ID — the grid stores the id in testCaseId; the UI renders
+//     `caseId || testCaseId`, and the Excel import maps the "Case ID" header to
+//     testCaseId too, so caseId is null on every row that wasn't cloned.
+//   · Redmine User Story / Tracker — both are hidden by default in the grid and
+//     live on the execution file instead (redmineTicketId / tracker).
+// Group rows are section banners whose label lives in caseName; they get no
+// fallbacks, or every banner would export looking like a real test case.
+function resolveIdColumns(
+  tc: TestCaseRow,
+  opts: { redmineId?: string; issueType?: string },
+): { caseId: string; userStory: string; tracker: string } {
+  if (tc.rowType === "group") {
+    return { caseId: tc.caseId ?? "", userStory: tc.userStory ?? "", tracker: tc.tracker ?? "" };
+  }
+  // verdict-report passes the literal "Issue" placeholder when the file has no
+  // tracker — that is not a tracker name, so it must not land in column C.
+  const fileTracker = opts.issueType && opts.issueType !== "Issue" ? opts.issueType : "";
+  return {
+    caseId: tc.caseId || tc.testCaseId || "",
+    userStory: tc.userStory || opts.redmineId || "",
+    tracker: tc.tracker || fileTracker,
+  };
+}
+
 // ── SheetJS fallback ──────────────────────────────────────────────────────────
 function buildTestCaseExcelFallback(
   testCases: TestCaseRow[],
@@ -358,11 +391,14 @@ function buildTestCaseExcelFallback(
 
   // Test cases sheet
   const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC"];
-  const tcRows = testCases.map((tc) => [
-    tc.caseId ?? "", tc.userStory ?? "", tc.tracker ?? "", tc.scenario ?? "",
-    tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
-    tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
-  ]);
+  const tcRows = testCases.map((tc) => {
+    const ids = resolveIdColumns(tc, { redmineId, issueType });
+    return [
+      ids.caseId, ids.userStory, ids.tracker, tc.scenario ?? "",
+      tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
+      tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
+    ];
+  });
   XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([tcHeaders, ...tcRows]), redmineId ? `#${redmineId}` : "Test Step");
 
   // Review Log — skeleton row
@@ -463,9 +499,10 @@ export async function buildTestCaseExcel(
     if (tcSheet && testCases.length > 0) {
       testCases.forEach((tc, i) => {
         const row = i + 2;
-        if (tc.caseId)         tcSheet.cell(`A${row}`).value(String(tc.caseId));
-        if (tc.userStory)      tcSheet.cell(`B${row}`).value(String(tc.userStory));
-        if (tc.tracker)        tcSheet.cell(`C${row}`).value(String(tc.tracker));
+        const ids = resolveIdColumns(tc, { redmineId, issueType });
+        if (ids.caseId)        tcSheet.cell(`A${row}`).value(String(ids.caseId));
+        if (ids.userStory)     tcSheet.cell(`B${row}`).value(String(ids.userStory));
+        if (ids.tracker)       tcSheet.cell(`C${row}`).value(String(ids.tracker));
         if (tc.scenario)       tcSheet.cell(`D${row}`).value(String(tc.scenario));
         if (tc.preCondition)   tcSheet.cell(`E${row}`).value(String(tc.preCondition));
         if (tc.caseName)       tcSheet.cell(`F${row}`).value(String(tc.caseName));
