@@ -3,6 +3,7 @@ import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
+import { canReview, reviewRoleNames } from "../lib/review-eligibility";
 import { getNameDirectory } from "../lib/lookups";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { computeRequirementTimelines, buildPhaseTimeline } from "./dashboard";
@@ -536,7 +537,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     const ctx = getAuthContext(req);
     const privileged = !!ctx && ["admin", "cto"].includes(ctx.role);
     const isOwner = !!ctx && (ctx.userId === (before as any).createdBy || ctx.userId === before.assigneeId);
-    const isFaOnRedmineSourced = !!ctx && !!before.redmineTicketId && FA_REVIEW_ROLES.includes(ctx.role);
+    const isFaOnRedmineSourced = !!ctx && !!before.redmineTicketId && (await canReview("fa", ctx.role));
     if (!ctx || (!privileged && !isOwner && !isFaOnRedmineSourced)) {
       res.status(403).json({ error: "Only the author/assignee may edit this requirement" });
       return;
@@ -681,26 +682,26 @@ router.delete("/requirements/:id", async (req, res): Promise<void> => {
 
 // ─── FA Review Workflow (CR014 Part 4) ───────────────────────────────────────
 
-const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
-
 // GET /requirements/review-queue — My Review Queue for FA roles
 router.get("/requirements/review-queue", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const isLead = ["fa_lead", "hod_fa", "hod_qa", "admin"].includes(ctx.role);
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
 
   // "Waiting on my review" — in_review, not authored by me
   // "Awaiting my revision" — rejected, authored by me
-  // Lead sees team-wide queue; member sees only their own
+  // The same queue for every reviewer tier: review is peer-to-peer, so a
+  // member's queue is a lead's queue. Authored-by-me is excluded for everyone
+  // (it used to be shown to leads, who then got a 403 on approve) — nobody
+  // reviews their own requirement.
   const allReqs = await db.select().from(requirementsTable);
   const scoped = allReqs.filter(r => accessible === null || (r.projectId != null && accessible.includes(r.projectId)));
 
   const waitingOnMe = scoped.filter(r => {
     const reviewStatus = (r as any).reviewStatus ?? "draft";
     const createdBy = (r as any).createdBy;
-    return reviewStatus === "in_review" && (isLead || createdBy !== ctx.userId);
+    return reviewStatus === "in_review" && createdBy !== ctx.userId;
   });
 
   const awaitingMyRevision = scoped.filter(r => {
@@ -728,7 +729,7 @@ router.get("/requirements/review-queue", async (req, res): Promise<void> => {
 router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!FA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "FA role required for review actions" }); return; }
+  if (!(await canReview("fa", ctx.role))) { res.status(403).json({ error: "FA role required for review actions" }); return; }
 
   const id = parseInt(req.params.id);
   const [req_] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, id));
@@ -782,7 +783,7 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
   // Whole-project and tier-3+ reviewers are unaffected.
   if (action === "submit" && req_.projectId != null) {
     await notifyRolesInProject({
-      roles: FA_REVIEW_ROLES,
+      roles: await reviewRoleNames("fa"),
       projectId: req_.projectId,
       module: req_.module,
       title: "Requirement submitted for review",
@@ -791,6 +792,7 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
       entityType: "requirement",
       entityId: id,
       actorId: ctx.userId,
+      excludeUserIds: createdBy ? [createdBy] : [],
     }).catch(() => {});
   }
 

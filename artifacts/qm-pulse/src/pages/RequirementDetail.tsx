@@ -5,6 +5,7 @@ import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-cl
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import {
   ArrowLeft,
   Brain,
@@ -161,6 +162,7 @@ export default function RequirementDetail() {
   const [, params] = useRoute("/requirements/:id");
   const [, navigate] = useLocation();
   const { user, token } = useAuth();
+  const { canReviewFa: canReview } = useReviewEligibility();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const reqId = params?.id ? parseInt(params.id) : null;
@@ -700,8 +702,6 @@ export default function RequirementDetail() {
   };
 
   const role = user?.role ?? "";
-  const FA_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
-  const canReview = FA_ROLES.includes(role);
   const isAuthor = req?.createdBy === user?.id;
 
   // Edit permission mirrors PATCH /requirements/:id on the backend:

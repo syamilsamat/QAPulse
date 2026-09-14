@@ -71,6 +71,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import { format } from "date-fns";
 import { SendVerdictModal, type Verdict } from "@/components/SendVerdictModal";
 import { type ContactOption } from "@/components/ContactMultiSelect";
@@ -325,8 +326,7 @@ export default function TestCasesExecution() {
   const { user, token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
-  const canReview = QA_REVIEW_ROLES.includes(user?.role ?? "");
+  const { canReviewQa: canReview } = useReviewEligibility();
 
   const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({
     queryKey: ["execution-review-queue"],

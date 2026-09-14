@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge"; 
@@ -801,8 +802,7 @@ export default function TestCases() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
-  const canReview = QA_REVIEW_ROLES.includes(user?.role ?? "");
+  const { canReviewQa: canReview } = useReviewEligibility();
   const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
 
   const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({

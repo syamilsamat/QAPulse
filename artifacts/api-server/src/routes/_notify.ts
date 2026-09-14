@@ -29,7 +29,13 @@ export async function notifyUser(
 export async function notifyRolesInProject(opts: {
   roles: string[];
   projectId: number | null | undefined;
-  module?: string | null;
+  /**
+   * One module name, or several for a record that spans modules (an execution
+   * file's comma-joined `selected_modules`). A module-scoped reviewer is
+   * notified when their grant covers any one of them — matching what they can
+   * actually open.
+   */
+  module?: string | string[] | null;
   title: string;
   message: string;
   type: string;
@@ -42,6 +48,9 @@ export async function notifyRolesInProject(opts: {
   if (opts.projectId == null || opts.roles.length === 0) return;
   const projectId = opts.projectId;
   const excluded = new Set(opts.excludeUserIds ?? []);
+  const modules = (Array.isArray(opts.module) ? opts.module : (opts.module ?? "").split(","))
+    .map((m) => m.trim())
+    .filter(Boolean);
   const candidates = await db
     .select({ id: usersTable.id, role: usersTable.role })
     .from(usersTable)
@@ -51,9 +60,9 @@ export async function notifyRolesInProject(opts: {
   for (const u of candidates) {
     if (u.id === opts.actorId || excluded.has(u.id)) continue;
     if (!(await canAccessProject(u.id, u.role, projectId))) continue;
-    if (opts.module) {
+    if (modules.length > 0) {
       const scope = await getModuleScope(u.id, u.role, projectId);
-      if (scope.restricted && !scope.moduleNames.includes(opts.module)) continue;
+      if (scope.restricted && !modules.some((m) => scope.moduleNames.includes(m))) continue;
     }
     recipients.push(u.id);
   }
