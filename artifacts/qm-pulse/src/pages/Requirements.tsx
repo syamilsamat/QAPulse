@@ -17,6 +17,7 @@ import {
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -318,8 +319,7 @@ export default function Requirements() {
     openCreateChild(parentReq);
   }, [searchString, requirements]);
 
-  const FA_REVIEW_ROLES = ["fa_lead", "fa_member", "hod_fa", "admin", "qa_lead", "hod_qa"];
-  const canReview = FA_REVIEW_ROLES.includes(user?.role ?? "");
+  const { canReviewFa: canReview } = useReviewEligibility();
 
   // Edit permission mirrors the backend check in PATCH /requirements/:id:
   // author/assignee always can; a Redmine-imported requirement can also be

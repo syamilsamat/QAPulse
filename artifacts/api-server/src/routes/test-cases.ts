@@ -26,11 +26,10 @@ import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
+import { canReview, reviewRoleNames } from "../lib/review-eligibility";
 import pLimit from "p-limit";
 
 const ai = new GoogleGenAI({});
-
-const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
 
 const router: IRouter = Router();
 
@@ -648,7 +647,7 @@ router.patch("/test-cases/:id", async (req, res): Promise<void> => {
 router.patch("/test-cases/:id/review", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!QA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA role required for review actions" }); return; }
+  if (!(await canReview("qa", ctx.role))) { res.status(403).json({ error: "QA role required for review actions" }); return; }
 
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
@@ -703,7 +702,7 @@ router.patch("/test-cases/:id/review", async (req, res): Promise<void> => {
 
   if (action === "submit" && tc.projectId != null) {
     await notifyRolesInProject({
-      roles: QA_REVIEW_ROLES,
+      roles: await reviewRoleNames("qa"),
       projectId: tc.projectId,
       module: tc.module,
       title: "Test case submitted for peer review",

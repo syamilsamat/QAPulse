@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import { db, pool, rolesTable, usersTable } from "@workspace/db";
 import { verifyToken } from "./auth";
+import { invalidateReviewEligibilityCache } from "../lib/review-eligibility";
 
 const router: IRouter = Router();
 
@@ -719,7 +720,17 @@ router.post("/roles", async (req, res): Promise<void> => {
     const existing = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.name, name));
     if (existing.length > 0) { jsonError(res, 409, `A role named "${name}" already exists`); return; }
 
-    const [role] = await db.insert(rolesTable).values({ name, description, isSystem: false }).returning();
+    // department/tier_rank are sent by the Roles page's create dialog and were
+    // previously dropped here, so a new role landed departmentless and had to
+    // be edited again to take effect. They now decide review eligibility
+    // (lib/review-eligibility), so persist them on create.
+    const department = req.body.department?.trim() || null;
+    const tierRank = req.body.tierRank != null ? Number(req.body.tierRank) : null;
+
+    const [role] = await db
+      .insert(rolesTable)
+      .values({ name, description, isSystem: false, department, tierRank })
+      .returning();
 
     for (const key of ALL_NAV_KEYS) {
       await pool.query(
@@ -728,6 +739,7 @@ router.post("/roles", async (req, res): Promise<void> => {
       );
     }
 
+    invalidateReviewEligibilityCache();
     res.status(201).json(formatRole(role, 0));
   } catch (err: any) {
     console.error("[POST /roles]", err);
@@ -765,6 +777,8 @@ router.patch("/roles/:id", async (req, res): Promise<void> => {
     if (req.body.tierRank !== undefined) updateData.tierRank = req.body.tierRank != null ? Number(req.body.tierRank) : null;
 
     const [updated] = await db.update(rolesTable).set(updateData).where(eq(rolesTable.id, id)).returning();
+    // department/tier_rank drive who may peer-review (lib/review-eligibility).
+    invalidateReviewEligibilityCache();
     res.json(formatRole(updated));
   } catch (err: any) {
     console.error("[PATCH /roles/:id]", err);
@@ -798,6 +812,7 @@ router.delete("/roles/:id", async (req, res): Promise<void> => {
 
     await pool.query(`DELETE FROM role_nav_permissions WHERE role_id = $1`, [id]);
     await db.delete(rolesTable).where(eq(rolesTable.id, id));
+    invalidateReviewEligibilityCache();
     res.sendStatus(204);
   } catch (err: any) {
     console.error("[DELETE /roles/:id]", err);

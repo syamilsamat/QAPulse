@@ -55,6 +55,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
+import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import { useAuth } from "@/contexts/AuthContext";
 import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
@@ -1615,8 +1616,7 @@ export default function TestCasesExecutionProgressPage() {
       .catch(() => setMilestoneOptions([]));
   }, [currentFileMilestoneId, currentFileProjectId]);
 
-  const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
-  const canReview = QA_REVIEW_ROLES.includes(currentUser?.role ?? "");
+  const { canReviewQa: canReview } = useReviewEligibility();
 
   const handleReviewAction = async (action: "approve" | "reject", comment?: string) => {
     if (!currentFileId) return;
@@ -3292,7 +3292,8 @@ export default function TestCasesExecutionProgressPage() {
               <p className="font-semibold text-sm">Execution is Locked</p>
               <p className="text-xs text-amber-700 mt-1">
                 This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status. 
-                You cannot execute test cases (Pass/Fail/Block) until it has been approved by a QA Lead or HOD.
+                You cannot execute test cases (Pass/Fail/Block) until it is approved. Review is peer-to-peer —
+                any QA colleague other than the person who submitted it can approve, not just a QA Lead or HOD.
               </p>
               {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
                 <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">

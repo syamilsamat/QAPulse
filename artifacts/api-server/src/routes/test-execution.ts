@@ -20,7 +20,8 @@ import {
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { logActivity } from "./_audit";
-import { notifyUser } from "./_notify";
+import { notifyUser, notifyRolesInProject } from "./_notify";
+import { canReview, reviewRoleNames } from "../lib/review-eligibility";
 import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
@@ -675,7 +676,6 @@ router.get("/execution-files/review-queue", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
 
-  const isLead = QA_REVIEW_ROLES.includes(ctx.role);
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
 
   try {
@@ -757,12 +757,10 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
   }
 });
 
-const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
-
 router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!QA_REVIEW_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA role required for review actions" }); return; }
+  if (!(await canReview("qa", ctx.role))) { res.status(403).json({ error: "QA role required for review actions" }); return; }
 
   const id = parseInt(req.params.id);
   const { action, comment } = req.body as { action: "submit" | "approve" | "reject"; comment?: string };
@@ -778,11 +776,9 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" }); return;
     }
 
-    // Segregation of duties: Creator cannot approve or reject their own execution file
-    // Wait, who is the creator? The execution file has qaPicSetBy or qaPic? There is no authorId.
-    // Let's assume qaPicSetBy is the creator.
-    // Actually, we don't have authorId on executionFilesTable. I'll just skip segregation of duties if it's not possible, or rely on qaPicSetBy.
-    // If we want segregation of duties, we can check if file_.qaPicSetBy === ctx.userId.
+    // Segregation of duties: the submitter can't approve or reject their own
+    // file. executionFilesTable has no authorId — qaPicSetBy is stamped with
+    // the submitter on "submit" below, so it is the accountable party here.
     if ((action === "approve" || action === "reject") && file_.qaPicSetBy === ctx.userId) {
       res.status(403).json({ error: `You cannot ${action} an execution file you authored` }); return;
     }
@@ -820,6 +816,36 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
       oldValue: { reviewStatus: (file_ as any).reviewStatus ?? "draft" },
       newValue: { reviewStatus: update.reviewStatus, comment: comment ?? null },
     });
+
+    // Peer review only works if peers hear about it — this flow previously
+    // logged the transition and notified nobody, so a submitted file sat
+    // unseen unless someone opened their review queue unprompted.
+    const label = file_.title || file_.redmineTicketId;
+    if (action === "submit" && file_.projectId != null) {
+      await notifyRolesInProject({
+        roles: await reviewRoleNames("qa"),
+        projectId: file_.projectId,
+        module: file_.selectedModules,
+        title: "Execution file submitted for review",
+        message: `"${label}" is waiting on your review before execution can start.`,
+        type: "review_request",
+        entityType: "execution_file",
+        entityId: id,
+        actorId: ctx.userId,
+      }).catch(() => {});
+    } else if (action === "approve" || action === "reject") {
+      await notifyUser(
+        file_.qaPicSetBy,
+        action === "approve" ? "Execution file approved" : "Execution file rejected",
+        action === "approve"
+          ? `"${label}" was approved — you can now execute its test cases.`
+          : `"${label}" was rejected${comment ? `: ${comment}` : ""}.`,
+        action === "approve" ? "review_approved" : "review_rejected",
+        "execution_file",
+        id,
+        ctx.userId,
+      ).catch(() => {});
+    }
 
     res.json(updated);
   } catch (error) {
