@@ -68,7 +68,6 @@ import {
   executionTestCasesTable,
   executionFileAuditTable,
   documentRegisterTable,
-  projectsTable,
   activityTable,
   defectsTable,
   defectLinksTable,
@@ -1692,13 +1691,13 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         console.warn("[send-verdict] prior verdict lookup failed:", err);
       }
 
-      // Document register — look up Ref No by project + module + tracker
+      // Document register — look up Ref No by project + module + tracker.
+      // moduleName must come from the file's own selected module(s), not the
+      // parent project — matching it against the project name here always
+      // failed against Document Register entries like "ePLKS"/"eQuota".
       let refNo: string | undefined;
       try {
-        const [proj] = execFile?.projectId
-          ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, execFile.projectId))
-          : [];
-        const moduleName = proj?.name ?? projectName ?? "";
+        const moduleName = execFile?.selectedModules?.split(",")[0]?.trim() ?? "";
         const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
         const [regEntry] = await db
           .select()

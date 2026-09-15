@@ -17,7 +17,6 @@ import {
   notificationsTable,
   projectMembersTable,
   documentRegisterTable,
-  projectsTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
@@ -2128,12 +2127,12 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     // Document register — look up Ref No by project + module + tracker, same
     // lookup the Send Verdict flow uses, so the two Excel exports agree
     // instead of this one falling back to the QA-<ticketId> placeholder.
+    // moduleName must come from the file's own selected module(s), not the
+    // parent project — matching it against the project name here always
+    // failed against Document Register entries like "ePLKS"/"eQuota".
     let refNo: string | undefined;
     try {
-      const [proj] = file?.projectId
-        ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, file.projectId))
-        : [];
-      const moduleName = proj?.name ?? projectName ?? "";
+      const moduleName = file?.selectedModules?.split(",")[0]?.trim() ?? "";
       const tracker = normaliseTracker(typeLabel);
       const [regEntry] = await db
         .select()
