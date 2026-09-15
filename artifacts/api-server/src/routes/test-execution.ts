@@ -2140,7 +2140,6 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       const eQuotaIdx = moduleNames.findIndex((m) => m.toLowerCase() === "equota");
       if (eQuotaIdx > 0) moduleNames.unshift(...moduleNames.splice(eQuotaIdx, 1));
       const tracker = normaliseTracker(typeLabel);
-      console.warn(`[download-excel][DEBUG] ticketId=${ticketId} projectName=${JSON.stringify(projectName)} moduleNames=${JSON.stringify(moduleNames)} tracker=${JSON.stringify(tracker)}`);
       for (const moduleName of moduleNames.length > 0 ? moduleNames : [""]) {
         const [regEntry] = await db
           .select()
@@ -2153,7 +2152,6 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
             )
           )
           .limit(1);
-        console.warn(`[download-excel][DEBUG] tried moduleName=${JSON.stringify(moduleName)} -> ${regEntry ? `MATCH refNo=${regEntry.refNo}` : "no match"}`);
         if (regEntry) {
           refNo = regEntry.refNo;
           break;
