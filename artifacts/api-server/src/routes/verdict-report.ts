@@ -1696,11 +1696,15 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
       // parent project — matching it against the project name here always
       // failed against Document Register entries like "ePLKS"/"eQuota". A
       // file can have several selected modules (comma-separated) and only
-      // one of them may be registered, so try each in order instead of just
-      // the first.
+      // one of them may be registered. eQuota is the module of record when
+      // it's among them, so check it first regardless of list order;
+      // otherwise fall through the rest in their original order and use the
+      // first match.
       let refNo: string | undefined;
       try {
         const moduleNames = (execFile?.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+        const eQuotaIdx = moduleNames.findIndex((m) => m.toLowerCase() === "equota");
+        if (eQuotaIdx > 0) moduleNames.unshift(...moduleNames.splice(eQuotaIdx, 1));
         const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
         for (const moduleName of moduleNames.length > 0 ? moduleNames : [""]) {
           const [regEntry] = await db
