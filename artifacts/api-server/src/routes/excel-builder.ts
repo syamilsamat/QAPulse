@@ -486,13 +486,19 @@ export async function buildTestCaseExcel(
         // "approve" — see the /execution-files/:id/review route). Entries
         // added since the last approval have none yet and stay blank. The
         // file-level reviewedByName/reviewedAt is a fallback for the latest
-        // row only, for entries that predate this per-entry tracking.
-        // Blanked (not left alone) when neither applies, so the template's
-        // baked-in sample values for row 9 ("Syamil", 23-May-25) don't leak
-        // through — B-E get overwritten unconditionally above, F/G must too.
+        // row only, for entries that predate this per-entry tracking — and
+        // only when that row's own createdAt is at or before the approval;
+        // otherwise the row was added *after* the file was last approved and
+        // showing the old approval date would claim it was reviewed before
+        // it existed. Blanked (not left alone) when nothing applies, so the
+        // template's baked-in sample values for row 9 ("Syamil", 23-May-25)
+        // don't leak through — B-E get overwritten unconditionally above,
+        // F/G must too.
         const isLatestEntry = i === entries.length - 1;
-        const rowReviewedByName = entryReviewedByName ?? (isLatestEntry ? reviewedByName : null);
-        const rowReviewedAt = entryReviewedAt ?? (isLatestEntry ? reviewedAt : null);
+        const fallbackApplies = isLatestEntry && !!reviewedByName && !!reviewedAt
+          && new Date(createdAt).getTime() <= new Date(reviewedAt).getTime();
+        const rowReviewedByName = entryReviewedByName ?? (fallbackApplies ? reviewedByName : null);
+        const rowReviewedAt = entryReviewedAt ?? (fallbackApplies ? reviewedAt : null);
         docSheet.cell(`F${row}`).value(rowReviewedByName ?? "");
         docSheet.cell(`G${row}`).value(rowReviewedByName ? fmtShortDate(rowReviewedAt) : "");
       });
