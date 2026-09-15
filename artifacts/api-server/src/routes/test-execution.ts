@@ -16,6 +16,8 @@ import {
   milestonesTable,
   notificationsTable,
   projectMembersTable,
+  documentRegisterTable,
+  projectsTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
@@ -25,7 +27,7 @@ import { canReview, reviewRoleNames } from "../lib/review-eligibility";
 import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
-import { fetchActiveDefectsForIssue } from "./verdict-report";
+import { fetchActiveDefectsForIssue, normaliseTracker } from "./verdict-report";
 
 const router: IRouter = Router();
 
@@ -1892,6 +1894,34 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     // CR006: AI-generated CAPA items
     const capaItems = await runCapaAI(ticketId, testCases);
 
+    // Document register — look up Ref No by project + module + tracker, same
+    // lookup the Send Verdict flow uses, so the two Excel exports agree
+    // instead of this one falling back to the QA-<ticketId> placeholder.
+    let refNo: string | undefined;
+    try {
+      const [proj] = file?.projectId
+        ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, file.projectId))
+        : [];
+      const moduleName = proj?.name ?? projectName ?? "";
+      const tracker = normaliseTracker(typeLabel);
+      const [regEntry] = await db
+        .select()
+        .from(documentRegisterTable)
+        .where(
+          and(
+            ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
+            ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
+            eq(documentRegisterTable.tracker, tracker),
+          )
+        )
+        .limit(1);
+      if (regEntry) {
+        refNo = regEntry.refNo;
+      }
+    } catch (err) {
+      console.warn("[download-excel] document register lookup failed:", err);
+    }
+
     const buffer = await buildTestCaseExcel(testCases as any, {
       redmineId: ticketId,
       issueType: typeLabel,
@@ -1899,6 +1929,7 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       senderName: senderName || undefined,
       activeDefects,
       capaItems: capaItems.length > 0 ? capaItems : undefined,
+      refNo,
       auditEntries: auditRows.map((a: any) => ({
         summary: a.summary,
         updatedByName: a.updatedByName ?? null,
