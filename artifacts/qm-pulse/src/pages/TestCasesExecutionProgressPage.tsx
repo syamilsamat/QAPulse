@@ -2527,6 +2527,24 @@ export default function TestCasesExecutionProgressPage() {
       if (currentUser?.name) params.set("senderName", currentUser.name);
 
       const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+
+      // Document register match (Ref No.) is keyed on project name, so
+      // resolve it the same way Send Verdict does instead of leaving the
+      // server to fall back to the QA-<ticketId> placeholder.
+      if (currentFileProjectId) {
+        try {
+          const projRes = await fetch(`/api/projects/${currentFileProjectId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (projRes.ok) {
+            const proj = await projRes.json();
+            if (proj?.name) params.set("projectName", proj.name);
+          }
+        } catch {
+          // Non-fatal — download still works, just without the register lookup.
+        }
+      }
+
       const res = await fetch(
         `/api/execution-files/${ticketId}/download-excel?${params.toString()}`,
         { headers: token ? { Authorization: `Bearer ${token}` } : {} },
