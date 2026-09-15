@@ -1530,6 +1530,91 @@ router.post(
         });
       }
 
+      // 3c. CR078 — compact TC numbering. The sequence in a TC label is the
+      // row's position in the sheet, not a permanent identity: deleting row 17
+      // of 20 used to leave 15, 16, 18, 19, 20 forever, because step 2 only
+      // ever hands out max(seq) + 1. This re-derives every label from the
+      // file's real row order on each save, so a delete closes the gap and a
+      // reorder moves the number with the position. Files that already carry
+      // gaps heal on their next save — no migration needed.
+      //
+      // Runs after the history/audit blocks above on purpose: those diff on
+      // the pre-renumber labels, and rewriting first would make every renamed
+      // row look like a brand-new TC.
+      //
+      // Safe to rewrite: defects and tasks link to a test case by integer row
+      // id (defects.test_case_id / tasks.test_case_id are integers), so only
+      // the display label moves. execution_tc_history stores the label as
+      // text, so it's remapped below to keep the History Trail pointing at the
+      // right row.
+      const orderedRows = await db
+        .select({
+          id: executionTestCasesTable.id,
+          testCaseId: executionTestCasesTable.testCaseId,
+          rowType: executionTestCasesTable.rowType,
+        })
+        .from(executionTestCasesTable)
+        .where(eq(executionTestCasesTable.executionFileId, file.id))
+        .orderBy(executionTestCasesTable.rowOrder, executionTestCasesTable.id);
+
+      // id -> new label, for every row whose label actually moved
+      const renumbered: { id: number; testCaseId: string }[] = [];
+      // old label -> new label, for remapping the text-keyed history rows
+      const labelRenames = new Map<string, string>();
+      let posSeq = 0;
+      for (const r of orderedRows) {
+        // Group tags are section banners, not test cases — they take no number
+        // and must not consume one, or the numbering would skip at each banner.
+        if (r.rowType === "group") continue;
+        posSeq++;
+        const wanted = `TC-${ticketId}-${String(posSeq).padStart(3, "0")}`;
+        if (r.testCaseId === wanted) continue;
+        renumbered.push({ id: r.id, testCaseId: wanted });
+        if (r.testCaseId) labelRenames.set(r.testCaseId, wanted);
+      }
+
+      if (renumbered.length > 0) {
+        for (const r of renumbered) {
+          await db
+            .update(executionTestCasesTable)
+            .set({ testCaseId: r.testCaseId })
+            .where(
+              and(
+                eq(executionTestCasesTable.id, r.id),
+                eq(executionTestCasesTable.executionFileId, file.id),
+              ),
+            );
+        }
+
+        // Remap history by history-row id, not by label. A shift-up renames in
+        // a chain (018 -> 017, 019 -> 018, ...); running those as sequential
+        // WHERE test_case_id = old updates would re-catch rows an earlier step
+        // had just renamed and drag them down twice.
+        const historyToRemap = await db
+          .select({
+            id: executionTcHistoryTable.id,
+            testCaseId: executionTcHistoryTable.testCaseId,
+          })
+          .from(executionTcHistoryTable)
+          .where(eq(executionTcHistoryTable.executionFileId, file.id));
+        for (const h of historyToRemap) {
+          const nextLabel = labelRenames.get(h.testCaseId);
+          if (!nextLabel || nextLabel === h.testCaseId) continue;
+          await db
+            .update(executionTcHistoryTable)
+            .set({ testCaseId: nextLabel })
+            .where(eq(executionTcHistoryTable.id, h.id));
+        }
+
+        // Rows inserted this request were returned with their pre-renumber
+        // label; the client keys off this payload, so hand back the final one.
+        const finalLabelById = new Map(renumbered.map((r) => [r.id, r.testCaseId]));
+        for (const row of insertedRows) {
+          const finalLabel = finalLabelById.get(row.id);
+          if (finalLabel) row.testCaseId = finalLabel;
+        }
+      }
+
       // 4. Update file's updatedAt
       const [updatedFile] = await db
         .update(executionFilesTable)
@@ -1630,6 +1715,10 @@ router.post(
           rowOrder: t.rowOrder,
           _tempId: t._tempId,
         })),
+        // CR078 — existing rows whose TC label shifted because of a delete or
+        // reorder, so the open sheet relabels them in place instead of showing
+        // stale numbers until the next full reload.
+        ...(renumbered.length > 0 ? { renumbered } : {}),
         // CR064 — any attempted result change reverted because its linked
         // requirement is blocked (the UI already prevents this, but a stale
         // page or direct API call could still try).

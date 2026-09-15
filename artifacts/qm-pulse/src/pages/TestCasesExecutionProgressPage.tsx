@@ -1814,6 +1814,7 @@ export default function TestCasesExecutionProgressPage() {
         }));
       const result = await saveTestCases(ticketId, rowsToSave as any, Array.from(deleted));
       if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
       setHasUnsavedChanges(false);
@@ -1948,6 +1949,7 @@ export default function TestCasesExecutionProgressPage() {
       };
       const result = await saveTestCases(ticketId, [rowToSave as any], []);
       if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
       dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((x) => x !== id));
@@ -1988,6 +1990,7 @@ export default function TestCasesExecutionProgressPage() {
       };
       const result = await saveTestCases(ticketId, [rowToSave as any], []);
       if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
       dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((x) => x !== id));
@@ -2068,6 +2071,29 @@ export default function TestCasesExecutionProgressPage() {
         };
       }),
     );
+  };
+
+  // CR078 — the server re-derives every TC label from row position on save, so
+  // a delete closes the numbering gap (deleting 017 of 020 leaves 015..019,
+  // not 015, 016, 018, 019, 020). It returns only the rows whose label moved;
+  // these are existing rows keyed by real DB id, so this is separate from
+  // applyReturnedRows' temp-id mapping for freshly inserted rows.
+  const applyRenumbered = (rows: { id: number; testCaseId: string }[] | undefined) => {
+    if (!rows || rows.length === 0) return;
+    const labelById = new Map(rows.map((r) => [r.id, r.testCaseId]));
+    setData((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        if (typeof row.id !== "number") return row;
+        const label = labelById.get(row.id);
+        if (!label || label === row.testCaseId) return row;
+        changed = true;
+        return { ...row, testCaseId: label };
+      });
+      if (!changed) return prev;
+      dataRef.current = next;
+      return next;
+    });
   };
 
   const markPassedLocally = (rowId: string | number) => {
@@ -2247,6 +2273,7 @@ export default function TestCasesExecutionProgressPage() {
       }));
       const result = await saveTestCases(ticketId, allRows as any, Array.from(deletedDbIds), true);
       if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
       if ((result as any)?.blockedResultRows?.length) {
         toast({
           variant: "destructive",

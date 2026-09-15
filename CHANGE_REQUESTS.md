@@ -61,6 +61,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR051](#cr051--audit-pass-5-deferred-batch) | Audit Pass 5 (deferred batch) | ✅ Deployed | 2026-07-18 |
 | [CR052](#cr052--return-to-dev-timeline-gap) | Return-to-Dev Timeline Gap | ✅ Deployed | 2026-07-18 |
 | [CR053](#cr053--return-to-fa-flow) | Return-to-FA Flow | ✅ Deployed | 2026-07-18 |
+| [CR078](#cr078--compact-tc-numbering-on-the-execution-sheet) | Compact TC Numbering on the Execution Sheet | ✅ Deployed | 2026-09-15 |
 
 ---
 
@@ -1552,3 +1553,23 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Scope:** new `lessons-learned-excel.ts`, `lessons-learned-template-data.ts`, `assets/lessons-learned-template.xlsx`; `milestones.ts` (+1 route); `Milestones.tsx` (export button). No schema changes, no db push.
 
 **CR057 fast-follow (2026-07-21):** closed the gap CR057 itself flagged — added `milestones.lessonsLearnedType` (what_went_wrong | what_went_right | best_practice, matching the export template's dropdown values exactly) with a picker next to the Lessons Learned textarea in the Milestones edit dialog. The export now writes the PM's real classification into column D when set, still blank (dropdown intact) when not — the honest "not classified" path stays available for the genuinely mixed-content case CR057 documented (a single lesson blob that discusses both what went wrong and what went right). Demo data: Sprint 10's clean-positive lesson tagged Best Practice; Sprint 12's deliberately-mixed lesson left unclassified. Bootstrap-covered, no manual db push.
+
+---
+
+### CR078 — Compact TC numbering on the execution sheet
+
+**Status: DEPLOYED (2026-09-15)**
+
+**Problem:** the sequence in an execution TC label (`TC-40926-017`) was handed out by `max(existing seq) + 1` and never reused. Deleting row 17 of 20 left the file reading `015, 016, 018, 019, 020` — permanently. On a file that had been edited for a while the numbering was full of holes, so the label no longer told a tester anything about where the case sat in the sheet.
+
+**Semantics chosen — the number is the row's position, not an identity.** A delete closes the gap and a drag-reorder moves the number with the row. Every save re-derives the whole file's labels from real row order (`ORDER BY row_order, id`), so this is an invariant rather than a delete-time special case, and files that already carry gaps heal on their next save — no migration, no backfill script.
+
+**Backend** (`test-execution.ts`, save route, new step 3c): after the upsert, re-read the file's rows in order and rewrite any label that no longer matches its position. Placed deliberately *after* the history and audit blocks — those diff on the pre-renumber labels, and renaming first would make every shifted row look like a newly added TC and corrupt the `N test cases added` audit counts. Group/banner rows (`row_type = 'group'`) are skipped and consume no number. Only rows whose label actually moved are written, so a save on an already-compact file issues zero extra UPDATEs.
+
+**Why the rewrite is safe:** `defects.test_case_id` and `tasks.test_case_id` are **integer** row references, so defect and task linkage is untouched by a label change. The one text-keyed reference is `execution_tc_history.test_case_id`, which is remapped in the same request — keyed by *history row id*, not by label. A shift-up renames in a chain (`018→017`, `019→018`, …); running those as sequential `WHERE test_case_id = <old>` updates would re-catch rows an earlier step had just renamed and drag them down twice.
+
+**Frontend** (`TestCasesExecutionProgressPage.tsx`): the save response now carries a `renumbered` array (existing rows keyed by real DB id) alongside the existing `testCases` temp-id payload for freshly inserted rows. New `applyRenumbered()` relabels those rows in the open sheet, wired into all four save paths (explicit Save, blur-save, autosave flush, revision ack) so numbers correct themselves in place instead of going stale until the next reload. Newly added rows still carry an empty label client-side and are numbered by the server, so there is no client-side sequence to keep in sync.
+
+**Known trade-off:** the label is now positional, so a case referenced by number in an external note or an older exported sheet may point at a different row after a delete or reorder. In-app linkage (defects, tasks, history, evidence) all follows correctly.
+
+**Verified:** algorithm exercised in isolation against the gap-close case (20 rows, delete #17 → `015..019`, no duplicates), banner rows taking no number, positional relabel after reorder, no-op on an already-compact file, and the swap case that is the worst case for chained history renames — history swaps rather than collapsing. Both `api-server` and `qm-pulse` typecheck clean. Not yet exercised against a live database.
