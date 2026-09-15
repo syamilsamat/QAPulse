@@ -144,6 +144,12 @@ export const executionFileAuditTable = pgTable("execution_file_audit", {
   summary: text("summary").notNull(),
   tcCount: integer("tc_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Stamped in bulk when the execution file is approved (any audit entry
+  // still unreviewed at that moment gets this reviewer/date) — same "close
+  // out everything pending right now" pattern used for executionTestCasesTable
+  // rows on approval. Null until the next approval covers it.
+  reviewedByName: text("reviewed_by_name"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 }, (t) => [
   index("exec_file_audit_file_idx").on(t.executionFileId),
 ]);

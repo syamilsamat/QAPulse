@@ -253,6 +253,10 @@ export interface AuditEntry {
   updatedByName?: string | null;
   createdAt: string; // ISO date string
   tcCount?: number;
+  // Stamped once an approval covers this entry (executionFileAuditTable.reviewedByName/reviewedAt).
+  // Null for entries added since the last approval, or predating this feature.
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
 }
 
 export interface CapaAiItem {
@@ -471,22 +475,26 @@ export async function buildTestCaseExcel(
       const entries: AuditEntry[] = auditEntries && auditEntries.length > 0
         ? auditEntries
         : [{ summary: "Generated test case report", updatedByName: senderName ?? null, createdAt: new Date().toISOString() }];
-      entries.forEach(({ summary, updatedByName, createdAt }, i) => {
+      entries.forEach(({ summary, updatedByName, createdAt, reviewedByName: entryReviewedByName, reviewedAt: entryReviewedAt }, i) => {
         const row = 9 + i;
         docSheet.cell(`B${row}`).value(i + 1);
         docSheet.cell(`C${row}`).value(fmtShortDate(createdAt));
         docSheet.cell(`D${row}`).value(updatedByName ?? "");
         docSheet.cell(`E${row}`).value(summary);
-        // F = Reviewed by, G = Reviewed date. Stamped only on the most recent
-        // row — reviewedByName/reviewedAt reflect the file's current approval
-        // state as a whole, not a per-edit review, so it belongs on the latest
-        // entry rather than repeated (falsely) across every past edit. Left
-        // blank for manual fill when the file hasn't been through peer review
-        // (submit-for-review -> approve) yet.
-        if (i === entries.length - 1 && reviewedByName) {
-          docSheet.cell(`F${row}`).value(reviewedByName);
-          docSheet.cell(`G${row}`).value(fmtShortDate(reviewedAt));
-        }
+        // F = Reviewed by, G = Reviewed date. Each entry carries its own
+        // reviewer/date once an approval has covered it (stamped in bulk on
+        // "approve" — see the /execution-files/:id/review route). Entries
+        // added since the last approval have none yet and stay blank. The
+        // file-level reviewedByName/reviewedAt is a fallback for the latest
+        // row only, for entries that predate this per-entry tracking.
+        // Blanked (not left alone) when neither applies, so the template's
+        // baked-in sample values for row 9 ("Syamil", 23-May-25) don't leak
+        // through — B-E get overwritten unconditionally above, F/G must too.
+        const isLatestEntry = i === entries.length - 1;
+        const rowReviewedByName = entryReviewedByName ?? (isLatestEntry ? reviewedByName : null);
+        const rowReviewedAt = entryReviewedAt ?? (isLatestEntry ? reviewedAt : null);
+        docSheet.cell(`F${row}`).value(rowReviewedByName ?? "");
+        docSheet.cell(`G${row}`).value(rowReviewedByName ? fmtShortDate(rowReviewedAt) : "");
       });
     }
 

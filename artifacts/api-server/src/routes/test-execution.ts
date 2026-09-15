@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, sql, inArray, notInArray, ilike } from "drizzle-orm";
+import { eq, and, sql, inArray, notInArray, ilike, isNull } from "drizzle-orm";
 import {
   db,
   executionFilesTable,
@@ -822,6 +822,22 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
           and(
             eq(executionTestCasesTable.executionFileId, id),
             eq(executionTestCasesTable.reviewState, "pending"),
+          ),
+        );
+
+      // Same close-out for Doc Info's audit trail: every "update summary" row
+      // still unreviewed at this moment is covered by this approval, so it
+      // gets this reviewer/date individually — not just the file's single
+      // approvedBy stamped onto whichever row happens to be last. Entries
+      // added after this moment stay unreviewed until the next approval.
+      const [approver] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId));
+      await db
+        .update(executionFileAuditTable)
+        .set({ reviewedByName: approver?.name ?? null, reviewedAt: now })
+        .where(
+          and(
+            eq(executionFileAuditTable.executionFileId, id),
+            isNull(executionFileAuditTable.reviewedByName),
           ),
         );
     }
@@ -2174,6 +2190,8 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
         updatedByName: a.updatedByName ?? null,
         createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
         tcCount: a.tcCount ?? 0,
+        reviewedByName: a.reviewedByName ?? null,
+        reviewedAt: a.reviewedAt instanceof Date ? a.reviewedAt.toISOString() : (a.reviewedAt ?? null),
       })),
       reviewedByName,
       reviewedAt,

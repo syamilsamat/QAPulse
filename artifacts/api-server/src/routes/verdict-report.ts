@@ -1755,6 +1755,8 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
             updatedByName: a.updatedByName ?? null,
             createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
             tcCount: a.tcCount ?? 0,
+            reviewedByName: a.reviewedByName ?? null,
+            reviewedAt: a.reviewedAt instanceof Date ? a.reviewedAt.toISOString() : (a.reviewedAt ?? null),
           })),
           ...verdictAuditEntries,
           // CR011 P4: the send happening right now is the final Review Log row
