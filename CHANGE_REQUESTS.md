@@ -62,6 +62,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR052](#cr052--return-to-dev-timeline-gap) | Return-to-Dev Timeline Gap | ✅ Deployed | 2026-07-18 |
 | [CR053](#cr053--return-to-fa-flow) | Return-to-FA Flow | ✅ Deployed | 2026-07-18 |
 | [CR078](#cr078--compact-tc-numbering-on-the-execution-sheet) | Compact TC Numbering on the Execution Sheet | ✅ Deployed | 2026-09-15 |
+| [CR079](#cr079--platform-issues-internal-bug-tracking-for-qm-pulse) | Platform Issues (Internal Bug Tracking for QM Pulse) | ✅ Deployed | 2026-09-15 |
 
 ---
 
@@ -1573,3 +1574,38 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Known trade-off:** the label is now positional, so a case referenced by number in an external note or an older exported sheet may point at a different row after a delete or reorder. In-app linkage (defects, tasks, history, evidence) all follows correctly.
 
 **Verified:** algorithm exercised in isolation against the gap-close case (20 rows, delete #17 → `015..019`, no duplicates), banner rows taking no number, positional relabel after reorder, no-op on an already-compact file, and the swap case that is the worst case for chained history renames — history swaps rather than collapsing. Both `api-server` and `qm-pulse` typecheck clean. Not yet exercised against a live database.
+
+---
+
+### CR079 — Platform Issues (Internal Bug Tracking for QM Pulse)
+**Status: DEPLOYED (2026-09-15)**
+
+**Problem:** QM Pulse has no way for the people using it to report a bug in the tool itself. Today that's `bug.md` at the workspace root — a flat table one person edits by hand after the fact, with no reporter, no timestamp, no status, no screenshot, and no visibility to anyone without repo access. It currently holds 16 entries, all logged and fixed the same way: someone mentions it in passing, it gets fixed, a row gets added afterward. That breaks down as soon as QA members, developers, and FA staff — none of whom edit markdown files — are the ones hitting the bugs.
+
+**Not the same thing as Defects.** CR019–CR021 track bugs in the *client projects* QM Pulse tests (FWCMS, URP, MIFPS), reported by QA against Redmine-backed tickets. This CR tracks bugs in *QM Pulse itself*, reported by anyone using it. Reusing the Defects page or its terminology would train people to misfile one into the other. This is also why there's no Redmine involvement here at all — QM Pulse's own DB is the system of record from day one, so none of CR019–021's write-through/bridge complexity applies.
+
+**Target behavior (Phase 1 — MVP):**
+- Floating "Report issue" trigger, present on every authenticated page (not a nav item people have to remember exists)
+- Report form: title, type (bug / idea / question), severity (blocking / major / minor), optional description, optional screenshot
+- Auto-captured on submit, no user input required: current route, browser, role, timestamp
+- New `/platform-issues` page (admin-gated for now): table view, filter chips by status, search, sorted by age
+- Status lifecycle: Open → In Progress → Fixed / Won't Fix / Duplicate
+- Reuses the existing notifications table (CR027/CR045 patterns) to notify the reporter when status changes
+- One-time seed migrates `bug.md`'s 16 entries in as historical `status = 'fixed'` rows, then the file is retired
+
+**Data model (new table, no changes to `defects` or any existing schema):**
+- `platform_issues`: id, title, description, type (`bug` | `idea` | `question`), severity (`blocking` | `major` | `minor`), status (`open` | `in_progress` | `fixed` | `wont_fix` | `duplicate`), `reporter_id` (nullable, not a real FK constraint — matches `risks.raisedBy`/`defects.reporterId` elsewhere in this schema, and lets the bug.md backfill seed rows with no known reporter), `page_path` (auto-captured route), `browser_info` (auto-captured `navigator.userAgent`; **implemented as flat text, not the jsonb originally sketched** — no jsonb column exists anywhere else in this schema, and role is already derivable via a `reporter_id` join at read time, so jsonb would have been the only column of its kind for no real gain), `screenshot_url` (nullable — **a base64 `data:` URI, not a disk/S3 upload**; the app's existing 25mb JSON body cap covers one screenshot without pulling in the `multer`/`UPLOADS_DIR` machinery `requirement_attachments` uses), `promoted_cr` (nullable text, set once folded into a CR — e.g. `"CR080"`), `created_at` / `updated_at` / `resolved_at`.
+
+**Naming:** "Platform Issues" — chosen over "QM Pulse Feedback" (undersells that real defects get tracked to resolution here, not just suggestions) and "Internal Bugs" (excludes ideas/questions, and the first time someone wants to log an idea it'd be the wrong box). Deliberately avoids the word "Defects", which the client-facing page already owns.
+
+**Access model:** create (`POST /platform-issues`) is open to any authenticated user — anyone can report. List/triage (`GET`/`PATCH`/`DELETE`) is **admin-only on the API**, mirroring Audit Log's precedent (a single-owner internal tool, not department-scoped like Defects) rather than a new permission tier. The nav item and frontend route allow `admin` + `cto` (`roles={["admin", "cto"]}`, `permKey: "nav:platform-issues"`) — this exactly mirrors `/audit-log`'s own existing shape (nav+route open to both, API route checking `role === "admin"` only), not a new inconsistency introduced here.
+
+**Deferred to Phase 2 (once the habit sticks):** "Promote to CR" — one click drafts a `CHANGE_REQUESTS.md` entry from an issue and fills `promoted_cr`; comment thread per issue; "+1 / me too" dedupe on repeat reports; a small metrics strip (open count, median time-to-fix, issues by page); Kanban view as an alternative to the table.
+
+**Implementation:** `lib/db/src/schema/platform-issues.ts` (new table + index on `status`/`created_at`). `artifacts/api-server/src/routes/platform-issues.ts` (CRUD + status transitions; `notifyAdmins()` fans out to `role = 'admin'` on create — not `notifyRolesInProject`/CR045, which is project-scoped and platform issues aren't; reporter notified via existing `notifyUser` on status change), registered in `routes/index.ts`. `nav:platform-issues` added to `ALL_NAV_KEYS` in `roles.ts` (auto-backfilled to admin/cto by the existing "admin and cto always have every nav key" loop — no new backfill call needed). `artifacts/qm-pulse/src/components/ReportIssueTrigger.tsx` (new — floating action + Dialog form, mounted once in `Layout.tsx` alongside `GlobalQACopilot`/`GlobalSearch`, positioned `fixed bottom-24 right-6` so it stacks above the Copilot bubble at `bottom-6 right-6` rather than overlapping it). `artifacts/qm-pulse/src/pages/PlatformIssues.tsx` (new — admin table view, status filter chips, severity as a left-border stripe matching the convention already used elsewhere, inline status-change Select) + route/nav entry. `scripts/src/seed-platform-issues-from-bugmd.ts` (new, `pnpm seed:platform-issues-from-bugmd` from `scripts/`) migrates bug.md's 16 entries in as historical `status = 'fixed'` rows (severity defaults to "minor" and reporter to null throughout — bug.md never recorded either, so this doesn't guess); `bug.md` marked superseded at its top rather than deleted.
+
+**Verified:** `pnpm typecheck` clean across `lib/db`, `api-server`, `qm-pulse`, and `scripts` (all four packages). **Not yet exercised against a live database** — no `DATABASE_URL` configured in this environment, so `pnpm --filter @workspace/db push` and the bug.md backfill script have not actually been run, and the report flow has not been clicked through in a browser. Next step before this is truly done: push the schema, run the backfill once, and smoke-test the report button + admin page against a real login.
+
+**Sequencing:** no dependency on CR019–CR021 — separate table, no Redmine bridge. Mockup drafted 2026-09-15, built same day.
+
+---

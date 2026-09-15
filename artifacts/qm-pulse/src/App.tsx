@@ -49,6 +49,7 @@ const Resources = lazy(() => import("@/pages/Resources"));
 const QAAnalytics = lazy(() => import("@/pages/QAAnalytics"));
 const QAPipeline = lazy(() => import("@/pages/QAPipeline"));
 const MyWorkToday = lazy(() => import("@/pages/MyWorkToday"));
+const PlatformIssues = lazy(() => import("@/pages/PlatformIssues"));
 
 // Shared fallback for lazy page chunks — same spinner ProtectedRoute already
 // shows while auth/permissions resolve, so a route transition and a chunk
@@ -293,6 +294,10 @@ function Router() {
 
       <Route path="/audit-log">
         <ProtectedRoute component={AuditLog} permKey="nav:audit-log" roles={["admin", "cto"]} />
+      </Route>
+
+      <Route path="/platform-issues">
+        <ProtectedRoute component={PlatformIssues} permKey="nav:platform-issues" roles={["admin", "cto"]} />
       </Route>
 
       <Route path="/defects">

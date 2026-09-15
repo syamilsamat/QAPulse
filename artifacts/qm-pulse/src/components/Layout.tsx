@@ -5,9 +5,10 @@ import { useLogout, listNotifications } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2, FileCheck2 } from 'lucide-react';
+import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2, FileCheck2, Wrench } from 'lucide-react';
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { ReportIssueTrigger } from "@/components/ReportIssueTrigger";
 
 import {
   HoverPulse,
@@ -793,6 +794,17 @@ isPipelineFlow: true,
     section: "Administration",
   },
   {
+    // CR079 — bugs/ideas/questions about QM Pulse itself, distinct from the
+    // client-project "Defects" item above. Admin-only, same shape as Audit Log.
+    href: "/platform-issues",
+    label: "Platform Issues",
+    icon: Wrench,
+    activeColor: "text-slate-500",
+    roles: ["admin", "cto"],
+    permKey: "nav:platform-issues",
+    section: "Administration",
+  },
+  {
     href: "/settings",
     label: "Account",
     icon: HoverAccount,
@@ -1208,6 +1220,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <GlobalQACopilot />
         {/* Global Search Component */}
         <GlobalSearch />
+        {/* CR079 — global "Report an issue" trigger, present on every page */}
+        <ReportIssueTrigger />
       </div>
 
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>

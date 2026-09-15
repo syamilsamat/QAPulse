@@ -29,6 +29,7 @@ import risksRouter from "./risks";
 import searchRouter from "./search";
 import pipelineSettingsRouter from "./pipeline-settings";
 import myWorkRouter from "./my-work";
+import platformIssuesRouter from "./platform-issues";
 
 const router: IRouter = Router();
 
@@ -64,5 +65,6 @@ router.use(risksRouter);
 router.use(searchRouter);
 router.use(pipelineSettingsRouter);
 router.use(myWorkRouter);
+router.use(platformIssuesRouter);
 
 export default router;

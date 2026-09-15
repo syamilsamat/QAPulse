@@ -30,3 +30,4 @@ export * from "./messages";
 export * from "./pipeline-settings";
 export * from "./requirement-ai-suggestions";
 export * from "./code-reviews";
+export * from "./platform-issues";
