@@ -141,6 +141,79 @@ async function dedupeAndIndexDefectRedmineIds(): Promise<void> {
   }
 }
 
+// CR078 — compact TC numbering across every existing execution file. The save
+// route keeps the invariant going forward (a label's sequence is the row's
+// position in its file), but files last saved before CR078 still carry the
+// holes the old max(seq)+1 scheme left behind — delete row 17 of 20 and the
+// sheet read 015, 016, 018, 019, 020 forever. Nothing would fix those until
+// someone happened to open and save each one, so this heals them in place.
+//
+// Runs on every bootstrap rather than once: it is a pure convergence step, so
+// re-running it on an already-compact database updates zero rows, and keeping
+// it unconditional means the invariant self-heals no matter how a file's rows
+// got there (a restore, a direct DB edit, an older build still deployed).
+//
+// One statement on purpose. Every data-modifying CTE in a single statement
+// sees the same snapshot, so `hist` reads the pre-renumber labels while the
+// primary UPDATE writes the new ones. Splitting it in two would break the
+// history remap: recomputing `target` after the labels moved would find
+// nothing left to map. Postgres always executes a data-modifying CTE to
+// completion even when the primary query never references it.
+//
+// Only needs execution_files / execution_test_cases / execution_tc_history,
+// all pre-existing tables, so — like the two migrations above — it can run
+// concurrently with stage 1.
+async function compactExecutionTcNumbering(): Promise<void> {
+  try {
+    const result = await pool.query(`
+      WITH target AS (
+        SELECT
+          tc.id,
+          tc.execution_file_id,
+          tc.test_case_id AS old_label,
+          'TC-' || ef.redmine_ticket_id || '-' || LPAD(
+            ROW_NUMBER() OVER (
+              PARTITION BY tc.execution_file_id
+              ORDER BY tc.row_order, tc.id
+            )::text, 3, '0'
+          ) AS new_label
+        FROM execution_test_cases tc
+        JOIN execution_files ef ON ef.id = tc.execution_file_id
+        -- Group rows are section banners: they carry no label and must not
+        -- consume a number, or numbering would skip at every banner. WHERE is
+        -- applied before the window function, so ROW_NUMBER only counts real
+        -- test cases.
+        WHERE tc.row_type <> 'group'
+      ),
+      moved AS (
+        SELECT * FROM target WHERE old_label IS DISTINCT FROM new_label
+      ),
+      hist AS (
+        -- execution_tc_history keys the test case by its text label, so the
+        -- History Trail has to follow the rename. Joining old_label against
+        -- the snapshot handles the shift-up chain (018->017, 019->018, ...)
+        -- in one pass; sequential per-label updates would re-catch rows a
+        -- previous step had just renamed and shift them twice.
+        UPDATE execution_tc_history h
+        SET test_case_id = m.new_label
+        FROM moved m
+        WHERE h.execution_file_id = m.execution_file_id
+          AND h.test_case_id = m.old_label
+        RETURNING 1
+      )
+      UPDATE execution_test_cases tc
+      SET test_case_id = m.new_label
+      FROM moved m
+      WHERE tc.id = m.id
+    `);
+    if (result.rowCount) {
+      console.log(`[bootstrap] CR078: compacted TC numbering on ${result.rowCount} test case rows`);
+    }
+  } catch (e) {
+    console.error("[bootstrap] CR078: TC numbering compaction skipped:", e);
+  }
+}
+
 export async function bootstrap() {
   if (bootstrapped) return;
 
@@ -164,6 +237,7 @@ export async function bootstrap() {
   await Promise.all([
     migratePipelineOwnerColumns(),
     dedupeAndIndexDefectRedmineIds(),
+    compactExecutionTcNumbering(),
 
     pool.query(`
       CREATE TABLE IF NOT EXISTS roles (

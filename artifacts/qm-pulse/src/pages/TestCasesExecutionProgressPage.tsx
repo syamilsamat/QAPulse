@@ -28,6 +28,7 @@ import {
   Trash2,
   FileSpreadsheet,
   Loader2,
+  Clock,
   AlertTriangle,
   CheckCircle,
   XCircle,
@@ -79,6 +80,8 @@ import {
   uploadExecutionEvidence,
   deleteExecutionEvidence,
   executionEvidenceUrl,
+  reviewExecutionTestCase,
+  type ReturnedExecutionTestCase,
 } from "@/lib/execution-api";
 import { getAllDescendants } from "@/lib/utils";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
@@ -130,8 +133,12 @@ const RESULT_DOT_COLOR: Record<string, string> = {
 
 export type AppExecutionTestCase = ExecutionTestCase & {
   tracker?: string;
-  libraryReviewStatus?: string | null;
 };
+
+// A row added to an already-approved file was never part of what the reviewer
+// signed off on, so it stays frozen until a peer accepts it individually.
+// Execution eligibility is therefore the file gate AND this row gate.
+const isRowAccepted = (row: AppExecutionTestCase) => (row.reviewState ?? "accepted") === "accepted";
 
 // Fields compared to detect drift between an execution copy and its linked library
 // test case. Execution-only concerns (QA PIC, Result, Defect Number, QA Notes) are
@@ -624,7 +631,7 @@ const DesktopTableRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
 
     if (row.rowType === "group") {
       return (
@@ -807,6 +814,14 @@ const DesktopTableRow = React.memo(
               <AlertTriangle className="w-2.5 h-2.5" /> Revised
             </button>
           )}
+          {!isRowAccepted(row) && (
+            <span
+              className="mx-2 mb-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+              title="Added after this file was approved — a peer must accept it before it can be executed"
+            >
+              <Clock className="w-2.5 h-2.5" /> Pending acceptance
+            </span>
+          )}
         </td>
         {!hide("executedAt") && !isQaMember && (
           <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
@@ -950,7 +965,7 @@ const MobileCardRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
 
     return (
       <Card
@@ -1029,6 +1044,14 @@ const MobileCardRow = React.memo(
               >
                 <AlertTriangle className="w-2.5 h-2.5" /> Revised
               </button>
+            )}
+            {!isRowAccepted(row) && (
+              <span
+                className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+                title="Added after this file was approved — a peer must accept it before it can be executed"
+              >
+                <Clock className="w-2.5 h-2.5" /> Pending acceptance
+              </span>
             )}
           </div>
         </div>
@@ -1259,6 +1282,13 @@ export default function TestCasesExecutionProgressPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [currentFileQaPicSetBy, setCurrentFileQaPicSetBy] = useState<number | null>(null);
   const [currentFileQaPic, setCurrentFileQaPic] = useState<string | null>(null);
+  // Per-row peer acceptance for cases added after the file was approved.
+  // `returnedRows` are the ones a reviewer sent back for rework — they are
+  // held off the sheet entirely, so they live here rather than in `data`.
+  const [returnedRows, setReturnedRows] = useState<ReturnedExecutionTestCase[]>([]);
+  const [returnRowTarget, setReturnRowTarget] = useState<AppExecutionTestCase | null>(null);
+  const [returnRowComment, setReturnRowComment] = useState("");
+  const [rowReviewBusy, setRowReviewBusy] = useState(false);
   // CR075 — rolled-up phase timeline (planned dates from the milestone,
   // actual dates rolled up across every requirement this file's test cases
   // link to). Collapsed by default, same convention as RequirementDetail's
@@ -1553,6 +1583,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileRejectionReason(file?.rejectionReason ?? null);
         setCurrentFileQaPicSetBy(file?.qaPicSetBy ?? null);
         setCurrentFileQaPic(file?.qaPic ?? null);
+        setReturnedRows(result?.returnedTestCases ?? []);
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
@@ -1639,6 +1670,58 @@ export default function TestCasesExecutionProgressPage() {
       if (action === "reject") setCurrentFileRejectionReason(comment ?? null);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
+    }
+  };
+
+  // Saved rows still waiting on acceptance. Unsaved UI rows carry a string id
+  // and no review state, so they never appear here.
+  const pendingRows = useMemo(
+    () => data.filter((r) => typeof r.id === "number" && r.reviewState === "pending"),
+    [data],
+  );
+
+  // Accept / return one pending row, or resubmit one that was returned to you.
+  // Only the row changes — the rest of the run keeps executing either way.
+  const handleRowReview = async (
+    rowId: number,
+    action: "accept" | "return" | "resubmit",
+    comment?: string,
+  ) => {
+    setRowReviewBusy(true);
+    try {
+      await reviewExecutionTestCase(rowId, action, comment);
+      if (action === "accept") {
+        setData((prev) => prev.map((r) =>
+          r.id === rowId ? { ...r, reviewState: "accepted" as const } : r,
+        ));
+        toast({ title: "Test case accepted", description: "It can now be executed." });
+      } else if (action === "return") {
+        // Comes off the sheet and moves into the returned list for its author.
+        const row = data.find((r) => r.id === rowId);
+        setData((prev) => prev.filter((r) => r.id !== rowId));
+        if (row) {
+          setReturnedRows((prev) => [...prev, {
+            id: rowId,
+            testCaseId: row.testCaseId ?? null,
+            caseName: row.caseName ?? null,
+            moduleName: row.moduleName ?? null,
+            libraryTcId: row.libraryTcId ?? null,
+            addedBy: row.addedBy ?? null,
+            addedByName: row.addedByName ?? null,
+            returnedByName: currentUser?.name ?? null,
+            returnedAt: new Date().toISOString(),
+            reviewComment: comment ?? null,
+          }]);
+        }
+        toast({ title: "Returned to author", description: "They've been notified with your comment." });
+      } else {
+        setReturnedRows((prev) => prev.filter((r) => r.id !== rowId));
+        toast({ title: "Resubmitted", description: "Waiting on a peer to accept it." });
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Action failed", description: String(err?.message ?? err) });
+    } finally {
+      setRowReviewBusy(false);
     }
   };
 
@@ -3343,6 +3426,122 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
+      {/* Per-row acceptance. Test cases added after this file was approved were
+          never part of that sign-off, so they sit frozen here until a peer
+          accepts them — the already-approved rows above keep executing. */}
+      {pendingRows.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3 space-y-2">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
+                {pendingRows.length} test case{pendingRows.length !== 1 ? "s" : ""} awaiting peer acceptance
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                Added after this file was approved, so they weren't covered by that review.
+                They can't be executed until a QA colleague other than the person who added them accepts each one.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {pendingRows.map((row) => {
+              const mine = row.addedBy != null && row.addedBy === currentUser?.id;
+              const canActOnRow = canReview && !mine;
+              return (
+                <div
+                  key={String(row.id)}
+                  className="flex flex-wrap items-center gap-2 bg-white dark:bg-background rounded px-2.5 py-2 border border-amber-100 dark:border-amber-900"
+                >
+                  <span className="text-xs font-mono text-muted-foreground shrink-0">{row.testCaseId || "—"}</span>
+                  <span className="text-sm truncate min-w-0 flex-1" title={row.caseName}>{row.caseName || "Untitled"}</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">
+                    added by {row.addedByName || "unknown"}
+                  </span>
+                  {canActOnRow ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
+                        disabled={rowReviewBusy}
+                        onClick={() => { setReturnRowTarget(row); setReturnRowComment(""); }}
+                      >
+                        Return
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                        disabled={rowReviewBusy}
+                        onClick={() => handleRowReview(Number(row.id), "accept")}
+                      >
+                        Accept
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground italic shrink-0">
+                      {mine ? "waiting on a peer" : "no review rights"}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Rows a reviewer sent back. They are off the execution sheet until the
+          person who added them fixes the case and resubmits it. */}
+      {returnedRows.length > 0 && (
+        <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg p-3 space-y-2">
+          <div className="flex items-start gap-3">
+            <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-red-800 dark:text-red-300">
+                {returnedRows.length} test case{returnedRows.length !== 1 ? "s" : ""} returned for rework
+              </p>
+              <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                Held off the execution sheet. Fix the test case, then resubmit it for acceptance —
+                everything else in this file carries on executing meanwhile.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {returnedRows.map((row) => (
+              <div
+                key={row.id}
+                className="bg-white dark:bg-background rounded px-2.5 py-2 border border-red-100 dark:border-red-900 space-y-1.5"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-mono text-muted-foreground shrink-0">{row.testCaseId || "—"}</span>
+                  <span className="text-sm truncate min-w-0 flex-1" title={row.caseName ?? undefined}>
+                    {row.caseName || "Untitled"}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">
+                    returned by {row.returnedByName || "a reviewer"}
+                  </span>
+                  {row.addedBy != null && row.addedBy === currentUser?.id && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs shrink-0"
+                      disabled={rowReviewBusy}
+                      onClick={() => handleRowReview(row.id, "resubmit")}
+                    >
+                      Resubmit
+                    </Button>
+                  )}
+                </div>
+                {row.reviewComment && (
+                  <p className="text-xs text-red-800 dark:text-red-300 whitespace-pre-wrap bg-red-50 dark:bg-red-950/50 rounded px-2 py-1.5">
+                    <strong>What to fix:</strong> {row.reviewComment}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* HEADER & ACTION BUTTONS */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
@@ -3866,7 +4065,7 @@ export default function TestCasesExecutionProgressPage() {
               const isQaMember = currentUser?.role === "qa_member";
               const isAssignedToMe = row.qaPic === currentUser?.name;
               const isUnassigned = !row.qaPic;
-              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
+              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
               const steps = parseLines(row.testSteps);
               const expectations = parseLines(row.expectedResult);
@@ -4035,13 +4234,6 @@ export default function TestCasesExecutionProgressPage() {
                         )}
                       </div>
 
-                      {row.libraryReviewStatus === "in_review" && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-xs dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400">
-                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                          Pending peer review — this test case's content may still change.
-                        </div>
-                      )}
-
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
@@ -4173,7 +4365,7 @@ export default function TestCasesExecutionProgressPage() {
                         const isQaMember = currentUser?.role === "qa_member";
                         const isAssignedToMe = row.qaPic === currentUser?.name;
                         const isUnassigned = !row.qaPic;
-                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved";
+                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
                         if (row.rowType === "group") {
                           return (
                             <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">
@@ -4569,6 +4761,55 @@ export default function TestCasesExecutionProgressPage() {
               }}
             >
               Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return one pending row to whoever added it. The comment is the whole
+          point — it tells them what to fix before it can go back on the sheet. */}
+      <Dialog open={returnRowTarget !== null} onOpenChange={(open) => {
+        if (!open) { setReturnRowTarget(null); setReturnRowComment(""); }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <X className="w-5 h-5 text-red-500" />
+              Return test case
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono text-xs">{returnRowTarget?.testCaseId}</span>{" "}
+              {returnRowTarget?.caseName} will be taken off the execution sheet and sent back to{" "}
+              <strong>{returnRowTarget?.addedByName || "its author"}</strong>. The rest of this file keeps executing.
+            </p>
+            <div>
+              <Label htmlFor="return-row-comment" className="mb-2 block text-sm font-medium">
+                What needs to be fixed? <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id="return-row-comment"
+                placeholder="e.g. Expected result doesn't cover the quota history column — add the assertion before resubmitting."
+                value={returnRowComment}
+                onChange={(e) => setReturnRowComment(e.target.value)}
+                className="min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturnRowTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!returnRowComment.trim() || rowReviewBusy}
+              onClick={() => {
+                const target = returnRowTarget;
+                setReturnRowTarget(null);
+                if (target) handleRowReview(Number(target.id), "return", returnRowComment.trim());
+                setReturnRowComment("");
+              }}
+            >
+              Return to author
             </Button>
           </DialogFooter>
         </DialogContent>

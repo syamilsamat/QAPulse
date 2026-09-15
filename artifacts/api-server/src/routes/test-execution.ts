@@ -809,6 +809,24 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
 
     const [updated] = await db.update(executionFilesTable).set(update).where(eq(executionFilesTable.id, id)).returning();
 
+    // Approving the file signs off on everything currently in it, so any row
+    // still marked 'pending' is covered by this decision and needs no second
+    // accept. Rows added *after* this moment start pending again — that is
+    // exactly the gap this state closes. Rows returned to their author for
+    // rework ('rejected') are deliberately left alone: they are off the sheet
+    // and were not part of what was just reviewed.
+    if (action === "approve") {
+      await db
+        .update(executionTestCasesTable)
+        .set({ reviewState: "accepted", acceptedBy: ctx.userId, acceptedAt: now })
+        .where(
+          and(
+            eq(executionTestCasesTable.executionFileId, id),
+            eq(executionTestCasesTable.reviewState, "pending"),
+          ),
+        );
+    }
+
     await logActivity({
       type: `execution_file_${action}`,
       description: `Execution file "${file_.title || file_.redmineTicketId}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
@@ -852,6 +870,130 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
     res.json(updated);
   } catch (error) {
     console.error("Execution file review action failed:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /execution-test-cases/:id/review — per-row peer acceptance for test
+// cases added to a file that was already approved.
+//
+//   accept  — reviewer signs the row off; it becomes executable.
+//   return  — reviewer sends it back to whoever added it, with a comment
+//             saying what to fix. The row comes off the sheet so the rest of
+//             the run keeps executing, and the author resubmits it once fixed.
+//   resubmit — the author puts a returned row back up for acceptance.
+//
+// Segregation of duties mirrors the file-level gate: you cannot accept or
+// return a row you added yourself, and only the author can resubmit one.
+router.patch("/execution-test-cases/:id/review", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const id = parseInt(req.params.id);
+  const { action, comment } = req.body as { action: "accept" | "return" | "resubmit"; comment?: string };
+  if (Number.isNaN(id) || !["accept", "return", "resubmit"].includes(action)) {
+    res.status(400).json({ error: "action must be accept, return, or resubmit" }); return;
+  }
+
+  try {
+    const [row] = await db.select().from(executionTestCasesTable).where(eq(executionTestCasesTable.id, id));
+    if (!row) { res.status(404).json({ error: "Test case row not found" }); return; }
+
+    const [file] = await db.select().from(executionFilesTable).where(eq(executionFilesTable.id, row.executionFileId));
+    if (!file) { res.status(404).json({ error: "Execution file not found" }); return; }
+    if (!(await canAccessFileProject(ctx, file.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+
+    const state = (row as any).reviewState ?? "accepted";
+    const label = row.testCaseId || row.caseName || `row ${row.id}`;
+    const now = new Date();
+
+    if (action === "resubmit") {
+      if (state !== "rejected") {
+        res.status(409).json({ error: "Only a returned test case can be resubmitted" }); return;
+      }
+      if ((row as any).addedBy !== ctx.userId) {
+        res.status(403).json({ error: "Only the person who added this test case can resubmit it" }); return;
+      }
+      const [updated] = await db
+        .update(executionTestCasesTable)
+        .set({ reviewState: "pending", returnedBy: null, returnedAt: null, reviewComment: null })
+        .where(eq(executionTestCasesTable.id, id))
+        .returning();
+
+      await logActivity({
+        type: "execution_tc_resubmit",
+        description: `Test case "${label}" resubmitted for peer acceptance`,
+        userId: ctx.userId,
+        entityId: id,
+        entityType: "execution_test_case",
+        oldValue: { reviewState: state },
+        newValue: { reviewState: "pending" },
+      });
+
+      if (file.projectId != null) {
+        await notifyRolesInProject({
+          roles: await reviewRoleNames("qa"),
+          projectId: file.projectId,
+          module: file.selectedModules,
+          title: "Test case resubmitted for acceptance",
+          message: `"${label}" was revised and is waiting on your acceptance in ${file.title || file.redmineTicketId}.`,
+          type: "review_request",
+          entityType: "execution_file",
+          entityId: file.id,
+          actorId: ctx.userId,
+        }).catch(() => {});
+      }
+      res.json(updated); return;
+    }
+
+    // accept / return are reviewer actions
+    if (!(await canReview("qa", ctx.role))) {
+      res.status(403).json({ error: "QA role required for review actions" }); return;
+    }
+    if (state !== "pending") {
+      res.status(409).json({ error: "This test case is not awaiting acceptance" }); return;
+    }
+    if ((row as any).addedBy != null && (row as any).addedBy === ctx.userId) {
+      res.status(403).json({ error: `You cannot ${action} a test case you added yourself` }); return;
+    }
+
+    const update = action === "accept"
+      ? { reviewState: "accepted", acceptedBy: ctx.userId, acceptedAt: now, reviewComment: null }
+      : { reviewState: "rejected", returnedBy: ctx.userId, returnedAt: now, reviewComment: comment ?? null };
+
+    const [updated] = await db
+      .update(executionTestCasesTable)
+      .set(update)
+      .where(eq(executionTestCasesTable.id, id))
+      .returning();
+
+    await logActivity({
+      type: action === "accept" ? "execution_tc_accepted" : "execution_tc_returned",
+      description: `Test case "${label}" ${action === "accept" ? "accepted into" : "returned from"} ${file.title || file.redmineTicketId}${comment ? `: ${comment}` : ""}`,
+      userId: ctx.userId,
+      entityId: id,
+      entityType: "execution_test_case",
+      oldValue: { reviewState: state },
+      newValue: { reviewState: update.reviewState, comment: comment ?? null },
+    });
+
+    await notifyUser(
+      (row as any).addedBy,
+      action === "accept" ? "Test case accepted" : "Test case returned to you",
+      action === "accept"
+        ? `"${label}" was accepted into ${file.title || file.redmineTicketId} and can now be executed.`
+        : `"${label}" was returned for rework${comment ? `: ${comment}` : ""}. Fix it and resubmit to put it back on the execution sheet.`,
+      action === "accept" ? "review_approved" : "review_rejected",
+      "execution_file",
+      file.id,
+      ctx.userId,
+    ).catch(() => {});
+
+    res.json(updated);
+  } catch (error) {
+    console.error("Execution test case review action failed:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1101,6 +1243,12 @@ router.get(
         }
       }
 
+      // Rows returned to their author for rework are held off the execution
+      // sheet — the rest of the run carries on without them — and handed back
+      // separately so the author can see the reviewer's comment and resubmit.
+      const returnedRows = testCases.filter((t) => (t as any).reviewState === "rejected");
+      testCases = testCases.filter((t) => (t as any).reviewState !== "rejected");
+
       const executionRowIds = testCases.map((t) => t.id).filter((id): id is number => typeof id === "number");
       const evidenceRows = executionRowIds.length > 0
         ? await db
@@ -1125,23 +1273,35 @@ router.get(
 
       // CR023p4 — flag rows whose library test case's linked requirement was
       // revised since this execution instance last acknowledged a revision.
-      // Same lookup also carries the library test case's own peer-review
-      // status, so a row whose test case is still mid peer-review can show
-      // a soft warning (not a hard lock — see reviewStatusBadge on
-      // TestCasesExecutionProgressPage.tsx) without a second query.
       const libTcIds = [...new Set(testCases.map((t) => t.libraryTcId).filter((v): v is number => v != null))];
       const revisedMap = new Map<number, Date>();
-      const libReviewStatusMap = new Map<number, string>();
       if (libTcIds.length > 0) {
         const revisedRows = await db
-          .select({ id: testCasesTable.id, requirementRevisedAt: testCasesTable.requirementRevisedAt, reviewStatus: testCasesTable.reviewStatus })
+          .select({ id: testCasesTable.id, requirementRevisedAt: testCasesTable.requirementRevisedAt })
           .from(testCasesTable)
           .where(inArray(testCasesTable.id, libTcIds));
         for (const row of revisedRows) {
           if (row.requirementRevisedAt) revisedMap.set(row.id, row.requirementRevisedAt);
-          if (row.reviewStatus) libReviewStatusMap.set(row.id, row.reviewStatus);
         }
       }
+
+      // Names for whoever added / returned a row still under acceptance, so the
+      // sheet can say who to chase without a second round-trip per row.
+      const reviewUserIds = [...new Set(
+        [...testCases, ...returnedRows]
+          .flatMap((t) => [(t as any).addedBy, (t as any).returnedBy, (t as any).acceptedBy])
+          .filter((v): v is number => typeof v === "number"),
+      )];
+      const reviewUserNames = new Map<number, string>();
+      if (reviewUserIds.length > 0) {
+        const users = await db
+          .select({ id: usersTable.id, name: usersTable.name })
+          .from(usersTable)
+          .where(inArray(usersTable.id, reviewUserIds));
+        for (const u of users) reviewUserNames.set(u.id, u.name);
+      }
+      const nameOf = (uid: number | null | undefined) =>
+        typeof uid === "number" ? reviewUserNames.get(uid) ?? null : null;
 
       res.json({
         lastUpdatedAt: file.updatedAt,
@@ -1165,14 +1325,12 @@ router.get(
           const revisedAt = t.libraryTcId != null ? revisedMap.get(t.libraryTcId) : undefined;
           const reviewAcknowledgedAt = (t as any).reviewAcknowledgedAt ?? null;
           const alertRevised = !!revisedAt && (!reviewAcknowledgedAt || new Date(reviewAcknowledgedAt) < revisedAt);
-          const libraryReviewStatus = t.libraryTcId != null ? libReviewStatusMap.get(t.libraryTcId) ?? null : null;
           return {
             id: t.id,
             moduleName: t.moduleName,
             caseId: t.caseId,
             testCaseId: t.testCaseId,
             libraryTcId: t.libraryTcId,
-            libraryReviewStatus,
             userStory: t.userStory,
             requirementId: t.requirementId,
             tracker: (t as any).tracker,
@@ -1197,8 +1355,27 @@ router.get(
             rowType: t.rowType,
             reviewAcknowledgedAt,
             alertRevised,
+            // Per-row acceptance. 'pending' means this row was added after the
+            // file was approved and is frozen until a peer accepts it.
+            reviewState: (t as any).reviewState ?? "accepted",
+            addedBy: (t as any).addedBy ?? null,
+            addedByName: nameOf((t as any).addedBy),
+            acceptedByName: nameOf((t as any).acceptedBy),
           };
         }),
+        // Held off the sheet, shown to their author for rework.
+        returnedTestCases: returnedRows.map((t) => ({
+          id: t.id,
+          testCaseId: t.testCaseId,
+          caseName: t.caseName,
+          moduleName: t.moduleName,
+          libraryTcId: t.libraryTcId,
+          addedBy: (t as any).addedBy ?? null,
+          addedByName: nameOf((t as any).addedBy),
+          returnedByName: nameOf((t as any).returnedBy),
+          returnedAt: (t as any).returnedAt?.toISOString?.() ?? null,
+          reviewComment: (t as any).reviewComment ?? null,
+        })),
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch test cases" });
@@ -1254,15 +1431,20 @@ router.post(
           testCaseId: executionTestCasesTable.testCaseId,
           result: executionTestCasesTable.result,
           executedAt: executionTestCasesTable.executedAt,
+          reviewState: executionTestCasesTable.reviewState,
         })
         .from(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
 
-      type ExistingState = { result: string | null; executedAt: Date | null };
+      type ExistingState = { result: string | null; executedAt: Date | null; reviewState: string };
       const existingMap = new Map<string, ExistingState>(
         existingRows
           .filter((r) => r.testCaseId)
-          .map((r) => [r.testCaseId!, { result: r.result ?? null, executedAt: r.executedAt ?? null }]),
+          .map((r) => [r.testCaseId!, {
+            result: r.result ?? null,
+            executedAt: r.executedAt ?? null,
+            reviewState: r.reviewState ?? "accepted",
+          }]),
       );
       const existingDbIdSet = new Set(existingRows.map((r) => r.id));
       const oldTcIdSet = new Set(existingRows.map((r) => r.testCaseId).filter(Boolean) as string[]);
@@ -1275,6 +1457,14 @@ router.post(
           changedBy = verifyToken(authHeader.slice(7)).id;
         } catch {}
       }
+
+      // A peer approved this file's contents as they stood at approval time.
+      // Anything inserted afterwards was never part of that sign-off, so it
+      // lands 'pending' and stays off the executable sheet until a peer
+      // accepts it. Rows added while the file is still draft/in_review need
+      // no separate gate — the file-level review that follows covers them.
+      const fileApproved = (file as any).reviewStatus === "approved";
+      const pendingInserts: { id: number; caseName: string | null; testCaseId: string | null }[] = [];
 
       // 1. Delete explicitly removed rows (only those belonging to this file)
       const safeDeleteIds = (deletedIds as any[])
@@ -1345,6 +1535,7 @@ router.post(
           : [],
       );
       const blockedResultRows: string[] = [];
+      const unacceptedResultRows: string[] = [];
 
       // 3. Upsert incoming rows — UPDATE if DB id exists, INSERT if new
       const insertedRows: any[] = [];
@@ -1367,6 +1558,14 @@ router.post(
         if (t.requirementId && blockedReqIds.has(Number(t.requirementId)) && newResult !== (existing?.result ?? null)) {
           blockedResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
           newResult = existing?.result ?? null;
+        }
+        // A row still waiting on peer acceptance isn't executable yet — the
+        // same freeze the file-level gate applies, applied per row. Reverted
+        // silently rather than failing the whole save, so one unaccepted row
+        // never costs everyone else their edits (as with the block above).
+        if (existing && existing.reviewState !== "accepted" && newResult !== (existing.result ?? null)) {
+          unacceptedResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
+          newResult = existing.result ?? null;
         }
         const computedExecutedAt =
           newResult && existing?.result !== newResult
@@ -1418,13 +1617,23 @@ router.post(
             .returning();
           if (updated) processedCases.push({ ...t, testCaseId: tcId });
         } else {
+          // Group rows are section banners carrying no test content, so they
+          // never need accepting — only real cases go through the gate.
+          const needsAcceptance = fileApproved && !isGroupTag;
           const [inserted] = await db
             .insert(executionTestCasesTable)
-            .values(rowData)
+            .values({
+              ...rowData,
+              addedBy: changedBy,
+              ...(needsAcceptance ? { reviewState: "pending" } : {}),
+            })
             .returning();
           if (inserted) {
             insertedRows.push({ ...inserted, _tempId: t._tempId });
             processedCases.push({ ...t, testCaseId: tcId });
+            if (needsAcceptance) {
+              pendingInserts.push({ id: inserted.id, caseName: inserted.caseName, testCaseId: inserted.testCaseId });
+            }
           }
         }
       }
@@ -1725,7 +1934,29 @@ router.post(
         // requirement is blocked (the UI already prevents this, but a stale
         // page or direct API call could still try).
         ...(blockedResultRows.length > 0 ? { blockedResultRows } : {}),
+        // Attempted result changes reverted because the row is still awaiting
+        // peer acceptance (or was returned to its author for rework).
+        ...(unacceptedResultRows.length > 0 ? { unacceptedResultRows } : {}),
+        ...(pendingInserts.length > 0 ? { pendingAcceptance: pendingInserts.length } : {}),
       });
+
+      // Added to a live, already-approved file — tell the peers who can accept
+      // them, otherwise the rows sit frozen until someone happens to look.
+      if (pendingInserts.length > 0 && file.projectId != null) {
+        const n = pendingInserts.length;
+        const first = pendingInserts[0].testCaseId || pendingInserts[0].caseName || "A test case";
+        notifyRolesInProject({
+          roles: await reviewRoleNames("qa"),
+          projectId: file.projectId,
+          module: file.selectedModules,
+          title: n === 1 ? "New test case awaiting acceptance" : `${n} new test cases awaiting acceptance`,
+          message: `${n === 1 ? `"${first}" was` : `${n} test cases were`} added to the already-approved ${file.title || file.redmineTicketId} and cannot be executed until accepted.`,
+          type: "review_request",
+          entityType: "execution_file",
+          entityId: file.id,
+          actorId: changedBy,
+        }).catch(() => {});
+      }
     } catch {
       res.status(500).json({ error: "Failed to save test cases" });
     }

@@ -538,9 +538,44 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     const privileged = !!ctx && ["admin", "cto"].includes(ctx.role);
     const isOwner = !!ctx && (ctx.userId === (before as any).createdBy || ctx.userId === before.assigneeId);
     const isFaOnRedmineSourced = !!ctx && !!before.redmineTicketId && (await canReview("fa", ctx.role));
-    if (!ctx || (!privileged && !isOwner && !isFaOnRedmineSourced)) {
+
+    // Pulling the latest version of a Redmine-sourced requirement is not an
+    // authored edit — every field it writes is copied from the Redmine ticket,
+    // so "who owns this requirement" is the wrong question to gate it on.
+    // Anyone who can see the project may resync. Without this, the Requirements
+    // page's per-row Sync only worked for the importer, the assignee, FA-tier
+    // reviewers and admins: a QA member syncing a ticket someone else imported
+    // got a bare "Sync Failed" with no explanation.
+    const isRedmineSync = !!ctx && req.body?.redmineSync === true && !!before.redmineTicketId;
+
+    if (!ctx || (!privileged && !isOwner && !isFaOnRedmineSourced && !isRedmineSync)) {
       res.status(403).json({ error: "Only the author/assignee may edit this requirement" });
       return;
+    }
+
+    // A caller permitted *only* by the sync path may write nothing but the
+    // fields a sync legitimately carries. Anything else in the payload is
+    // dropped rather than erroring, since the client echoes back a few
+    // unchanged values (status/release/assigneeId) it has no intent to change.
+    if (isRedmineSync && !privileged && !isOwner && !isFaOnRedmineSourced) {
+      const REDMINE_SYNC_FIELDS = new Set([
+        "title", "description", "priority", "tracker", "redmineTicketId",
+        "parentId", "module", "projectId", "milestoneId",
+      ]);
+      for (const key of Object.keys(parsed.data)) {
+        if (!REDMINE_SYNC_FIELDS.has(key)) delete (parsed.data as any)[key];
+      }
+      // Moving a requirement into a project the caller can't reach would be a
+      // way around project scoping, so the destination is checked too.
+      const targetProjectId = (parsed.data as any).projectId;
+      if (
+        targetProjectId != null &&
+        targetProjectId !== before.projectId &&
+        !(await canAccessProject(ctx.userId, ctx.role, targetProjectId))
+      ) {
+        res.status(403).json({ error: "Access denied to the target project" });
+        return;
+      }
     }
   }
 

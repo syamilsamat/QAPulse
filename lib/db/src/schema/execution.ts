@@ -70,6 +70,23 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   rowType: text("row_type").notNull().default("testcase"), // "testcase" | "group" — group rows are section banners, label lives in caseName
   // CR023p4 — per-execution-instance ack of a requirement revision
   reviewAcknowledgedAt: timestamp("review_acknowledged_at"),
+  // Per-row peer acceptance. The file-level reviewStatus approves whatever the
+  // file contained at the moment it was approved; rows added afterwards would
+  // otherwise ride in on that approval unreviewed. Those land 'pending' and are
+  // not executable until a peer accepts them — the already-approved rows keep
+  // running untouched, so one late addition never freezes a run in progress.
+  //
+  // Defaults to 'accepted' so every pre-existing row stays exactly as it is:
+  // only inserts into an already-approved file explicitly write 'pending'.
+  // 'rejected' means returned to addedBy with reviewComment for rework — such
+  // a row is held off the execution sheet until they resubmit it.
+  reviewState: text("review_state").notNull().default("accepted"), // 'pending' | 'accepted' | 'rejected'
+  addedBy: integer("added_by"),
+  acceptedBy: integer("accepted_by"),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  returnedBy: integer("returned_by"),
+  returnedAt: timestamp("returned_at", { withTimezone: true }),
+  reviewComment: text("review_comment"),
 }, (t) => [
   // This is the largest table in the product and previously had no index at
   // all. Both of these columns are the join/filter key for essentially every
@@ -81,6 +98,9 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   index("exec_tc_file_order_idx").on(t.executionFileId, t.rowOrder),
   // Library-linked dedupe in the requirements list.
   index("exec_tc_library_tc_idx").on(t.libraryTcId),
+  // Every sheet read filters out rows that aren't accepted yet, and the
+  // "returned to me" queue filters on state alone.
+  index("exec_tc_review_state_idx").on(t.executionFileId, t.reviewState),
 ]);
 
 // Optional evidence for a passed execution result. File bytes live in the
