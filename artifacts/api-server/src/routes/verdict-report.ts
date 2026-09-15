@@ -74,7 +74,7 @@ import {
   defectLinksTable,
 } from "@workspace/db";
 
-function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
+export function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
   const t = (tracker ?? "").toLowerCase();
   if (t.includes("uat")) return "UAT";
   if (t.includes("sit")) return "SIT";
