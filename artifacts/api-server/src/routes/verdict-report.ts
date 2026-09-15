@@ -1694,25 +1694,31 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
       // Document register — look up Ref No by project + module + tracker.
       // moduleName must come from the file's own selected module(s), not the
       // parent project — matching it against the project name here always
-      // failed against Document Register entries like "ePLKS"/"eQuota".
+      // failed against Document Register entries like "ePLKS"/"eQuota". A
+      // file can have several selected modules (comma-separated) and only
+      // one of them may be registered, so try each in order instead of just
+      // the first.
       let refNo: string | undefined;
       try {
-        const moduleName = execFile?.selectedModules?.split(",")[0]?.trim() ?? "";
+        const moduleNames = (execFile?.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
         const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
-        const [regEntry] = await db
-          .select()
-          .from(documentRegisterTable)
-          .where(
-            and(
-              ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
-              ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
-              eq(documentRegisterTable.tracker, tracker),
+        for (const moduleName of moduleNames.length > 0 ? moduleNames : [""]) {
+          const [regEntry] = await db
+            .select()
+            .from(documentRegisterTable)
+            .where(
+              and(
+                ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
+                ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
+                eq(documentRegisterTable.tracker, tracker),
+              )
             )
-          )
-          .limit(1);
-        if (regEntry) {
-          refNo = regEntry.refNo;
-          console.log(`[send-verdict] refNo=${refNo} (project=${projectName} module=${moduleName} tracker=${tracker})`);
+            .limit(1);
+          if (regEntry) {
+            refNo = regEntry.refNo;
+            console.log(`[send-verdict] refNo=${refNo} (project=${projectName} module=${moduleName} tracker=${tracker})`);
+            break;
+          }
         }
       } catch (err) {
         console.warn("[send-verdict] document register lookup failed:", err);

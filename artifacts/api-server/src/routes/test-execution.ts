@@ -2129,24 +2129,29 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     // instead of this one falling back to the QA-<ticketId> placeholder.
     // moduleName must come from the file's own selected module(s), not the
     // parent project — matching it against the project name here always
-    // failed against Document Register entries like "ePLKS"/"eQuota".
+    // failed against Document Register entries like "ePLKS"/"eQuota". A file
+    // can have several selected modules (comma-separated) and only one of
+    // them may be registered, so try each in order instead of just the first.
     let refNo: string | undefined;
     try {
-      const moduleName = file?.selectedModules?.split(",")[0]?.trim() ?? "";
+      const moduleNames = (file?.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
       const tracker = normaliseTracker(typeLabel);
-      const [regEntry] = await db
-        .select()
-        .from(documentRegisterTable)
-        .where(
-          and(
-            ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
-            ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
-            eq(documentRegisterTable.tracker, tracker),
+      for (const moduleName of moduleNames.length > 0 ? moduleNames : [""]) {
+        const [regEntry] = await db
+          .select()
+          .from(documentRegisterTable)
+          .where(
+            and(
+              ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
+              ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
+              eq(documentRegisterTable.tracker, tracker),
+            )
           )
-        )
-        .limit(1);
-      if (regEntry) {
-        refNo = regEntry.refNo;
+          .limit(1);
+        if (regEntry) {
+          refNo = regEntry.refNo;
+          break;
+        }
       }
     } catch (err) {
       console.warn("[download-excel] document register lookup failed:", err);
