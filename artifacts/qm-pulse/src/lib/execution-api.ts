@@ -81,6 +81,26 @@ export interface ExecutionTestCase {
   // CR023p4 — requirement-change re-review flow
   reviewAcknowledgedAt?: string | null;
   alertRevised?: boolean;
+  // Per-row peer acceptance. A row added to an already-approved file lands
+  // 'pending' and can't record a result until a peer accepts it.
+  reviewState?: "pending" | "accepted" | "rejected";
+  addedBy?: number | null;
+  addedByName?: string | null;
+  acceptedByName?: string | null;
+}
+
+/** A row a reviewer sent back for rework — held off the execution sheet. */
+export interface ReturnedExecutionTestCase {
+  id: number;
+  testCaseId: string | null;
+  caseName: string | null;
+  moduleName: string | null;
+  libraryTcId: number | null;
+  addedBy: number | null;
+  addedByName: string | null;
+  returnedByName: string | null;
+  returnedAt: string | null;
+  reviewComment: string | null;
 }
 
 export interface ExecutionEvidence {
@@ -233,6 +253,7 @@ export const fetchTestCases = async (
   ticketId: string,
 ): Promise<{
   testCases: ExecutionTestCase[];
+  returnedTestCases?: ReturnedExecutionTestCase[];
   lastUpdatedAt: string | null;
   file: ExecutionFile | null;
 }> => {
@@ -240,6 +261,29 @@ export const fetchTestCases = async (
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error("Failed to fetch test cases");
+  return res.json();
+};
+
+/**
+ * Per-row peer acceptance for test cases added to an already-approved file.
+ * `accept` clears the row for execution; `return` sends it back to whoever
+ * added it with a comment and takes it off the sheet; `resubmit` is that
+ * author putting it back up once fixed.
+ */
+export const reviewExecutionTestCase = async (
+  rowId: number,
+  action: "accept" | "return" | "resubmit",
+  comment?: string,
+) => {
+  const res = await fetch(`/api/execution-test-cases/${rowId}/review`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify({ action, comment }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Failed to ${action} test case`);
+  }
   return res.json();
 };
 

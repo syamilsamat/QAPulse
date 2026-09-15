@@ -11,7 +11,6 @@ import {
   risksTable,
   rolesTable,
   tasksTable,
-  testCasesTable,
   usersTable,
 } from "@workspace/db";
 import {
@@ -98,11 +97,10 @@ router.get("/my-work", async (req, res): Promise<void> => {
   const targetUserIds = new Set(targetUsers.map((user) => user.id));
   const targetUserNames = new Set(targetUsers.map((user) => user.name.trim().toLowerCase()));
 
-  const [projects, milestones, requirements, testCases, executionFiles, executionRows, defects, tasks, risks] = await Promise.all([
+  const [projects, milestones, requirements, executionFiles, executionRows, defects, tasks, risks] = await Promise.all([
     db.select().from(projectsTable),
     db.select().from(milestonesTable),
     db.select().from(requirementsTable),
-    db.select().from(testCasesTable),
     db.select().from(executionFilesTable),
     db.select().from(executionTestCasesTable),
     db.select().from(defectsTable),
@@ -118,7 +116,6 @@ router.get("/my-work", async (req, res): Promise<void> => {
 
   const visibleProjectIds = [...new Set([
     ...requirements.map((row) => row.projectId),
-    ...testCases.map((row) => row.projectId),
     ...executionFiles.map((row) => row.projectId),
     ...defects.map((row) => row.projectId),
     ...tasks.map((row) => row.projectId),
@@ -207,20 +204,11 @@ router.get("/my-work", async (req, res): Promise<void> => {
     }
   }
 
-  if (department === "qa" || department == null) {
-    for (const testCase of testCases) {
-      if (!canSeeProject(testCase.projectId) || !canSeeModule(testCase.projectId, testCase.module)) continue;
-      const isReview = testCase.reviewStatus === "in_review" && tierRank >= 2 && testCase.authorId !== ctx.userId && scope !== "unassigned";
-      const isRevision = testCase.reviewStatus === "rejected" && (scope === "unassigned" ? testCase.authorId == null : isTargetId(testCase.authorId));
-      if (!isReview && !isRevision) continue;
-      push({ id: `test-case:${testCase.id}`, type: "test_case", title: `${isReview ? "Review" : "Revise"} test case: ${testCase.title}`,
-        context: contextFor(testCase.projectId, null), reason: `${isReview ? "Waiting for peer review" : "Returned for revision"} · ${ageDays(testCase.updatedAt)} day(s)`,
-        priority: ageDays(testCase.updatedAt) >= 3 ? "urgent" : "high", section: ageDays(testCase.updatedAt) >= 3 ? "urgent" : "action",
-        actionLabel: isReview ? "Review test case" : "Open test case", actionUrl: `/test-cases?highlight=${testCase.id}`,
-        projectId: testCase.projectId, projectName: testCase.projectId ? projectNameById.get(testCase.projectId) ?? null : null, milestoneName: null,
-        ownerName: testCase.authorId ? userNameById.get(testCase.authorId) ?? null : null, updatedAt: testCase.updatedAt.toISOString() });
-    }
-  }
+  // Library test cases raise no work items of their own. They used to surface
+  // a "Review test case" / "Revise test case" card off their own review_status,
+  // which put a case in a reviewer's queue before it had been compiled into
+  // anything. QA peer review now happens once, on the compiled execution file,
+  // and that card is pushed below.
 
   const rowsByFile = new Map<number, typeof executionRows>();
   for (const row of executionRows) {
@@ -232,7 +220,44 @@ router.get("/my-work", async (req, res): Promise<void> => {
     const fileRows = rowsByFile.get(file.id) ?? [];
     const visibleRows = fileRows.filter((row) => canSeeModule(file.projectId, row.moduleName));
     if (fileRows.length > 0 && visibleRows.length === 0) continue;
-    const pendingCount = visibleRows.filter((row) => row.rowType !== "group" && (!row.result || row.result.toLowerCase() === "not executed")).length;
+    const pendingCount = visibleRows.filter((row) => row.rowType !== "group" && (!row.result || row.result.toLowerCase() === "not executed") && ((row as any).reviewState ?? "accepted") === "accepted").length;
+
+    // Per-row acceptance: cases added after this file was approved. Two sides
+    // to surface — peers who can accept them, and the author of any row a
+    // reviewer returned for rework. Both are pushed as their own items so
+    // neither gets buried under the file's own execution card.
+    const awaitingAcceptance = visibleRows.filter((row) => (row as any).reviewState === "pending");
+    const acceptableByMe = awaitingAcceptance.filter((row) => (row as any).addedBy !== ctx.userId);
+    if (acceptableByMe.length > 0 && (department === "qa" || department == null) && scope !== "unassigned") {
+      const n = acceptableByMe.length;
+      push({ id: `execution-accept:${file.id}`, type: "execution",
+        title: `Accept ${n} new test case${n !== 1 ? "s" : ""}: ${file.title ?? file.redmineTicketId}`,
+        context: contextFor(file.projectId, file.milestoneId),
+        reason: `Added after approval · frozen until accepted · ${ageDays(file.updatedAt)} day(s)`,
+        priority: ageDays(file.updatedAt) >= 3 ? "urgent" : "high",
+        section: ageDays(file.updatedAt) >= 3 ? "urgent" : "action",
+        actionLabel: "Review now", actionUrl: `/test-cases/execution/${file.redmineTicketId}`,
+        projectId: file.projectId, projectName: file.projectId ? projectNameById.get(file.projectId) ?? null : null,
+        milestoneName: file.milestoneId ? milestoneNameById.get(file.milestoneId) ?? null : null,
+        ownerName: file.qaPic, updatedAt: file.updatedAt.toISOString() });
+    }
+
+    const returnedToMe = visibleRows.filter(
+      (row) => (row as any).reviewState === "rejected"
+        && (scope === "unassigned" ? (row as any).addedBy == null : isTargetId((row as any).addedBy)),
+    );
+    if (returnedToMe.length > 0) {
+      const n = returnedToMe.length;
+      push({ id: `execution-returned:${file.id}`, type: "execution",
+        title: `Fix ${n} returned test case${n !== 1 ? "s" : ""}: ${file.title ?? file.redmineTicketId}`,
+        context: contextFor(file.projectId, file.milestoneId),
+        reason: `Returned by a peer for rework · held off the execution sheet`,
+        priority: "urgent", section: "urgent",
+        actionLabel: "Open execution", actionUrl: `/test-cases/execution/${file.redmineTicketId}`,
+        projectId: file.projectId, projectName: file.projectId ? projectNameById.get(file.projectId) ?? null : null,
+        milestoneName: file.milestoneId ? milestoneNameById.get(file.milestoneId) ?? null : null,
+        ownerName: file.qaPic, updatedAt: file.updatedAt.toISOString() });
+    }
     const assigned = isTargetName(file.qaPic) || visibleRows.some((row) => isTargetName(row.qaPic));
     const unassigned = !file.qaPic && visibleRows.some((row) => !row.qaPic);
     const isReview = (department === "qa" || department == null) && tierRank >= 2 && file.reviewStatus === "in_review" && file.qaPicSetBy !== ctx.userId && file.qaPic?.trim().toLowerCase() !== currentUser.name.trim().toLowerCase() && scope !== "unassigned";

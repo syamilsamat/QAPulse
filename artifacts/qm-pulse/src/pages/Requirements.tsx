@@ -799,7 +799,10 @@ parentId: parentId,
         mappedData.release = existingReq.release ?? undefined;
         mappedData.assigneeId = existingReq.assigneeId ?? undefined;
 
-        await updateMutation.mutateAsync({ id: existingReq.id, data: mappedData as any });
+        // Marks this PATCH as a Redmine refresh rather than an authored edit,
+        // so the server permits it on project access instead of authorship —
+        // and in return accepts only the fields a sync actually carries.
+        await updateMutation.mutateAsync({ id: existingReq.id, data: { ...mappedData, redmineSync: true } as any });
       } else {
         mappedData.status = "draft";
         const res = await createMutation.mutateAsync({ data: mappedData as RequirementInput });
@@ -846,7 +849,7 @@ parentId: parentId,
       if (msg.startsWith("NO_RESULT:")) {
         toast({ variant: "destructive", title: "No results found", description: msg.replace("NO_RESULT:", "").trim() });
       } else {
-        toast({ variant: "destructive", title: "Failed to connect to Redmine" });
+        toast({ variant: "destructive", title: "Failed to connect to Redmine", description: msg || undefined });
       }
     } finally {
       setRedmineLoading(false);
@@ -873,7 +876,9 @@ parentId: parentId,
       if (msg.startsWith("NO_RESULT:")) {
         toast({ variant: "destructive", title: "No results found", description: msg.replace("NO_RESULT:", "").trim() });
       } else {
-        toast({ variant: "destructive", title: "Sync Failed" });
+        // A bare "Sync Failed" gave the user nothing to act on — a permission
+        // error and an unreachable Redmine looked identical.
+        toast({ variant: "destructive", title: "Sync Failed", description: msg || "Could not reach Redmine or save the update." });
       }
     }
   };

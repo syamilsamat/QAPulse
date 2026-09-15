@@ -21,7 +21,7 @@ const accounts = [
 
 const protectedReads = [
   "/auth/me", "/pipeline-settings", "/uat-signoffs", "/roles", "/roles/permissions-matrix",
-  "/my-nav-permissions", "/test-cases", "/test-cases/review-queue", "/notifications",
+  "/my-nav-permissions", "/test-cases", "/notifications",
   "/social-events", "/dashboard/pm-summary", "/dashboard/milestone-phase-breakdown",
   "/dashboard/task-board", "/dashboard/closed-milestones", "/dashboard/resource-view",
   "/dashboard/summary", "/dashboard/team", "/dashboard/weekly-trend", "/dashboard/activity",
@@ -37,7 +37,7 @@ const protectedReads = [
 const authenticatedReads = [
   "/auth/me", "/projects", "/requirements", "/requirements/review-queue",
   "/requirements/dev-queue", "/requirements/events/all", "/test-cases",
-  "/test-cases/review-queue", "/tasks", "/tasks/events/all", "/defects", "/defects/metrics",
+  "/tasks", "/tasks/events/all", "/defects", "/defects/metrics",
   "/defects/statuses", "/execution-files", "/execution-progress", "/execution-files/review-queue",
   "/modules", "/users", "/roles", "/my-nav-permissions", "/dashboard/summary",
   "/dashboard/task-board", "/dashboard/weekly-trend", "/dashboard/activity", "/dashboard/team",
