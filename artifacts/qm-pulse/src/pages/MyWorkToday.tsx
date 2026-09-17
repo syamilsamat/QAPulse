@@ -25,6 +25,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+function timeOfDayGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 type WorkScope = "mine" | "team" | "unassigned";
 type WorkPriority = "urgent" | "high" | "normal";
 type WorkSection = "urgent" | "action" | "waiting";
@@ -149,7 +156,7 @@ export default function MyWorkToday() {
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
               <ListChecks className="h-4 w-4" /> My Work Today
             </div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Good morning, {firstName}</h1>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{timeOfDayGreeting()}, {firstName}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {scope === "mine" ? "Your prioritized actions across QM Pulse." : scope === "team" ? "Team actions, reviews and delivery exceptions." : "Work that needs an accountable owner."}
             </p>
