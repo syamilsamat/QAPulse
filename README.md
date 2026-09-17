@@ -22,8 +22,8 @@ Before you begin, make sure you have the following installed and available:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Autoraimix/QMPulse.git
-cd QMPulse
+git clone https://github.com/Autoraimix/QAPulse.git
+cd QAPulse
 ```
 
 ### 2. Set up environment variables
