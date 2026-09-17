@@ -466,7 +466,17 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
 
     if (!response.ok) {
       const errBody = await response.text();
-      throw new Error(`Redmine returned ${response.status}: ${errBody}`);
+      // Redmine answers validation failures with {"errors":[...]}. Assignees
+      // now come from the whole contact directory rather than the project's
+      // own members, so "Assignee is invalid" (the user is not an allowed
+      // assignee on that project) is a normal outcome a QA needs to read and
+      // act on — not a raw JSON blob in a toast.
+      let detail = errBody;
+      try {
+        const parsed = JSON.parse(errBody);
+        if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) detail = parsed.errors.join("; ");
+      } catch { /* not JSON — fall back to the raw body */ }
+      throw new Error(`Redmine returned ${response.status}: ${detail}`);
     }
 
     const data: any = await response.json();

@@ -54,7 +54,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
   fetchRedmineProjectConfig,
-  fetchRedmineProjectMembers,
+  fetchContactAssignees,
   fetchRedmineTrackers,
   searchRedmineIssues,
   fetchExecutionFiles,
@@ -1678,11 +1678,18 @@ function NewDefectDialog({
       .catch(() => {});
   }, [open, token]);
 
-  // Load members + project config when Redmine project changes
+  // Assignees come from the contact directory, not the selected project's
+  // Redmine memberships — the same reason as DefectCreationModal: a
+  // membership held on a sub-project or through a group never showed up.
+  useEffect(() => {
+    if (!open) return;
+    fetchContactAssignees().then(setMembers).catch(() => {});
+  }, [open]);
+
+  // Project config still follows the selected Redmine project.
   useEffect(() => {
     const pid = form.redmineProjectId;
-    if (!pid) { setMembers([]); setSelectedAssigneeId(null); setProjectConfig(null); return; }
-    fetchRedmineProjectMembers(pid).then(setMembers).catch(() => {});
+    if (!pid) { setProjectConfig(null); return; }
     fetchRedmineProjectConfig(pid).then(setProjectConfig).catch(() => {});
   }, [form.redmineProjectId]);
 
@@ -1946,10 +1953,9 @@ function NewDefectDialog({
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
                 options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
-                placeholder={form.redmineProjectId ? "Select assignee..." : "Select a Redmine project first"}
-                searchPlaceholder="Search member..."
-                disabled={!form.redmineProjectId}
-                emptyText={form.redmineProjectId ? "No members found." : "Select a project first."}
+                placeholder="Select assignee..."
+                searchPlaceholder="Search contact..."
+                emptyText="No contacts found."
               />
             </div>
 
