@@ -16,10 +16,11 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, Trash2, X } from "lucide-react";
 
 // CR060 — Tasks is now a read-only, auto-populated rollup of requirements
 // within their milestones (no manual creation). One row per requirement that
@@ -591,6 +592,9 @@ export default function Tasks() {
   const tierRank = (user as any)?.tierRank ?? 1;
   const seesEverything = tierRank >= 5 || department === "pm";
   const canAssign = tierRank >= 2; // Lead-tier+ — server enforces the real gate on each PATCH
+  // A Tasks row *is* a requirement (CR060 rollup), so deleting one deletes the
+  // requirement itself — kept to the same tier that already sees every row.
+  const canDelete = seesEverything;
 
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState("all");
@@ -598,6 +602,9 @@ export default function Tasks() {
   const [filterPhase, setFilterPhase] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 15;
 
@@ -694,12 +701,73 @@ export default function Tasks() {
   }, [highlightReqId, filtered, rows.length]);
   useHighlightRow([currentPage, filtered.length]);
 
+  // Selection spans the whole filtered set, not just the current page, so
+  // "Select All" + Export/Delete act on what the filters describe rather than
+  // on the 15 rows that happen to be rendered.
+  const selectedRows = useMemo(
+    () => filtered.filter((r) => selectedIds.has(r.requirementId)),
+    [filtered, selectedIds],
+  );
+  const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.requirementId));
+
+  const toggleSelect = (requirementId: number) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(requirementId)) next.delete(requirementId);
+      else next.add(requirementId);
+      return next;
+    });
+
+  const selectAll = () => setSelectedIds(new Set(filtered.map((r) => r.requirementId)));
+  const deselectAll = () => setSelectedIds(new Set());
+
+  // Filters changing can drop rows out of `filtered` while they stay selected —
+  // prune so the count and the bulk actions only ever cover visible rows.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(filtered.map((r) => r.requirementId));
+      const next = new Set(Array.from(prev).filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered]);
+
   const handleExport = () => {
-    if (filtered.length === 0) {
+    const rowsToExport = selectedRows.length > 0 ? selectedRows : filtered;
+    if (rowsToExport.length === 0) {
       toast({ variant: "destructive", title: "Nothing to export" });
       return;
     }
-    exportTaskBoardToExcel(filtered);
+    exportTaskBoardToExcel(rowsToExport);
+  };
+
+  const handleBulkDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedRows.map((r) =>
+          fetch(`${getApiUrl()}/requirements/${r.requirementId}`, {
+            method: "DELETE",
+            headers: authHeaders(),
+          }).then((res) => {
+            if (!res.ok) throw new Error(String(res.status));
+          }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      const deleted = results.length - failed;
+      if (deleted > 0) {
+        toast({ title: `Deleted ${deleted} task${deleted !== 1 ? "s" : ""}` });
+      }
+      if (failed > 0) {
+        toast({ variant: "destructive", title: `${failed} task${failed !== 1 ? "s" : ""} could not be deleted` });
+      }
+      setDeleteDialogOpen(false);
+      setSelectedIds(new Set());
+      invalidate();
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   if (isLoading) {
@@ -722,9 +790,49 @@ export default function Tasks() {
           </p>
         </div>
         <Button variant="outline" onClick={handleExport} className="gap-2">
-          <Download className="w-4 h-4" /> Export
+          <Download className="w-4 h-4" />
+          {selectedIds.size > 0 ? `Export ${selectedIds.size}` : "Export"}
         </Button>
       </div>
+
+      {selectedIds.size > 0 && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
+            <span>
+              <strong>{selectedIds.size}</strong> task{selectedIds.size !== 1 ? "s" : ""} selected
+            </span>
+          </div>
+          <div className="sm:ml-auto flex w-full sm:w-auto items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950"
+              onClick={handleExport}
+            >
+              <Download className="w-3 h-3" /> Export {selectedIds.size}
+            </Button>
+            {canDelete && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 flex-1 sm:flex-none px-3 text-xs gap-1"
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <Trash2 className="w-3 h-3" /> Delete
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none px-2 text-xs gap-1"
+              onClick={deselectAll}
+            >
+              <X className="w-3 h-3" /> Clear
+            </Button>
+          </div>
+        </div>
+      )}
 
       <WorkloadPanel rows={rows} members={ownDeptMembers} department={seesEverything ? null : department} />
 
@@ -775,12 +883,45 @@ export default function Tasks() {
               className="flex-1 min-w-[130px]"
             />
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs gap-1"
+              onClick={selectAll}
+              disabled={filtered.length === 0 || allFilteredSelected}
+            >
+              <CheckSquare className="w-3.5 h-3.5" /> Select All
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs gap-1"
+              onClick={deselectAll}
+              disabled={selectedIds.size === 0}
+            >
+              <X className="w-3.5 h-3.5" /> Deselect All
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {selectedIds.size} of {filtered.length} selected
+            </span>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      aria-label="Select all tasks"
+                      checked={allFilteredSelected}
+                      disabled={filtered.length === 0}
+                      onCheckedChange={(checked) => (checked ? selectAll() : deselectAll())}
+                    />
+                  </TableHead>
                   <TableHead>Milestone</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Requirement</TableHead>
@@ -795,7 +936,7 @@ export default function Tasks() {
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canAssign ? 9 : 8} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={canAssign ? 10 : 9} className="text-center text-muted-foreground py-10">
                       No tasks match your filters.
                     </TableCell>
                   </TableRow>
@@ -811,7 +952,17 @@ export default function Tasks() {
                       });
                     return (
                       <Fragment key={r.requirementId}>
-                        <TableRow id={highlightRowId(r.requirementId)}>
+                        <TableRow
+                          id={highlightRowId(r.requirementId)}
+                          className={selectedIds.has(r.requirementId) ? "bg-primary/5" : ""}
+                        >
+                          <TableCell>
+                            <Checkbox
+                              aria-label={`Select ${r.title}`}
+                              checked={selectedIds.has(r.requirementId)}
+                              onCheckedChange={() => toggleSelect(r.requirementId)}
+                            />
+                          </TableCell>
                           <TableCell className="font-medium">
                             <button
                               type="button"
@@ -860,7 +1011,7 @@ export default function Tasks() {
                         </TableRow>
                         {isExpanded && (
                           <TableRow className="hover:bg-transparent">
-                            <TableCell colSpan={canAssign ? 9 : 8} className="bg-muted/10 py-3">
+                            <TableCell colSpan={canAssign ? 10 : 9} className="bg-muted/10 py-3">
                               <PhaseTimelinePanel timeline={r.phaseTimeline} />
                             </TableCell>
                           </TableRow>
@@ -885,6 +1036,54 @@ export default function Tasks() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="w-[95vw] sm:w-full">
+          <DialogHeader>
+            <DialogTitle>
+              Delete {selectedIds.size} task{selectedIds.size !== 1 ? "s" : ""}?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Each task row is a requirement, so this permanently deletes the{" "}
+              {selectedIds.size} selected requirement{selectedIds.size !== 1 ? "s" : ""} and
+              removes {selectedIds.size !== 1 ? "them" : "it"} from every milestone rollup.
+              This cannot be undone.
+            </p>
+            <ul className="max-h-40 overflow-y-auto text-xs text-muted-foreground border rounded-md p-2 space-y-1">
+              {selectedRows.map((r) => (
+                <li key={r.requirementId} className="truncate" title={r.title}>
+                  • {r.title}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Delete {selectedIds.size} task{selectedIds.size !== 1 ? "s" : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
