@@ -1647,7 +1647,7 @@ function NewDefectDialog({
   const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
 
   // Redmine fields
-  const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string }[]>([]);
+  const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string; identifier?: string }[]>([]);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
   const [members, setMembers] = useState<RedmineMember[]>([]);
@@ -1912,7 +1912,15 @@ function NewDefectDialog({
                 <Select value={form.redmineProjectId ? String(form.redmineProjectId) : ""} onValueChange={(v) => setForm({ ...form, redmineProjectId: v ? Number(v) : undefined })}>
                   <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
                   <SelectContent>
-                    {redmineProjects.map((p) => <SelectItem key={p.redmineId} value={String(p.redmineId)}>{p.name}</SelectItem>)}
+                    {/* Several Redmine projects can share a display name, so
+                        show the unique identifier alongside it — otherwise the
+                        list reads as duplicated entries. */}
+                    {redmineProjects.map((p) => (
+                      <SelectItem key={p.redmineId} value={String(p.redmineId)}>
+                        {p.name}
+                        {p.identifier ? <span className="ml-2 text-xs text-muted-foreground">{p.identifier}</span> : null}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

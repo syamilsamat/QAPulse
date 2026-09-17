@@ -302,12 +302,36 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
   const { projectId } = req.params;
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch(`/projects/${projectId}/memberships.json?limit=100`, apiKey);
-    if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data: any = await response.json();
-    const members = (data.memberships ?? [])
-      .filter((m: any) => m.user)
-      .map((m: any) => ({ id: m.user.id, name: m.user.name }));
+
+    // Memberships paginate like every other Redmine collection. This used to
+    // request a single limit=100 page and ignore total_count, so any project
+    // with more than 100 members silently lost everyone past the first page —
+    // they just never appeared in the defect assignee dropdown. Same loop the
+    // /sync-projects route above already uses.
+    const memberships: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    while (true) {
+      const response = await redmineFetch(
+        `/projects/${projectId}/memberships.json?limit=${limit}&offset=${offset}`,
+        apiKey,
+      );
+      if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
+      const data: any = await response.json();
+      const batch: any[] = data.memberships ?? [];
+      memberships.push(...batch);
+      if (memberships.length >= (data.total_count ?? 0) || batch.length < limit) break;
+      offset += limit;
+    }
+
+    // A membership's principal is either a user or a group; only users can be
+    // named here. Dedup by id defensively — one person can hold more than one
+    // membership row on a project.
+    const byId = new Map<number, { id: number; name: string }>();
+    for (const m of memberships) {
+      if (m.user && !byId.has(m.user.id)) byId.set(m.user.id, { id: m.user.id, name: m.user.name });
+    }
+    const members = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
     res.json(members);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch members: ${err.message}` });

@@ -467,7 +467,17 @@ export default function DefectCreationModal({
                 <SearchableSelect
                   value={selectedProjectId?.toString() ?? ""}
                   onValueChange={(v) => setSelectedProjectId(Number(v))}
-                  options={projects.map((p) => ({ value: p.redmineId.toString(), label: p.name }))}
+                  // Redmine allows several projects to share a display name
+                  // (FWCMS has a few), which made them indistinguishable here
+                  // and made the list look duplicated. The identifier is the
+                  // unique one, so show it and let the search match on it —
+                  // that also keeps each item's cmdk value distinct.
+                  options={projects.map((p) => ({
+                    value: p.redmineId.toString(),
+                    label: p.name,
+                    badge: p.identifier,
+                    keywords: `${p.identifier} ${p.redmineId}`,
+                  }))}
                   placeholder="Select project..."
                   searchPlaceholder="Search project..."
                 />
