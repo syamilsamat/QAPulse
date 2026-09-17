@@ -168,12 +168,16 @@ interface RequirementEvent {
   updatedByName: string | null;
 }
 
-// Which entity an events dialog hangs off. The milestone variant carries its
-// requirement list so the "applies to" picker needs no extra fetch — the Tasks
-// board already has every row for the group.
-type EventAnchor =
-  | { kind: "requirement"; requirementId: number; title: string }
-  | { kind: "milestone"; milestoneId: number; title: string; requirements: { id: number; title: string }[] };
+// Events are logged and read from the milestone only — the "applies to"
+// picker below is what narrows one to specific requirements, so a separate
+// per-requirement button would just be a second way to do the same thing.
+// The anchor carries its requirement list so that picker needs no extra
+// fetch: the Tasks board already has every row for the group.
+interface EventAnchor {
+  milestoneId: number;
+  title: string;
+  requirements: { id: number; title: string }[];
+}
 
 const EVENT_TYPE_PRESETS = ["Blocker", "Server down", "Automation unavailable", "Other"];
 
@@ -201,11 +205,10 @@ interface EventFormState {
 const emptyEventForm = (): EventFormState => ({ type: EVENT_TYPE_PRESETS[0], customType: "", description: "", startDate: todayStr(), endDate: "", requirementIds: [] });
 const resolveEventType = (f: EventFormState) => (f.type === "Other" ? f.customType.trim() : f.type);
 
-// What an event covers, one line. In a requirement's own dialog this only
-// needs to distinguish "logged here" from "inherited from the milestone"; in
-// the milestone rollup it also names which requirement a per-requirement event
-// came from.
-function EventScopeLine({ event, showRequirement }: { event: RequirementEvent; showRequirement: boolean }) {
+// What an event covers, one line. Legacy per-requirement events (logged
+// before CR074, or through the API directly) still show up in the rollup, so
+// this labels those too rather than leaving them ambiguous.
+function EventScopeLine({ event }: { event: RequirementEvent }) {
   if (event.scope === "milestone") {
     return <p className="text-[11px] text-muted-foreground italic">Whole milestone</p>;
   }
@@ -219,7 +222,6 @@ function EventScopeLine({ event, showRequirement }: { event: RequirementEvent; s
       </p>
     );
   }
-  if (!showRequirement) return null;
   return <p className="text-[11px] text-muted-foreground italic">Logged on a single requirement</p>;
 }
 
@@ -233,12 +235,9 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<EventFormState>(emptyEventForm());
 
-  const isMilestone = anchor.kind === "milestone";
-  // Both anchors share the same collection route shape, and editing/closing an
-  // event always goes through /requirements/events/:id regardless of anchor.
-  const collectionUrl = isMilestone
-    ? `${getApiUrl()}/milestones/${anchor.milestoneId}/events`
-    : `${getApiUrl()}/requirements/${anchor.requirementId}/events`;
+  // Reads roll up the milestone; edits and close-outs always go through
+  // /requirements/events/:id, which resolves access from the event's own anchor.
+  const collectionUrl = `${getApiUrl()}/milestones/${anchor.milestoneId}/events`;
 
   const load = async () => {
     setLoading(true);
@@ -273,14 +272,13 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
           description: form.description || undefined,
           startDate: form.startDate,
           endDate: form.endDate || undefined,
-          // Omitted for a requirement event; empty on a milestone event means
-          // "the whole milestone", which the server normalises to null.
-          ...(isMilestone ? { requirementIds: form.requirementIds } : {}),
+          // Empty means "the whole milestone", which the server normalises to null.
+          requirementIds: form.requirementIds,
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to log event");
       toast({
-        title: isMilestone && form.requirementIds.length === 0
+        title: form.requirementIds.length === 0
           ? "Event logged for the whole milestone"
           : "Event logged",
       });
@@ -365,23 +363,17 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        {isMilestone ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 gap-1 px-2 text-[11px]"
-            title="Log / view events for this milestone"
-            // The group row itself toggles expand/collapse — don't do both.
-            onClick={(e) => e.stopPropagation()}
-          >
-            <AlertTriangle className={`w-3 h-3 ${hasOpenEvent ? "text-destructive" : ""}`} />
-            Events
-          </Button>
-        ) : (
-          <Button variant="ghost" size="icon" className="h-7 w-7" title="Log / view events">
-            <AlertTriangle className={`w-3.5 h-3.5 ${hasOpenEvent ? "text-destructive" : ""}`} />
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 gap-1 px-2 text-[11px]"
+          title="Log / view events for this milestone"
+          // The group row itself toggles expand/collapse — don't do both.
+          onClick={(e) => e.stopPropagation()}
+        >
+          <AlertTriangle className={`w-3 h-3 ${hasOpenEvent ? "text-destructive" : ""}`} />
+          Events
+        </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -394,12 +386,7 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
           ) : events.length === 0 ? (
             <div className="text-sm text-muted-foreground py-2">No events logged yet.</div>
           ) : (
-            events.map((ev) => {
-              // In a requirement's own dialog a milestone event is inherited,
-              // not owned — editing or closing it there would silently change
-              // it for every other requirement it covers, so it reads only.
-              const inherited = !isMilestone && ev.milestoneId != null;
-              return (
+            events.map((ev) => (
               <div key={ev.id} className="border rounded-md p-3 text-sm space-y-2">
                 {editingId === ev.id ? (
                   <>
@@ -435,14 +422,11 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
                   <>
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className={EVENT_TYPE_CLASSES[ev.type] ?? "bg-slate-100 text-slate-700 border-slate-200"}>{ev.type}</Badge>
-                      {!ev.endDate && !inherited && (
+                      {!ev.endDate && (
                         <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => handleEndNow(ev)} disabled={saving}>End now</Button>
                       )}
                     </div>
-                    <EventScopeLine event={ev} showRequirement={isMilestone} />
-                    {inherited && (
-                      <p className="text-[11px] text-muted-foreground">Inherited from this milestone</p>
-                    )}
+                    <EventScopeLine event={ev} />
                     {ev.description && <p className="text-muted-foreground text-xs">{ev.description}</p>}
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <CalendarClock className="w-3 h-3" />
@@ -452,17 +436,12 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
                     </div>
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>Logged by {ev.createdByName ?? "—"}</span>
-                      {inherited ? (
-                        <span className="italic">Edit on the milestone</span>
-                      ) : (
-                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => startEdit(ev)}>Edit</Button>
-                      )}
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => startEdit(ev)}>Edit</Button>
                     </div>
                   </>
                 )}
               </div>
-              );
-            })
+            ))
           )}
         </div>
 
@@ -491,7 +470,7 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
             </div>
           </div>
           <Textarea placeholder="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} />
-          {isMilestone && anchor.requirements.length > 0 && (
+          {anchor.requirements.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-xs">
@@ -931,9 +910,6 @@ export default function Tasks() {
               <span className="text-[11px] text-amber-700 mt-0.5 block">No dev tasks yet</span>
             ) : null}
           </TableCell>
-          <TableCell>
-            <EventsDialog anchor={{ kind: "requirement", requirementId: r.requirementId, title: r.title }} />
-          </TableCell>
           {canAssign && (
             <TableCell>
               <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
@@ -942,7 +918,7 @@ export default function Tasks() {
         </TableRow>
         {isExpanded && (
           <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={canAssign ? 9 : 8} className="bg-muted/10 py-3">
+            <TableCell colSpan={canAssign ? 8 : 7} className="bg-muted/10 py-3">
               <PhaseTimelinePanel timeline={r.phaseTimeline} />
             </TableCell>
           </TableRow>
@@ -1047,7 +1023,6 @@ export default function Tasks() {
                   <TableHead>Assignee</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Progress</TableHead>
-                  <TableHead className="w-10" />
                   {canAssign && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
@@ -1055,7 +1030,7 @@ export default function Tasks() {
                 {groupByMilestone && groupedByMilestone ? (
                   groupedByMilestone.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={canAssign ? 9 : 8} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={canAssign ? 8 : 7} className="text-center text-muted-foreground py-10">
                         No tasks match your filters.
                       </TableCell>
                     </TableRow>
@@ -1068,7 +1043,7 @@ export default function Tasks() {
                             className="bg-muted/40 hover:bg-muted/50 cursor-pointer"
                             onClick={() => toggleMilestoneExpanded(g.milestoneId)}
                           >
-                            <TableCell colSpan={canAssign ? 9 : 8} className="py-2.5">
+                            <TableCell colSpan={canAssign ? 8 : 7} className="py-2.5">
                               <div className="flex items-center gap-2 flex-wrap">
                                 {isOpen ? (
                                   <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -1099,7 +1074,6 @@ export default function Tasks() {
                                 <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
                                   <EventsDialog
                                     anchor={{
-                                      kind: "milestone",
                                       milestoneId: g.milestoneId,
                                       title: g.milestoneName,
                                       requirements: g.rows.map((r) => ({ id: r.requirementId, title: r.title })),
@@ -1116,7 +1090,7 @@ export default function Tasks() {
                   )
                 ) : paginated.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canAssign ? 9 : 8} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={canAssign ? 8 : 7} className="text-center text-muted-foreground py-10">
                       No tasks match your filters.
                     </TableCell>
                   </TableRow>
