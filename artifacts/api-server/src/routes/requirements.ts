@@ -234,7 +234,15 @@ router.post("/requirements", async (req, res): Promise<void> => {
     return;
   }
 
-  if (parsed.data.projectId) {
+  // Pulling a ticket in from Redmine is not authoring a requirement — every
+  // field is copied from the ticket — and the person doing it is often a QA
+  // member who was never added to the destination project. PATCH already had
+  // this exemption for resyncing an existing requirement (see its redmineSync
+  // branch); creating the requirement the first time, or creating a subtask
+  // encountered part-way through a sync, still hit the project gate and
+  // failed with "Access denied to this project" while an admin succeeded.
+  const isRedmineSync = req.body?.redmineSync === true && !!parsed.data.redmineTicketId;
+  if (parsed.data.projectId && !isRedmineSync) {
     const ok = await canAccessProject(ctx.userId, ctx.role, parsed.data.projectId);
     if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
@@ -1687,6 +1695,17 @@ router.patch("/requirements/:id/return-to-fa", async (req, res): Promise<void> =
 
 // ─── Redmine Import (same logic as Requirements page processRedmineSync) ─────
 const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
+// Sibling tickets pulled from Redmine at once. Each unit is an issue fetch plus
+// a save, and nested levels multiply, so this is bounded rather than unlimited.
+const SYNC_CONCURRENCY = 5;
+
+async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  });
+  await Promise.all(workers);
+}
 const PRIORITY_MAP: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
 
 function getRedmineBase() {
@@ -1791,10 +1810,12 @@ export async function syncRedmineTicket(
     await syncRequirementAttachments(savedId, issue.attachments ?? [], apiKey).catch(() => {});
   }
 
+  // Siblings only need savedId, which is already resolved, so they sync
+  // concurrently rather than one Redmine round-trip after another.
   if (issue.children && Array.isArray(issue.children)) {
-    for (const child of issue.children) {
-      await syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, milestoneId, apiKey, importingUserId, false);
-    }
+    await mapWithConcurrency(issue.children, SYNC_CONCURRENCY, (child: any) =>
+      syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, milestoneId, apiKey, importingUserId, false),
+    );
   }
 
   return savedId;
@@ -2039,9 +2060,20 @@ router.post("/requirements/:id/sync-redmine-attachments", async (req, res): Prom
 
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
-  const [requirement] = await db.select({ projectId: requirementsTable.projectId }).from(requirementsTable).where(eq(requirementsTable.id, id));
+  const [requirement] = await db
+    .select({ projectId: requirementsTable.projectId, redmineTicketId: requirementsTable.redmineTicketId })
+    .from(requirementsTable)
+    .where(eq(requirementsTable.id, id));
   if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
-  if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+  // Part of the same sync as the create/update above, so it carries the same
+  // exemption — otherwise a QA member's sync would save the requirement and
+  // then fail on its attachments. Only requirements that actually came from
+  // Redmine qualify; this endpoint copies from their ticket and nothing else.
+  if (
+    !requirement.redmineTicketId &&
+    requirement.projectId != null &&
+    !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))
+  ) {
     res.status(403).json({ error: "Access denied to this project" }); return;
   }
 

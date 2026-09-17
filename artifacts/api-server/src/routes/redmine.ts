@@ -57,6 +57,29 @@ async function redmineFetch(
   return fetch(`${getBaseUrl()}${path}`, { ...options, headers });
 }
 
+/** Reads from Redmine with the caller's key, retrying once with the service
+ *  key if their own is rejected.
+ *
+ *  A personal key set in Settings wins over the env default, and there is no
+ *  fallback once one exists — so a member whose key is stale, revoked or
+ *  scoped below the ticket they are syncing gets a hard "Authentication
+ *  failed", while an admin (or anyone who never saved a key, and so uses the
+ *  service key) succeeds on the same ticket. Sync is meant to work for
+ *  everyone, so a rejected personal key degrades to the service key instead
+ *  of failing the request.
+ *
+ *  Reads only. Writes keep using the caller's own key, so an issue created or
+ *  updated in Redmine is still attributed to the person who did it and is
+ *  still subject to their permissions. */
+async function redmineRead(path: string, apiKey: string): Promise<Response> {
+  const response = await redmineFetch(path, apiKey);
+  const serviceKey = getDefaultApiKey();
+  if ((response.status === 401 || response.status === 403) && serviceKey && apiKey !== serviceKey) {
+    return redmineFetch(path, serviceKey);
+  }
+  return response;
+}
+
 // ─── Existing: single issue fetch (Verdict Report + callers elsewhere) ──────
 
 router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> => {
@@ -67,7 +90,7 @@ router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> =
   }
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch(
+    const response = await redmineRead(
       `/issues/${issueId}.json?include=children,journals,attachments`,
       apiKey,
     );
@@ -149,7 +172,7 @@ router.post("/redmine/sync-projects", async (req, res): Promise<void> => {
     const limit = 100;
 
     while (true) {
-      const response = await redmineFetch(
+      const response = await redmineRead(
         `/projects.json?limit=${limit}&offset=${offset}`,
         apiKey,
       );
@@ -287,7 +310,7 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
 router.get("/redmine/trackers", async (req, res): Promise<void> => {
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch("/trackers.json", apiKey);
+    const response = await redmineRead("/trackers.json", apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
     const data: any = await response.json();
     res.json(data.trackers ?? []);
@@ -312,7 +335,7 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
     let offset = 0;
     const limit = 100;
     while (true) {
-      const response = await redmineFetch(
+      const response = await redmineRead(
         `/projects/${projectId}/memberships.json?limit=${limit}&offset=${offset}`,
         apiKey,
       );
@@ -350,7 +373,7 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
     const apiKey = await resolveApiKey(req);
     let url = `/issues.json?subject=~${encodeURIComponent(q)}&status_id=open&limit=5`;
     if (project_id) url += `&project_id=${encodeURIComponent(project_id)}`;
-    const response = await redmineFetch(url, apiKey);
+    const response = await redmineRead(url, apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
     const data: any = await response.json();
     res.json(data.issues ?? []);
