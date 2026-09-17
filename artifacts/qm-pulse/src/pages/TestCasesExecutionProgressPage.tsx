@@ -1725,6 +1725,43 @@ export default function TestCasesExecutionProgressPage() {
     }
   };
 
+  // Accept every pending row this user is allowed to act on in one go.
+  // Rows the current user added are skipped — they still need a different peer.
+  const handleAcceptAll = async () => {
+    const targets = pendingRows.filter(
+      (row) => !(row.addedBy != null && row.addedBy === currentUser?.id),
+    );
+    if (targets.length === 0) return;
+    setRowReviewBusy(true);
+    try {
+      const results = await Promise.allSettled(
+        targets.map((row) => reviewExecutionTestCase(Number(row.id), "accept")),
+      );
+      const acceptedIds = new Set<number>();
+      let failed = 0;
+      results.forEach((result, i) => {
+        if (result.status === "fulfilled") acceptedIds.add(Number(targets[i].id));
+        else failed += 1;
+      });
+      if (acceptedIds.size > 0) {
+        setData((prev) => prev.map((r) =>
+          typeof r.id === "number" && acceptedIds.has(r.id) ? { ...r, reviewState: "accepted" as const } : r,
+        ));
+      }
+      if (failed === 0) {
+        toast({ title: "All test cases accepted", description: `${acceptedIds.size} case${acceptedIds.size !== 1 ? "s" : ""} can now be executed.` });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Some test cases failed to accept",
+          description: `${acceptedIds.size} accepted, ${failed} failed.`,
+        });
+      }
+    } finally {
+      setRowReviewBusy(false);
+    }
+  };
+
   const linkMilestone = async () => {
     if (!currentFileId || !selectedMilestoneToLink) return;
     setLinkingMilestone(true);
@@ -3451,7 +3488,7 @@ export default function TestCasesExecutionProgressPage() {
         <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3 space-y-2">
           <div className="flex items-start gap-3">
             <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
                 {pendingRows.length} test case{pendingRows.length !== 1 ? "s" : ""} awaiting peer acceptance
               </p>
@@ -3460,6 +3497,16 @@ export default function TestCasesExecutionProgressPage() {
                 They can't be executed until a QA colleague other than the person who added them accepts each one.
               </p>
             </div>
+            {canReview && pendingRows.some((row) => !(row.addedBy != null && row.addedBy === currentUser?.id)) && (
+              <Button
+                size="sm"
+                className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white shrink-0"
+                disabled={rowReviewBusy}
+                onClick={handleAcceptAll}
+              >
+                Accept All
+              </Button>
+            )}
           </div>
           <div className="space-y-1.5">
             {pendingRows.map((row) => {
