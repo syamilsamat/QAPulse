@@ -128,6 +128,25 @@ function flattenVisibleNodes(nodes: any[], expandedSet: Set<number>, depth = 0) 
   return flat;
 }
 
+// How many sibling tickets a sync pulls from Redmine at once. High enough that
+// a wide parent stops being a long serial queue, low enough not to stampede
+// Redmine (each unit is an issue fetch plus a save, and nested levels multiply).
+const SYNC_CONCURRENCY = 5;
+
+/** Runs `fn` over `items` with at most `limit` in flight, preserving the
+ *  all-or-nothing failure behaviour of the sequential loop it replaced: the
+ *  first rejection propagates. */
+async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
 export default function Requirements() {
   const { user, token } = useAuth();
   const { toast } = useToast();
@@ -361,15 +380,24 @@ export default function Requirements() {
     setSelectedReqs([]);
   }, [search, filterPriority, filterProject, filterModule, filterMilestone, sortBy]);
 
+  // A Redmine sync walks a ticket and every descendant, saving each one. Each
+  // save used to invalidate the requirements list, so a parent with 20
+  // children triggered 20 full refetches of an endpoint that recomputes test
+  // case counts and execution rollups for every row — the sync spent most of
+  // its time re-rendering a list nobody was looking at yet. The sync entry
+  // points already invalidate once when they finish, so suppress it while one
+  // is running.
+  const syncingRef = useRef(false);
+  const invalidateRequirements = () => {
+    if (syncingRef.current) return;
+    queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+  };
+
   const createMutation = useCreateRequirement({
-    mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() }),
-    },
+    mutation: { onSuccess: invalidateRequirements },
   });
   const updateMutation = useUpdateRequirement({
-    mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() }),
-    },
+    mutation: { onSuccess: invalidateRequirements },
   });
 
   const deleteMutation = useDeleteRequirement({
@@ -759,18 +787,62 @@ parentId: finalParentId,
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
 
-      // Status filter — applies to all tickets including root
+      // Walks this ticket's direct children. Each recursive call fetches its
+      // own children too, so the whole subtree is covered to any depth.
+      // Siblings are independent (each only needs the parent id, already
+      // resolved), so they run concurrently instead of one Redmine round-trip
+      // after another — bounded, so a wide ticket doesn't burst requests.
+      const syncChildren = async (parentForChildren?: number) => {
+        const children = data.issue.children;
+        if (!Array.isArray(children) || children.length === 0) return;
+        await mapWithConcurrency(children, SYNC_CONCURRENCY, (child: any) =>
+          processRedmineSync(String(child.id), targetModule, targetProjectId, parentForChildren, trackerFilter, milestoneId, false),
+        );
+      };
+
+      // Status and tracker filters decide whether to import THIS ticket — not
+      // whether to stop descending. Both used to return outright, so a single
+      // Closed or off-tracker ticket in the middle of a tree silently took
+      // every descendant under it out of the sync: "I synced the parent and
+      // the sub-children never came across." Skipped nodes now still hand
+      // their children down, attached to the nearest ancestor that was
+      // actually imported so the hierarchy closes over the gap.
       if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) {
         if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has status "${data.issue.status?.name}"`);
+        await syncChildren(parentId);
         return;
       }
-      // Tracker filter — applies to all tickets including root
       if (trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) {
         if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has tracker "${data.issue.tracker?.name}", expected "${trackerFilter}"`);
+        await syncChildren(parentId);
         return;
       }
 
-      const existingReq = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
+      // Whether this ticket is already a requirement has to be answered by the
+      // server, not by the list this page is holding: that list is filtered by
+      // the viewer's project and module scope, so an existing requirement is
+      // simply absent from it for anyone with narrower reach, and the sync
+      // would take the "create" branch and insert a second requirement for the
+      // same ticket.
+      //
+      // Project scope used to mask this — the duplicate create was refused
+      // before it could happen. Now that a sync is exempt from that gate (so
+      // every member can sync, not just project members), nothing else stops
+      // it, so the existence check has to be the unscoped one.
+      // /requirements/by-redmine/:ticketId matches on ticket id across every
+      // requirement.
+      let existingReq: any = requirements.find((r) => String(r.redmineTicketId) === fetchedTicketId);
+      if (!existingReq) {
+        try {
+          const lookup = await fetch(`${getApiUrl()}/requirements/by-redmine/${encodeURIComponent(fetchedTicketId)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (lookup.ok) {
+            const body = await lookup.json();
+            if (body?.found && body.requirement) existingReq = body.requirement;
+          }
+        } catch { /* fall through to create — a lookup failure must not block the sync */ }
+      }
 
       const priorityMap: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
       const mappedPriority = priorityMap[data.issue.priority?.name?.toLowerCase()] || "normal";
@@ -805,7 +877,11 @@ parentId: parentId,
         await updateMutation.mutateAsync({ id: existingReq.id, data: { ...mappedData, redmineSync: true } as any });
       } else {
         mappedData.status = "draft";
-        const res = await createMutation.mutateAsync({ data: mappedData as RequirementInput });
+        // Same marker as the PATCH above — the first import of a ticket, and
+        // every subtask created while walking one, are Redmine copies rather
+        // than authored requirements, so the server gates them on the sync
+        // path instead of project membership.
+        const res = await createMutation.mutateAsync({ data: { ...mappedData, redmineSync: true } as RequirementInput });
         savedReqId = (res as any).id;
       }
 
@@ -818,12 +894,8 @@ parentId: parentId,
         }).catch(() => {});
       }
 
-      // Recursively handle children — filters applied inside each recursive call
-      if (data.issue.children && Array.isArray(data.issue.children)) {
-        for (const child of data.issue.children) {
-          await processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, milestoneId, false);
-        }
-      }
+      // This ticket was imported, so its children hang off it.
+      await syncChildren(savedReqId);
     } else {
       throw new Error(`Could not fetch Redmine issue #${ticketIdToSync}`);
     }
@@ -834,8 +906,10 @@ parentId: parentId,
     if (!clean || redmineSelectedModules.length === 0 || !redmineSelectedProject || !redmineSelectedMilestone) return;
 
     setRedmineLoading(true);
+    syncingRef.current = true;
     try {
       await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone));
+      syncingRef.current = false;
       queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       toast({ title: "Import Successful", description: "Successfully imported ticket and subtasks." });
       setRedmineDialogOpen(false);
@@ -852,6 +926,12 @@ parentId: parentId,
         toast({ variant: "destructive", title: "Failed to connect to Redmine", description: msg || undefined });
       }
     } finally {
+      // Also clears on the error path, where the list still needs one refresh
+      // for whatever the sync managed to save before it stopped.
+      if (syncingRef.current) {
+        syncingRef.current = false;
+        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+      }
       setRedmineLoading(false);
     }
   };
@@ -877,8 +957,10 @@ parentId: parentId,
       description: `Fetching updates for #${req.redmineTicketId} and its subtasks.`,
     });
 
+    syncingRef.current = true;
     try {
       await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, (req as any).parentId, (req as any).tracker || undefined, undefined, true);
+      syncingRef.current = false;
       queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       toast({ title: "Sync Complete", description: `Updated #${req.redmineTicketId} successfully.` });
     } catch (err: any) {
@@ -889,6 +971,11 @@ parentId: parentId,
         // A bare "Sync Failed" gave the user nothing to act on — a permission
         // error and an unreachable Redmine looked identical.
         toast({ variant: "destructive", title: "Sync Failed", description: msg || "Could not reach Redmine or save the update." });
+      }
+    } finally {
+      if (syncingRef.current) {
+        syncingRef.current = false;
+        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       }
     }
   };
