@@ -877,24 +877,24 @@ export default function Tasks() {
             <button
               type="button"
               onClick={toggleExpanded}
-              className="hover:underline text-left"
+              className="hover:underline text-left block w-full truncate"
               title="Show planned vs actual phase dates"
             >
               {r.milestoneName}
             </button>
           </TableCell>
           <TableCell><PriorityBadge priority={r.milestonePriority} /></TableCell>
-          <TableCell className="max-w-[280px] truncate" title={r.title}>{r.title}</TableCell>
+          <TableCell className="truncate" title={r.title}>{r.title}</TableCell>
           <TableCell><PhaseBadge phase={r.phase} label={r.phaseLabel} /></TableCell>
-          <TableCell>
+          <TableCell className="truncate" title={r.assignee ?? undefined}>
             {r.assignee ?? <span className="text-muted-foreground text-xs">Unassigned</span>}
           </TableCell>
           <TableCell>
             {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : <span className="text-muted-foreground text-xs">—</span>}
           </TableCell>
-          <TableCell className="min-w-[120px]">
+          <TableCell>
             <div className="flex items-center gap-2">
-              <Progress value={r.progress} className="w-20" />
+              <Progress value={r.progress} className="w-20 shrink-0" />
               <span className="text-xs text-muted-foreground">{r.progress}%</span>
             </div>
             {/* Dev Tasks — separate from the phase progress bar above (that's
@@ -1013,16 +1013,27 @@ export default function Tasks() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table>
+            {/* table-fixed, with a width declared per column. Under the default
+                auto layout the browser sizes columns from whatever cells exist,
+                and a collapsed group is a single colSpan row contributing
+                nothing per-column — so the headers were measured against their
+                own text, then jumped the moment expanding a milestone
+                introduced real cells. Fixed layout takes the widths from this
+                header row alone, so they no longer depend on what is open.
+                min-w keeps the columns readable on narrow screens; the wrapper
+                above scrolls. Percentages are sized against that 1000px floor
+                minus each cell's own p-2, so the widest badge in a column
+                ("Critical", "Requirements") still fits without clipping. */}
+            <Table className="table-fixed min-w-[1000px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Milestone</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Requirement</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Assignee</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Progress</TableHead>
+                  <TableHead className="w-[14%]">Milestone</TableHead>
+                  <TableHead className="w-[10%]">Priority</TableHead>
+                  <TableHead className="w-[21%]">Requirement</TableHead>
+                  <TableHead className="w-[12%]">Status</TableHead>
+                  <TableHead className="w-[19%]">Assignee</TableHead>
+                  <TableHead className="w-[9%]">Due Date</TableHead>
+                  <TableHead className="w-[15%]">Progress</TableHead>
                   {canAssign && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
