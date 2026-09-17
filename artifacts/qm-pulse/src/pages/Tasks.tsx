@@ -19,7 +19,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, ChevronDown, Layers } from "lucide-react";
 
 // CR060 — Tasks is now a read-only, auto-populated rollup of requirements
 // within their milestones (no manual creation). One row per requirement that
@@ -600,6 +600,19 @@ export default function Tasks() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 15;
+  // Milestone rollup view — CR060 made this page one row per requirement,
+  // which reads as "a lot of tasks" once a milestone has 60+ requirements.
+  // This groups the same rows under a collapsed-by-default milestone summary
+  // row instead of replacing the underlying per-requirement data.
+  const [groupByMilestone, setGroupByMilestone] = useState(false);
+  const [expandedMilestones, setExpandedMilestones] = useState<Set<number>>(new Set());
+  const toggleMilestoneExpanded = (milestoneId: number) =>
+    setExpandedMilestones((prev) => {
+      const next = new Set(prev);
+      if (next.has(milestoneId)) next.delete(milestoneId);
+      else next.add(milestoneId);
+      return next;
+    });
 
   const { data: rows = [], isLoading, refetch } = useQuery<TaskBoardRow[]>({
     queryKey: ["task-board"],
@@ -674,6 +687,27 @@ export default function Tasks() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
+  const groupedByMilestone = useMemo(() => {
+    if (!groupByMilestone) return null;
+    const groups = new Map<number, { milestoneId: number; milestoneName: string; milestonePriority: string | null; rows: TaskBoardRow[] }>();
+    for (const r of filtered) {
+      let g = groups.get(r.milestoneId);
+      if (!g) {
+        g = { milestoneId: r.milestoneId, milestoneName: r.milestoneName, milestonePriority: r.milestonePriority, rows: [] };
+        groups.set(r.milestoneId, g);
+      }
+      g.rows.push(r);
+    }
+    return Array.from(groups.values())
+      .map((g) => {
+        const avgProgress = Math.round(g.rows.reduce((sum, r) => sum + r.progress, 0) / g.rows.length);
+        const phaseCounts: Record<string, number> = {};
+        for (const r of g.rows) phaseCounts[r.phase] = (phaseCounts[r.phase] ?? 0) + 1;
+        return { ...g, avgProgress, phaseCounts };
+      })
+      .sort((a, b) => a.milestoneName.localeCompare(b.milestoneName));
+  }, [filtered, groupByMilestone]);
+
   // Deep-link from the dashboard's blocked/overdue & pending popovers:
   // ?highlight=<requirementId> scrolls to and flashes that requirement's row.
   const searchString = useSearch();
@@ -700,6 +734,75 @@ export default function Tasks() {
       return;
     }
     exportTaskBoardToExcel(filtered);
+  };
+
+  const renderTaskRow = (r: TaskBoardRow) => {
+    const isExpanded = expandedIds.has(r.requirementId);
+    const toggleExpanded = () =>
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(r.requirementId)) next.delete(r.requirementId);
+        else next.add(r.requirementId);
+        return next;
+      });
+    return (
+      <Fragment key={r.requirementId}>
+        <TableRow id={highlightRowId(r.requirementId)}>
+          <TableCell className="font-medium">
+            <button
+              type="button"
+              onClick={toggleExpanded}
+              className="hover:underline text-left"
+              title="Show planned vs actual phase dates"
+            >
+              {r.milestoneName}
+            </button>
+          </TableCell>
+          <TableCell><PriorityBadge priority={r.milestonePriority} /></TableCell>
+          <TableCell className="max-w-[280px] truncate" title={r.title}>{r.title}</TableCell>
+          <TableCell><PhaseBadge phase={r.phase} label={r.phaseLabel} /></TableCell>
+          <TableCell>
+            {r.assignee ?? <span className="text-muted-foreground text-xs">Unassigned</span>}
+          </TableCell>
+          <TableCell>
+            {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : <span className="text-muted-foreground text-xs">—</span>}
+          </TableCell>
+          <TableCell className="min-w-[120px]">
+            <div className="flex items-center gap-2">
+              <Progress value={r.progress} className="w-20" />
+              <span className="text-xs text-muted-foreground">{r.progress}%</span>
+            </div>
+            {/* Dev Tasks — separate from the phase progress bar above (that's
+                a 33/66/100 bucket on devStatus); this is the actual task
+                breakdown count. Amber when tasks exist but none are done yet
+                (nothing's visibly stuck), red when a requirement in active dev
+                has zero tasks at all (the thing that actually needs a look). */}
+            {r.devTaskCounts ? (
+              <span className="text-[11px] text-muted-foreground mt-0.5 block">
+                {r.devTaskCounts.done}/{r.devTaskCounts.total} dev tasks done
+              </span>
+            ) : (r.phase === "gap" || r.phase === "develop") ? (
+              <span className="text-[11px] text-amber-700 mt-0.5 block">No dev tasks yet</span>
+            ) : null}
+          </TableCell>
+          <TableCell>
+            <RequirementEventsDialog requirementId={r.requirementId} requirementTitle={r.title} />
+          </TableCell>
+          {canAssign && (
+            <TableCell>
+              <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
+            </TableCell>
+          )}
+        </TableRow>
+        {isExpanded && (
+          <TableRow className="hover:bg-transparent">
+            <TableCell colSpan={canAssign ? 9 : 8} className="bg-muted/10 py-3">
+              <PhaseTimelinePanel timeline={r.phaseTimeline} />
+            </TableCell>
+          </TableRow>
+        )}
+      </Fragment>
+    );
   };
 
   if (isLoading) {
@@ -774,6 +877,16 @@ export default function Tasks() {
               searchPlaceholder="Search priority..."
               className="flex-1 min-w-[130px]"
             />
+            <Button
+              variant={groupByMilestone ? "default" : "outline"}
+              size="sm"
+              className="h-9 px-2.5 gap-1.5 text-xs shrink-0"
+              onClick={() => setGroupByMilestone((v) => !v)}
+              title="Group by Milestone"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Group by Milestone
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -793,86 +906,68 @@ export default function Tasks() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginated.length === 0 ? (
+                {groupByMilestone && groupedByMilestone ? (
+                  groupedByMilestone.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={canAssign ? 9 : 8} className="text-center text-muted-foreground py-10">
+                        No tasks match your filters.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    groupedByMilestone.map((g) => {
+                      const isOpen = expandedMilestones.has(g.milestoneId);
+                      return (
+                        <Fragment key={g.milestoneId}>
+                          <TableRow
+                            className="bg-muted/40 hover:bg-muted/50 cursor-pointer"
+                            onClick={() => toggleMilestoneExpanded(g.milestoneId)}
+                          >
+                            <TableCell colSpan={canAssign ? 9 : 8} className="py-2.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {isOpen ? (
+                                  <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                                )}
+                                <span className="font-semibold text-sm">{g.milestoneName}</span>
+                                <Badge variant="secondary" className="text-[10px] h-4">
+                                  {g.rows.length} requirement{g.rows.length !== 1 ? "s" : ""}
+                                </Badge>
+                                <PriorityBadge priority={g.milestonePriority} />
+                                <div className="flex items-center gap-1.5 ml-1">
+                                  <Progress value={g.avgProgress} className="w-24" />
+                                  <span className="text-xs text-muted-foreground">{g.avgProgress}% avg</span>
+                                </div>
+                                <div className="flex items-center gap-1 ml-1 flex-wrap">
+                                  {PHASE_FILTER_OPTIONS.slice(1).map((p) =>
+                                    g.phaseCounts[p.value] ? (
+                                      <Badge key={p.value} variant="outline" className={`text-[10px] h-4 ${PHASE_CLASSES[p.value] ?? ""}`}>
+                                        {g.phaseCounts[p.value]} {p.label}
+                                      </Badge>
+                                    ) : null,
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {isOpen && g.rows.map((r) => renderTaskRow(r))}
+                        </Fragment>
+                      );
+                    })
+                  )
+                ) : paginated.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={canAssign ? 9 : 8} className="text-center text-muted-foreground py-10">
                       No tasks match your filters.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginated.map((r) => {
-                    const isExpanded = expandedIds.has(r.requirementId);
-                    const toggleExpanded = () =>
-                      setExpandedIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(r.requirementId)) next.delete(r.requirementId);
-                        else next.add(r.requirementId);
-                        return next;
-                      });
-                    return (
-                      <Fragment key={r.requirementId}>
-                        <TableRow id={highlightRowId(r.requirementId)}>
-                          <TableCell className="font-medium">
-                            <button
-                              type="button"
-                              onClick={toggleExpanded}
-                              className="hover:underline text-left"
-                              title="Show planned vs actual phase dates"
-                            >
-                              {r.milestoneName}
-                            </button>
-                          </TableCell>
-                          <TableCell><PriorityBadge priority={r.milestonePriority} /></TableCell>
-                          <TableCell className="max-w-[280px] truncate" title={r.title}>{r.title}</TableCell>
-                          <TableCell><PhaseBadge phase={r.phase} label={r.phaseLabel} /></TableCell>
-                          <TableCell>
-                            {r.assignee ?? <span className="text-muted-foreground text-xs">Unassigned</span>}
-                          </TableCell>
-                          <TableCell>
-                            {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : <span className="text-muted-foreground text-xs">—</span>}
-                          </TableCell>
-                          <TableCell className="min-w-[120px]">
-                            <div className="flex items-center gap-2">
-                              <Progress value={r.progress} className="w-20" />
-                              <span className="text-xs text-muted-foreground">{r.progress}%</span>
-                            </div>
-                            {/* Dev Tasks — separate from the phase progress bar above (that's
-                                a 33/66/100 bucket on devStatus); this is the actual task
-                                breakdown count. Amber when tasks exist but none are done yet
-                                (nothing's visibly stuck), red when a requirement in active dev
-                                has zero tasks at all (the thing that actually needs a look). */}
-                            {r.devTaskCounts ? (
-                              <span className="text-[11px] text-muted-foreground mt-0.5 block">
-                                {r.devTaskCounts.done}/{r.devTaskCounts.total} dev tasks done
-                              </span>
-                            ) : (r.phase === "gap" || r.phase === "develop") ? (
-                              <span className="text-[11px] text-amber-700 mt-0.5 block">No dev tasks yet</span>
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            <RequirementEventsDialog requirementId={r.requirementId} requirementTitle={r.title} />
-                          </TableCell>
-                          {canAssign && (
-                            <TableCell>
-                              <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
-                            </TableCell>
-                          )}
-                        </TableRow>
-                        {isExpanded && (
-                          <TableRow className="hover:bg-transparent">
-                            <TableCell colSpan={canAssign ? 9 : 8} className="bg-muted/10 py-3">
-                              <PhaseTimelinePanel timeline={r.phaseTimeline} />
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </Fragment>
-                    );
-                  })
+                  paginated.map((r) => renderTaskRow(r))
                 )}
               </TableBody>
             </Table>
           </div>
-          {totalPages > 1 && (
+          {!groupByMilestone && totalPages > 1 && (
             <div className="flex items-center justify-between p-4 border-t">
               <p className="text-sm text-muted-foreground">
                 Page {currentPage} of {totalPages} ({filtered.length} tasks)
