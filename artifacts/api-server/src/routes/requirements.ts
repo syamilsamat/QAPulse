@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
@@ -1215,6 +1215,40 @@ async function requireRequirementAccess(req: any, res: any, id: number) {
   return { ctx, requirement };
 }
 
+// CR074 — a milestone event's gate. Same "anyone with access may log" rule as
+// requirements above, just resolved through the milestone's project (a
+// milestone has no module of its own to scope against).
+async function requireMilestoneAccess(req: any, res: any, id: number) {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return null; }
+  if (milestone.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return null;
+  }
+  return { ctx, milestone };
+}
+
+// Which requirements a milestone event covers: an empty/absent requirementIds
+// means the whole milestone, a populated one means exactly that subset. Kept
+// in one place so the per-requirement read, the milestone read and the UI all
+// agree on what "covered" means.
+function eventScope(e: typeof requirementEventsTable.$inferSelect): "requirement" | "milestone" | "requirements" {
+  if (e.milestoneId == null) return "requirement";
+  return e.requirementIds && e.requirementIds.length > 0 ? "requirements" : "milestone";
+}
+
+// Empty array and null both mean "the whole milestone" — normalised to null on
+// write so the read-side filters never have to special-case `{}`.
+function normalizeRequirementIds(raw: unknown): { ok: true; value: number[] | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (!Array.isArray(raw) || raw.some((v) => !Number.isInteger(v))) {
+    return { ok: false, error: "requirementIds must be an array of requirement ids" };
+  }
+  const unique = [...new Set(raw as number[])];
+  return { ok: true, value: unique.length > 0 ? unique : null };
+}
+
 async function formatRequirementEvent(e: typeof requirementEventsTable.$inferSelect) {
   let createdByName: string | null = null;
   let updatedByName: string | null = null;
@@ -1226,7 +1260,7 @@ async function formatRequirementEvent(e: typeof requirementEventsTable.$inferSel
     const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, e.updatedBy));
     updatedByName = u?.name ?? null;
   }
-  return { ...e, createdByName, updatedByName };
+  return { ...e, createdByName, updatedByName, scope: eventScope(e) };
 }
 
 router.get("/requirements/:id/events", async (req, res): Promise<void> => {
@@ -1234,9 +1268,26 @@ router.get("/requirements/:id/events", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
   const gate = await requireRequirementAccess(req, res, id);
   if (!gate) return;
+  const { requirement } = gate;
+
+  // CR074 — a disruption logged once on the milestone still belongs in this
+  // requirement's history, so read both anchors here: its own events plus any
+  // milestone event that covers it (whole-milestone, or naming it explicitly).
+  const covering = requirement.milestoneId != null
+    ? or(
+        eq(requirementEventsTable.requirementId, id),
+        and(
+          eq(requirementEventsTable.milestoneId, requirement.milestoneId),
+          or(
+            isNull(requirementEventsTable.requirementIds),
+            sql`${requirementEventsTable.requirementIds} @> ARRAY[${id}]::integer[]`,
+          ),
+        ),
+      )
+    : eq(requirementEventsTable.requirementId, id);
 
   const events = await db.select().from(requirementEventsTable)
-    .where(eq(requirementEventsTable.requirementId, id))
+    .where(covering)
     .orderBy(desc(requirementEventsTable.startDate));
   res.json(await Promise.all(events.map(formatRequirementEvent)));
 });
@@ -1283,18 +1334,142 @@ router.post("/requirements/:id/events", async (req, res): Promise<void> => {
   res.status(201).json(await formatRequirementEvent(created));
 });
 
+// ─── Milestone Events (CR074) ────────────────────────────────────────────────
+// The Tasks board groups by milestone, and a disruption is usually milestone-
+// wide (server down, environment unavailable) — logging it 29 times, once per
+// requirement, was the real cost of the per-requirement-only log. These two
+// routes let it be logged once, optionally narrowed to a subset of the
+// milestone's requirements.
+router.get("/milestones/:id/events", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const gate = await requireMilestoneAccess(req, res, id);
+  if (!gate) return;
+
+  const reqs = await db
+    .select({ id: requirementsTable.id, title: requirementsTable.title })
+    .from(requirementsTable)
+    .where(eq(requirementsTable.milestoneId, id));
+  const titleById = new Map(reqs.map((r) => [r.id, r.title]));
+  const reqIds = reqs.map((r) => r.id);
+
+  // The milestone dialog is a rollup: events anchored to the milestone AND
+  // events logged individually on any of its requirements, so one screen shows
+  // the milestone's whole history rather than half of it.
+  const events = await db.select().from(requirementEventsTable)
+    .where(reqIds.length > 0
+      ? or(eq(requirementEventsTable.milestoneId, id), inArray(requirementEventsTable.requirementId, reqIds))
+      : eq(requirementEventsTable.milestoneId, id))
+    .orderBy(desc(requirementEventsTable.startDate));
+
+  res.json(await Promise.all(events.map(async (e) => ({
+    ...(await formatRequirementEvent(e)),
+    requirementTitles: (e.requirementId != null ? [e.requirementId] : e.requirementIds ?? [])
+      .map((rid) => titleById.get(rid))
+      .filter((t): t is string => !!t),
+  }))));
+});
+
+router.post("/milestones/:id/events", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const gate = await requireMilestoneAccess(req, res, id);
+  if (!gate) return;
+  const { ctx, milestone } = gate;
+
+  const { type, description, startDate, endDate, requirementIds } = req.body ?? {};
+  if (typeof type !== "string" || !type.trim()) {
+    res.status(400).json({ error: "type is required" }); return;
+  }
+  const parsedStart = startDate ? new Date(startDate) : null;
+  if (!parsedStart || isNaN(parsedStart.getTime())) {
+    res.status(400).json({ error: "A valid startDate is required" }); return;
+  }
+  const parsedEnd = endDate ? new Date(endDate) : null;
+  if (endDate && (!parsedEnd || isNaN(parsedEnd.getTime()))) {
+    res.status(400).json({ error: "endDate is not a valid date" }); return;
+  }
+  const scoped = normalizeRequirementIds(requirementIds);
+  if (!scoped.ok) { res.status(400).json({ error: scoped.error }); return; }
+  // A subset that reaches outside this milestone would be invisible in both
+  // dialogs — reject it rather than store an event nothing can surface.
+  if (scoped.value) {
+    const owned = await db.select({ id: requirementsTable.id }).from(requirementsTable)
+      .where(and(eq(requirementsTable.milestoneId, id), inArray(requirementsTable.id, scoped.value)));
+    if (owned.length !== scoped.value.length) {
+      res.status(400).json({ error: "requirementIds must all belong to this milestone" }); return;
+    }
+  }
+
+  const [created] = await db.insert(requirementEventsTable).values({
+    milestoneId: id,
+    requirementIds: scoped.value,
+    type: type.trim(),
+    description: description ? String(description).trim() : null,
+    startDate: parsedStart,
+    endDate: parsedEnd,
+    createdBy: ctx.userId,
+  }).returning();
+
+  await logActivity({
+    type: "milestone_event_logged",
+    description: scoped.value
+      ? `"${type.trim()}" event logged on ${scoped.value.length} requirement(s) in "${milestone.name}"`
+      : `"${type.trim()}" event logged on milestone "${milestone.name}"`,
+    userId: ctx.userId,
+    entityId: id,
+    entityType: "milestone",
+    oldValue: null,
+    newValue: { type: created.type, startDate: created.startDate, endDate: created.endDate, requirementIds: created.requirementIds },
+  });
+
+  res.status(201).json(await formatRequirementEvent(created));
+});
+
 router.patch("/requirements/events/:eventId", async (req, res): Promise<void> => {
   const eventId = parseInt(req.params.eventId);
   if (isNaN(eventId)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const [event] = await db.select().from(requirementEventsTable).where(eq(requirementEventsTable.id, eventId));
   if (!event) { res.status(404).json({ error: "Event not found" }); return; }
-  const gate = await requireRequirementAccess(req, res, event.requirementId);
-  if (!gate) return;
-  const { ctx, requirement } = gate;
 
-  const { type, description, startDate, endDate } = req.body ?? {};
+  // CR074 — the event may be anchored to a milestone or to a single
+  // requirement; gate through whichever one it actually hangs off.
+  let ctx: { userId: number; role: string };
+  let subjectName: string;
+  let entityType: "requirement" | "milestone";
+  let entityId: number;
+  if (event.milestoneId != null) {
+    const gate = await requireMilestoneAccess(req, res, event.milestoneId);
+    if (!gate) return;
+    ctx = gate.ctx; subjectName = gate.milestone.name; entityType = "milestone"; entityId = event.milestoneId;
+  } else if (event.requirementId != null) {
+    const gate = await requireRequirementAccess(req, res, event.requirementId);
+    if (!gate) return;
+    ctx = gate.ctx; subjectName = gate.requirement.title; entityType = "requirement"; entityId = event.requirementId;
+  } else {
+    res.status(409).json({ error: "Event has no requirement or milestone to resolve access against" }); return;
+  }
+
+  const { type, description, startDate, endDate, requirementIds } = req.body ?? {};
   const update: Record<string, any> = { updatedBy: ctx.userId };
+  // Re-scoping is only meaningful for a milestone event — a per-requirement
+  // event's coverage is its requirementId and nothing else.
+  if (requirementIds !== undefined) {
+    if (event.milestoneId == null) {
+      res.status(400).json({ error: "requirementIds can only be set on a milestone event" }); return;
+    }
+    const scoped = normalizeRequirementIds(requirementIds);
+    if (!scoped.ok) { res.status(400).json({ error: scoped.error }); return; }
+    if (scoped.value) {
+      const owned = await db.select({ id: requirementsTable.id }).from(requirementsTable)
+        .where(and(eq(requirementsTable.milestoneId, event.milestoneId), inArray(requirementsTable.id, scoped.value)));
+      if (owned.length !== scoped.value.length) {
+        res.status(400).json({ error: "requirementIds must all belong to this milestone" }); return;
+      }
+    }
+    update.requirementIds = scoped.value;
+  }
   if (type !== undefined) {
     if (typeof type !== "string" || !type.trim()) { res.status(400).json({ error: "type cannot be empty" }); return; }
     update.type = type.trim();
@@ -1318,13 +1493,13 @@ router.patch("/requirements/events/:eventId", async (req, res): Promise<void> =>
   const [updated] = await db.update(requirementEventsTable).set(update).where(eq(requirementEventsTable.id, eventId)).returning();
 
   await logActivity({
-    type: "requirement_event_updated",
-    description: `Event on "${requirement.title}" updated`,
+    type: entityType === "milestone" ? "milestone_event_updated" : "requirement_event_updated",
+    description: `Event on "${subjectName}" updated`,
     userId: ctx.userId,
-    entityId: event.requirementId,
-    entityType: "requirement",
-    oldValue: { type: event.type, startDate: event.startDate, endDate: event.endDate },
-    newValue: { type: updated.type, startDate: updated.startDate, endDate: updated.endDate },
+    entityId,
+    entityType,
+    oldValue: { type: event.type, startDate: event.startDate, endDate: event.endDate, requirementIds: event.requirementIds },
+    newValue: { type: updated.type, startDate: updated.startDate, endDate: updated.endDate, requirementIds: updated.requirementIds },
   });
 
   res.json(await formatRequirementEvent(updated));
@@ -1333,6 +1508,12 @@ router.patch("/requirements/events/:eventId", async (req, res): Promise<void> =>
 // History Trail — every event across every project the caller can access,
 // joined with its requirement/milestone/project for display without a
 // second round-trip per row.
+//
+// CR074 — an event now hangs off either a requirement or a milestone, so the
+// requirement join became a LEFT one and the milestone is resolved from the
+// event's own anchor first, falling back to the requirement's milestone. The
+// project filter follows the same either-anchor rule: a milestone event's
+// project comes from the milestone, a requirement event's from the requirement.
 router.get("/requirements/events/all", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1344,25 +1525,57 @@ router.get("/requirements/events/all", async (req, res): Promise<void> => {
       event: requirementEventsTable,
       requirementId: requirementsTable.id,
       requirementTitle: requirementsTable.title,
-      projectId: requirementsTable.projectId,
-      projectName: projectsTable.name,
-      milestoneId: requirementsTable.milestoneId,
+      requirementProjectId: requirementsTable.projectId,
+      requirementMilestoneId: requirementsTable.milestoneId,
+      anchorMilestoneId: milestonesTable.id,
       milestoneName: milestonesTable.name,
+      milestoneProjectId: milestonesTable.projectId,
+      projectName: projectsTable.name,
     })
     .from(requirementEventsTable)
-    .innerJoin(requirementsTable, eq(requirementsTable.id, requirementEventsTable.requirementId))
-    .leftJoin(projectsTable, eq(projectsTable.id, requirementsTable.projectId))
-    .leftJoin(milestonesTable, eq(milestonesTable.id, requirementsTable.milestoneId))
-    .where(accessible === null ? undefined : accessible.length > 0 ? inArray(requirementsTable.projectId, accessible) : sql`false`)
+    .leftJoin(requirementsTable, eq(requirementsTable.id, requirementEventsTable.requirementId))
+    .leftJoin(
+      milestonesTable,
+      eq(milestonesTable.id, sql`COALESCE(${requirementEventsTable.milestoneId}, ${requirementsTable.milestoneId})`),
+    )
+    .leftJoin(
+      projectsTable,
+      eq(projectsTable.id, sql`COALESCE(${requirementsTable.projectId}, ${milestonesTable.projectId})`),
+    )
+    // Either anchor's project must be in scope. Exactly one side is non-null
+    // per row (a requirement event has no milestone anchor and vice versa), so
+    // this OR is the COALESCE the SELECT above uses, expressed as a predicate
+    // drizzle can bind the id list into properly.
+    .where(accessible === null
+      ? undefined
+      : accessible.length > 0
+        ? or(
+            inArray(requirementsTable.projectId, accessible),
+            inArray(milestonesTable.projectId, accessible),
+          )
+        : sql`false`)
     .orderBy(desc(requirementEventsTable.startDate));
+
+  // A milestone event names no single requirement, so resolve the titles it
+  // covers (the explicit subset, or nothing for a whole-milestone event — the
+  // UI labels that case rather than listing every requirement).
+  const subsetIds = [...new Set(rows.flatMap((r) => r.event.requirementIds ?? []))];
+  const subsetTitles = subsetIds.length > 0
+    ? await db.select({ id: requirementsTable.id, title: requirementsTable.title })
+        .from(requirementsTable).where(inArray(requirementsTable.id, subsetIds))
+    : [];
+  const titleById = new Map(subsetTitles.map((r) => [r.id, r.title]));
 
   const formatted = await Promise.all(rows.map(async (r) => ({
     ...(await formatRequirementEvent(r.event)),
     requirementId: r.requirementId,
     requirementTitle: r.requirementTitle,
-    projectId: r.projectId,
+    requirementTitles: (r.event.requirementIds ?? [])
+      .map((rid) => titleById.get(rid))
+      .filter((t): t is string => !!t),
+    projectId: r.requirementProjectId ?? r.milestoneProjectId,
     projectName: r.projectName,
-    milestoneId: r.milestoneId,
+    milestoneId: r.anchorMilestoneId ?? r.requirementMilestoneId,
     milestoneName: r.milestoneName,
   })));
 

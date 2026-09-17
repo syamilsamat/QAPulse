@@ -19,11 +19,16 @@ import { History, Search, CalendarClock } from "lucide-react";
 // down/Automation unavailable/custom), replacing the old ad-hoc task events
 // view. tasksTable stopped growing after CR060's Tasks redesign, so that
 // view would have slowly gone stale; requirement events are the thing users
-// actually log going forward (see RequirementEventsDialog on Tasks.tsx).
+// actually log going forward (see EventsDialog on Tasks.tsx).
+// CR074 — an event can now be anchored to a milestone rather than a single
+// requirement, so requirementId/requirementTitle are null for those rows and
+// `scope` says what it actually covers.
 interface RequirementEventRow {
   id: number;
-  requirementId: number;
-  requirementTitle: string;
+  requirementId: number | null;
+  requirementTitle: string | null;
+  requirementTitles: string[];
+  scope: "requirement" | "milestone" | "requirements";
   projectId: number | null;
   projectName: string | null;
   milestoneId: number | null;
@@ -40,6 +45,15 @@ const EVENT_TYPE_CLASSES: Record<string, string> = {
   "Server down": "bg-orange-100 text-orange-700 border-orange-200",
   "Automation unavailable": "bg-amber-100 text-amber-700 border-amber-200",
 };
+
+// A milestone event names no single requirement — say what it covers instead
+// of leaving the column blank.
+function requirementLabel(e: RequirementEventRow): string {
+  if (e.scope === "requirement") return e.requirementTitle ?? "—";
+  if (e.scope === "milestone") return "All requirements in this milestone";
+  const titles = e.requirementTitles ?? [];
+  return titles.length > 0 ? titles.join(", ") : `${titles.length} requirements`;
+}
 
 export default function HistoryTrail() {
   const [search, setSearch] = useState("");
@@ -65,7 +79,8 @@ export default function HistoryTrail() {
     if (search) {
       const q = search.toLowerCase();
       const matches =
-        e.requirementTitle.toLowerCase().includes(q) ||
+        (e.requirementTitle ?? "").toLowerCase().includes(q) ||
+        (e.requirementTitles ?? []).some((t) => t.toLowerCase().includes(q)) ||
         e.type.toLowerCase().includes(q) ||
         (e.description ?? "").toLowerCase().includes(q) ||
         (e.milestoneName ?? "").toLowerCase().includes(q);
@@ -84,7 +99,7 @@ export default function HistoryTrail() {
           <History className="w-7 h-7 text-primary" /> History Trail
         </h1>
         <p className="text-muted-foreground mt-1">
-          Blocker, server-down, and other events logged against requirements
+          Blocker, server-down, and other events logged against requirements and milestones
         </p>
       </div>
 
@@ -149,7 +164,13 @@ export default function HistoryTrail() {
                 <TableBody>
                   {paginated.map((e) => (
                     <TableRow key={e.id}>
-                      <TableCell className="max-w-[280px] truncate" title={e.requirementTitle}>{e.requirementTitle}</TableCell>
+                      <TableCell className="max-w-[280px] truncate" title={requirementLabel(e)}>
+                        {e.scope === "requirement" ? (
+                          requirementLabel(e)
+                        ) : (
+                          <span className="text-muted-foreground italic">{requirementLabel(e)}</span>
+                        )}
+                      </TableCell>
                       <TableCell>{e.milestoneName ?? <span className="text-muted-foreground text-xs">—</span>}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={EVENT_TYPE_CLASSES[e.type] ?? "bg-slate-100 text-slate-700 border-slate-200"}>{e.type}</Badge>

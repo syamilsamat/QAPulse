@@ -149,9 +149,17 @@ function PhaseTimelinePanel({ timeline }: { timeline: PhaseTimelineEntry[] }) {
 // unavailable/custom). Open to any user with access to the requirement, not
 // gated to lead-tier like AssignPopover — this is informational logging, not
 // a workflow action.
+// CR074 — an event now anchors to a requirement OR a milestone. `scope` is
+// the server's read of which: "requirement" (requirementId set), "milestone"
+// (whole milestone) or "requirements" (a chosen subset, named in
+// requirementIds/requirementTitles).
 interface RequirementEvent {
   id: number;
-  requirementId: number;
+  requirementId: number | null;
+  milestoneId: number | null;
+  requirementIds: number[] | null;
+  scope: "requirement" | "milestone" | "requirements";
+  requirementTitles?: string[];
   type: string;
   description: string | null;
   startDate: string;
@@ -159,6 +167,13 @@ interface RequirementEvent {
   createdByName: string | null;
   updatedByName: string | null;
 }
+
+// Which entity an events dialog hangs off. The milestone variant carries its
+// requirement list so the "applies to" picker needs no extra fetch — the Tasks
+// board already has every row for the group.
+type EventAnchor =
+  | { kind: "requirement"; requirementId: number; title: string }
+  | { kind: "milestone"; milestoneId: number; title: string; requirements: { id: number; title: string }[] };
 
 const EVENT_TYPE_PRESETS = ["Blocker", "Server down", "Automation unavailable", "Other"];
 
@@ -178,12 +193,37 @@ interface EventFormState {
   description: string;
   startDate: string;
   endDate: string;
+  // Milestone events only. Empty = the whole milestone, which is the default
+  // and the reason this dialog exists — one entry instead of N.
+  requirementIds: number[];
 }
 
-const emptyEventForm = (): EventFormState => ({ type: EVENT_TYPE_PRESETS[0], customType: "", description: "", startDate: todayStr(), endDate: "" });
+const emptyEventForm = (): EventFormState => ({ type: EVENT_TYPE_PRESETS[0], customType: "", description: "", startDate: todayStr(), endDate: "", requirementIds: [] });
 const resolveEventType = (f: EventFormState) => (f.type === "Other" ? f.customType.trim() : f.type);
 
-function RequirementEventsDialog({ requirementId, requirementTitle }: { requirementId: number; requirementTitle: string }) {
+// What an event covers, one line. In a requirement's own dialog this only
+// needs to distinguish "logged here" from "inherited from the milestone"; in
+// the milestone rollup it also names which requirement a per-requirement event
+// came from.
+function EventScopeLine({ event, showRequirement }: { event: RequirementEvent; showRequirement: boolean }) {
+  if (event.scope === "milestone") {
+    return <p className="text-[11px] text-muted-foreground italic">Whole milestone</p>;
+  }
+  if (event.scope === "requirements") {
+    const titles = event.requirementTitles ?? [];
+    const count = event.requirementIds?.length ?? titles.length;
+    return (
+      <p className="text-[11px] text-muted-foreground italic truncate" title={titles.join(", ")}>
+        {count} requirement{count !== 1 ? "s" : ""}
+        {titles.length > 0 ? ` — ${titles.join(", ")}` : ""}
+      </p>
+    );
+  }
+  if (!showRequirement) return null;
+  return <p className="text-[11px] text-muted-foreground italic">Logged on a single requirement</p>;
+}
+
+function EventsDialog({ anchor }: { anchor: EventAnchor }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -193,10 +233,17 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<EventFormState>(emptyEventForm());
 
+  const isMilestone = anchor.kind === "milestone";
+  // Both anchors share the same collection route shape, and editing/closing an
+  // event always goes through /requirements/events/:id regardless of anchor.
+  const collectionUrl = isMilestone
+    ? `${getApiUrl()}/milestones/${anchor.milestoneId}/events`
+    : `${getApiUrl()}/requirements/${anchor.requirementId}/events`;
+
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${getApiUrl()}/requirements/${requirementId}/events`, { headers: authHeaders() });
+      const res = await fetch(collectionUrl, { headers: authHeaders() });
       setEvents(res.ok ? await res.json() : []);
     } finally {
       setLoading(false);
@@ -218,13 +265,25 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
     if (!form.startDate) { toast({ variant: "destructive", title: "Start date is required" }); return; }
     setSaving(true);
     try {
-      const res = await fetch(`${getApiUrl()}/requirements/${requirementId}/events`, {
+      const res = await fetch(collectionUrl, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ type, description: form.description || undefined, startDate: form.startDate, endDate: form.endDate || undefined }),
+        body: JSON.stringify({
+          type,
+          description: form.description || undefined,
+          startDate: form.startDate,
+          endDate: form.endDate || undefined,
+          // Omitted for a requirement event; empty on a milestone event means
+          // "the whole milestone", which the server normalises to null.
+          ...(isMilestone ? { requirementIds: form.requirementIds } : {}),
+        }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to log event");
-      toast({ title: "Event logged" });
+      toast({
+        title: isMilestone && form.requirementIds.length === 0
+          ? "Event logged for the whole milestone"
+          : "Event logged",
+      });
       setForm(emptyEventForm());
       await load();
     } catch (err: any) {
@@ -243,8 +302,11 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
       description: ev.description ?? "",
       startDate: ev.startDate.slice(0, 10),
       endDate: ev.endDate ? ev.endDate.slice(0, 10) : "",
+      requirementIds: ev.requirementIds ?? [],
     });
   };
+
+  const editingEventIsMilestone = events.find((e) => e.id === editingId)?.milestoneId != null;
 
   const handleSaveEdit = async (eventId: number) => {
     const type = resolveEventType(editForm);
@@ -254,7 +316,14 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
       const res = await fetch(`${getApiUrl()}/requirements/events/${eventId}`, {
         method: "PATCH",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ type, description: editForm.description || null, startDate: editForm.startDate, endDate: editForm.endDate || null }),
+        body: JSON.stringify({
+          type,
+          description: editForm.description || null,
+          startDate: editForm.startDate,
+          endDate: editForm.endDate || null,
+          // Re-scoping is only accepted on milestone-anchored events.
+          ...(editingEventIsMilestone ? { requirementIds: editForm.requirementIds } : {}),
+        }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to update event");
       toast({ title: "Event updated" });
@@ -285,17 +354,38 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
   };
 
   const hasOpenEvent = events.some((e) => !e.endDate);
+  const toggleFormRequirement = (id: number) =>
+    setForm((f) => ({
+      ...f,
+      requirementIds: f.requirementIds.includes(id)
+        ? f.requirementIds.filter((v) => v !== id)
+        : [...f.requirementIds, id],
+    }));
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7" title="Log / view events">
-          <AlertTriangle className={`w-3.5 h-3.5 ${hasOpenEvent ? "text-destructive" : ""}`} />
-        </Button>
+        {isMilestone ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-2 text-[11px]"
+            title="Log / view events for this milestone"
+            // The group row itself toggles expand/collapse — don't do both.
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AlertTriangle className={`w-3 h-3 ${hasOpenEvent ? "text-destructive" : ""}`} />
+            Events
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon" className="h-7 w-7" title="Log / view events">
+            <AlertTriangle className={`w-3.5 h-3.5 ${hasOpenEvent ? "text-destructive" : ""}`} />
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">Events — {requirementTitle}</DialogTitle>
+          <DialogTitle className="text-base">Events — {anchor.title}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 py-1">
@@ -304,7 +394,12 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
           ) : events.length === 0 ? (
             <div className="text-sm text-muted-foreground py-2">No events logged yet.</div>
           ) : (
-            events.map((ev) => (
+            events.map((ev) => {
+              // In a requirement's own dialog a milestone event is inherited,
+              // not owned — editing or closing it there would silently change
+              // it for every other requirement it covers, so it reads only.
+              const inherited = !isMilestone && ev.milestoneId != null;
+              return (
               <div key={ev.id} className="border rounded-md p-3 text-sm space-y-2">
                 {editingId === ev.id ? (
                   <>
@@ -340,10 +435,14 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
                   <>
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className={EVENT_TYPE_CLASSES[ev.type] ?? "bg-slate-100 text-slate-700 border-slate-200"}>{ev.type}</Badge>
-                      {!ev.endDate && (
+                      {!ev.endDate && !inherited && (
                         <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => handleEndNow(ev)} disabled={saving}>End now</Button>
                       )}
                     </div>
+                    <EventScopeLine event={ev} showRequirement={isMilestone} />
+                    {inherited && (
+                      <p className="text-[11px] text-muted-foreground">Inherited from this milestone</p>
+                    )}
                     {ev.description && <p className="text-muted-foreground text-xs">{ev.description}</p>}
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <CalendarClock className="w-3 h-3" />
@@ -353,12 +452,17 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
                     </div>
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>Logged by {ev.createdByName ?? "—"}</span>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => startEdit(ev)}>Edit</Button>
+                      {inherited ? (
+                        <span className="italic">Edit on the milestone</span>
+                      ) : (
+                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => startEdit(ev)}>Edit</Button>
+                      )}
                     </div>
                   </>
                 )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -387,6 +491,48 @@ function RequirementEventsDialog({ requirementId, requirementTitle }: { requirem
             </div>
           </div>
           <Textarea placeholder="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} />
+          {isMilestone && anchor.requirements.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">
+                  Applies to{" "}
+                  <span className="font-normal text-muted-foreground">
+                    {form.requirementIds.length === 0
+                      ? `all ${anchor.requirements.length} requirements`
+                      : `${form.requirementIds.length} of ${anchor.requirements.length} requirements`}
+                  </span>
+                </Label>
+                {form.requirementIds.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[11px]"
+                    onClick={() => setForm((f) => ({ ...f, requirementIds: [] }))}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              {/* Leave every box unticked to cover the whole milestone — that's
+                  the common case, so it's the default rather than a step. */}
+              <div className="max-h-36 overflow-y-auto rounded-md border divide-y">
+                {anchor.requirements.map((r) => (
+                  <label
+                    key={r.id}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer hover:bg-muted/40"
+                  >
+                    <input
+                      type="checkbox"
+                      className="shrink-0"
+                      checked={form.requirementIds.includes(r.id)}
+                      onChange={() => toggleFormRequirement(r.id)}
+                    />
+                    <span className="truncate" title={r.title}>{r.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex justify-end">
             <Button size="sm" onClick={handleAdd} disabled={saving}>
               {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
@@ -786,7 +932,7 @@ export default function Tasks() {
             ) : null}
           </TableCell>
           <TableCell>
-            <RequirementEventsDialog requirementId={r.requirementId} requirementTitle={r.title} />
+            <EventsDialog anchor={{ kind: "requirement", requirementId: r.requirementId, title: r.title }} />
           </TableCell>
           {canAssign && (
             <TableCell>
@@ -946,6 +1092,19 @@ export default function Tasks() {
                                       </Badge>
                                     ) : null,
                                   )}
+                                </div>
+                                {/* CR074 — log a milestone-wide disruption once
+                                    here instead of repeating it on every
+                                    requirement row below. */}
+                                <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
+                                  <EventsDialog
+                                    anchor={{
+                                      kind: "milestone",
+                                      milestoneId: g.milestoneId,
+                                      title: g.milestoneName,
+                                      requirements: g.rows.map((r) => ({ id: r.requirementId, title: r.title })),
+                                    }}
+                                  />
                                 </div>
                               </div>
                             </TableCell>

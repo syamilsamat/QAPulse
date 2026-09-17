@@ -100,9 +100,19 @@ export type Requirement = typeof requirementsTable.$inferSelect;
 // (lib/db/src/schema/tasks.ts) as what the Tasks/History Trail pages surface,
 // since that table is hard-FK'd to the now-frozen ad-hoc tasksTable and can't
 // attach to a requirement.
+// CR074 — an event can now anchor to a milestone instead of a single
+// requirement, so a milestone-wide disruption (server down for a week) is
+// logged once rather than re-typed on all 29 of its requirements. Exactly one
+// of requirementId / milestoneId is the anchor:
+//   requirementId set, milestoneId null  → the original per-requirement event
+//   milestoneId set,  requirementId null → a milestone event; requirementIds
+//     optionally narrows it to a subset of that milestone's requirements
+//     (null/empty = the whole milestone).
 export const requirementEventsTable = pgTable("requirement_events", {
   id: serial("id").primaryKey(),
-  requirementId: integer("requirement_id").notNull(),
+  requirementId: integer("requirement_id"),
+  milestoneId: integer("milestone_id"),
+  requirementIds: integer("requirement_ids").array(),
   type: text("type").notNull(), // e.g. "Blocker" | "Server down" | "Automation unavailable" | custom text
   description: text("description"),
   startDate: timestamp("start_date", { withTimezone: true }).notNull(),
@@ -113,6 +123,7 @@ export const requirementEventsTable = pgTable("requirement_events", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
   index("requirement_events_requirement_idx").on(t.requirementId),
+  index("requirement_events_milestone_idx").on(t.milestoneId),
 ]);
 
 export type RequirementEvent = typeof requirementEventsTable.$inferSelect;
