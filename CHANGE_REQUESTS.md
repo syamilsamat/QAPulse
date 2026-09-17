@@ -1614,4 +1614,6 @@ It is a single statement on purpose. Data-modifying CTEs within one statement al
 
 **Sequencing:** no dependency on CR019–CR021 — separate table, no Redmine bridge. Mockup drafted 2026-09-15, built same day.
 
+**Addendum (2026-09-17) — Email escalation for blocking/major issues:** `notifyAdmins()` only reaches an admin who already has QM Pulse open in a tab (in-app notification + SSE ping) — nobody finds out about an urgent report until they next log in and check the bell icon. Added `sendDevAlertEmail()` in `platform-issues.ts`, fired (fire-and-forget, errors logged not thrown) on `POST /platform-issues` when `severity` is `blocking` or `major` — `minor` stays in-app-only to avoid inbox noise. Reuses the same Office 365 SMTP config as the PMO report (`verdict-report.ts`): `SMTP_HOST`/`PORT`/`SECURE`/`USER`/`PASS`, `EMAIL_FROM`. Recipients are hardcoded to `syamil.samat@bestinet.com.my` and `raimi.rosman@bestinet.com.my` (not an env var — a fixed two-person dev list, unlike `PMO_EMAIL_TO` which varies per report send). Link back to `/platform-issues` in the email body is best-effort, derived from the first entry in `CORS_ORIGIN`; omitted if unset. `pnpm --filter api-server typecheck` clean. Not exercised against a live SMTP send in this environment.
+
 ---

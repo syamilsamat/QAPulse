@@ -5,6 +5,11 @@ import { getAuthContext } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 
+let nodemailer: any = null;
+try {
+  nodemailer = require("nodemailer");
+} catch {}
+
 // CR079 — Platform Issues: bugs/ideas/questions about QM Pulse itself,
 // reported by anyone using it. Admin-only for list/triage in v1 (mirrors
 // Audit Log's precedent — a single-owner internal tool, not department-
@@ -15,6 +20,11 @@ const VALID_TYPES = ["bug", "idea", "question"];
 const VALID_SEVERITIES = ["blocking", "major", "minor"];
 const VALID_STATUSES = ["open", "in_progress", "fixed", "wont_fix", "duplicate"];
 const RESOLVED_STATUSES = new Set(["fixed", "wont_fix", "duplicate"]);
+
+// Severities that page a human immediately, not just an in-app badge —
+// "minor" stays in-app-only (notifyAdmins) to avoid inbox noise.
+const EMAIL_ALERT_SEVERITIES = new Set(["blocking", "major"]);
+const DEV_ALERT_RECIPIENTS = ["syamil.samat@bestinet.com.my", "raimi.rosman@bestinet.com.my"];
 
 // A single base64 screenshot, kept well under the app's 25mb JSON body cap.
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
@@ -64,6 +74,55 @@ async function reporterNameLookup(rows: { reporterId: number | null }[]): Promis
   if (ids.length === 0) return new Map();
   const reporters = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, ids));
   return new Map(reporters.map((u) => [u.id, u.name]));
+}
+
+// Blocking/major issues also get emailed straight to the devs — in-app
+// notifications only reach someone who already has QM Pulse open (see
+// notifications.ts SSE registry), which for a "straightaway" alert isn't
+// good enough. Reuses the same Office 365 SMTP config as the PMO report
+// (verdict-report.ts): SMTP_HOST/PORT/SECURE/USER/PASS, EMAIL_FROM.
+async function sendDevAlertEmail(issue: typeof platformIssuesTable.$inferSelect, reporterName: string | null): Promise<void> {
+  if (!nodemailer) return;
+
+  const smtpUser = process.env.SMTP_USER ?? "";
+  const smtpPass = process.env.SMTP_PASS ?? "";
+  if (!smtpUser || !smtpPass) return;
+
+  const smtpHost = process.env.SMTP_HOST ?? "smtp.office365.com";
+  const smtpPort = parseInt(process.env.SMTP_PORT ?? "587", 10);
+  const smtpSecure = (process.env.SMTP_SECURE ?? "false").toLowerCase() === "true";
+  const emailFrom = process.env.EMAIL_FROM ?? smtpUser;
+
+  const baseUrl = (process.env.CORS_ORIGIN ?? "").split(",")[0]?.trim();
+  const issueLink = baseUrl ? `${baseUrl.replace(/\/$/, "")}/platform-issues` : null;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+
+    const severityLabel = issue.severity.toUpperCase();
+    await transporter.sendMail({
+      from: `"QM Pulse" <${emailFrom}>`,
+      to: DEV_ALERT_RECIPIENTS.join(", "),
+      subject: `[QM Pulse] ${severityLabel} ${issue.type}: ${issue.title}`,
+      html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111827;line-height:1.5;">
+        <p><strong>${severityLabel} ${issue.type}</strong> reported in QM Pulse.</p>
+        <table cellpadding="4" cellspacing="0" style="border-collapse:collapse;">
+          <tr><td style="color:#6b7280;">Title</td><td>${issue.title}</td></tr>
+          <tr><td style="color:#6b7280;">Reporter</td><td>${reporterName ?? "Unknown"}</td></tr>
+          <tr><td style="color:#6b7280;">Page</td><td>${issue.pagePath ?? "—"}</td></tr>
+          ${issue.description ? `<tr><td style="color:#6b7280;vertical-align:top;">Description</td><td>${issue.description}</td></tr>` : ""}
+        </table>
+        ${issueLink ? `<p><a href="${issueLink}">Open Platform Issues in QM Pulse</a></p>` : ""}
+      </div>`,
+    });
+  } catch (err) {
+    console.error("Platform issue dev alert email failed:", err);
+  }
 }
 
 // Fan out to admins so someone sees a new issue without polling the page.
@@ -129,7 +188,12 @@ router.post("/platform-issues", async (req, res): Promise<void> => {
   await notifyAdmins(issue, ctx.userId);
 
   const nameById = await reporterNameLookup([issue]);
-  res.status(201).json(fmt(issue, nameById.get(ctx.userId) ?? null));
+  const reporterName = nameById.get(ctx.userId) ?? null;
+  if (EMAIL_ALERT_SEVERITIES.has(issue.severity)) {
+    sendDevAlertEmail(issue, reporterName).catch(() => {});
+  }
+
+  res.status(201).json(fmt(issue, reporterName));
 });
 
 // PATCH /platform-issues/:id — admin triages: status, promotedCr, severity/type corrections.
