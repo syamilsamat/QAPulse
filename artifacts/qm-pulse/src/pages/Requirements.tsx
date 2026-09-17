@@ -858,7 +858,17 @@ parentId: parentId,
 
   const handleSingleSync = async (req: any) => {
     if (!req.redmineTicketId || !req.module) {
-      toast({ variant: "destructive", title: "Missing Redmine ID or Module." });
+      // Requirements auto-created from an Excel test-case import (resolve-redmine)
+      // carry a redmineTicketId but no module — the ticket badge renders fine, so
+      // reporting "ID or Module" without saying which one is missing left this
+      // dead-ended for the user. Name the actual gap and open Edit to fix it.
+      const missing = [!req.redmineTicketId && "Redmine ID", !req.module && "Module"].filter(Boolean).join(" and ");
+      toast({
+        variant: "destructive",
+        title: `Missing ${missing}`,
+        description: !req.module ? "Set the requirement's Module below, then sync again." : undefined,
+      });
+      if (!req.module) openEdit(req);
       return;
     }
 

@@ -764,6 +764,8 @@ export default function TestCases() {
   const [nlLoading, setNlLoading] = useState(false);
   const [nlResultIds, setNlResultIds] = useState<number[] | null>(null);
   const nlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nlRequestIdRef = useRef(0);
+  const nlAbortRef = useRef<AbortController | null>(null);
   const [filterProject, setFilterProject] = useState(() => {
     const params = new URLSearchParams(searchString);
     return params.get("projectId") ?? "all";
@@ -923,6 +925,12 @@ export default function TestCases() {
 
   useEffect(() => {
     if (nlDebounceRef.current) clearTimeout(nlDebounceRef.current);
+    // Invalidate any in-flight request from a previous keystroke — clearing the
+    // *timer* above isn't enough once a fetch has already gone out, and letting
+    // an earlier (slower) response overwrite a later, correct one is what caused
+    // "AI found 0 results" to flash up after a real match had already loaded.
+    nlRequestIdRef.current += 1;
+    nlAbortRef.current?.abort();
     if (!search.trim() || !isNlQuery(search)) {
       setNlMode(false);
       setNlResultIds(null);
@@ -931,7 +939,10 @@ export default function TestCases() {
     }
     setNlMode(true);
     setNlLoading(true);
+    const requestId = nlRequestIdRef.current;
     nlDebounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      nlAbortRef.current = controller;
       try {
         const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
         const payload = {
@@ -948,17 +959,21 @@ export default function TestCases() {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
+        if (nlRequestIdRef.current !== requestId) return; // a newer search has since started — drop this stale response
         if (res.ok) {
           const data = await res.json();
+          if (nlRequestIdRef.current !== requestId) return;
           setNlResultIds(Array.isArray(data.ids) ? data.ids : null);
         } else {
           setNlResultIds(null);
         }
       } catch {
+        if (nlRequestIdRef.current !== requestId) return;
         setNlResultIds(null);
       } finally {
-        setNlLoading(false);
+        if (nlRequestIdRef.current === requestId) setNlLoading(false);
       }
     }, 700);
   }, [search, testCases, isNlQuery]);
@@ -1044,52 +1059,47 @@ export default function TestCases() {
   }, [requirements, filterMilestone]);
 
   const filtered = useMemo(() => {
+    const matchesSubstring = (t: any, query: string) => {
+      const q = query.toLowerCase();
+      return (
+        Boolean(t.title?.toLowerCase().includes(q)) ||
+        Boolean(t.redmineUserStory?.toLowerCase().includes(q)) ||
+        Boolean(t.tracker?.toLowerCase().includes(q)) ||
+        Boolean(t.tags?.toLowerCase().includes(q)) ||
+        Boolean(t.qaPic?.toLowerCase().includes(q)) ||
+        Boolean(t.authorName?.toLowerCase().includes(q))
+      );
+    };
+    const passesNonSearchFilters = (t: any) => {
+      if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
+      if (filterModule !== "all" && (t.module ?? "") !== filterModule) return false;
+      if (requirementFilterIds && !requirementFilterIds.has(t.requirementId)) return false;
+      if (milestoneReqIds && !milestoneReqIds.has(t.requirementId)) return false;
+      if (filterAI === "ai" && !t.aiAssisted) return false;
+      if (filterAI === "manual" && t.aiAssisted) return false;
+      return true;
+    };
+
     // NL mode: filter by AI-returned IDs, preserve AI ranking order
     if (nlMode && nlResultIds !== null && !nlLoading) {
+      if (nlResultIds.length === 0) {
+        // The AI call found nothing — or silently failed, which the backend also
+        // reports as an empty id list (see ai.ts /ai/search-tcs). Either way, fall
+        // back to a literal substring match so an exact title hit (the common case
+        // for QA-style queries like "Verify mandatory icon for...") is never hidden
+        // behind an LLM miss.
+        return (testCases as any[]).filter((t: any) => passesNonSearchFilters(t) && matchesSubstring(t, search));
+      }
       const idSet = new Set(nlResultIds);
-      const base = (testCases as any[]).filter((t: any) => {
-        if (!idSet.has(t.id)) return false;
-        if (filterProject !== "all" && String(t.projectId) !== filterProject) return false;
-        if (filterModule !== "all" && (t.module ?? "") !== filterModule) return false;
-        if (requirementFilterIds && !requirementFilterIds.has(t.requirementId)) return false;
-        if (milestoneReqIds && !milestoneReqIds.has(t.requirementId)) return false;
-        if (filterAI === "ai" && !t.aiAssisted) return false;
-        if (filterAI === "manual" && t.aiAssisted) return false;
-        return true;
-      });
+      const base = (testCases as any[]).filter((t: any) => idSet.has(t.id) && passesNonSearchFilters(t));
       // Sort by AI ranking
       return base.sort((a: any, b: any) => nlResultIds.indexOf(a.id) - nlResultIds.indexOf(b.id));
     }
 
     let result = testCases.filter((t: any) => {
-      if (filterProject !== "all" && String(t.projectId) !== filterProject)
+      if (!passesNonSearchFilters(t)) return false;
+      if (search && !nlMode && !matchesSubstring(t, search)) {
         return false;
-      if (filterModule !== "all" && (t.module ?? "") !== filterModule)
-        return false;
-      if (requirementFilterIds && !requirementFilterIds.has(t.requirementId))
-        return false;
-      if (milestoneReqIds && !milestoneReqIds.has(t.requirementId))
-        return false;
-      if (filterAI === "ai" && !t.aiAssisted) return false;
-      if (filterAI === "manual" && t.aiAssisted) return false;
-      if (search && !nlMode) {
-        const query = search.toLowerCase();
-        const matchTitle = t.title?.toLowerCase().includes(query);
-        const matchStory = t.redmineUserStory?.toLowerCase().includes(query);
-        const matchTracker = t.tracker?.toLowerCase().includes(query);
-        const matchTags = t.tags?.toLowerCase().includes(query);
-        const matchAuthor =
-          t.qaPic?.toLowerCase().includes(query) ||
-          t.authorName?.toLowerCase().includes(query);
-
-        if (
-          !matchTitle &&
-          !matchStory &&
-          !matchTracker &&
-          !matchTags &&
-          !matchAuthor
-        )
-          return false;
       }
       return true;
     });
@@ -1672,7 +1682,9 @@ export default function TestCases() {
                 {nlLoading
                   ? <span className="text-xs text-purple-500 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> AI searching...</span>
                   : nlResultIds !== null
-                    ? <span className="text-xs text-purple-600 flex items-center gap-1"><Sparkles className="w-3 h-3" /> AI found {nlResultIds.length} result{nlResultIds.length !== 1 ? "s" : ""}</span>
+                    ? (nlResultIds.length === 0 && filtered.length > 0)
+                      ? <span className="text-xs text-amber-600 flex items-center gap-1"><Search className="w-3 h-3" /> AI found no matches — showing {filtered.length} exact match{filtered.length !== 1 ? "es" : ""} instead</span>
+                      : <span className="text-xs text-purple-600 flex items-center gap-1"><Sparkles className="w-3 h-3" /> AI found {nlResultIds.length} result{nlResultIds.length !== 1 ? "s" : ""}</span>
                     : <span className="text-xs text-muted-foreground">AI search active</span>
                 }
               </div>
