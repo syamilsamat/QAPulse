@@ -28,6 +28,7 @@ import {
   severityFromPriority,
   syncIssueStatuses,
   pushStatusToRedmine,
+  pushVerificationToRedmine,
   pushDefectFieldsToRedmine,
   pushAssigneeToRedmine,
   routeForTracker,
@@ -73,6 +74,10 @@ const CLOSED_STATUS = /closed|\bverified\b|rejected|cancelled/i;
 // A word boundary is important here: tracker-specific statuses such as
 // "Unverified" must not trigger the mandatory verification workflow.
 const VERIFIED_STATUS = /\bverified\b/i;
+// CR075 — a defect may only be verified straight out of QA retest. Verifying
+// from anywhere else (still in progress, already closed, never handed to QA)
+// would put a "QA has retested this" note on an issue no QA retested.
+const QA_TEST_STATUS = /qa\s*test/i;
 const MAX_VERIFICATION_EVIDENCE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_VERIFICATION_EVIDENCE_MIME = /^(image\/(png|jpeg|gif|webp)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|application\/vnd\.ms-excel|text\/(plain|csv))$/i;
 const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
@@ -129,6 +134,11 @@ async function findLinkedExecutionTc(defectId: number): Promise<{ qaPic: string 
 // qaPic is stored as a free-text name, not a user id — best-effort resolve
 // against the users table (same convention used for Redmine-imported names
 // elsewhere in this codebase).
+async function resolveActorName(userId: number): Promise<string> {
+  const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, userId));
+  return u?.name?.trim() || "QA";
+}
+
 async function resolveUserIdByName(name: string | null): Promise<number | null> {
   if (!name?.trim()) return null;
   const [user] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, name.trim()));
@@ -939,6 +949,12 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
         res.status(403).json({ error: "Only QA roles can verify a defect" });
         return;
       }
+      if (!QA_TEST_STATUS.test(defect.status ?? "")) {
+        res.status(409).json({
+          error: `A defect can only be verified from "For QA Test" — this one is "${defect.status ?? "unknown"}". Move it to For QA Test and retest it first.`,
+        });
+        return;
+      }
       const evidence = req.body?.evidence;
       const fileName = typeof evidence?.fileName === "string" ? evidence.fileName.replace(/[\r\n]/g, " ").slice(0, 255) : "";
       const mimeType = typeof evidence?.mimeType === "string" ? evidence.mimeType.slice(0, 150) : "application/octet-stream";
@@ -991,7 +1007,21 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     // Redmine id (pending sync) may change status locally.
     if (defect.redmineId) {
       const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-      const push = await pushStatusToRedmine(defect.redmineId, statusRedmineId, apiKey);
+      // A verification carries its note and evidence into Redmine in the same
+      // PUT as the status, so the issue never shows the move without the
+      // explanation beside it. Every other status change is a bare move.
+      const push = verificationEvidence
+        ? await pushVerificationToRedmine(defect.redmineId, statusRedmineId, apiKey, {
+            verifierName: await resolveActorName(ctx.userId),
+            fromStatus: defect.status ?? "unknown",
+            toStatus: statusRow.name,
+            attachment: {
+              filename: verificationEvidence.fileName,
+              contentType: verificationEvidence.mimeType,
+              base64: verificationEvidence.dataBase64,
+            },
+          })
+        : await pushStatusToRedmine(defect.redmineId, statusRedmineId, apiKey);
       if (!push.ok) {
         if (verificationEvidence) {
           await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));

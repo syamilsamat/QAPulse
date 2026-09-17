@@ -54,7 +54,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
   fetchRedmineProjectConfig,
-  fetchRedmineProjectMembers,
+  fetchContactAssignees,
   fetchRedmineTrackers,
   searchRedmineIssues,
   fetchExecutionFiles,
@@ -185,6 +185,10 @@ function TcResultBadge({ result }: { result: string | null }) {
 
 const DEV_ROLES = new Set(["dev_member", "dev_lead", "hod_dev"]);
 const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
+// Mirrors the server's own gate in PATCH /defects/:id/status — a defect is
+// only verifiable straight out of QA retest. Kept as the same tolerant match
+// so a tracker spelling it "For QA Testing" still qualifies.
+const QA_TEST_STATUS = /qa\s*test/i;
 const VERIFICATION_EVIDENCE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv";
 
 function formatFileSize(sizeBytes: number) {
@@ -818,9 +822,18 @@ export default function Defects() {
                             <SelectItem
                               key={s.redmineId}
                               value={String(s.redmineId)}
-                              disabled={/\bverified\b/i.test(s.name) && !canVerify}
+                              // Verify is QA-only and only reachable straight
+                              // out of QA retest — the server enforces both, so
+                              // show why it is unavailable rather than letting
+                              // the click fail.
+                              disabled={/\bverified\b/i.test(s.name) && (!canVerify || !QA_TEST_STATUS.test(d.status ?? ""))}
                             >
-                              {s.name}{/\bverified\b/i.test(s.name) ? " · evidence required" : ""}
+                              {s.name}
+                              {/\bverified\b/i.test(s.name)
+                                ? QA_TEST_STATUS.test(d.status ?? "")
+                                  ? " · evidence required"
+                                  : " · needs For QA Test"
+                                : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1042,7 +1055,13 @@ export default function Defects() {
               <p className="text-sm mt-0.5">{verificationTarget?.defect.title}</p>
             </div>
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              Upload evidence showing the defect was retested successfully. The attachment is mandatory and will remain available in the defect history.
+              Upload evidence showing the defect was retested successfully. The attachment is mandatory and stays in the defect history.
+              {verificationTarget?.defect.redmineId ? (
+                <>
+                  {" "}It is also attached to Redmine #{verificationTarget.defect.redmineId}, together with a note recording who
+                  verified it and when.
+                </>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="defect-verification-evidence">Verification attachment <span className="text-destructive">*</span></Label>
@@ -1647,7 +1666,7 @@ function NewDefectDialog({
   const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
 
   // Redmine fields
-  const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string }[]>([]);
+  const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string; identifier?: string }[]>([]);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
   const [members, setMembers] = useState<RedmineMember[]>([]);
@@ -1678,11 +1697,18 @@ function NewDefectDialog({
       .catch(() => {});
   }, [open, token]);
 
-  // Load members + project config when Redmine project changes
+  // Assignees come from the contact directory, not the selected project's
+  // Redmine memberships — the same reason as DefectCreationModal: a
+  // membership held on a sub-project or through a group never showed up.
+  useEffect(() => {
+    if (!open) return;
+    fetchContactAssignees().then(setMembers).catch(() => {});
+  }, [open]);
+
+  // Project config still follows the selected Redmine project.
   useEffect(() => {
     const pid = form.redmineProjectId;
-    if (!pid) { setMembers([]); setSelectedAssigneeId(null); setProjectConfig(null); return; }
-    fetchRedmineProjectMembers(pid).then(setMembers).catch(() => {});
+    if (!pid) { setProjectConfig(null); return; }
     fetchRedmineProjectConfig(pid).then(setProjectConfig).catch(() => {});
   }, [form.redmineProjectId]);
 
@@ -1912,7 +1938,15 @@ function NewDefectDialog({
                 <Select value={form.redmineProjectId ? String(form.redmineProjectId) : ""} onValueChange={(v) => setForm({ ...form, redmineProjectId: v ? Number(v) : undefined })}>
                   <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
                   <SelectContent>
-                    {redmineProjects.map((p) => <SelectItem key={p.redmineId} value={String(p.redmineId)}>{p.name}</SelectItem>)}
+                    {/* Several Redmine projects can share a display name, so
+                        show the unique identifier alongside it — otherwise the
+                        list reads as duplicated entries. */}
+                    {redmineProjects.map((p) => (
+                      <SelectItem key={p.redmineId} value={String(p.redmineId)}>
+                        {p.name}
+                        {p.identifier ? <span className="ml-2 text-xs text-muted-foreground">{p.identifier}</span> : null}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1938,10 +1972,9 @@ function NewDefectDialog({
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
                 options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
-                placeholder={form.redmineProjectId ? "Select assignee..." : "Select a Redmine project first"}
-                searchPlaceholder="Search member..."
-                disabled={!form.redmineProjectId}
-                emptyText={form.redmineProjectId ? "No members found." : "Select a project first."}
+                placeholder="Select assignee..."
+                searchPlaceholder="Search contact..."
+                emptyText="No contacts found."
               />
             </div>
 

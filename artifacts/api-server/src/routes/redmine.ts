@@ -57,6 +57,29 @@ async function redmineFetch(
   return fetch(`${getBaseUrl()}${path}`, { ...options, headers });
 }
 
+/** Reads from Redmine with the caller's key, retrying once with the service
+ *  key if their own is rejected.
+ *
+ *  A personal key set in Settings wins over the env default, and there is no
+ *  fallback once one exists — so a member whose key is stale, revoked or
+ *  scoped below the ticket they are syncing gets a hard "Authentication
+ *  failed", while an admin (or anyone who never saved a key, and so uses the
+ *  service key) succeeds on the same ticket. Sync is meant to work for
+ *  everyone, so a rejected personal key degrades to the service key instead
+ *  of failing the request.
+ *
+ *  Reads only. Writes keep using the caller's own key, so an issue created or
+ *  updated in Redmine is still attributed to the person who did it and is
+ *  still subject to their permissions. */
+async function redmineRead(path: string, apiKey: string): Promise<Response> {
+  const response = await redmineFetch(path, apiKey);
+  const serviceKey = getDefaultApiKey();
+  if ((response.status === 401 || response.status === 403) && serviceKey && apiKey !== serviceKey) {
+    return redmineFetch(path, serviceKey);
+  }
+  return response;
+}
+
 // ─── Existing: single issue fetch (Verdict Report + callers elsewhere) ──────
 
 router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> => {
@@ -67,7 +90,7 @@ router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> =
   }
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch(
+    const response = await redmineRead(
       `/issues/${issueId}.json?include=children,journals,attachments`,
       apiKey,
     );
@@ -149,7 +172,7 @@ router.post("/redmine/sync-projects", async (req, res): Promise<void> => {
     const limit = 100;
 
     while (true) {
-      const response = await redmineFetch(
+      const response = await redmineRead(
         `/projects.json?limit=${limit}&offset=${offset}`,
         apiKey,
       );
@@ -287,7 +310,7 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
 router.get("/redmine/trackers", async (req, res): Promise<void> => {
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch("/trackers.json", apiKey);
+    const response = await redmineRead("/trackers.json", apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
     const data: any = await response.json();
     res.json(data.trackers ?? []);
@@ -302,12 +325,36 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
   const { projectId } = req.params;
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch(`/projects/${projectId}/memberships.json?limit=100`, apiKey);
-    if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data: any = await response.json();
-    const members = (data.memberships ?? [])
-      .filter((m: any) => m.user)
-      .map((m: any) => ({ id: m.user.id, name: m.user.name }));
+
+    // Memberships paginate like every other Redmine collection. This used to
+    // request a single limit=100 page and ignore total_count, so any project
+    // with more than 100 members silently lost everyone past the first page —
+    // they just never appeared in the defect assignee dropdown. Same loop the
+    // /sync-projects route above already uses.
+    const memberships: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    while (true) {
+      const response = await redmineRead(
+        `/projects/${projectId}/memberships.json?limit=${limit}&offset=${offset}`,
+        apiKey,
+      );
+      if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
+      const data: any = await response.json();
+      const batch: any[] = data.memberships ?? [];
+      memberships.push(...batch);
+      if (memberships.length >= (data.total_count ?? 0) || batch.length < limit) break;
+      offset += limit;
+    }
+
+    // A membership's principal is either a user or a group; only users can be
+    // named here. Dedup by id defensively — one person can hold more than one
+    // membership row on a project.
+    const byId = new Map<number, { id: number; name: string }>();
+    for (const m of memberships) {
+      if (m.user && !byId.has(m.user.id)) byId.set(m.user.id, { id: m.user.id, name: m.user.name });
+    }
+    const members = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
     res.json(members);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch members: ${err.message}` });
@@ -326,7 +373,7 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
     const apiKey = await resolveApiKey(req);
     let url = `/issues.json?subject=~${encodeURIComponent(q)}&status_id=open&limit=5`;
     if (project_id) url += `&project_id=${encodeURIComponent(project_id)}`;
-    const response = await redmineFetch(url, apiKey);
+    const response = await redmineRead(url, apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
     const data: any = await response.json();
     res.json(data.issues ?? []);
@@ -442,7 +489,17 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
 
     if (!response.ok) {
       const errBody = await response.text();
-      throw new Error(`Redmine returned ${response.status}: ${errBody}`);
+      // Redmine answers validation failures with {"errors":[...]}. Assignees
+      // now come from the whole contact directory rather than the project's
+      // own members, so "Assignee is invalid" (the user is not an allowed
+      // assignee on that project) is a normal outcome a QA needs to read and
+      // act on — not a raw JSON blob in a toast.
+      let detail = errBody;
+      try {
+        const parsed = JSON.parse(errBody);
+        if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) detail = parsed.errors.join("; ");
+      } catch { /* not JSON — fall back to the raw body */ }
+      throw new Error(`Redmine returned ${response.status}: ${detail}`);
     }
 
     const data: any = await response.json();

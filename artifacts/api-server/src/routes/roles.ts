@@ -562,6 +562,15 @@ export async function bootstrap() {
     pool.query(`CREATE INDEX IF NOT EXISTS milestone_risk_assessments_milestone_idx ON milestone_risk_assessments (milestone_id)`),
     pool.query(`CREATE INDEX IF NOT EXISTS execution_risk_assessments_milestone_idx ON execution_risk_assessments (milestone_id)`),
     pool.query(`CREATE INDEX IF NOT EXISTS requirement_events_requirement_idx ON requirement_events (requirement_id)`),
+    // CR074 — milestone-level events. requirement_id drops NOT NULL (and its
+    // FK, which cascaded per-requirement) so an event can anchor to a
+    // milestone instead; requirement_ids optionally narrows a milestone event
+    // to a subset of its requirements. Existing per-requirement rows are
+    // untouched — they keep requirement_id and leave the new columns null.
+    pool.query(`ALTER TABLE requirement_events ADD COLUMN IF NOT EXISTS milestone_id INTEGER REFERENCES milestones(id) ON DELETE CASCADE`),
+    pool.query(`ALTER TABLE requirement_events ADD COLUMN IF NOT EXISTS requirement_ids INTEGER[]`),
+    pool.query(`ALTER TABLE requirement_events ALTER COLUMN requirement_id DROP NOT NULL`),
+    pool.query(`CREATE INDEX IF NOT EXISTS requirement_events_milestone_idx ON requirement_events (milestone_id)`),
     pool.query(`CREATE INDEX IF NOT EXISTS conversations_entity_idx ON conversations (entity_type, entity_id)`),
     pool.query(`CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations (user_id)`),
     // ALTER path for a dev DB where conversations already exists from the old

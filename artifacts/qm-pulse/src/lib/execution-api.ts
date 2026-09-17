@@ -486,6 +486,28 @@ export interface RedmineMember {
   name: string;
 }
 
+// Contacts are QM Pulse's own directory, synced from every active Redmine
+// user (see /contacts/sync-redmine) rather than one project's memberships.
+// Only those carrying a redmineId can be named as an assignee, since Redmine
+// wants a user id — manually-added contacts have none.
+export interface ContactAssignee {
+  id: number;
+  fullName: string;
+  email: string;
+  redmineId: number | null;
+  isGroup: boolean;
+}
+
+export const fetchContactAssignees = async (): Promise<RedmineMember[]> => {
+  const res = await fetch("/api/contacts", { headers: getHeaders() });
+  if (!res.ok) return [];
+  const contacts: ContactAssignee[] = await res.json();
+  return contacts
+    .filter((c) => !c.isGroup && c.redmineId != null)
+    .map((c) => ({ id: c.redmineId as number, name: c.fullName }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
 export const fetchRedmineProjectMembers = async (projectId: number): Promise<RedmineMember[]> => {
   const res = await fetch(`/api/redmine/projects/${projectId}/members`, { headers: getHeaders() });
   if (!res.ok) return [];

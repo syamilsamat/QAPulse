@@ -22,7 +22,7 @@ import {
   fetchRedmineProjects,
   fetchRedmineProjectConfig,
   fetchRedmineTrackers,
-  fetchRedmineProjectMembers,
+  fetchContactAssignees,
   searchRedmineIssues,
   createRedmineDefect,
   registerLocalDefect,
@@ -123,6 +123,7 @@ export default function DefectCreationModal({
     setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName}`);
     fetchQmpulseProjects().then(setQmpulseProjects).catch(() => {});
     fetchRedmineProjects().then(setProjects).catch(() => {});
+    fetchContactAssignees().then(setMembers).catch(() => {});
     fetchRedmineTrackers()
       .then((list) => {
         setTrackers(list);
@@ -132,11 +133,16 @@ export default function DefectCreationModal({
       .catch(() => {});
   }, [open, expectedResult, testCaseName, testCaseId, parentIssueId]);
 
-  // Load project config + members when project changes
+  // Load project config when project changes. The assignee list deliberately
+  // does NOT reload here: it used to come from the selected project's Redmine
+  // memberships, which silently excluded anyone whose membership sits on a
+  // sub-project (an issue filed under "FWCMS » Tech Refresh » eVDR Operator
+  // Portal" is not a membership of "FWCMS") or is granted through a group.
+  // It now lists the full contact directory, which is the set QA actually
+  // picks from.
   useEffect(() => {
-    if (!selectedProjectId) { setProjectConfig(null); setMembers([]); setSelectedAssigneeId(null); return; }
+    if (!selectedProjectId) { setProjectConfig(null); return; }
     fetchRedmineProjectConfig(selectedProjectId).then(setProjectConfig).catch(() => {});
-    fetchRedmineProjectMembers(selectedProjectId).then(setMembers).catch(() => {});
   }, [selectedProjectId]);
 
   // Auto-search duplicates when project + subject are ready
@@ -467,7 +473,17 @@ export default function DefectCreationModal({
                 <SearchableSelect
                   value={selectedProjectId?.toString() ?? ""}
                   onValueChange={(v) => setSelectedProjectId(Number(v))}
-                  options={projects.map((p) => ({ value: p.redmineId.toString(), label: p.name }))}
+                  // Redmine allows several projects to share a display name
+                  // (FWCMS has a few), which made them indistinguishable here
+                  // and made the list look duplicated. The identifier is the
+                  // unique one, so show it and let the search match on it —
+                  // that also keeps each item's cmdk value distinct.
+                  options={projects.map((p) => ({
+                    value: p.redmineId.toString(),
+                    label: p.name,
+                    badge: p.identifier,
+                    keywords: `${p.identifier} ${p.redmineId}`,
+                  }))}
                   placeholder="Select project..."
                   searchPlaceholder="Search project..."
                 />
@@ -504,11 +520,15 @@ export default function DefectCreationModal({
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
                 options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
-                placeholder={selectedProjectId ? "Select assignee..." : "Select a project first"}
-                searchPlaceholder="Search member..."
-                disabled={!selectedProjectId}
-                emptyText={selectedProjectId ? "No members found." : "Select a project first."}
+                placeholder="Select assignee..."
+                searchPlaceholder="Search contact..."
+                emptyText="No contacts found."
               />
+              {members.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No contacts cached — sync contacts from Settings first.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-3">
