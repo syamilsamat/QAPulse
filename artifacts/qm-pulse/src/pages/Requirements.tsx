@@ -787,14 +787,34 @@ parentId: finalParentId,
     if (data.connected && data.issue) {
       const fetchedTicketId = String(data.issue.id);
 
-      // Status filter — applies to all tickets including root
+      // Walks this ticket's direct children. Each recursive call fetches its
+      // own children too, so the whole subtree is covered to any depth.
+      // Siblings are independent (each only needs the parent id, already
+      // resolved), so they run concurrently instead of one Redmine round-trip
+      // after another — bounded, so a wide ticket doesn't burst requests.
+      const syncChildren = async (parentForChildren?: number) => {
+        const children = data.issue.children;
+        if (!Array.isArray(children) || children.length === 0) return;
+        await mapWithConcurrency(children, SYNC_CONCURRENCY, (child: any) =>
+          processRedmineSync(String(child.id), targetModule, targetProjectId, parentForChildren, trackerFilter, milestoneId, false),
+        );
+      };
+
+      // Status and tracker filters decide whether to import THIS ticket — not
+      // whether to stop descending. Both used to return outright, so a single
+      // Closed or off-tracker ticket in the middle of a tree silently took
+      // every descendant under it out of the sync: "I synced the parent and
+      // the sub-children never came across." Skipped nodes now still hand
+      // their children down, attached to the nearest ancestor that was
+      // actually imported so the hierarchy closes over the gap.
       if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) {
         if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has status "${data.issue.status?.name}"`);
+        await syncChildren(parentId);
         return;
       }
-      // Tracker filter — applies to all tickets including root
       if (trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) {
         if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has tracker "${data.issue.tracker?.name}", expected "${trackerFilter}"`);
+        await syncChildren(parentId);
         return;
       }
 
@@ -874,16 +894,8 @@ parentId: parentId,
         }).catch(() => {});
       }
 
-      // Recursively handle children — filters applied inside each recursive call.
-      // Siblings are independent (each only needs savedReqId, known above), so
-      // they run concurrently instead of one Redmine round-trip after another.
-      // Bounded, because a wide ticket would otherwise open a burst of requests
-      // against Redmine all at once.
-      if (data.issue.children && Array.isArray(data.issue.children)) {
-        await mapWithConcurrency(data.issue.children, SYNC_CONCURRENCY, (child: any) =>
-          processRedmineSync(String(child.id), targetModule, targetProjectId, savedReqId, trackerFilter, milestoneId, false),
-        );
-      }
+      // This ticket was imported, so its children hang off it.
+      await syncChildren(savedReqId);
     } else {
       throw new Error(`Could not fetch Redmine issue #${ticketIdToSync}`);
     }

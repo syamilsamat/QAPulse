@@ -239,6 +239,93 @@ export async function pushStatusToRedmine(
   }
 }
 
+// CR075 — QA verification write-through. A verification is three things in
+// Redmine, and they have to travel in one PUT so the issue never shows a
+// status change with no explanation next to it: the status move, a journal
+// note saying who retested it and when, and the retest evidence as a real
+// attachment rather than a file that only exists inside QM Pulse.
+//
+// Note and attachment description are written here rather than by the caller,
+// so every verification reads the same way in Redmine no matter where in
+// QM Pulse it was triggered from.
+export async function pushVerificationToRedmine(
+  redmineIssueId: string,
+  statusRedmineId: number,
+  apiKey: string,
+  opts: {
+    verifierName: string;
+    fromStatus: string;
+    toStatus: string;
+    attachment?: { filename: string; contentType: string; base64: string };
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const verifiedOn = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+  // Textile — the same markup pushDefectToRedmine already writes.
+  const notes = [
+    "*QA Verification — Passed*",
+    "",
+    "This defect has been retested by QA and confirmed resolved.",
+    opts.attachment ? "The retest evidence is attached to this issue." : null,
+    "",
+    `Verified by: ${opts.verifierName}`,
+    `Verified on: ${verifiedOn}`,
+    `Status: ${opts.fromStatus} → ${opts.toStatus}`,
+    "",
+    "_Recorded via QM Pulse._",
+  ].filter((line) => line !== null).join("\n");
+
+  const attachmentDescription = `Verified by QA — retest evidence (${verifiedOn})`;
+
+  try {
+    const uploads: { token: string; filename: string; content_type: string; description: string }[] = [];
+    if (opts.attachment) {
+      const uploadRes = await fetch(
+        `${getBaseUrl()}/uploads.json?filename=${encodeURIComponent(opts.attachment.filename)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            ...(apiKey ? { "X-Redmine-API-Key": apiKey } : {}),
+          },
+          body: Buffer.from(opts.attachment.base64, "base64"),
+        },
+      );
+      if (!uploadRes.ok) {
+        const body = await uploadRes.text().catch(() => "");
+        return { ok: false, error: `Redmine attachment upload ${uploadRes.status}: ${body.slice(0, 200)}` };
+      }
+      const uploadData: any = await uploadRes.json();
+      if (uploadData?.upload?.token) {
+        uploads.push({
+          token: uploadData.upload.token,
+          filename: opts.attachment.filename,
+          content_type: opts.attachment.contentType,
+          description: attachmentDescription,
+        });
+      }
+    }
+
+    const res = await redmineFetch(`/issues/${encodeURIComponent(redmineIssueId)}.json`, apiKey, {
+      method: "PUT",
+      body: JSON.stringify({
+        issue: {
+          status_id: statusRedmineId,
+          notes,
+          ...(uploads.length > 0 ? { uploads } : {}),
+        },
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Redmine ${res.status}: ${body.slice(0, 300) || "verification rejected (check workflow permissions)"}` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
 // CR061 — edit write-through: push corrected title/description/tracker made
 // in QM Pulse (by the reporter or a qa_lead+) to Redmine. Same fail-closed
 // pattern as pushStatusToRedmine — the caller only updates the local row once

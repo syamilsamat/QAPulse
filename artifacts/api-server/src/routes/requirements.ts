@@ -1762,12 +1762,30 @@ export async function syncRedmineTicket(
   const issue = data.issue;
   if (!issue) throw new Error(`No issue data for #${ticketId}`);
 
+  // Walks this ticket's direct children; each recursive call fetches its own
+  // children, so the subtree is covered to any depth. Siblings only need the
+  // parent id, already resolved, so they go concurrently rather than one
+  // Redmine round-trip after another.
+  const syncChildren = async (parentForChildren: number | undefined) => {
+    if (!Array.isArray(issue.children) || issue.children.length === 0) return;
+    await mapWithConcurrency(issue.children, SYNC_CONCURRENCY, (child: any) =>
+      syncRedmineTicket(String(child.id), targetModule, targetProjectId, parentForChildren, trackerFilter, milestoneId, apiKey, importingUserId, false),
+    );
+  };
+
+  // The status and tracker filters decide whether to import THIS ticket, not
+  // whether to stop descending. Returning outright meant one Closed or
+  // off-tracker ticket mid-tree silently removed every descendant beneath it
+  // from the sync. A skipped node now still hands its children down, attached
+  // to the nearest ancestor that was actually imported.
   if (EXCLUDED_STATUSES.includes(issue.status?.name)) {
     if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketId} has status "${issue.status?.name}"`);
+    await syncChildren(parentId);
     return;
   }
   if (trackerFilter && issue.tracker?.name && issue.tracker.name !== trackerFilter) {
     if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketId} has tracker "${issue.tracker?.name}", expected "${trackerFilter}"`);
+    await syncChildren(parentId);
     return;
   }
 
@@ -1810,13 +1828,8 @@ export async function syncRedmineTicket(
     await syncRequirementAttachments(savedId, issue.attachments ?? [], apiKey).catch(() => {});
   }
 
-  // Siblings only need savedId, which is already resolved, so they sync
-  // concurrently rather than one Redmine round-trip after another.
-  if (issue.children && Array.isArray(issue.children)) {
-    await mapWithConcurrency(issue.children, SYNC_CONCURRENCY, (child: any) =>
-      syncRedmineTicket(String(child.id), targetModule, targetProjectId, savedId, trackerFilter, milestoneId, apiKey, importingUserId, false),
-    );
-  }
+  // This ticket was imported, so its children hang off it.
+  await syncChildren(savedId);
 
   return savedId;
 }
