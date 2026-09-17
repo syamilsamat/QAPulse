@@ -604,7 +604,7 @@ export default function Tasks() {
   // which reads as "a lot of tasks" once a milestone has 60+ requirements.
   // This groups the same rows under a collapsed-by-default milestone summary
   // row instead of replacing the underlying per-requirement data.
-  const [groupByMilestone, setGroupByMilestone] = useState(false);
+  const [groupByMilestone, setGroupByMilestone] = useState(true);
   const [expandedMilestones, setExpandedMilestones] = useState<Set<number>>(new Set());
   const toggleMilestoneExpanded = (milestoneId: number) =>
     setExpandedMilestones((prev) => {
