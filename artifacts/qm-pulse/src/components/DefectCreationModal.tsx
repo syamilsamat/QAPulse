@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
+import { ModuleSelect } from "@/components/ModuleSelect";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -458,7 +459,11 @@ export default function DefectCreationModal({
               </div>
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <Input value={defectModule} onChange={(e) => setDefectModule(e.target.value)} placeholder="e.g. Authentication" />
+                <ModuleSelect
+                  value={defectModule}
+                  onChange={setDefectModule}
+                  projectId={qmpulseProjectId}
+                />
               </div>
             </div>
             <div className="space-y-1.5">

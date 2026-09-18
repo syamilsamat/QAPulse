@@ -74,6 +74,7 @@ import {
   type ExecutionTestCase,
 } from "@/lib/execution-api";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
+import { ModuleSelect } from "@/components/ModuleSelect";
 import { defectCategoryLabel } from "@/lib/defect-categories";
 import { ROOT_CAUSE_CATEGORIES } from "@/lib/root-cause-categories";
 
@@ -801,7 +802,9 @@ export default function Defects() {
           <SelectTrigger className="w-32 h-8 text-xs"><SelectValue placeholder="All severity" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All severity</SelectItem>
-            {["critical", "high", "medium", "low"].map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+            {["critical", "high", "medium", "low"].map((s) => (
+              <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <div className="relative">
@@ -866,7 +869,9 @@ export default function Defects() {
             <span className="text-xs text-muted-foreground">
               {selectedVisibleIds.length > 0
                 ? `${selectedVisibleIds.length} of ${visibleIds.length} selected`
-                : `Select defects to export or delete · ${visibleIds.length} shown`}
+                : canDeleteDefects
+                  ? `Select defects to export or delete · ${visibleIds.length} shown`
+                  : `Select defects to export to Excel · ${visibleIds.length} shown`}
             </span>
             {selectedVisibleIds.length > 0 && (
               <div className="flex items-center gap-2 ml-auto flex-wrap">
@@ -1754,7 +1759,9 @@ function EditDefectDialog({
                 <Select value={form.severity ?? "medium"} onValueChange={(v) => setForm({ ...form, severity: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["critical", "high", "medium", "low"].map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+                    {["critical", "high", "medium", "low"].map((s) => (
+                      <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1769,7 +1776,11 @@ function EditDefectDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <Input value={form.module ?? ""} onChange={(e) => setForm({ ...form, module: e.target.value })} placeholder="e.g. Authentication" />
+                <ModuleSelect
+                  value={form.module ?? ""}
+                  onChange={(v) => setForm({ ...form, module: v })}
+                  projectId={form.projectId ?? null}
+                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -2055,6 +2066,7 @@ function NewDefectDialog({
 
   const handleSubmit = async () => {
     if (!form.title?.trim()) { toast({ variant: "destructive", title: "Title is required" }); return; }
+    if (!targetedCompletionDate) { toast({ variant: "destructive", title: "Targeted Completion Date is required" }); return; }
     setIsSaving(true);
     try {
       const res = await fetch(`${getApiUrl()}/defects`, {
@@ -2161,7 +2173,9 @@ function NewDefectDialog({
                 <Select value={form.severity} onValueChange={(v) => setForm({ ...form, severity: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["critical", "high", "medium", "low"].map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+                    {["critical", "high", "medium", "low"].map((s) => (
+                      <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -2176,7 +2190,11 @@ function NewDefectDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Module</Label>
-                <Input value={form.module ?? ""} onChange={(e) => setForm({ ...form, module: e.target.value })} placeholder="e.g. Authentication" />
+                <ModuleSelect
+                  value={form.module ?? ""}
+                  onChange={(v) => setForm({ ...form, module: v })}
+                  projectId={form.projectId ?? null}
+                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -2289,7 +2307,7 @@ function NewDefectDialog({
                 <Input type="date" value={targetedStartDate} onChange={(e) => setTargetedStartDate(e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label>Targeted Completion Date</Label>
+                <Label>Targeted Completion Date <span className="text-destructive">*</span></Label>
                 <Input type="date" value={targetedCompletionDate} onChange={(e) => setTargetedCompletionDate(e.target.value)} />
               </div>
             </div>
