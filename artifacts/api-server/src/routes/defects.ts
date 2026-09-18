@@ -12,8 +12,11 @@ import {
   executionFilesTable,
   redmineStatusesTable,
   usersTable,
+  milestonesTable,
+  codeReviewsTable,
 } from "@workspace/db";
 import { actorFromReq } from "./auth";
+import { buildDefectLogExcel, type DefectExportRow } from "./defects-excel";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
@@ -153,8 +156,13 @@ const DEFECT_CATEGORIES = [
 ] as const;
 
 // Only Lead-tier and above may set a defect's category.
-async function canSetDefectCategory(role: string): Promise<boolean> {
-  return (await getRoleTierRank(role)) >= 2;
+// Category used to be Lead-tier only, which meant the field simply did not
+// render for a QA member — the person actually raising most defects. It is a
+// classification, not an authority: whoever writes the defect is best placed
+// to say what kind it is, and the value is validated against DEFECT_CATEGORIES
+// either way. Kept as a function so a tier gate can come back in one edit.
+async function canSetDefectCategory(_role: string): Promise<boolean> {
+  return true;
 }
 
 // CR080 — root cause taxonomy for the fields the gate below requires on
@@ -1906,4 +1914,184 @@ router.post("/defects/:id/regression-tc", async (req, res): Promise<void> => {
   }
 });
 
+// ─── Bulk selection actions (Defects page checkboxes) ────────────────────────
+
+/**
+ * Narrows a caller-supplied id list to the defects that caller may act on.
+ * Same gates the list endpoint applies — project scope, then module scope — so
+ * a selection can never reach a defect the Defects page would not have shown.
+ */
+async function loadSelectableDefects(ctx: { userId: number; role: string }, ids: number[]) {
+  const rows = await db.select().from(defectsTable).where(inArray(defectsTable.id, ids));
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const scoped = accessible === null
+    ? rows
+    : rows.filter((d: any) => d.projectId == null || accessible.includes(d.projectId));
+
+  const projectIds = [...new Set(scoped.map((d: any) => d.projectId).filter((id: any): id is number => id != null))];
+  const moduleScopes = new Map(await Promise.all(
+    projectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const),
+  ));
+  return scoped.filter((d: any) => {
+    const scope = d.projectId != null ? moduleScopes.get(d.projectId) : undefined;
+    if (!scope || !scope.restricted) return true;
+    return d.module != null && scope.moduleNames.includes(d.module);
+  });
+}
+
+function parseIdList(body: any): number[] | null {
+  const raw = body?.ids;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const ids = [...new Set(raw.map((v: any) => Number(v)).filter((v: number) => Number.isInteger(v) && v > 0))];
+  return ids.length > 0 ? ids : null;
+}
+
+// POST /defects/export — the selected defects as a formatted Defect Log.
+// POST rather than GET: a "select all" on a busy project sends more ids than a
+// query string can safely carry.
+router.post("/defects/export", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const ids = parseIdList(req.body);
+  if (!ids) { res.status(400).json({ error: "Select at least one defect to export" }); return; }
+
+  try {
+    const defects = await loadSelectableDefects(ctx, ids);
+    if (defects.length === 0) { res.status(403).json({ error: "None of the selected defects are available to you" }); return; }
+
+    // Resolve every display name in one round trip per table rather than one
+    // per defect — an export of a few hundred rows is otherwise all latency.
+    const projectIds = [...new Set(defects.map((d: any) => d.projectId).filter((v: any): v is number => v != null))];
+    const milestoneIds = [...new Set(defects.map((d: any) => d.milestoneId).filter((v: any): v is number => v != null))];
+    const userIds = [...new Set(defects.flatMap((d: any) => [d.reporterId, d.assigneeId]).filter((v: any): v is number => v != null))];
+    const defectIds = defects.map((d: any) => d.id);
+
+    const [projectRows, milestoneRows, userRows, linkRows] = await Promise.all([
+      projectIds.length ? db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, projectIds)) : [],
+      milestoneIds.length ? db.select({ id: milestonesTable.id, name: milestonesTable.name }).from(milestonesTable).where(inArray(milestonesTable.id, milestoneIds)) : [],
+      userIds.length ? db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, userIds)) : [],
+      db.select().from(defectLinksTable).where(inArray(defectLinksTable.defectId, defectIds)),
+    ]);
+
+    const projectName = new Map(projectRows.map((p: any) => [p.id, p.name]));
+    const milestoneName = new Map(milestoneRows.map((m: any) => [m.id, m.name]));
+    const userName = new Map(userRows.map((u: any) => [u.id, u.name]));
+
+    // Linked test cases come from both sides of defect_links: the execution row
+    // that failed, and any regression case raised off the back of it.
+    const execIds = [...new Set(linkRows.map((l: any) => l.executionTcId).filter((v: any): v is number => v != null))];
+    const tcIds = [...new Set(linkRows.map((l: any) => l.testCaseId).filter((v: any): v is number => v != null))];
+    const [execRows, tcRows] = await Promise.all([
+      execIds.length ? db.select({ id: executionTestCasesTable.id, caseId: executionTestCasesTable.caseId, testCaseId: executionTestCasesTable.testCaseId }).from(executionTestCasesTable).where(inArray(executionTestCasesTable.id, execIds)) : [],
+      tcIds.length ? db.select({ id: testCasesTable.id, caseId: testCasesTable.caseId }).from(testCasesTable).where(inArray(testCasesTable.id, tcIds)) : [],
+    ]);
+    const execLabel = new Map(execRows.map((r: any) => [r.id, r.caseId || r.testCaseId || null]));
+    const tcLabel = new Map(tcRows.map((r: any) => [r.id, r.caseId || null]));
+
+    const caseLabelsByDefect = new Map<number, Set<string>>();
+    for (const link of linkRows as any[]) {
+      const label = (link.executionTcId != null ? execLabel.get(link.executionTcId) : null)
+        ?? (link.testCaseId != null ? tcLabel.get(link.testCaseId) : null);
+      if (!label) continue;
+      if (!caseLabelsByDefect.has(link.defectId)) caseLabelsByDefect.set(link.defectId, new Set());
+      caseLabelsByDefect.get(link.defectId)!.add(String(label));
+    }
+
+    const rows: DefectExportRow[] = defects.map((d: any) => ({
+      defectCode: d.defectCode ?? `DEF-${d.id}`,
+      redmineId: d.redmineId ?? null,
+      title: d.title,
+      severity: d.severity ?? null,
+      status: d.status ?? null,
+      source: d.source ?? null,
+      tracker: d.tracker ?? null,
+      foundIn: d.foundIn ?? null,
+      module: d.module ?? null,
+      projectName: d.projectId != null ? projectName.get(d.projectId) ?? null : null,
+      milestoneName: d.milestoneId != null ? milestoneName.get(d.milestoneId) ?? null : null,
+      defectCategory: d.defectCategory ?? null,
+      // assigneeName is Redmine cached text; assigneeId is the in-app
+      // assignment and wins when both exist (same precedence as the UI).
+      assigneeName: (d.assigneeId != null ? userName.get(d.assigneeId) : null) ?? d.assigneeName ?? null,
+      reporterName: d.reporterId != null ? userName.get(d.reporterId) ?? null : null,
+      description: d.description ?? null,
+      stepsToReproduce: d.stepsToReproduce ?? null,
+      expectedResult: d.expectedResult ?? null,
+      actualResult: d.actualResult ?? null,
+      rootCause: d.rootCause ?? null,
+      resolutionSummary: d.resolutionSummary ?? null,
+      linkedTestCases: [...(caseLabelsByDefect.get(d.id) ?? [])].sort().join(", ") || null,
+      createdAt: d.createdAt instanceof Date ? d.createdAt.toISOString() : d.createdAt ?? null,
+      updatedAt: d.updatedAt instanceof Date ? d.updatedAt.toISOString() : d.updatedAt ?? null,
+    }));
+
+    const [actor] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId));
+    const skipped = ids.length - defects.length;
+    const buffer = await buildDefectLogExcel(rows, {
+      exportedByName: actor?.name ?? null,
+      scopeLabel: `${rows.length} defect${rows.length === 1 ? "" : "s"} selected${skipped > 0 ? ` (${skipped} not accessible to you)` : ""}`,
+    });
+    if (!buffer) { res.status(500).json({ error: "Failed to build the Defect Log workbook" }); return; }
+
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${date}_DefectLog.xlsx"`);
+    res.send(buffer);
+  } catch (err: any) {
+    console.error("[defects/export]", err);
+    res.status(500).json({ error: err?.message ?? "Export failed" });
+  }
+});
+
+// POST /defects/bulk-delete — admin only, and QM Pulse-side only.
+//
+// This never touches Redmine. Redmine stays the system of record and deleting
+// an issue there is irreversible, so a synced defect will be pulled back in by
+// the next "Pull now" / "Sync from Redmine" — that is expected, and the
+// confirmation dialog on the page says so before anything is deleted. Delete
+// it in Redmine first if it should stay gone.
+//
+// defect_links and defect_verification_evidence are FK cascades. code_reviews
+// references a defect by (entityType, entityId) with no FK, so it is cleared
+// here rather than left orphaned.
+router.post("/defects/bulk-delete", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (ctx.role !== "admin") { res.status(403).json({ error: "Only an admin can delete defects" }); return; }
+  const ids = parseIdList(req.body);
+  if (!ids) { res.status(400).json({ error: "Select at least one defect to delete" }); return; }
+
+  try {
+    const defects = await loadSelectableDefects(ctx, ids);
+    if (defects.length === 0) { res.status(403).json({ error: "None of the selected defects are available to you" }); return; }
+
+    const deletableIds = defects.map((d: any) => d.id);
+    const stillInRedmine = defects.filter((d: any) => !!d.redmineId).length;
+
+    await db.delete(codeReviewsTable).where(and(
+      eq(codeReviewsTable.entityType, "defect"),
+      inArray(codeReviewsTable.entityId, deletableIds),
+    ));
+    await db.delete(defectsTable).where(inArray(defectsTable.id, deletableIds));
+
+    // One audit entry naming every defect, not one per row: this is a single
+    // deliberate action and the log should read as one. oldValue keeps the
+    // identifying fields, so a mistaken bulk delete can still be traced.
+    const labels = defects.map((d: any) => d.defectCode ?? `DEF-${d.id}`).join(", ");
+    await logActivity({
+      type: "defects_deleted",
+      description: `Deleted ${deletableIds.length} defect${deletableIds.length === 1 ? "" : "s"}: ${labels}`,
+      userId: ctx.userId,
+      entityType: "defect",
+      oldValue: defects.map((d: any) => ({ id: d.id, defectCode: d.defectCode, title: d.title, redmineId: d.redmineId })),
+    });
+
+    res.json({ deleted: deletableIds.length, skipped: ids.length - deletableIds.length, stillInRedmine });
+  } catch (err: any) {
+    console.error("[defects/bulk-delete]", err);
+    res.status(500).json({ error: err?.message ?? "Delete failed" });
+  }
+});
+
 export default router;
+

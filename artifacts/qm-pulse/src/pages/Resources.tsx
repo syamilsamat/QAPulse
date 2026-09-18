@@ -31,7 +31,7 @@ interface ResourceRow {
   role: string;
   department: string | null;
   projects: ProjectRef[];
-  signal: "execution_pic" | "requirement_author" | "dev_assignee" | "milestone_owner" | null;
+  signal: "execution_pic" | "qa_pipeline" | "requirement_author" | "dev_assignee" | "milestone_owner" | null;
   activeMilestones: MilestoneRef[];
   hasNoActiveMilestone: boolean;
   closedMilestones: MilestoneRef[];
@@ -67,6 +67,9 @@ const DEPT_CLASS: Record<string, string> = {
 };
 const SIGNAL_LABEL: Record<string, string> = {
   execution_pic: "via QA PIC",
+  // Named as QA on a QA Pipeline milestone but not yet holding an execution
+  // file or test case — on the milestone, no testing assigned to them yet.
+  qa_pipeline: "via QA pipeline assignment",
   requirement_author: "via authored requirement",
   dev_assignee: "via dev assignment",
   milestone_owner: "via milestone ownership",

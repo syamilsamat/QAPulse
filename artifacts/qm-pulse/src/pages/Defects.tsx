@@ -29,6 +29,7 @@ import {
   Download,
   FileCheck2,
   Wrench,
+  Trash2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DefectReviewSection } from "@/components/DefectReviewSection";
@@ -36,6 +37,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -251,6 +257,16 @@ export default function Defects() {
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  // Deletion is admin-only and deliberately QM Pulse-side only: Redmine stays
+  // the system of record, so a synced defect returns on the next pull. The
+  // confirmation below says so rather than letting it look like a bug later.
+  const canDeleteDefects = user?.role === "admin";
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
     queryFn: async () => (await fetch(`${getApiUrl()}/projects`, { headers: authHeaders })).json(),
@@ -398,6 +414,105 @@ export default function Defects() {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setIsPulling(false);
+    }
+  };
+
+  // ── Bulk selection helpers ────────────────────────────────────────────────
+  // Selection is keyed on defect id, not on position, so it survives a filter
+  // change — but anything filtered out of view is dropped on the way to the
+  // server, because acting on a defect the user can no longer see is exactly
+  // the kind of surprise a bulk delete must not spring.
+  const visibleIds = defects.map((d) => d.id);
+  const selectedVisibleIds = visibleIds.filter((id) => selectedIds.has(id));
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length;
+  const someVisibleSelected = selectedVisibleIds.length > 0 && !allVisibleSelected;
+
+  const toggleSelect = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of visibleIds) {
+        if (checked) next.add(id); else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectedDefects = defects.filter((d) => selectedIds.has(d.id));
+  const selectedRedmineCount = selectedDefects.filter((d) => !!d.redmineId).length;
+  // Listed in the dialog so the user confirms against names, not a bare count.
+  const selectedDefectLabels = selectedDefects
+    .map((d) => d.defectCode ?? `DEF-${d.id}`)
+    .slice(0, 12)
+    .join(", ") + (selectedDefects.length > 12 ? `, and ${selectedDefects.length - 12} more` : "");
+
+  const handleExportSelected = async () => {
+    if (selectedVisibleIds.length === 0 || isExporting) return;
+    setIsExporting(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/export`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedVisibleIds }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const filename = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1]
+        ?? `DefectLog_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({
+        title: `Exported ${selectedVisibleIds.length} defect${selectedVisibleIds.length === 1 ? "" : "s"}`,
+        description: filename,
+      });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Export failed" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedVisibleIds.length === 0 || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/bulk-delete`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedVisibleIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      toast({
+        title: `Deleted ${data.deleted} defect${data.deleted === 1 ? "" : "s"}`,
+        description: data.stillInRedmine > 0
+          ? `${data.stillInRedmine} still exist in Redmine and will return on the next pull.`
+          : undefined,
+      });
+      clearSelection();
+      setConfirmDeleteOpen(false);
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Delete failed" });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -738,10 +853,63 @@ export default function Defects() {
           </p>
         </div>
       ) : (
-        <div className="rounded-md border divide-y">
+        <div className="rounded-md border">
+          {/* Selection bar — the select-all box always sits above the list so
+              the checkbox column has a header, and the actions only appear
+              once something is actually selected. */}
+          <div className="flex items-center gap-3 flex-wrap px-4 py-2 border-b bg-muted/30">
+            <Checkbox
+              checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+              onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+              aria-label="Select all defects in this view"
+            />
+            <span className="text-xs text-muted-foreground">
+              {selectedVisibleIds.length > 0
+                ? `${selectedVisibleIds.length} of ${visibleIds.length} selected`
+                : `Select defects to export or delete · ${visibleIds.length} shown`}
+            </span>
+            {selectedVisibleIds.length > 0 && (
+              <div className="flex items-center gap-2 ml-auto flex-wrap">
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={clearSelection}>
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 text-xs"
+                  onClick={handleExportSelected}
+                  disabled={isExporting}
+                >
+                  {isExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                  Export to Excel
+                </Button>
+                {canDeleteDefects && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    Delete
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="divide-y">
           {defects.map((d) => (
             <Fragment key={d.id}>
               <div id={highlightRowId(d.id)} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/40" onClick={() => toggleExpand(d.id)}>
+                {/* Stops the row from expanding when the intent was to tick it. */}
+                <span onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center">
+                  <Checkbox
+                    checked={selectedIds.has(d.id)}
+                    onCheckedChange={(checked) => toggleSelect(d.id, checked === true)}
+                    aria-label={`Select ${d.defectCode ?? `DEF-${d.id}`}`}
+                  />
+                </span>
                 {expanded.has(d.id) ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1094,8 +1262,53 @@ export default function Defects() {
               )}
             </Fragment>
           ))}
+          </div>
         </div>
       )}
+
+      {/* Delete confirmation. Names the count, and says plainly what the
+          delete does and does not touch — a synced defect returning on the
+          next pull is correct behaviour, but only if it was not a surprise. */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={(open) => { if (!isDeleting) setConfirmDeleteOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedVisibleIds.length} defect{selectedVisibleIds.length === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  This removes the {selectedVisibleIds.length === 1 ? "record" : "records"} from QM Pulse
+                  along with {selectedVisibleIds.length === 1 ? "its" : "their"} test-case links and
+                  verification evidence. It cannot be undone.
+                </p>
+                {selectedRedmineCount > 0 && (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                    <strong>{selectedRedmineCount}</strong> of these {selectedRedmineCount === 1 ? "is" : "are"} linked to Redmine.
+                    Redmine is not touched, so {selectedRedmineCount === 1 ? "it will come" : "they will come"} back on the
+                    next <em>Pull now</em> or <em>Sync from Redmine</em>. Delete {selectedRedmineCount === 1 ? "it" : "them"} in
+                    Redmine first if {selectedRedmineCount === 1 ? "it" : "they"} should stay gone.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {selectedDefectLabels}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteSelected(); }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+              Delete {selectedVisibleIds.length} defect{selectedVisibleIds.length === 1 ? "" : "s"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={!!verificationTarget}
@@ -1415,7 +1628,6 @@ function EditDefectDialog({
   onSaved: () => void;
 }) {
   const { token, user } = useAuth();
-  const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
   const { toast } = useToast();
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const [form, setForm] = useState<Record<string, any>>({});
@@ -1434,6 +1646,7 @@ function EditDefectDialog({
       projectId: defect.projectId ?? undefined,
       milestoneId: (defect as any).milestoneId ?? undefined,
       defectCategory: defect.defectCategory ?? "",
+      stepsToReproduce: (defect as any).stepsToReproduce ?? "",
       expectedResult: (defect as any).expectedResult ?? "",
       actualResult: (defect as any).actualResult ?? "",
     });
@@ -1467,6 +1680,7 @@ function EditDefectDialog({
         body: JSON.stringify({
           title: form.title.trim(),
           description: form.description?.trim() || null,
+          stepsToReproduce: form.stepsToReproduce?.trim() || null,
           tracker: form.tracker || undefined,
           severity: form.severity,
           foundIn: form.foundIn,
@@ -1506,6 +1720,17 @@ function EditDefectDialog({
           <div className="space-y-1.5">
             <Label>Description</Label>
             <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+
+          {/* Steps to Reproduce */}
+          <div className="space-y-1.5">
+            <Label>Steps to Reproduce</Label>
+            <Textarea
+              rows={3}
+              value={form.stepsToReproduce ?? ""}
+              onChange={(e) => setForm({ ...form, stepsToReproduce: e.target.value })}
+              placeholder={"1. Go to ...\n2. Enter ...\n3. Click ..."}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1572,7 +1797,6 @@ function EditDefectDialog({
             <DefectCategoryField
               value={form.defectCategory ?? ""}
               onChange={(v) => setForm({ ...form, defectCategory: v })}
-              canSet={canSetCategory}
             />
           </div>
 
@@ -1721,7 +1945,6 @@ function NewDefectDialog({
   onCreated: () => void;
 }) {
   const { token, user } = useAuth();
-  const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1885,6 +2108,17 @@ function NewDefectDialog({
             <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
+          {/* Steps to Reproduce */}
+          <div className="space-y-1.5">
+            <Label>Steps to Reproduce</Label>
+            <Textarea
+              rows={3}
+              value={form.stepsToReproduce ?? ""}
+              onChange={(e) => setForm({ ...form, stepsToReproduce: e.target.value })}
+              placeholder={"1. Go to ...\n2. Enter ...\n3. Click ..."}
+            />
+          </div>
+
           {/* Expected / Actual */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -1985,7 +2219,6 @@ function NewDefectDialog({
             <DefectCategoryField
               value={form.defectCategory ?? ""}
               onChange={(v) => setForm({ ...form, defectCategory: v })}
-              canSet={canSetCategory}
             />
           </div>
 

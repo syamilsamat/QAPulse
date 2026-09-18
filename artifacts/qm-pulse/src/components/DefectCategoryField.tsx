@@ -11,20 +11,19 @@ import {
 } from "@/components/ui/dialog";
 import { DEFECT_CATEGORIES } from "@/lib/defect-categories";
 
-// Shown on every defect creation dialog. Only rendered for Lead-tier+ users
-// (tierRank >= 2) — the server also enforces this, dropping the value
-// silently if a lower-tier caller sends one anyway.
+// Shown on every defect creation and edit dialog, to everyone. This was once
+// Lead-tier only and rendered nothing below that, so the QA members raising
+// most of the defects never saw it and the column went unfilled. Category is a
+// classification rather than an authority — see canSetDefectCategory in
+// routes/defects.ts, which is the matching server-side rule.
 export function DefectCategoryField({
   value,
   onChange,
-  canSet,
 }: {
   value: string;
   onChange: (v: string) => void;
-  canSet: boolean;
 }) {
   const [infoOpen, setInfoOpen] = useState(false);
-  if (!canSet) return null;
 
   return (
     <div className="space-y-1.5">

@@ -75,7 +75,6 @@ export default function DefectCreationModal({
 }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const canSetCategory = ((user as any)?.tierRank ?? 1) >= 2;
   // Display-only mirror of the server's getRoleDepartment() — the actual
   // value sent to Redmine is always derived from the reporter's role there,
   // never from this. admin/cto have no department and send nothing.
@@ -502,7 +501,7 @@ export default function DefectCreationModal({
                 searchPlaceholder="Search project..."
               />
             </div>
-            <DefectCategoryField value={defectCategory} onChange={setDefectCategory} canSet={canSetCategory} />
+            <DefectCategoryField value={defectCategory} onChange={setDefectCategory} />
           </div>
 
           <Separator />
