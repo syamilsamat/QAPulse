@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
-import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
+import { highlightRowId } from "@/hooks/use-highlight";
 import * as XLSX from "xlsx-js-style";
 import { listProjects, getListProjectsQueryKey, listUsers, getListUsersQueryKey } from "@workspace/api-client-react";
 import { getApiUrl, authHeaders } from "@/lib/api";
@@ -14,18 +14,17 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, UserCheck, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, ChevronDown, Layers } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle } from "lucide-react";
 
-// CR060 — Tasks is now a read-only, auto-populated rollup of requirements
-// within their milestones (no manual creation). One row per requirement that
-// has a milestone. CR073 removed GET /dashboard/task-board's per-department
-// row filtering — every viewer with project access now sees every row, with
-// the full FA/Dev/QA name breakdown (previously PM/admin/cto-only).
+// CR060 — Tasks is a read-only, auto-populated rollup of requirements within
+// their milestones (no manual creation). CR073 removed GET
+// /dashboard/task-board's per-department row filtering — every viewer with
+// project access sees every row. The API still returns one row per
+// requirement; this page's own list is one row per milestone (no
+// requirement-level drill-down) — see groupedByMilestone below.
 interface PhaseTimelineEntry {
   key: "requirements" | "development" | "qa" | "uat";
   label: string;
@@ -103,47 +102,30 @@ function PhaseBadge({ phase, label }: { phase: string; label: string }) {
   return <Badge variant="outline" className={PHASE_CLASSES[phase] ?? ""}>{label}</Badge>;
 }
 
+// Same status set and colors as Milestones.tsx's own StatusBadge (kept as a
+// local copy — that one isn't exported), so a milestone reads the same way
+// on both pages.
+function MilestoneStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case "completed":
+      return <Badge className="gap-1 bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3" /> Completed</Badge>;
+    case "active":
+      return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> Active</Badge>;
+    case "verified":
+      return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
+    case "uat":
+      return <Badge className="gap-1 bg-violet-100 text-violet-700 border-violet-200"><Clock className="w-3 h-3" /> UAT</Badge>;
+    case "cancelled":
+      return <Badge className="gap-1 bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3" /> Cancelled</Badge>;
+    default:
+      return <Badge variant="outline">Planned</Badge>;
+  }
+}
+
 function fmtDate(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString() : "—";
 }
 
-// Expanded per-row detail — planned (PM-set milestone target dates) vs actual
-// (derived from activity-log phase transitions) for all 4 phases, not just
-// the row's current one, so a PM can see the whole history at a glance.
-function PhaseTimelinePanel({ timeline }: { timeline: PhaseTimelineEntry[] }) {
-  return (
-    <div className="rounded-md border bg-muted/30 p-3">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="h-8">Phase</TableHead>
-            <TableHead className="h-8">Planned Start</TableHead>
-            <TableHead className="h-8">Planned End</TableHead>
-            <TableHead className="h-8">Actual Start</TableHead>
-            <TableHead className="h-8">Actual End</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {timeline.map((p) => (
-            <TableRow key={p.key} className="hover:bg-transparent">
-              <TableCell className="py-1.5 font-medium">{p.label}</TableCell>
-              <TableCell className="py-1.5">{fmtDate(p.plannedStart)}</TableCell>
-              <TableCell className="py-1.5">{fmtDate(p.plannedEnd)}</TableCell>
-              <TableCell className="py-1.5">{fmtDate(p.actualStart)}</TableCell>
-              <TableCell className="py-1.5">
-                {p.actualStart && !p.actualEnd ? (
-                  <span className="text-muted-foreground text-xs">In progress</span>
-                ) : (
-                  fmtDate(p.actualEnd)
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
 
 // CR068 — event log per requirement (Blocker/Server down/Automation
 // unavailable/custom). Open to any user with access to the requirement, not
@@ -558,75 +540,6 @@ function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
 // viewing everything needs to assign into whichever department the row is
 // currently sitting in. FA ownership (requirements/gap phase) isn't
 // reassignable here — it's authorship, not a handoff.
-function AssignPopover({
-  row,
-  devMembers,
-  qaMembers,
-  onAssigned,
-}: {
-  row: TaskBoardRow;
-  devMembers: Member[];
-  qaMembers: Member[];
-  onAssigned: () => void;
-}) {
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const targetsDev = row.phase === "develop";
-  const targetsQa = (row.phase === "qa" || row.phase === "uat") && row.executionFileId != null;
-  if (!targetsDev && !targetsQa) return null;
-  const members = targetsDev ? devMembers : qaMembers;
-
-  const handlePick = async (member: Member) => {
-    setSaving(true);
-    try {
-      const res = targetsDev
-        ? await fetch(`${getApiUrl()}/requirements/${row.requirementId}/dev`, {
-            method: "PATCH",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ action: "assign", devAssigneeId: member.id }),
-          })
-        : await fetch(`${getApiUrl()}/execution-files/${row.executionFileId}`, {
-            method: "PATCH",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ qaPic: member.name }),
-          });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Assign failed");
-      toast({ title: `Assigned to ${member.name}` });
-      setOpen(false);
-      onAssigned();
-    } catch (err: any) {
-      toast({ variant: "destructive", title: err.message });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={saving} title="Assign">
-          <UserCheck className="w-3.5 h-3.5" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-56 p-0" align="end">
-        <Command>
-          <CommandInput placeholder="Search member..." />
-          <CommandList>
-            <CommandEmpty>No members found.</CommandEmpty>
-            <CommandGroup>
-              {members.map((m) => (
-                <CommandItem key={m.id} onSelect={() => handlePick(m)}>{m.name}</CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 // Department-generic workload: viewer's own department's members (qa sees
 // qa, fa sees fa, dev sees dev), open-row counts derived from the already
 // department-scoped `rows` — pm/admin (seesEverything) skip this entirely,
@@ -710,36 +623,20 @@ function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; me
 export default function Tasks() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const department = (user as any)?.department ?? null;
   const tierRank = (user as any)?.tierRank ?? 1;
   const seesEverything = tierRank >= 5 || department === "pm";
-  const canAssign = tierRank >= 2; // Lead-tier+ — server enforces the real gate on each PATCH
 
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState("all");
   const [filterMilestone, setFilterMilestone] = useState("all");
   const [filterPhase, setFilterPhase] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 15;
-  // Milestone rollup view — CR060 made this page one row per requirement,
-  // which reads as "a lot of tasks" once a milestone has 60+ requirements.
-  // This groups the same rows under a collapsed-by-default milestone summary
-  // row instead of replacing the underlying per-requirement data.
-  const [groupByMilestone, setGroupByMilestone] = useState(true);
-  const [expandedMilestones, setExpandedMilestones] = useState<Set<number>>(new Set());
-  const toggleMilestoneExpanded = (milestoneId: number) =>
-    setExpandedMilestones((prev) => {
-      const next = new Set(prev);
-      if (next.has(milestoneId)) next.delete(milestoneId);
-      else next.add(milestoneId);
-      return next;
-    });
 
-  const { data: rows = [], isLoading, refetch } = useQuery<TaskBoardRow[]>({
+  const { data: rows = [], isLoading } = useQuery<TaskBoardRow[]>({
     queryKey: ["task-board"],
     queryFn: async () => {
       const res = await fetch(`${getApiUrl()}/dashboard/task-board`, { headers: authHeaders() });
@@ -780,14 +677,9 @@ export default function Tasks() {
     (users as any[])
       .filter((u) => departmentByRole.get(u.role) === dept)
       .map((u) => ({ id: u.id, name: u.name }));
-  const devMembers = useMemo(() => membersOf("dev"), [users, departmentByRole]);
-  const qaMembers = useMemo(() => membersOf("qa"), [users, departmentByRole]);
   const ownDeptMembers = useMemo(() => (department ? membersOf(department) : []), [users, departmentByRole, department]);
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["task-board"] });
-    refetch();
-  };
+  const projectNameById = useMemo(() => new Map((projects as any[]).map((p) => [p.id, p.name])), [projects]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -809,16 +701,24 @@ export default function Tasks() {
     });
   }, [rows, filterProject, filterMilestone, filterPhase, filterPriority, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
-  const paginated = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-
+  // One row per milestone (not per requirement — see the group's own
+  // avgProgress/phaseCounts, which is all a milestone-level list needs).
+  // projectId/milestoneStatus/goLiveDate are the same across every row in a
+  // milestone's group, so the first row's copy is as good as any.
   const groupedByMilestone = useMemo(() => {
-    if (!groupByMilestone) return null;
-    const groups = new Map<number, { milestoneId: number; milestoneName: string; milestonePriority: string | null; rows: TaskBoardRow[] }>();
+    const groups = new Map<number, {
+      milestoneId: number; milestoneName: string; milestonePriority: string | null;
+      milestoneStatus: string; projectId: number | null; goLiveDate: string | null;
+      rows: TaskBoardRow[];
+    }>();
     for (const r of filtered) {
       let g = groups.get(r.milestoneId);
       if (!g) {
-        g = { milestoneId: r.milestoneId, milestoneName: r.milestoneName, milestonePriority: r.milestonePriority, rows: [] };
+        g = {
+          milestoneId: r.milestoneId, milestoneName: r.milestoneName, milestonePriority: r.milestonePriority,
+          milestoneStatus: r.milestoneStatus, projectId: r.projectId, goLiveDate: r.goLiveDate,
+          rows: [],
+        };
         groups.set(r.milestoneId, g);
       }
       g.rows.push(r);
@@ -831,27 +731,39 @@ export default function Tasks() {
         return { ...g, avgProgress, phaseCounts };
       })
       .sort((a, b) => a.milestoneName.localeCompare(b.milestoneName));
-  }, [filtered, groupByMilestone]);
+  }, [filtered]);
+
+  const totalPages = Math.max(1, Math.ceil(groupedByMilestone.length / ITEMS_PER_PAGE));
+  const paginatedMilestones = groupedByMilestone.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   // Deep-link from the dashboard's blocked/overdue & pending popovers:
-  // ?highlight=<requirementId> scrolls to and flashes that requirement's row.
+  // ?highlight=<requirementId> — the page no longer has a row for that
+  // requirement, so this resolves it to its containing milestone and jumps
+  // to (and flashes) that milestone's row instead.
   const searchString = useSearch();
   const highlightReqId = useMemo(() => {
     const raw = new URLSearchParams(searchString).get("highlight");
     return raw ? Number(raw) : null;
   }, [searchString]);
-  // Jump to the page holding the highlighted row (once per target) so it is
-  // actually rendered for useHighlightRow to find and scroll to.
   const jumpedForRef = useRef<number | null>(null);
   useEffect(() => {
     if (highlightReqId == null || rows.length === 0) return;
     if (jumpedForRef.current === highlightReqId) return;
-    const idx = filtered.findIndex((r) => r.requirementId === highlightReqId);
+    const targetMilestoneId = filtered.find((r) => r.requirementId === highlightReqId)?.milestoneId;
+    if (targetMilestoneId == null) return;
+    const idx = groupedByMilestone.findIndex((g) => g.milestoneId === targetMilestoneId);
     if (idx === -1) return;
     jumpedForRef.current = highlightReqId;
     setCurrentPage(Math.floor(idx / ITEMS_PER_PAGE) + 1);
-  }, [highlightReqId, filtered, rows.length]);
-  useHighlightRow([currentPage, filtered.length]);
+    const t = setTimeout(() => {
+      const el = document.getElementById(highlightRowId(targetMilestoneId));
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-primary", "ring-offset-2", "rounded-md", "transition");
+      setTimeout(() => el.classList.remove("ring-2", "ring-primary", "ring-offset-2"), 2400);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [highlightReqId, filtered, groupedByMilestone, rows.length]);
 
   const handleExport = () => {
     if (filtered.length === 0) {
@@ -859,72 +771,6 @@ export default function Tasks() {
       return;
     }
     exportTaskBoardToExcel(filtered);
-  };
-
-  const renderTaskRow = (r: TaskBoardRow) => {
-    const isExpanded = expandedIds.has(r.requirementId);
-    const toggleExpanded = () =>
-      setExpandedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(r.requirementId)) next.delete(r.requirementId);
-        else next.add(r.requirementId);
-        return next;
-      });
-    return (
-      <Fragment key={r.requirementId}>
-        <TableRow id={highlightRowId(r.requirementId)}>
-          <TableCell className="font-medium">
-            <button
-              type="button"
-              onClick={toggleExpanded}
-              className="hover:underline text-left block w-full truncate"
-              title="Show planned vs actual phase dates"
-            >
-              {r.milestoneName}
-            </button>
-          </TableCell>
-          <TableCell><PriorityBadge priority={r.milestonePriority} /></TableCell>
-          <TableCell className="truncate" title={r.title}>{r.title}</TableCell>
-          <TableCell><PhaseBadge phase={r.phase} label={r.phaseLabel} /></TableCell>
-          <TableCell className="truncate" title={r.assignee ?? undefined}>
-            {r.assignee ?? <span className="text-muted-foreground text-xs">Unassigned</span>}
-          </TableCell>
-          <TableCell>
-            {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : <span className="text-muted-foreground text-xs">—</span>}
-          </TableCell>
-          <TableCell>
-            <div className="flex items-center gap-2">
-              <Progress value={r.progress} className="w-20 shrink-0" />
-              <span className="text-xs text-muted-foreground">{r.progress}%</span>
-            </div>
-            {/* Dev Tasks — separate from the phase progress bar above (that's
-                a 33/66/100 bucket on devStatus); this is the actual task
-                breakdown count. Amber when tasks exist but none are done yet
-                (nothing's visibly stuck), red when a requirement in active dev
-                has zero tasks at all (the thing that actually needs a look). */}
-            {r.devTaskCounts ? (
-              <span className="text-[11px] text-muted-foreground mt-0.5 block">
-                {r.devTaskCounts.done}/{r.devTaskCounts.total} dev tasks done
-              </span>
-            ) : (r.phase === "gap" || r.phase === "develop") ? (
-              <span className="text-[11px] text-amber-700 mt-0.5 block">No dev tasks yet</span>
-            ) : null}
-          </TableCell>
-          {canAssign && (
-            <TableCell>
-              <AssignPopover row={r} devMembers={devMembers} qaMembers={qaMembers} onAssigned={invalidate} />
-            </TableCell>
-          )}
-        </TableRow>
-        {isExpanded && (
-          <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={canAssign ? 8 : 7} className="bg-muted/10 py-3">
-              <PhaseTimelinePanel timeline={r.phaseTimeline} />
-            </TableCell>
-          </TableRow>
-        )}
-      </Fragment>
-    );
   };
 
   if (isLoading) {
@@ -958,7 +804,7 @@ export default function Tasks() {
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search requirement, milestone, assignee..."
+              placeholder="Search milestone, requirement or assignee..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
               className="pl-8"
@@ -999,122 +845,79 @@ export default function Tasks() {
               searchPlaceholder="Search priority..."
               className="flex-1 min-w-[130px]"
             />
-            <Button
-              variant={groupByMilestone ? "default" : "outline"}
-              size="sm"
-              className="h-9 px-2.5 gap-1.5 text-xs shrink-0"
-              onClick={() => setGroupByMilestone((v) => !v)}
-              title="Group by Milestone"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Group by Milestone
-            </Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            {/* table-fixed, with a width declared per column. Under the default
-                auto layout the browser sizes columns from whatever cells exist,
-                and a collapsed group is a single colSpan row contributing
-                nothing per-column — so the headers were measured against their
-                own text, then jumped the moment expanding a milestone
-                introduced real cells. Fixed layout takes the widths from this
-                header row alone, so they no longer depend on what is open.
-                min-w keeps the columns readable on narrow screens; the wrapper
-                above scrolls. Percentages are sized against that 1000px floor
-                minus each cell's own p-2, so the widest badge in a column
-                ("Critical", "Requirements") still fits without clipping. */}
-            <Table className="table-fixed min-w-[1000px]">
+            <Table className="table-fixed min-w-[900px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[14%]">Milestone</TableHead>
+                  <TableHead className="w-[20%]">Milestone</TableHead>
+                  <TableHead className="w-[13%]">Project</TableHead>
                   <TableHead className="w-[10%]">Priority</TableHead>
-                  <TableHead className="w-[21%]">Requirement</TableHead>
-                  <TableHead className="w-[12%]">Status</TableHead>
-                  <TableHead className="w-[19%]">Assignee</TableHead>
-                  <TableHead className="w-[9%]">Due Date</TableHead>
-                  <TableHead className="w-[15%]">Progress</TableHead>
-                  {canAssign && <TableHead className="w-10" />}
+                  <TableHead className="w-[10%]">Status</TableHead>
+                  <TableHead className="w-[9%]">Requirements</TableHead>
+                  <TableHead className="w-[20%]">Phases</TableHead>
+                  <TableHead className="w-[13%]">Progress</TableHead>
+                  <TableHead className="w-[9%]">Go-Live</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {groupByMilestone && groupedByMilestone ? (
-                  groupedByMilestone.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={canAssign ? 8 : 7} className="text-center text-muted-foreground py-10">
-                        No tasks match your filters.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    groupedByMilestone.map((g) => {
-                      const isOpen = expandedMilestones.has(g.milestoneId);
-                      return (
-                        <Fragment key={g.milestoneId}>
-                          <TableRow
-                            className="bg-muted/40 hover:bg-muted/50 cursor-pointer"
-                            onClick={() => toggleMilestoneExpanded(g.milestoneId)}
-                          >
-                            <TableCell colSpan={canAssign ? 8 : 7} className="py-2.5">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {isOpen ? (
-                                  <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
-                                ) : (
-                                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                                )}
-                                <span className="font-semibold text-sm">{g.milestoneName}</span>
-                                <Badge variant="secondary" className="text-[10px] h-4">
-                                  {g.rows.length} requirement{g.rows.length !== 1 ? "s" : ""}
-                                </Badge>
-                                <PriorityBadge priority={g.milestonePriority} />
-                                <div className="flex items-center gap-1.5 ml-1">
-                                  <Progress value={g.avgProgress} className="w-24" />
-                                  <span className="text-xs text-muted-foreground">{g.avgProgress}% avg</span>
-                                </div>
-                                <div className="flex items-center gap-1 ml-1 flex-wrap">
-                                  {PHASE_FILTER_OPTIONS.slice(1).map((p) =>
-                                    g.phaseCounts[p.value] ? (
-                                      <Badge key={p.value} variant="outline" className={`text-[10px] h-4 ${PHASE_CLASSES[p.value] ?? ""}`}>
-                                        {g.phaseCounts[p.value]} {p.label}
-                                      </Badge>
-                                    ) : null,
-                                  )}
-                                </div>
-                                {/* CR074 — log a milestone-wide disruption once
-                                    here instead of repeating it on every
-                                    requirement row below. */}
-                                <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
-                                  <EventsDialog
-                                    anchor={{
-                                      milestoneId: g.milestoneId,
-                                      title: g.milestoneName,
-                                      requirements: g.rows.map((r) => ({ id: r.requirementId, title: r.title })),
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                          {isOpen && g.rows.map((r) => renderTaskRow(r))}
-                        </Fragment>
-                      );
-                    })
-                  )
-                ) : paginated.length === 0 ? (
+                {paginatedMilestones.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canAssign ? 8 : 7} className="text-center text-muted-foreground py-10">
-                      No tasks match your filters.
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                      No milestones match your filters.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginated.map((r) => renderTaskRow(r))
+                  paginatedMilestones.map((g) => (
+                    <TableRow key={g.milestoneId} id={highlightRowId(g.milestoneId)}>
+                      <TableCell className="font-medium truncate" title={g.milestoneName}>{g.milestoneName}</TableCell>
+                      <TableCell className="truncate text-sm text-muted-foreground">
+                        {g.projectId != null ? projectNameById.get(g.projectId) ?? "—" : "—"}
+                      </TableCell>
+                      <TableCell><PriorityBadge priority={g.milestonePriority} /></TableCell>
+                      <TableCell><MilestoneStatusBadge status={g.milestoneStatus} /></TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-[10px] h-4">{g.rows.length}</Badge>
+                          <EventsDialog
+                            anchor={{
+                              milestoneId: g.milestoneId,
+                              title: g.milestoneName,
+                              requirements: g.rows.map((r) => ({ id: r.requirementId, title: r.title })),
+                            }}
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {PHASE_FILTER_OPTIONS.slice(1).map((p) =>
+                            g.phaseCounts[p.value] ? (
+                              <Badge key={p.value} variant="outline" className={`text-[10px] h-4 ${PHASE_CLASSES[p.value] ?? ""}`}>
+                                {g.phaseCounts[p.value]} {p.label}
+                              </Badge>
+                            ) : null,
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Progress value={g.avgProgress} className="w-16 shrink-0" />
+                          <span className="text-xs text-muted-foreground">{g.avgProgress}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{fmtDate(g.goLiveDate)}</TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>
           </div>
-          {!groupByMilestone && totalPages > 1 && (
+          {totalPages > 1 && (
             <div className="flex items-center justify-between p-4 border-t">
               <p className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages} ({filtered.length} tasks)
+                Page {currentPage} of {totalPages} ({groupedByMilestone.length} milestones)
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>Previous</Button>
