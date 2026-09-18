@@ -5,6 +5,8 @@ import { getApiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Paperclip } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Attachment = { id: number; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; createdAt: string; canDelete: boolean };
 type Listing = { canUpload: boolean; attachments: Attachment[] };
@@ -76,8 +78,18 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
 }
 
 // Lazy list for dense compiled tables; fetching starts when opened.
-export function CompiledLibraryAttachments({ testCaseId }: { testCaseId: number | null | undefined }) {
+export function CompiledLibraryAttachments({ testCaseId, className }: { testCaseId: number | null | undefined; className?: string }) {
   const [open, setOpen] = useState(false);
   if (!testCaseId) return null;
-  return <div onClick={e => e.stopPropagation()}><Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>Library attachments</Button><Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Library reference files</DialogTitle></DialogHeader>{open && <TestCaseAttachments testCaseId={testCaseId} readOnly />}</DialogContent></Dialog></div>;
+  // The wrapper owns the gap: this button sits under the result pills in the
+  // execution views and used to butt straight against them, reading as a sixth
+  // status rather than a separate action. Full width below sm so it is a
+  // comfortable tap target on a phone; inline from sm up, where it shares a
+  // dense table cell.
+  return <div className={cn("mt-2", className)} onClick={e => e.stopPropagation()}>
+    <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto gap-1.5 min-h-9 sm:min-h-8" onClick={() => setOpen(true)}>
+      <Paperclip className="w-3.5 h-3.5 shrink-0" /> Library attachments
+    </Button>
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Library reference files</DialogTitle></DialogHeader>{open && <TestCaseAttachments testCaseId={testCaseId} readOnly />}</DialogContent></Dialog>
+  </div>;
 }

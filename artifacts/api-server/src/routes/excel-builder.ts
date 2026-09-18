@@ -390,6 +390,36 @@ function resolveIdColumns(
   };
 }
 
+// ── Result colour ─────────────────────────────────────────────────────────────
+// The Result column exported as plain text, so a reviewer had to read every
+// row to find the failures. These are the same five states the execution grid
+// shows, in the same hues as its pills, as Excel-friendly pastels: a reader
+// moving between the app and the workbook sees one colour language.
+//
+// The word stays in the cell, so the sheet still reads correctly in black and
+// white or to a colour-blind reader — the fill is a second channel, not the
+// only one.
+const RESULT_FILL: Record<string, { fill: string; font: string }> = {
+  passed: { fill: "C6EFCE", font: "1E6B33" },        // green pastel
+  failed: { fill: "FFC7CE", font: "9C0006" },        // red pastel
+  blocked: { fill: "FCD9B6", font: "9C4A06" },       // orange pastel
+  "in progress": { fill: "CFE2F3", font: "1F4E79" }, // blue pastel
+  "not executed": { fill: "E7E6E6", font: "595959" },// grey pastel
+};
+
+// The grid writes "Passed"/"Failed"/…, but imported sheets carry whatever the
+// source file used — "PASS", "fail", "in-progress" — so match on a normalised
+// form rather than an exact string.
+function resultFill(result: string | null | undefined): { fill: string; font: string } | null {
+  const r = (result ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (!r) return null;
+  if (r === "pass") return RESULT_FILL.passed!;
+  if (r === "fail") return RESULT_FILL.failed!;
+  if (r.startsWith("in progress") || r === "inprogress") return RESULT_FILL["in progress"]!;
+  if (r.startsWith("not executed") || r === "notexecuted" || r === "not run") return RESULT_FILL["not executed"]!;
+  return RESULT_FILL[r] ?? null;
+}
+
 // ── Evidence column ───────────────────────────────────────────────────────────
 // The template stops at M (QA PIC), so N is free for the attachments. One file
 // links straight to it; several link to the case's folder, because a cell can
@@ -569,7 +599,21 @@ export async function buildTestCaseExcel(
         if (tc.testSteps)      tcSheet.cell(`G${row}`).value(String(tc.testSteps));
         if (tc.testData)       tcSheet.cell(`H${row}`).value(String(tc.testData));
         if (tc.expectedResult) tcSheet.cell(`I${row}`).value(String(tc.expectedResult));
-        if (tc.result)         tcSheet.cell(`J${row}`).value(String(tc.result));
+        if (tc.result) {
+          const resultCell = tcSheet.cell(`J${row}`);
+          resultCell.value(String(tc.result));
+          const paint = resultFill(tc.result);
+          if (paint) {
+            try {
+              resultCell.style({
+                fill: paint.fill, fontColor: paint.font, bold: true,
+                horizontalAlignment: "center", verticalAlignment: "center",
+              });
+            } catch {
+              // Colour is a readability aid — never lose the value over it.
+            }
+          }
+        }
         if (tc.defectNumber)   tcSheet.cell(`K${row}`).value(String(tc.defectNumber));
         if (tc.comments)       tcSheet.cell(`L${row}`).value(String(tc.comments));
         if (tc.qaPic)          tcSheet.cell(`M${row}`).value(String(tc.qaPic));

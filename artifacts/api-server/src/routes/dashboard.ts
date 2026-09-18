@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, isNotNull } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
@@ -1542,23 +1542,53 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   const milestoneById = new Map(milestones.map(m => [m.id, m]));
   const allTrackedMilestoneIds = milestones.map(m => m.id);
 
-  // ── QA signal: execution-file PIC (name match) ─────────────────────────────
-  const execRows = allTrackedMilestoneIds.length
-    ? await db.select({ qaPic: executionFilesTable.qaPic, milestoneId: executionFilesTable.milestoneId })
-        .from(executionFilesTable).where(inArray(executionFilesTable.milestoneId, allTrackedMilestoneIds))
-    : [];
+  // ── QA signal: everyone actually assigned QA work on the milestone ────────
+  // This read the execution FILE's QA PIC and nothing else, so a milestone
+  // whose testing is split across the team showed one name and the rest of QA
+  // vanished from the roster entirely — not just from "Active", but from "No
+  // active milestone" and "Closed history" too, because the result loop below
+  // drops anyone with no signal at all.
+  //
+  // Three real assignments count now. The first two are stored as names on
+  // the execution tables, the third as user ids on the requirement, so they
+  // are collected into separate maps and unioned per person further down:
+  //   · execution file QA PIC     — whoever owns the file
+  //   · execution row QA PIC      — the per-test-case tester ("Assign to me")
+  //   · requirement pipelineQaIds — QA named up front in the QA Pipeline,
+  //                                 which is the only signal a pipeline
+  //                                 milestone has before any file exists
+  const [execRows, execRowPicRows] = await Promise.all([
+    allTrackedMilestoneIds.length
+      ? db.select({ qaPic: executionFilesTable.qaPic, milestoneId: executionFilesTable.milestoneId })
+          .from(executionFilesTable).where(inArray(executionFilesTable.milestoneId, allTrackedMilestoneIds))
+      : Promise.resolve([] as { qaPic: string | null; milestoneId: number | null }[]),
+    allTrackedMilestoneIds.length
+      // Distinct, not every row: a milestone can hold thousands of test cases
+      // and this only ever needs the set of (tester, milestone) pairs.
+      ? db.selectDistinct({ qaPic: executionTestCasesTable.qaPic, milestoneId: executionFilesTable.milestoneId })
+          .from(executionTestCasesTable)
+          .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+          .where(and(
+            inArray(executionFilesTable.milestoneId, allTrackedMilestoneIds),
+            isNotNull(executionTestCasesTable.qaPic),
+          ))
+      : Promise.resolve([] as { qaPic: string | null; milestoneId: number | null }[]),
+  ]);
+
   const qaActiveByName = new Map<string, Set<number>>();
   const qaClosedByName = new Map<string, Set<number>>();
-  for (const row of execRows) {
-    if (!row.qaPic || row.milestoneId == null) continue;
-    if (activeMilestoneIds.has(row.milestoneId)) {
-      if (!qaActiveByName.has(row.qaPic)) qaActiveByName.set(row.qaPic, new Set());
-      qaActiveByName.get(row.qaPic)!.add(row.milestoneId);
-    } else if (closedMilestoneIds.has(row.milestoneId)) {
-      if (!qaClosedByName.has(row.qaPic)) qaClosedByName.set(row.qaPic, new Set());
-      qaClosedByName.get(row.qaPic)!.add(row.milestoneId);
-    }
-  }
+  const addQaName = (name: string | null, milestoneId: number | null) => {
+    const pic = name?.trim();
+    if (!pic || milestoneId == null) return;
+    const target = activeMilestoneIds.has(milestoneId) ? qaActiveByName
+      : closedMilestoneIds.has(milestoneId) ? qaClosedByName
+      : null;
+    if (!target) return;
+    if (!target.has(pic)) target.set(pic, new Set());
+    target.get(pic)!.add(milestoneId);
+  };
+  for (const row of execRows) addQaName(row.qaPic, row.milestoneId);
+  for (const row of execRowPicRows) addQaName(row.qaPic, row.milestoneId);
 
   // ── FA signal: authored requirement, active = not yet approved ─────────────
   // Also carries devAssigneeId/devStatus for the Dev signal just below —
@@ -1574,7 +1604,7 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   // parentId up to the nearest ancestor that has one set (memoized — a large
   // tree has many siblings resolving through the same ancestors).
   const allProjectReqs = searchProjectIds.length
-    ? await db.select({ id: requirementsTable.id, parentId: requirementsTable.parentId, createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus })
+    ? await db.select({ id: requirementsTable.id, parentId: requirementsTable.parentId, createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus, pipelineQaIds: requirementsTable.pipelineQaIds })
         .from(requirementsTable).where(inArray(requirementsTable.projectId, searchProjectIds))
     : [];
   const reqById = new Map(allProjectReqs.map((r) => [r.id, r]));
@@ -1623,6 +1653,28 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
     }
   }
 
+  // ── QA pipeline roster: requirement.pipelineQaIds ─────────────────────────
+  // Step 2 of the QA Pipeline names its QA members outright. That is a direct
+  // statement of who is on the milestone, and it lands before any execution
+  // file exists — so without it a pipeline milestone's QA team stays invisible
+  // on this page until someone happens to be set as a file PIC.
+  const qaPipelineActiveByUser = new Map<number, Set<number>>();
+  const qaPipelineClosedByUser = new Map<number, Set<number>>();
+  for (const row of allProjectReqs) {
+    if (!row.pipelineQaIds || row.pipelineQaIds.length === 0) continue;
+    const milestoneId = effectiveMilestoneId(row.id);
+    if (milestoneId == null) continue;
+    const target = activeMilestoneIds.has(milestoneId) ? qaPipelineActiveByUser
+      : closedMilestoneIds.has(milestoneId) ? qaPipelineClosedByUser
+      : null;
+    if (!target) continue;
+    for (const uid of row.pipelineQaIds) {
+      if (uid == null) continue;
+      if (!target.has(uid)) target.set(uid, new Set());
+      target.get(uid)!.add(milestoneId);
+    }
+  }
+
   // ── PM signal: milestone ownership (createdBy) — a PM's real, tracked tie
   // to a milestone in this schema, replacing the same tasksTable dependency.
   const pmActiveByUser = new Map<number, Set<number>>();
@@ -1644,6 +1696,12 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   // The qa/fa/dev/pm signal maps above are already aggregated per person
   // across every project in scope, not per membership row, so there's
   // nothing project-specific left to loop over here.
+  const unionIds = (a: Set<number> | undefined, b: Set<number> | undefined) => {
+    if (!a) return b;
+    if (!b) return a;
+    return new Set([...a, ...b]);
+  };
+
   const milestoneRefs = (ids: Set<number> | undefined) =>
     ids ? [...ids].map(id => {
       const m = milestoneById.get(id);
@@ -1658,10 +1716,18 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   const result = candidates.flatMap(u => {
     let activeIds: Set<number> | undefined;
     let closedIds: Set<number> | undefined;
-    let signal: "execution_pic" | "requirement_author" | "dev_assignee" | "milestone_owner" | null = null;
+    let signal: "execution_pic" | "qa_pipeline" | "requirement_author" | "dev_assignee" | "milestone_owner" | null = null;
 
     if (u.department === "qa") {
-      activeIds = qaActiveByName.get(u.name); closedIds = qaClosedByName.get(u.name); signal = "execution_pic";
+      // QA is the one department with more than one way to be on a milestone,
+      // so its two rosters are unioned rather than picked between. The signal
+      // label follows the stronger evidence: an actual execution assignment
+      // where there is one, the pipeline roster where that is all there is.
+      const picActive = qaActiveByName.get(u.name);
+      const picClosed = qaClosedByName.get(u.name);
+      activeIds = unionIds(picActive, qaPipelineActiveByUser.get(u.userId));
+      closedIds = unionIds(picClosed, qaPipelineClosedByUser.get(u.userId));
+      signal = (picActive?.size || picClosed?.size) ? "execution_pic" : "qa_pipeline";
     } else if (u.department === "fa") {
       activeIds = faActiveByUser.get(u.userId); closedIds = faClosedByUser.get(u.userId); signal = "requirement_author";
     } else if (u.department === "dev") {

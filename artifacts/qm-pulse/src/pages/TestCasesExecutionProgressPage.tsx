@@ -4343,7 +4343,7 @@ export default function TestCasesExecutionProgressPage() {
                             );
                           })()}
                           {renderPassEvidence(row, canEdit)}
-                          <CompiledLibraryAttachments testCaseId={row.libraryTcId} />
+                          <CompiledLibraryAttachments testCaseId={row.libraryTcId} className="mt-3" />
                         </div>
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
@@ -4514,11 +4514,11 @@ export default function TestCasesExecutionProgressPage() {
                                         ) : null;
                                       })()}
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div><p className="text-xs whitespace-pre-wrap">{row.scenario || "—"}</p></div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div><p className="text-xs whitespace-pre-wrap">{row.preCondition || "—"}</p></div>
                                       <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div><p className="text-xs whitespace-pre-wrap">{row.testData || "—"}</p></div>
                                     </div>
@@ -4535,7 +4535,7 @@ export default function TestCasesExecutionProgressPage() {
                                         </div>
                                       ))}
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Result</div>
                                         {(() => {
@@ -4586,7 +4586,7 @@ export default function TestCasesExecutionProgressPage() {
                                         )}
                                       </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Redmine Defect ID</div>
                                         {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.defectNumber || ""} placeholder="e.g. 38032" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.defectNumber || "—"}</p>}
