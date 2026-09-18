@@ -363,6 +363,55 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
 
 // ─── Search: duplicate check ─────────────────────────────────────────────────
 
+// A defect's subject has to carry the top of the requirement tree, not the
+// ticket it hangs off. QA links a failing test case to the leaf User Story
+// (e.g. #40046), but that leaf can sit several levels under the ticket the
+// run is actually reported against (#40046 -> #40044 -> #40054), and a
+// subject reading "#40046 - ..." names a ticket nobody tracks the run by.
+// Walk to the root and let the caller title the defect with that.
+router.get("/redmine/issues/:issueId/root", async (req, res): Promise<void> => {
+  const issueId = parseInt(req.params.issueId);
+  if (isNaN(issueId)) {
+    res.status(400).json({ error: "Invalid issue ID" });
+    return;
+  }
+  try {
+    const apiKey = await resolveApiKey(req);
+    // Redmine cannot return an ancestor chain in one call, so this walks it a
+    // level at a time. The depth cap and seen-set are belt and braces: a
+    // corrupted parent cycle would otherwise loop until the request times out.
+    const MAX_DEPTH = 10;
+    const chain: number[] = [issueId];
+    const seen = new Set<number>([issueId]);
+    let currentId = issueId;
+    let truncated = false;
+
+    for (let depth = 0; depth < MAX_DEPTH; depth++) {
+      const response = await redmineRead(`/issues/${currentId}.json`, apiKey);
+      if (!response.ok) {
+        // An unreadable ancestor (deleted, or in a project this key cannot
+        // see) stops the walk rather than failing it — the deepest ticket we
+        // did resolve is still a better subject than the leaf.
+        if (depth === 0 && response.status === 404) {
+          res.status(404).json({ error: `Redmine issue #${issueId} not found` });
+          return;
+        }
+        break;
+      }
+      const parentId = ((await response.json()) as any)?.issue?.parent?.id;
+      if (!parentId || seen.has(parentId)) break;
+      seen.add(parentId);
+      chain.push(parentId);
+      currentId = parentId;
+      if (depth === MAX_DEPTH - 1) truncated = true;
+    }
+
+    res.json({ id: issueId, rootId: currentId, chain, truncated });
+  } catch (err: any) {
+    res.status(503).json({ error: `Failed to fetch from Redmine API: ${err.message}` });
+  }
+});
+
 router.get("/redmine/search", async (req, res): Promise<void> => {
   const { q, project_id } = req.query as { q?: string; project_id?: string };
   if (!q?.trim()) {
