@@ -50,6 +50,7 @@ export interface UserInput {
 
 export interface UserUpdate {
   name?: string;
+  email?: string;
   role?: string;
   team?: string;
   avatarUrl?: string;

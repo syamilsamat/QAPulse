@@ -149,6 +149,7 @@ export const UpdateUserParams = zod.object({
 
 export const UpdateUserBody = zod.object({
   "name": zod.string().optional(),
+  "email": zod.string().optional(),
   "role": zod.string().optional(),
   "team": zod.string().optional(),
   "avatarUrl": zod.string().optional(),

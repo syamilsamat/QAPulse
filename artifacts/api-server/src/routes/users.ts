@@ -152,6 +152,28 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  // Email is identity, not a preference — same Manager-tier+ gate as a
+  // password reset, and never self-service here (Settings' own Profile tab
+  // deliberately disables the field; this is the admin/manager path).
+  // usersTable.email is unique, so a collision needs a clean 409 rather than
+  // the raw DB constraint error the update below would otherwise throw.
+  let normalizedEmail: string | undefined;
+  if (parsed.data.email !== undefined) {
+    if (!isManager) {
+      res.status(403).json({ error: "Manager tier or above required to change a user's email" }); return;
+    }
+    normalizedEmail = parsed.data.email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      res.status(400).json({ error: "Email cannot be empty" }); return;
+    }
+    if (normalizedEmail !== targetUser.email.toLowerCase()) {
+      const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, normalizedEmail));
+      if (existing && existing.id !== targetUser.id) {
+        res.status(409).json({ error: "Another user already has this email" }); return;
+      }
+    }
+  }
+
   // Self-service password changes belong exclusively to /auth/change-password,
   // where the current password is verified. Managers may issue temporary
   // passwords to ordinary users, but only admin/cto may reset another
@@ -172,6 +194,9 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
   }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
+  if (normalizedEmail !== undefined) {
+    updateData.email = normalizedEmail;
+  }
   if (parsed.data.password) {
     updateData.password = await bcrypt.hash(parsed.data.password, 12);
     updateData.mustChangePassword = true;
