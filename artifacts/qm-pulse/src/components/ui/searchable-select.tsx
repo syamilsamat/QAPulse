@@ -33,7 +33,16 @@ interface SearchableSelectProps {
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  /**
+   * Show the search box. Left unset it decides for itself: a list long enough
+   * to need searching gets a box, a handful of options does not — a search
+   * field above four items is furniture, not help.
+   */
+  showSearch?: boolean;
 }
+
+/** Lists at or above this length get a search box when `showSearch` is unset. */
+const SEARCH_THRESHOLD = 8;
 
 export function SearchableSelect({
   value,
@@ -44,10 +53,12 @@ export function SearchableSelect({
   emptyText = "No results found.",
   disabled = false,
   className,
+  showSearch,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
 
   const selected = options.find((o) => o.value === value);
+  const searchable = showSearch ?? options.length >= SEARCH_THRESHOLD;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -65,11 +76,17 @@ export function SearchableSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 min-w-[var(--radix-popper-anchor-width)]" align="start">
-        <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+      {/* PopoverContent is w-72 by default, which overflows a narrow phone once
+          the trigger is wider or the screen is smaller. Track the trigger width
+          and clamp to the viewport instead. */}
+      <PopoverContent
+        className="p-0 w-[var(--radix-popper-anchor-width)] min-w-[var(--radix-popper-anchor-width)] max-w-[calc(100vw-2rem)]"
+        align="start"
+      >
+        <Command shouldFilter={searchable}>
+          {searchable && <CommandInput placeholder={searchPlaceholder} />}
           <div
-            className="max-h-[240px] overflow-y-auto overflow-x-hidden"
+            className="max-h-[min(240px,50vh)] overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y"
             onWheel={(e) => {
               // When this popover opens from inside a Dialog (e.g. the AI Test
               // Case Generation modal's Tracker field), Radix's Dialog scroll
