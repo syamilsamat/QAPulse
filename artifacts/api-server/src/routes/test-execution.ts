@@ -25,13 +25,68 @@ import { notifyUser, notifyRolesInProject } from "./_notify";
 import { canReview, reviewRoleNames } from "../lib/review-eligibility";
 import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
-import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
+import { buildTestCaseExcel, trackerCode, runCapaAI, type ExcelEvidenceLink } from "./excel-builder";
+import { buildZip, type ZipEntry } from "./zip-writer";
 import { fetchActiveDefectsForIssue, normaliseTracker } from "./verdict-report";
 
 const router: IRouter = Router();
 
 const MAX_EXECUTION_EVIDENCE_BYTES = 10 * 1024 * 1024;
 const SAFE_INLINE_EVIDENCE_MIME = new Set(["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain"]);
+
+/** Folder the download ZIP puts evidence under, beside the workbook at its root. */
+const EVIDENCE_ZIP_ROOT = "evidence";
+
+// ── Evidence file naming ──────────────────────────────────────────────────────
+// Uploads used to keep the tester's own filename, so a downloaded
+// "Screenshot 2026-09-18 142233.png" carried no trace of which test case it
+// proved — the link existed only as a foreign key in the database. Evidence is
+// renamed on the way in to <caseId>_<ticket>_<stamp>.<ext> so it stays
+// identifiable outside the app, and in the Excel export's evidence folders.
+// Restricted to [A-Za-z0-9._-] because these names also become ZIP entry paths
+// and Excel hyperlink targets, where spaces and punctuation need escaping.
+export function sanitiseEvidenceSegment(value: string, fallback: string): string {
+  const cleaned = (value ?? "").trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  // Dots survive sanitising (they belong in filenames), so a test case id of
+  // ".." would otherwise become a ZIP entry that escapes the evidence folder
+  // when the archive is extracted.
+  if (!cleaned || /^\.+$/.test(cleaned)) return fallback;
+  return cleaned;
+}
+
+function evidenceStamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/**
+ * Canonical evidence name. `taken` is the set of names already stored against
+ * the same execution row — two files uploaded inside the same second would
+ * otherwise collide and overwrite each other when the ZIP is extracted.
+ */
+export function buildEvidenceFileName(opts: {
+  testCaseId: string | null;
+  ticketId: string | null;
+  rowId: number;
+  originalName: string;
+  uploadedAt?: Date;
+  taken?: Set<string>;
+}): string {
+  const caseSeg = sanitiseEvidenceSegment(opts.testCaseId ?? "", `ROW${opts.rowId}`);
+  const ticketSeg = sanitiseEvidenceSegment(opts.ticketId ?? "", "NA");
+  const extMatch = /\.([A-Za-z0-9]{1,8})$/.exec(opts.originalName ?? "");
+  const ext = extMatch ? `.${extMatch[1]!.toLowerCase()}` : "";
+  const base = `${caseSeg}_${ticketSeg}_${evidenceStamp(opts.uploadedAt ?? new Date())}`;
+  const taken = opts.taken ?? new Set<string>();
+  let candidate = `${base}${ext}`;
+  for (let n = 2; taken.has(candidate.toLowerCase()); n++) candidate = `${base}-${n}${ext}`;
+  return candidate;
+}
+
+/** Folder this row's evidence occupies inside the export ZIP. */
+export function evidenceFolderName(testCaseId: string | null, rowId: number): string {
+  return sanitiseEvidenceSegment(testCaseId ?? "", `ROW${rowId}`);
+}
 
 async function getExecutionEvidenceScope(rowId: number) {
   const [scope] = await db
@@ -42,6 +97,7 @@ async function getExecutionEvidenceScope(rowId: number) {
       executionFileId: executionFilesTable.id,
       projectId: executionFilesTable.projectId,
       fileTitle: executionFilesTable.title,
+      redmineTicketId: executionFilesTable.redmineTicketId,
     })
     .from(executionTestCasesTable)
     .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
@@ -1271,6 +1327,7 @@ router.get(
               id: executionTcEvidenceTable.id,
               executionTestCaseId: executionTcEvidenceTable.executionTestCaseId,
               fileName: executionTcEvidenceTable.fileName,
+              originalFileName: executionTcEvidenceTable.originalFileName,
               mimeType: executionTcEvidenceTable.mimeType,
               sizeBytes: executionTcEvidenceTable.sizeBytes,
               uploadedBy: executionTcEvidenceTable.uploadedBy,
@@ -2006,9 +2063,25 @@ router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void
   if (sizeBytes === 0) { res.status(400).json({ error: "Attachment is empty" }); return; }
   if (sizeBytes > MAX_EXECUTION_EVIDENCE_BYTES) { res.status(400).json({ error: "File too large (max 10 MB)" }); return; }
 
+  const originalName = String(fileName).replace(/[\r\n]/g, " ").slice(0, 255);
+  // Names already on this row, so a second upload in the same second gets a
+  // "-2" suffix instead of silently clashing once the export ZIP is extracted.
+  const existingNames = await db
+    .select({ fileName: executionTcEvidenceTable.fileName })
+    .from(executionTcEvidenceTable)
+    .where(eq(executionTcEvidenceTable.executionTestCaseId, rowId));
+  const storedName = buildEvidenceFileName({
+    testCaseId: scope.testCaseId ?? null,
+    ticketId: scope.redmineTicketId ?? null,
+    rowId,
+    originalName,
+    taken: new Set(existingNames.map((e) => e.fileName.toLowerCase())),
+  });
+
   const [created] = await db.insert(executionTcEvidenceTable).values({
     executionTestCaseId: rowId,
-    fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
+    fileName: storedName,
+    originalFileName: originalName,
     mimeType: String(mimeType || "application/octet-stream").slice(0, 150),
     sizeBytes,
     dataBase64: cleanBase64,
@@ -2017,6 +2090,7 @@ router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void
     id: executionTcEvidenceTable.id,
     executionTestCaseId: executionTcEvidenceTable.executionTestCaseId,
     fileName: executionTcEvidenceTable.fileName,
+    originalFileName: executionTcEvidenceTable.originalFileName,
     mimeType: executionTcEvidenceTable.mimeType,
     sizeBytes: executionTcEvidenceTable.sizeBytes,
     uploadedBy: executionTcEvidenceTable.uploadedBy,
@@ -2025,7 +2099,7 @@ router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void
 
   await logActivity({
     type: "execution_evidence_uploaded",
-    description: `Evidence "${created.fileName}" attached to ${scope.testCaseId ?? scope.caseName ?? `test case #${rowId}`}`,
+    description: `Evidence "${created.originalFileName ?? created.fileName}" attached to ${scope.testCaseId ?? scope.caseName ?? `test case #${rowId}`}`,
     userId: ctx.userId,
     entityId: scope.executionFileId,
     entityType: "execution",
@@ -2072,7 +2146,7 @@ router.delete("/execution-test-cases/:rowId/evidence/:evidenceId", async (req, r
   await db.delete(executionTcEvidenceTable).where(eq(executionTcEvidenceTable.id, evidenceId));
   await logActivity({
     type: "execution_evidence_deleted",
-    description: `Evidence "${evidence.fileName}" removed from ${scope.testCaseId ?? scope.caseName ?? `test case #${rowId}`}`,
+    description: `Evidence "${evidence.originalFileName ?? evidence.fileName}" removed from ${scope.testCaseId ?? scope.caseName ?? `test case #${rowId}`}`,
     userId: ctx.userId,
     entityId: scope.executionFileId,
     entityType: "execution",
@@ -2107,6 +2181,59 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
           .where(eq(executionTestCasesTable.executionFileId, file.id))
           .orderBy(executionTestCasesTable.rowOrder)
       : [];
+
+    // Evidence attached to these rows. It rides along in the download so the
+    // Excel is an audit-ready pack rather than a spreadsheet whose proof lives
+    // behind one manual click per row, and so the sheet's Evidence column has
+    // something to point at.
+    const rowIds = testCases.map((t) => t.id).filter((id): id is number => typeof id === "number");
+    const evidenceRows = rowIds.length > 0
+      ? await db
+          .select()
+          .from(executionTcEvidenceTable)
+          .where(inArray(executionTcEvidenceTable.executionTestCaseId, rowIds))
+          .orderBy(executionTcEvidenceTable.createdAt)
+      : [];
+
+    const evidenceByRow = new Map<number, typeof evidenceRows>();
+    for (const row of testCases) {
+      // Same rule the grid applies: evidence from a previous pass attempt stays
+      // in the audit trail but must not be exported as proof of the current
+      // result, or a re-run would look evidenced when it isn't.
+      const executedAtMs = row.executedAt ? new Date(row.executedAt as any).getTime() : 0;
+      const forRow = evidenceRows.filter((e) =>
+        e.executionTestCaseId === row.id
+        && (!executedAtMs || new Date(e.createdAt).getTime() >= executedAtMs - 2_000));
+      if (forRow.length > 0) evidenceByRow.set(row.id, forRow);
+    }
+
+    const evidenceEntries: ZipEntry[] = [];
+    // Stored names are only deduplicated within their own execution row, but
+    // two rows carrying the same test case id share a folder here — so the
+    // archive gets the last word on uniqueness. Extracting a ZIP with repeated
+    // paths silently drops files.
+    const usedPaths = new Set<string>();
+    const uniquePath = (folder: string, name: string): string => {
+      const dot = name.lastIndexOf(".");
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : "";
+      let path = `${folder}/${name}`;
+      for (let n = 2; usedPaths.has(path.toLowerCase()); n++) path = `${folder}/${stem}-${n}${ext}`;
+      usedPaths.add(path.toLowerCase());
+      return path;
+    };
+
+    const testCasesForExcel = testCases.map((row) => {
+      const attached = evidenceByRow.get(row.id);
+      if (!attached || attached.length === 0) return row;
+      const folder = `${EVIDENCE_ZIP_ROOT}/${evidenceFolderName(row.testCaseId ?? null, row.id)}`;
+      const links: ExcelEvidenceLink[] = attached.map((e) => {
+        const path = uniquePath(folder, e.fileName);
+        evidenceEntries.push({ path, data: Buffer.from(e.dataBase64, "base64"), date: e.createdAt });
+        return { fileName: e.fileName, originalFileName: e.originalFileName, path, folderPath: `${folder}/` };
+      });
+      return { ...row, evidence: links };
+    });
 
     // CR002: fetch active defects for Pareto Analysis + CAPA auto-population
     const activeDefects = await fetchActiveDefectsForIssue(ticketId);
@@ -2177,7 +2304,7 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       console.warn("[download-excel] document register lookup failed:", err);
     }
 
-    const buffer = await buildTestCaseExcel(testCases as any, {
+    const buffer = await buildTestCaseExcel(testCasesForExcel as any, {
       redmineId: ticketId,
       issueType: typeLabel,
       issueSubject: issueSubject || file?.title || "",
@@ -2205,12 +2332,29 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const tracker = (issueType || typeLabel).replace(/[^a-zA-Z0-9]/g, "");
     const proj = (projectName || "").replace(/[^a-zA-Z0-9]/g, "");
-    const filename = proj
-      ? `${date}.${proj}_${tracker}_${ticketId}.xlsx`
-      : `${date}.${tracker}_${ticketId}.xlsx`;
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.send(buffer);
+    const stem = proj
+      ? `${date}.${proj}_${tracker}_${ticketId}`
+      : `${date}.${tracker}_${ticketId}`;
+
+    // No attachments — nothing to bundle, so keep handing back a plain workbook
+    // rather than making everyone unzip a one-file archive.
+    if (evidenceEntries.length === 0) {
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${stem}.xlsx"`);
+      res.send(buffer);
+      return;
+    }
+
+    // The workbook sits at the archive root and the evidence beside it, because
+    // the sheet's hyperlinks are relative to the workbook — extract the ZIP and
+    // the links resolve; the reviewer never leaves Excel to find a screenshot.
+    const zip = buildZip([
+      { path: `${stem}.xlsx`, data: buffer },
+      ...evidenceEntries,
+    ]);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${stem}.zip"`);
+    res.send(zip);
   } catch {
     res.status(500).json({ error: "Failed to download execution file" });
   }

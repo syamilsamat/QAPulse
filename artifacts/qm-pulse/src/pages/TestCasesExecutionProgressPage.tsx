@@ -2364,7 +2364,9 @@ export default function TestCasesExecutionProgressPage() {
         {files.map((file) => (
           <div key={file.id} className="flex min-w-0 items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2 py-1.5 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
             <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>
+            <span className="min-w-0 flex-1 truncate" title={`${file.originalFileName ?? file.fileName}\nSaved as: ${file.fileName}`}>
+              {file.originalFileName ?? file.fileName}
+            </span>
             <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
             <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
             {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
@@ -2599,11 +2601,18 @@ export default function TestCasesExecutionProgressPage() {
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const filenameMatch = disposition.match(/filename="([^"]+)"/);
       a.href = url;
-      a.download = filenameMatch?.[1] ?? `TC_${ticketId}.xlsx`;
+      const isZip = (res.headers.get("Content-Type") ?? "").includes("zip");
+      a.download = filenameMatch?.[1] ?? `TC_${ticketId}.${isZip ? "zip" : "xlsx"}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      if (isZip) {
+        toast({
+          title: "Downloaded with attachments",
+          description: "Extract the ZIP, then the Evidence column in the sheet opens each screenshot directly.",
+        });
+      }
     } catch {
       toast({ variant: "destructive", title: "Download failed" });
     } finally {

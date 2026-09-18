@@ -111,7 +111,14 @@ export const executionTcEvidenceTable = pgTable("execution_tc_evidence", {
   executionTestCaseId: integer("execution_test_case_id")
     .references(() => executionTestCasesTable.id, { onDelete: "cascade" })
     .notNull(),
+  // Canonical, traceable name assigned on upload: <caseId>_<ticket>_<stamp>.<ext>.
+  // This is what lands on disk when the file is downloaded and what the Excel
+  // export's evidence hyperlink points at, so a screenshot stays identifiable
+  // once it is outside the app.
   fileName: text("file_name").notNull(),
+  // What the tester's own machine called it. Display-only — kept so the upload
+  // is still recognisable in the UI, and null for rows that predate renaming.
+  originalFileName: text("original_file_name"),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   dataBase64: text("data_base64").notNull(),
