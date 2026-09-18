@@ -27,6 +27,9 @@ const FALLBACK: Record<ReviewDomain, string[]> = {
   fa: ["fa_member", "fa_lead", "hod_fa", "qa_lead", "qa_manager", "hod_qa"],
 };
 
+/** Offline fallback for approving/rejecting an execution file. */
+const FILE_APPROVAL_FALLBACK = ["qa_lead", "qa_manager", "hod_qa"];
+
 interface RoleRow {
   name: string;
   department?: string | null;
@@ -69,9 +72,20 @@ export function useReviewEligibility() {
       if (!row) return FALLBACK[domain].includes(role);
       return eligible(domain, row);
     };
+    // Approving/rejecting an execution file (test case sign-off) is narrower
+    // than general QA review — reserved for QA Lead and above, unlike
+    // submitting a file or accepting/returning an individual row, which stay
+    // open to every QA role via canReviewQa.
+    const canApproveExecutionFile = (() => {
+      if (!role) return false;
+      if (UNRESTRICTED_ROLES.includes(role)) return true;
+      if (!row) return FILE_APPROVAL_FALLBACK.includes(role);
+      return row.department === "qa" && (row.tierRank ?? 1) >= LEAD_TIER;
+    })();
     return {
       canReviewQa: canReview("qa"),
       canReviewFa: canReview("fa"),
+      canApproveExecutionFile,
       canReview,
     };
   }, [dbRoles, role]);
