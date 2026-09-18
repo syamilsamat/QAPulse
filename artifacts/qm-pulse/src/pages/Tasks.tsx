@@ -34,6 +34,9 @@ interface PhaseTimelineEntry {
   actualEnd: string | null;
 }
 
+type DepartmentPICs = Record<"FA" | "Dev" | "QA", string[]>;
+const PIC_DEPARTMENTS = ["FA", "Dev", "QA"] as const;
+
 interface TaskBoardRow {
   requirementId: number;
   title: string;
@@ -47,6 +50,7 @@ interface TaskBoardRow {
   phaseLabel: string;
   statusLabel: string;
   assignee: string | null;
+  picByDepartment?: DepartmentPICs;
   progress: number;
   dueDate: string | null;
   goLiveDate: string | null;
@@ -506,6 +510,24 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
   );
 }
 
+function collectPICs(rows: TaskBoardRow[]): DepartmentPICs {
+  const result: DepartmentPICs = { FA: [], Dev: [], QA: [] };
+  for (const department of PIC_DEPARTMENTS) {
+    const names = new Map<string, string>();
+    for (const row of rows) {
+      // Keep the page compatible while an older API instance finishes deploying.
+      const legacy = row.assignee?.split(" · ").find((part) => part.startsWith(department + ": "));
+      const assigned = row.picByDepartment?.[department] ?? legacy?.slice(department.length + 2).split(",") ?? [];
+      for (const value of assigned) {
+        const name = value.trim();
+        if (name && name !== "—") names.set(name.toLowerCase(), name);
+      }
+    }
+    result[department] = [...names.values()].sort((a, b) => a.localeCompare(b));
+  }
+  return result;
+}
+
 function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
   const data = rows.map((r) => ({
     Milestone: r.milestoneName,
@@ -513,12 +535,12 @@ function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
     Requirement: r.title,
     Phase: r.phaseLabel,
     Status: r.statusLabel,
-    Assignee: r.assignee ?? "",
+    PIC: PIC_DEPARTMENTS.map((department) => `${department}: ${collectPICs([r])[department].join(", ") || "—"}`).join("\n"),
     "Due Date": r.dueDate ? new Date(r.dueDate).toLocaleDateString() : "",
     "Progress %": r.progress,
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  const headers = ["Milestone", "Priority", "Requirement", "Phase", "Status", "Assignee", "Due Date", "Progress %"];
+  const headers = ["Milestone", "Priority", "Requirement", "Phase", "Status", "PIC", "Due Date", "Progress %"];
   headers.forEach((_, c) => {
     const ref = XLSX.utils.encode_cell({ r: 0, c });
     if (ws[ref]) {
@@ -529,6 +551,12 @@ function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
     }
   });
   ws["!cols"] = headers.map((h) => ({ wch: Math.max(h.length + 2, 16) }));
+  ws["!cols"]![5] = { wch: 42 };
+  data.forEach((_, index) => {
+    const cell = ws[XLSX.utils.encode_cell({ r: index + 1, c: 5 })];
+    if (cell) cell.s = { alignment: { wrapText: true, vertical: "top" } };
+  });
+  ws["!rows"] = [{ hpt: 20 }, ...data.map(() => ({ hpt: 60 }))];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Tasks");
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -728,7 +756,7 @@ export default function Tasks() {
         const avgProgress = Math.round(g.rows.reduce((sum, r) => sum + r.progress, 0) / g.rows.length);
         const phaseCounts: Record<string, number> = {};
         for (const r of g.rows) phaseCounts[r.phase] = (phaseCounts[r.phase] ?? 0) + 1;
-        return { ...g, avgProgress, phaseCounts };
+        return { ...g, avgProgress, phaseCounts, pics: collectPICs(g.rows) };
       })
       .sort((a, b) => a.milestoneName.localeCompare(b.milestoneName));
   }, [filtered]);
@@ -804,7 +832,7 @@ export default function Tasks() {
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search milestone, requirement or assignee..."
+              placeholder="Search milestone, requirement or PIC..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
               className="pl-8"
@@ -849,23 +877,24 @@ export default function Tasks() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table className="table-fixed min-w-[900px]">
+            <Table className="table-fixed min-w-[1200px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[20%]">Milestone</TableHead>
-                  <TableHead className="w-[13%]">Project</TableHead>
-                  <TableHead className="w-[10%]">Priority</TableHead>
+                  <TableHead className="w-[16%]">Milestone</TableHead>
+                  <TableHead className="w-[9%]">Project</TableHead>
+                  <TableHead className="w-[8%]">Priority</TableHead>
+                  <TableHead className="w-[23%]">PIC</TableHead>
                   <TableHead className="w-[10%]">Status</TableHead>
                   <TableHead className="w-[9%]">Requirements</TableHead>
-                  <TableHead className="w-[20%]">Phases</TableHead>
-                  <TableHead className="w-[13%]">Progress</TableHead>
-                  <TableHead className="w-[9%]">Go-Live</TableHead>
+                  <TableHead className="w-[13%]">Phases</TableHead>
+                  <TableHead className="w-[10%]">Progress</TableHead>
+                  <TableHead className="w-[8%]">Go-Live</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedMilestones.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-10">
                       No milestones match your filters.
                     </TableCell>
                   </TableRow>
@@ -877,6 +906,16 @@ export default function Tasks() {
                         {g.projectId != null ? projectNameById.get(g.projectId) ?? "—" : "—"}
                       </TableCell>
                       <TableCell><PriorityBadge priority={g.milestonePriority} /></TableCell>
+                      <TableCell className="align-top text-xs">
+                        <div className="space-y-1">
+                          {PIC_DEPARTMENTS.map((department) => (
+                            <div key={department} className="flex gap-2">
+                              <span className="w-7 shrink-0 font-semibold">{department}:</span>
+                              <span className="min-w-0 break-words text-muted-foreground">{g.pics[department].join(", ") || "—"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </TableCell>
                       <TableCell><MilestoneStatusBadge status={g.milestoneStatus} /></TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

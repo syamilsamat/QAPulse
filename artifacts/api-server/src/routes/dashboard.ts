@@ -1285,10 +1285,15 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       const pipelineFa = pipelineNames(info.pipelineFaIds);
       const pipelineDev = pipelineNames(info.pipelineDevIds);
       const pipelineQa = pipelineNames(info.pipelineQaIds);
+      const picByDepartment = {
+        FA: [...new Set(pipelineFa.length > 0 ? pipelineFa : faAll)],
+        Dev: [...new Set(pipelineDev.length > 0 ? pipelineDev : devAll)],
+        QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+      };
       const assignee = [
-        `FA: ${fmtNames(pipelineFa.length > 0 ? pipelineFa : faAll)}`,
-        `Dev: ${fmtNames(pipelineDev.length > 0 ? pipelineDev : devAll)}`,
-        `QA: ${fmtNames(pipelineQa.length > 0 ? pipelineQa : qaAll)}`,
+        `FA: ${fmtNames(picByDepartment.FA)}`,
+        `Dev: ${fmtNames(picByDepartment.Dev)}`,
+        `QA: ${fmtNames(picByDepartment.QA)}`,
       ].join(" · ");
       let progress: number;
       if (phase === "develop") progress = devProgress;
@@ -1325,6 +1330,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
         phaseLabel: effectiveLabel,
         statusLabel: pipelineState ? effectiveLabel : entry.status,
         assignee,
+        picByDepartment,
         progress: effectiveProgress,
         dueDate,
         goLiveDate: m.goLiveDate?.toISOString() ?? null,
