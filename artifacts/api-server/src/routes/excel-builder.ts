@@ -218,6 +218,20 @@ export function trackerCode(issueType: string): string {
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+/**
+ * One evidence attachment as the export sees it. `path` is relative to the
+ * workbook inside the download ZIP ("evidence/<case>/<file>"), which is what
+ * makes the Excel hyperlink resolve after the archive is extracted — the
+ * reviewer clicks the cell instead of hunting for the screenshot by hand.
+ */
+export interface ExcelEvidenceLink {
+  fileName: string;
+  originalFileName?: string | null;
+  path: string;
+  /** The row's evidence folder, linked when a case has more than one file. */
+  folderPath: string;
+}
+
 export interface TestCaseRow {
   caseId?: string;
   // The execution grid never writes caseId — it stores the visible id in
@@ -237,6 +251,7 @@ export interface TestCaseRow {
   defectNumber?: string;
   comments?: string;
   qaPic?: string;
+  evidence?: ExcelEvidenceLink[];
 }
 
 export interface DefectForExcel {
@@ -375,6 +390,27 @@ function resolveIdColumns(
   };
 }
 
+// ── Evidence column ───────────────────────────────────────────────────────────
+// The template stops at M (QA PIC), so N is free for the attachments. One file
+// links straight to it; several link to the case's folder, because a cell can
+// only carry one hyperlink and opening the folder beats linking one of three
+// screenshots and stranding the rest.
+const EVIDENCE_COLUMN = "N";
+const EVIDENCE_HEADER = "Evidence";
+
+function evidenceCell(links: ExcelEvidenceLink[]): { label: string; target: string; tooltip: string } | null {
+  if (!links || links.length === 0) return null;
+  const name = (link: ExcelEvidenceLink) => link.originalFileName || link.fileName;
+  if (links.length === 1) {
+    return { label: name(links[0]!), target: links[0]!.path, tooltip: `Open ${links[0]!.fileName}` };
+  }
+  return {
+    label: `${links.length} files: ${links.map(name).join(", ")}`,
+    target: links[0]!.folderPath,
+    tooltip: `Open the evidence folder for this test case (${links.length} files)`,
+  };
+}
+
 // ── SheetJS fallback ──────────────────────────────────────────────────────────
 function buildTestCaseExcelFallback(
   testCases: TestCaseRow[],
@@ -394,16 +430,26 @@ function buildTestCaseExcelFallback(
   ]), "Doc Info");
 
   // Test cases sheet
-  const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC"];
+  const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC", EVIDENCE_HEADER];
   const tcRows = testCases.map((tc) => {
     const ids = resolveIdColumns(tc, { redmineId, issueType });
     return [
       ids.caseId, ids.userStory, ids.tracker, tc.scenario ?? "",
       tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
       tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
+      evidenceCell(tc.evidence ?? [])?.label ?? "",
     ];
   });
-  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([tcHeaders, ...tcRows]), redmineId ? `#${redmineId}` : "Test Step");
+  const tcSheetFallback = XlsxSheetJS.utils.aoa_to_sheet([tcHeaders, ...tcRows]);
+  // aoa_to_sheet writes the label as plain text; the link has to be attached
+  // to the cell afterwards or the fallback export loses the clickthrough.
+  testCases.forEach((tc, i) => {
+    const link = evidenceCell(tc.evidence ?? []);
+    if (!link) return;
+    const cell = tcSheetFallback[`${EVIDENCE_COLUMN}${i + 2}`];
+    if (cell) cell.l = { Target: link.target, Tooltip: link.tooltip };
+  });
+  XlsxSheetJS.utils.book_append_sheet(wb, tcSheetFallback, redmineId ? `#${redmineId}` : "Test Step");
 
   // Review Log — skeleton row
   const rlHeaders = ["Sl #", "Review Cycle", "Version No.", "Posted Date", "Reviewer Name", "Size of Work", "Document Name", "Section ID", "Comment", "Severity", "Action Required", "Comment Status", "Target Closure", "Actual Closure", "Remarks"];
@@ -527,7 +573,35 @@ export async function buildTestCaseExcel(
         if (tc.defectNumber)   tcSheet.cell(`K${row}`).value(String(tc.defectNumber));
         if (tc.comments)       tcSheet.cell(`L${row}`).value(String(tc.comments));
         if (tc.qaPic)          tcSheet.cell(`M${row}`).value(String(tc.qaPic));
+
+        const link = evidenceCell(tc.evidence ?? []);
+        if (link) {
+          const cell = tcSheet.cell(`${EVIDENCE_COLUMN}${row}`);
+          cell.value(link.label);
+          // Relative target: Excel resolves it against the workbook's own
+          // folder, so it only works once the ZIP has been extracted — which
+          // is how the archive is laid out (workbook at the root, evidence/
+          // beside it).
+          cell.hyperlink({ hyperlink: link.target, tooltip: link.tooltip });
+          try {
+            cell.style({ fontColor: "0563C1", underline: true, verticalAlignment: "top", wrapText: true });
+          } catch {
+            // Styling is cosmetic — never lose the link over it.
+          }
+        }
       });
+
+      // Header for the evidence column, matched to the template's own header
+      // row so it doesn't read as a stray addition.
+      tcSheet.cell(`${EVIDENCE_COLUMN}1`).value(EVIDENCE_HEADER);
+      try {
+        tcSheet.cell(`${EVIDENCE_COLUMN}1`).style(
+          tcSheet.cell("M1").style(["bold", "fill", "border", "fontColor", "fontSize", "fontFamily", "horizontalAlignment", "verticalAlignment"]),
+        );
+        tcSheet.column(EVIDENCE_COLUMN).width(32);
+      } catch {
+        // Older templates may not carry a styled M1; the header still lands.
+      }
     }
 
     // ── Review Log — one row per audit entry (same list as Doc Info) ──────────

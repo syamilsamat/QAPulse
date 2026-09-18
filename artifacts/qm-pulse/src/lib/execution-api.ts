@@ -106,7 +106,10 @@ export interface ReturnedExecutionTestCase {
 export interface ExecutionEvidence {
   id: number;
   executionTestCaseId: number;
+  /** Canonical stored name: <caseId>_<ticket>_<stamp>.<ext>. What downloads. */
   fileName: string;
+  /** What the tester's machine called it. Null on uploads that predate renaming. */
+  originalFileName?: string | null;
   mimeType: string;
   sizeBytes: number;
   uploadedBy: number | null;
