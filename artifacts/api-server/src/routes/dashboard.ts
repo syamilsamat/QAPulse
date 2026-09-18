@@ -521,11 +521,35 @@ export async function computeRequirementTimelinesBatch(
   if (milestoneIds.length === 0) return out;
   for (const id of milestoneIds) out.set(id, []);
 
-  const allReqs = await db
-    .select({ id: requirementsTable.id, milestoneId: requirementsTable.milestoneId, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, parentId: requirementsTable.parentId, createdAt: requirementsTable.createdAt })
-    .from(requirementsTable)
-    .where(inArray(requirementsTable.milestoneId, milestoneIds));
-  if (allReqs.length === 0) return out;
+  const reqCols = { id: requirementsTable.id, milestoneId: requirementsTable.milestoneId, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, parentId: requirementsTable.parentId, createdAt: requirementsTable.createdAt };
+  const rootReqs = await db.select(reqCols).from(requirementsTable).where(inArray(requirementsTable.milestoneId, milestoneIds));
+  if (rootReqs.length === 0) return out;
+
+  // A milestone's requirement count (Milestones page) includes every
+  // descendant added via "Add child", but only the top-level requirement in
+  // that tree carries its own milestoneId — a child never gets one of its
+  // own. Walk the tree breadth-first from the roots above (same per-level
+  // query shape as fetchIssueTree's Redmine walk) so a child still resolves
+  // to its ancestor's milestone below, capped at depth 10 as a safety bound
+  // rather than any real tree needing it.
+  const allReqs = [...rootReqs];
+  const seenIds = new Set(rootReqs.map((r) => r.id));
+  const milestoneByReqId = new Map<number, number>(rootReqs.map((r) => [r.id, r.milestoneId as number]));
+  let frontier = rootReqs.map((r) => r.id);
+  for (let depth = 0; depth < 10 && frontier.length > 0; depth++) {
+    const children = await db.select(reqCols).from(requirementsTable).where(inArray(requirementsTable.parentId, frontier));
+    const next: number[] = [];
+    for (const c of children) {
+      if (seenIds.has(c.id)) continue;
+      seenIds.add(c.id);
+      const inherited = c.milestoneId ?? (c.parentId != null ? milestoneByReqId.get(c.parentId) : undefined);
+      if (inherited == null) continue; // orphaned mid-tree — no ancestor resolved, nothing to inherit
+      milestoneByReqId.set(c.id, inherited);
+      allReqs.push(c);
+      next.push(c.id);
+    }
+    frontier = next;
+  }
   const reqIds = allReqs.map((r) => r.id);
 
   const [activityRows, execRows] = await Promise.all([
@@ -561,8 +585,9 @@ export async function computeRequirementTimelinesBatch(
   const completedAtById = new Map(milestones.map((m) => [m.id, m.completedAt]));
 
   for (const r of allReqs) {
-    if (r.milestoneId == null) continue;
-    const milestoneCompletedAt = completedAtById.get(r.milestoneId) ?? null;
+    const milestoneId = milestoneByReqId.get(r.id);
+    if (milestoneId == null) continue;
+    const milestoneCompletedAt = completedAtById.get(milestoneId) ?? null;
     const events = activityByReq.get(r.id) ?? [];
     const exec = execByReq.get(r.id) ?? { qa: [], uat: [] };
     const qaExecTimes = [...exec.qa].sort((a, b) => a.getTime() - b.getTime());
@@ -589,7 +614,7 @@ export async function computeRequirementTimelinesBatch(
       status = "Approved · awaiting Dev";
     }
 
-    out.get(r.milestoneId)!.push({ id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline });
+    out.get(milestoneId)!.push({ id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline });
   }
 
   return out;
@@ -1483,20 +1508,44 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   // ── FA signal: authored requirement, active = not yet approved ─────────────
   // Also carries devAssigneeId/devStatus for the Dev signal just below —
   // one query instead of two, same requirement rows either way.
-  const reqRows = allTrackedMilestoneIds.length
-    ? await db.select({ createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus })
-        .from(requirementsTable).where(inArray(requirementsTable.milestoneId, allTrackedMilestoneIds))
+  //
+  // A milestone's displayed requirement count (Milestones page) includes
+  // every descendant in the tree, but only the top-level requirement in that
+  // tree actually has milestoneId set — a child added via "Add child" never
+  // gets one of its own. Filtering this query by `milestoneId IN (tracked)`
+  // the way computeRequirementTimelinesBatch above does would silently miss
+  // every child, so instead every requirement in the searched projects is
+  // pulled and each row's *effective* milestone is resolved by walking
+  // parentId up to the nearest ancestor that has one set (memoized — a large
+  // tree has many siblings resolving through the same ancestors).
+  const allProjectReqs = searchProjectIds.length
+    ? await db.select({ id: requirementsTable.id, parentId: requirementsTable.parentId, createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus })
+        .from(requirementsTable).where(inArray(requirementsTable.projectId, searchProjectIds))
     : [];
+  const reqById = new Map(allProjectReqs.map((r) => [r.id, r]));
+  const effectiveMilestoneCache = new Map<number, number | null>();
+  function effectiveMilestoneId(reqId: number, guard: Set<number> = new Set()): number | null {
+    if (effectiveMilestoneCache.has(reqId)) return effectiveMilestoneCache.get(reqId)!;
+    if (guard.has(reqId)) return null; // cyclic parentId — bail rather than loop forever
+    guard.add(reqId);
+    const r = reqById.get(reqId);
+    const resolved = r ? (r.milestoneId ?? (r.parentId != null ? effectiveMilestoneId(r.parentId, guard) : null)) : null;
+    effectiveMilestoneCache.set(reqId, resolved);
+    return resolved;
+  }
+
   const faActiveByUser = new Map<number, Set<number>>();
   const faClosedByUser = new Map<number, Set<number>>();
-  for (const row of reqRows) {
-    if (row.createdBy == null || row.milestoneId == null) continue;
-    if (activeMilestoneIds.has(row.milestoneId) && row.reviewStatus !== "approved") {
+  for (const row of allProjectReqs) {
+    if (row.createdBy == null) continue;
+    const milestoneId = effectiveMilestoneId(row.id);
+    if (milestoneId == null) continue;
+    if (activeMilestoneIds.has(milestoneId) && row.reviewStatus !== "approved") {
       if (!faActiveByUser.has(row.createdBy)) faActiveByUser.set(row.createdBy, new Set());
-      faActiveByUser.get(row.createdBy)!.add(row.milestoneId);
-    } else if (closedMilestoneIds.has(row.milestoneId)) {
+      faActiveByUser.get(row.createdBy)!.add(milestoneId);
+    } else if (closedMilestoneIds.has(milestoneId)) {
       if (!faClosedByUser.has(row.createdBy)) faClosedByUser.set(row.createdBy, new Set());
-      faClosedByUser.get(row.createdBy)!.add(row.milestoneId);
+      faClosedByUser.get(row.createdBy)!.add(milestoneId);
     }
   }
 
@@ -1506,14 +1555,16 @@ router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
   // computeTaskBoardRows in the /dashboard/task-board section above).
   const devActiveByUser = new Map<number, Set<number>>();
   const devClosedByUser = new Map<number, Set<number>>();
-  for (const row of reqRows) {
-    if (row.devAssigneeId == null || row.milestoneId == null) continue;
-    if (activeMilestoneIds.has(row.milestoneId) && row.devStatus !== "ready_for_qa") {
+  for (const row of allProjectReqs) {
+    if (row.devAssigneeId == null) continue;
+    const milestoneId = effectiveMilestoneId(row.id);
+    if (milestoneId == null) continue;
+    if (activeMilestoneIds.has(milestoneId) && row.devStatus !== "ready_for_qa") {
       if (!devActiveByUser.has(row.devAssigneeId)) devActiveByUser.set(row.devAssigneeId, new Set());
-      devActiveByUser.get(row.devAssigneeId)!.add(row.milestoneId);
-    } else if (closedMilestoneIds.has(row.milestoneId)) {
+      devActiveByUser.get(row.devAssigneeId)!.add(milestoneId);
+    } else if (closedMilestoneIds.has(milestoneId)) {
       if (!devClosedByUser.has(row.devAssigneeId)) devClosedByUser.set(row.devAssigneeId, new Set());
-      devClosedByUser.get(row.devAssigneeId)!.add(row.milestoneId);
+      devClosedByUser.get(row.devAssigneeId)!.add(milestoneId);
     }
   }
 
