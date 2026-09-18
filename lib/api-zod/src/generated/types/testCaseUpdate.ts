@@ -19,4 +19,11 @@ export interface TestCaseUpdate {
   linkedBug?: string;
   aiAssisted?: boolean;
   status?: string;
+  tracker?: string;
+  scenario?: string;
+  testData?: string;
+  redmineUserStory?: string;
+  module?: string;
+  qaPic?: string;
+  comments?: string;
 }

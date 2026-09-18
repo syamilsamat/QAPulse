@@ -12,5 +12,6 @@ export interface UserUpdate {
   team?: string;
   avatarUrl?: string;
   mustChangePassword?: boolean;
+  emailNotificationsEnabled?: boolean;
   password?: string;
 }

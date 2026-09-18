@@ -5,10 +5,10 @@
  * QM Pulse - QA Management Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { AIRequirementInput } from './aIRequirementInput';
 
 export interface AIGenerateInput {
-  requirementTitle: string;
-  requirementDescription?: string;
+  requirements: AIRequirementInput[];
   module?: string;
   projectId?: number;
   release?: string;
@@ -16,10 +16,10 @@ export interface AIGenerateInput {
   priority?: string;
   tags?: string;
   additionalNotes?: string;
-  requirementId?: number;
   generatePositive?: boolean;
   generateNegative?: boolean;
   generateEdgeCases?: boolean;
   useSimilarHistorical?: boolean;
   useTemplateOnly?: boolean;
+  tracker?: string;
 }

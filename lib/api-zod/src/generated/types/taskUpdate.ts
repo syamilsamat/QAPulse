@@ -22,4 +22,5 @@ export interface TaskUpdate {
   completionPercentage?: number;
   notes?: string;
   tracker?: string;
+  blockedByTaskId?: number;
 }

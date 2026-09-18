@@ -10,6 +10,8 @@ export * from './activityItem';
 export * from './aIGeneratedTestCase';
 export * from './aIGenerateInput';
 export * from './aIGenerateResponse';
+export * from './aIGenerateResultGroup';
+export * from './aIRequirementInput';
 export * from './assignTaskBody';
 export * from './authResponse';
 export * from './calendarEvent';

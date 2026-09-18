@@ -43,6 +43,7 @@ function formatUser(u: typeof usersTable.$inferSelect, includeSecrets = false) {
     avatarUrl: u.avatarUrl,
     mustChangePassword: u.mustChangePassword,
     isActive: u.isActive ?? true,
+    emailNotificationsEnabled: u.emailNotificationsEnabled ?? false,
     ...(includeSecrets ? { redmineApiKey: u.redmineApiKey ?? null } : {}),
     createdAt: u.createdAt.toISOString(),
   };

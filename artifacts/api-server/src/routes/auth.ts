@@ -98,6 +98,7 @@ async function formatUser(user: typeof usersTable.$inferSelect) {
     mustChangePassword: user.mustChangePassword,
     isActive: user.isActive ?? true,
     redmineApiKey: user.redmineApiKey ?? null,
+    emailNotificationsEnabled: user.emailNotificationsEnabled ?? false,
     createdAt: user.createdAt.toISOString(),
   };
 }

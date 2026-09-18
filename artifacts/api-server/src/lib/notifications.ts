@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, notificationsTable } from "@workspace/db";
+import { db, notificationsTable, usersTable } from "@workspace/db";
+import { emailConfigured, sendEmail, appBaseUrl } from "./email";
 
 // In-process SSE connection registry — maps userId → live response objects.
 // Sufficient for a single-process server; upgrade to Redis pub/sub under CR012
@@ -57,4 +58,38 @@ export async function logNotification(notif: {
     .where(and(eq(notificationsTable.userId, notif.userId), eq(notificationsTable.read, false)));
 
   pingUser(notif.userId, unread.length);
+
+  // Opt-in email mirror — every notification already funnels through here,
+  // so this is the one place that needs to know about the preference rather
+  // than every individual notifyUser/notifyRolesInProject call site. Not
+  // awaited: a slow or unconfigured SMTP server must never delay the
+  // (much more common) in-app notification path.
+  emailNotificationMirror(notif).catch(() => {});
+}
+
+async function emailNotificationMirror(notif: {
+  userId: number;
+  title: string;
+  message: string;
+}): Promise<void> {
+  if (!emailConfigured()) return;
+  const [user] = await db
+    .select({ email: usersTable.email, emailNotificationsEnabled: usersTable.emailNotificationsEnabled })
+    .from(usersTable)
+    .where(eq(usersTable.id, notif.userId));
+  if (!user?.email || !user.emailNotificationsEnabled) return;
+
+  const link = appBaseUrl();
+  await sendEmail({
+    to: user.email,
+    subject: `[QM Pulse] ${notif.title}`,
+    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111827;line-height:1.5;">
+      <p><strong>${notif.title}</strong></p>
+      <p>${notif.message}</p>
+      ${link ? `<p><a href="${link}">Open QM Pulse</a></p>` : ""}
+      <p style="color:#6b7280;font-size:12px;margin-top:16px;">
+        You're receiving this because email notifications are turned on in your QM Pulse profile settings.
+      </p>
+    </div>`,
+  });
 }

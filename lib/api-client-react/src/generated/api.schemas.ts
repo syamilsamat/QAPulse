@@ -25,6 +25,7 @@ export interface User {
   /** @nullable */
   avatarUrl?: string | null;
   mustChangePassword?: boolean;
+  emailNotificationsEnabled?: boolean;
   createdAt: string;
 }
 
@@ -53,6 +54,7 @@ export interface UserUpdate {
   team?: string;
   avatarUrl?: string;
   mustChangePassword?: boolean;
+  emailNotificationsEnabled?: boolean;
   password?: string;
 }
 
@@ -168,8 +170,8 @@ export interface TestCase {
   /** @nullable */
   expectedResult?: string | null;
   /** manual | automation_candidate */
-  type: string;
-  priority: string;
+  type?: string;
+  priority?: string;
   /** @nullable */
   tags?: string | null;
   /** @nullable */
@@ -204,7 +206,6 @@ export interface TestCase {
   comments?: string | null;
   createdAt: string;
   updatedAt: string;
-  executionCount?: number;
 }
 
 export interface TestCaseInput {
@@ -213,8 +214,8 @@ export interface TestCaseInput {
   preconditions?: string;
   testSteps?: string;
   expectedResult?: string;
-  type: string;
-  priority: string;
+  type?: string;
+  priority?: string;
   tags?: string;
   requirementId?: number;
   projectId?: number;
@@ -253,9 +254,14 @@ export interface TestCaseUpdate {
   comments?: string;
 }
 
+export interface AIRequirementInput {
+  id: number;
+  title: string;
+  description?: string;
+}
+
 export interface AIGenerateInput {
-  requirementTitle: string;
-  requirementDescription?: string;
+  requirements: AIRequirementInput[];
   module?: string;
   projectId?: number;
   release?: string;
@@ -263,7 +269,6 @@ export interface AIGenerateInput {
   priority?: string;
   tags?: string;
   additionalNotes?: string;
-  requirementId?: number;
   generatePositive?: boolean;
   generateNegative?: boolean;
   generateEdgeCases?: boolean;
@@ -274,18 +279,27 @@ export interface AIGenerateInput {
 
 export interface AIGeneratedTestCase {
   title: string;
-  objective: string;
-  preconditions: string;
+  redmineUserStory?: string;
+  tracker?: string;
+  scenario?: string;
+  preconditions?: string;
   testSteps: string;
+  testData?: string;
   expectedResult: string;
   type: string;
   priority: string;
   tags?: string;
-  automationCandidate?: boolean;
+}
+
+export interface AIGenerateResultGroup {
+  requirementId: number;
+  requirementTitle: string;
+  testCases: AIGeneratedTestCase[];
+  error?: string;
 }
 
 export interface AIGenerateResponse {
-  testCases: AIGeneratedTestCase[];
+  results: AIGenerateResultGroup[];
   similarTestCasesUsed?: number;
   templateUsed?: string;
 }
@@ -348,6 +362,7 @@ export interface TaskInput {
   completionPercentage?: number;
   notes?: string;
   tracker?: string;
+  blockedByTaskId?: number;
 }
 
 export interface TaskUpdate {
@@ -366,6 +381,7 @@ export interface TaskUpdate {
   completionPercentage?: number;
   notes?: string;
   tracker?: string;
+  blockedByTaskId?: number;
 }
 
 export interface DashboardSummary {
@@ -510,6 +526,7 @@ search?: string;
 
 export type ListRequirementsParams = {
 projectId?: number;
+milestoneId?: number;
 assigneeId?: number;
 status?: string;
 priority?: string;

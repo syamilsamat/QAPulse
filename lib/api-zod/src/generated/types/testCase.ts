@@ -18,8 +18,8 @@ export interface TestCase {
   /** @nullable */
   expectedResult?: string | null;
   /** manual | automation_candidate */
-  type: string;
-  priority: string;
+  type?: string;
+  priority?: string;
   /** @nullable */
   tags?: string | null;
   /** @nullable */
