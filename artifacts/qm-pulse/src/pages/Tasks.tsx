@@ -600,12 +600,24 @@ function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; me
 
   const picDept = department ? DEPARTMENT_TO_PIC[department] ?? null : null;
 
+  // Counted per milestone (matching the board's own one-row-per-milestone
+  // view and its avgProgress), not per requirement — a milestone with five
+  // requirements assigned to the same QA is one open item, not five.
   const counts = useMemo(() => {
     if (!picDept) return members.map((m) => ({ ...m, openCount: 0 }));
+    const milestoneGroups = new Map<number, TaskBoardRow[]>();
+    for (const r of rows) {
+      const g = milestoneGroups.get(r.milestoneId);
+      if (g) g.push(r);
+      else milestoneGroups.set(r.milestoneId, [r]);
+    }
+    const openMilestones = [...milestoneGroups.values()].filter(
+      (group) => group.reduce((sum, r) => sum + r.progress, 0) / group.length < 100,
+    );
     return members.map((m) => ({
       ...m,
-      openCount: rows.filter(
-        (r) => r.progress < 100 && picNamesForRow(r, picDept).some((name) => name.toLowerCase() === m.name.toLowerCase()),
+      openCount: openMilestones.filter((group) =>
+        group.some((r) => picNamesForRow(r, picDept).some((name) => name.toLowerCase() === m.name.toLowerCase())),
       ).length,
     }));
   }, [members, rows, picDept]);
