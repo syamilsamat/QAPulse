@@ -1,3 +1,4 @@
+import { resolveDocumentReference } from "./_document-register";
 import { Router, type IRouter } from "express";
 import express from "express";
 import { eq, and, ilike, inArray } from "drizzle-orm";
@@ -67,18 +68,12 @@ import {
   executionFilesTable,
   executionTestCasesTable,
   executionFileAuditTable,
-  documentRegisterTable,
   activityTable,
   defectsTable,
   defectLinksTable,
 } from "@workspace/db";
 
-export function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
-  const t = (tracker ?? "").toLowerCase();
-  if (t.includes("uat")) return "UAT";
-  if (t.includes("sit")) return "SIT";
-  return "CR";
-}
+export { normaliseTracker } from "./_document-reference";
 
 let mysql2: any = null;
 try {
@@ -1702,28 +1697,10 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
       // first match.
       let refNo: string | undefined;
       try {
-        const moduleNames = (execFile?.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
-        const eQuotaIdx = moduleNames.findIndex((m) => m.toLowerCase() === "equota");
-        if (eQuotaIdx > 0) moduleNames.unshift(...moduleNames.splice(eQuotaIdx, 1));
-        const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
-        for (const moduleName of moduleNames.length > 0 ? moduleNames : [""]) {
-          const [regEntry] = await db
-            .select()
-            .from(documentRegisterTable)
-            .where(
-              and(
-                ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
-                ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
-                eq(documentRegisterTable.tracker, tracker),
-              )
-            )
-            .limit(1);
-          if (regEntry) {
-            refNo = regEntry.refNo;
-            console.log(`[send-verdict] refNo=${refNo} (project=${projectName} module=${moduleName} tracker=${tracker})`);
-            break;
-          }
-        }
+        refNo = await resolveDocumentReference({
+          projectId: execFile?.projectId, projectName,
+          selectedModules: execFile?.selectedModules, tracker: issueType ?? execFile?.tracker ?? "",
+        });
       } catch (err) {
         console.warn("[send-verdict] document register lookup failed:", err);
       }

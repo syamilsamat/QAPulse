@@ -1,3 +1,4 @@
+import { resolveDocumentReference } from "./_document-register";
 import { Router, type IRouter } from "express";
 import { eq, and, sql, inArray, notInArray, ilike, isNull } from "drizzle-orm";
 import {
@@ -16,7 +17,6 @@ import {
   milestonesTable,
   notificationsTable,
   projectMembersTable,
-  documentRegisterTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
@@ -27,7 +27,7 @@ import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPha
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI, type ExcelEvidenceLink } from "./excel-builder";
 import { buildZip, type ZipEntry } from "./zip-writer";
-import { fetchActiveDefectsForIssue, normaliseTracker } from "./verdict-report";
+import { fetchActiveDefectsForIssue } from "./verdict-report";
 
 const router: IRouter = Router();
 
@@ -2279,27 +2279,10 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
     // fall through the rest in their original order and use the first match.
     let refNo: string | undefined;
     try {
-      const moduleNames = (file?.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
-      const eQuotaIdx = moduleNames.findIndex((m) => m.toLowerCase() === "equota");
-      if (eQuotaIdx > 0) moduleNames.unshift(...moduleNames.splice(eQuotaIdx, 1));
-      const tracker = normaliseTracker(typeLabel);
-      for (const moduleName of moduleNames.length > 0 ? moduleNames : [""]) {
-        const [regEntry] = await db
-          .select()
-          .from(documentRegisterTable)
-          .where(
-            and(
-              ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
-              ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
-              eq(documentRegisterTable.tracker, tracker),
-            )
-          )
-          .limit(1);
-        if (regEntry) {
-          refNo = regEntry.refNo;
-          break;
-        }
-      }
+      refNo = await resolveDocumentReference({
+        projectId: file?.projectId, projectName,
+        selectedModules: file?.selectedModules, tracker: typeLabel,
+      });
     } catch (err) {
       console.warn("[download-excel] document register lookup failed:", err);
     }
