@@ -490,6 +490,7 @@ interface RequirementTimelineEntry {
   status: string;
   parentId: number | null;
   timeline: PhaseSegment[];
+  actualWorkStartedAt: string | null;
 }
 
 // Batches activity-log and execution rows for the whole milestone in two
@@ -565,6 +566,19 @@ export async function computeRequirementTimelinesBatch(
       .where(inArray(executionTestCasesTable.requirementId, reqIds)),
   ]);
 
+  // Actual work excludes record creation/import and assignment-only events.
+  const workEventTypes = new Set(["requirement_submit", "requirement_approve", "requirement_reject", "requirement_dev_start", "requirement_dev_ready_for_qa", "requirement_dev_return_to_dev", "requirement_return_to_fa"]);
+  const workStartedByReq = new Map<number, Date>();
+  for (const row of activityRows) {
+    if (row.entityId != null && workEventTypes.has(row.type) && !workStartedByReq.has(row.entityId)) {
+      workStartedByReq.set(row.entityId, row.createdAt);
+    }
+  }
+  for (const row of execRows) {
+    if (row.requirementId == null || !row.executedAt) continue;
+    const previous = workStartedByReq.get(row.requirementId);
+    if (!previous || row.executedAt < previous) workStartedByReq.set(row.requirementId, row.executedAt);
+  }
   const activityByReq = new Map<number, { type: string; createdAt: Date }[]>();
   for (const row of activityRows) {
     if (row.entityId == null || !RELEVANT_EVENT_TYPES.includes(row.type)) continue;
@@ -614,7 +628,7 @@ export async function computeRequirementTimelinesBatch(
       status = "Approved · awaiting Dev";
     }
 
-    out.get(milestoneId)!.push({ id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline });
+    out.get(milestoneId)!.push({ id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline, actualWorkStartedAt: workStartedByReq.get(r.id)?.toISOString() ?? null });
   }
 
   return out;
@@ -1087,6 +1101,8 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
           .select({
             id: requirementsTable.id,
             createdBy: requirementsTable.createdBy,
+            parentId: requirementsTable.parentId,
+            redmineTicketId: requirementsTable.redmineTicketId,
             approvedBy: requirementsTable.approvedBy,
             devAssigneeId: requirementsTable.devAssigneeId,
             devAssignedBy: requirementsTable.devAssignedBy,
@@ -1218,6 +1234,14 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
     const entries = timelinesByMilestone.get(m.id) ?? [];
     if (entries.length === 0) continue;
 
+    const milestoneRequirementIds = new Set(entries.map((entry) => entry.id));
+    const parentRedmineIds = [...new Set(entries.flatMap((entry) => {
+      const info = extraById.get(entry.id);
+      // Roots of the linked requirement trees, never child-ticket IDs.
+      return info?.redmineTicketId && (info.parentId == null || !milestoneRequirementIds.has(info.parentId))
+        ? [info.redmineTicketId] : [];
+    }))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const actualStartDate = entries.map((entry) => entry.actualWorkStartedAt).filter((date): date is string => !!date).sort()[0] ?? null;
     let pipelineState: PipelineState | null = null;
     if (m.pipelineEnabled) {
       const milestoneFiles = pipelineFilesByMilestone.get(m.id) ?? [];
@@ -1326,6 +1350,11 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
         milestoneName: m.name,
         milestonePriority: (m as any).priority ?? null,
         milestoneStatus: m.status,
+        parentRedmineIds,
+        targetStartDate: m.startDate?.toISOString() ?? null,
+        targetEndDate: m.targetDate?.toISOString() ?? null,
+        actualStartDate,
+        actualEndDate: m.status === "completed" ? m.completedAt?.toISOString() ?? null : null,
         phase: effectivePhase,
         phaseLabel: effectiveLabel,
         statusLabel: pipelineState ? effectiveLabel : entry.status,

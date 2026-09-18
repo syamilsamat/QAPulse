@@ -45,6 +45,11 @@ interface TaskBoardRow {
   milestoneId: number;
   milestoneName: string;
   milestonePriority: string | null;
+  parentRedmineIds?: string[];
+  targetStartDate?: string | null;
+  targetEndDate?: string | null;
+  actualStartDate?: string | null;
+  actualEndDate?: string | null;
   milestoneStatus: string;
   phase: "requirements" | "gap" | "develop" | "qa" | "uat";
   phaseLabel: string;
@@ -126,8 +131,8 @@ function MilestoneStatusBadge({ status }: { status: string }) {
   }
 }
 
-function fmtDate(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleDateString() : "—";
+function fmtDate(iso: string | null | undefined): string {
+  return iso ? new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 }
 
 
@@ -538,9 +543,14 @@ function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
     PIC: PIC_DEPARTMENTS.map((department) => `${department}: ${collectPICs([r])[department].join(", ") || "—"}`).join("\n"),
     "Due Date": r.dueDate ? new Date(r.dueDate).toLocaleDateString() : "",
     "Progress %": r.progress,
+    "Redmine ID (Parent)": r.parentRedmineIds?.map((id) => `#${id}`).join(", ") || "—",
+    "Target Start Date": fmtDate(r.targetStartDate),
+    "Target End Date": fmtDate(r.targetEndDate),
+    "Actual Start Date": fmtDate(r.actualStartDate),
+    "Actual End Date": fmtDate(r.actualEndDate),
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  const headers = ["Milestone", "Priority", "Requirement", "Phase", "Status", "PIC", "Due Date", "Progress %"];
+  const headers = ["Milestone", "Priority", "Requirement", "Phase", "Status", "PIC", "Due Date", "Progress %", "Redmine ID (Parent)", "Target Start Date", "Target End Date", "Actual Start Date", "Actual End Date"];
   headers.forEach((_, c) => {
     const ref = XLSX.utils.encode_cell({ r: 0, c });
     if (ws[ref]) {
@@ -756,7 +766,7 @@ export default function Tasks() {
         const avgProgress = Math.round(g.rows.reduce((sum, r) => sum + r.progress, 0) / g.rows.length);
         const phaseCounts: Record<string, number> = {};
         for (const r of g.rows) phaseCounts[r.phase] = (phaseCounts[r.phase] ?? 0) + 1;
-        return { ...g, avgProgress, phaseCounts, pics: collectPICs(g.rows) };
+        return { ...g, avgProgress, phaseCounts, pics: collectPICs(g.rows), dates: g.rows[0] };
       })
       .sort((a, b) => a.milestoneName.localeCompare(b.milestoneName));
   }, [filtered]);
@@ -877,34 +887,40 @@ export default function Tasks() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table className="table-fixed min-w-[1200px]">
+            <Table className="table-fixed min-w-[2100px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[16%]">Milestone</TableHead>
-                  <TableHead className="w-[9%]">Project</TableHead>
-                  <TableHead className="w-[8%]">Priority</TableHead>
-                  <TableHead className="w-[23%]">PIC</TableHead>
-                  <TableHead className="w-[10%]">Status</TableHead>
-                  <TableHead className="w-[9%]">Requirements</TableHead>
-                  <TableHead className="w-[13%]">Phases</TableHead>
-                  <TableHead className="w-[10%]">Progress</TableHead>
-                  <TableHead className="w-[8%]">Go-Live</TableHead>
+                  <TableHead className="w-[220px] sticky left-0 z-10 bg-card">Milestone</TableHead>
+                  <TableHead className="w-[150px]">Project</TableHead>
+                  <TableHead className="w-[150px]">Redmine ID (Parent)</TableHead>
+                  <TableHead className="w-[130px]">Priority</TableHead>
+                  <TableHead className="w-[250px]">PIC</TableHead>
+                  <TableHead className="w-[140px]">Status</TableHead>
+                  <TableHead className="w-[150px]">Requirements</TableHead>
+                  <TableHead className="w-[180px]">Phases</TableHead>
+                  <TableHead className="w-[140px]">Progress</TableHead>
+                  <TableHead className="w-[145px]">Target Start Date</TableHead>
+                  <TableHead className="w-[145px]">Target End Date</TableHead>
+                  <TableHead className="w-[145px]">Actual Start Date</TableHead>
+                  <TableHead className="w-[145px]">Actual End Date</TableHead>
+                  <TableHead className="w-[130px]">Go-Live</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedMilestones.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={14} className="text-center text-muted-foreground py-10">
                       No milestones match your filters.
                     </TableCell>
                   </TableRow>
                 ) : (
                   paginatedMilestones.map((g) => (
                     <TableRow key={g.milestoneId} id={highlightRowId(g.milestoneId)}>
-                      <TableCell className="font-medium truncate" title={g.milestoneName}>{g.milestoneName}</TableCell>
+                      <TableCell className="font-medium truncate sticky left-0 z-10 bg-card" title={g.milestoneName}>{g.milestoneName}</TableCell>
                       <TableCell className="truncate text-sm text-muted-foreground">
                         {g.projectId != null ? projectNameById.get(g.projectId) ?? "—" : "—"}
                       </TableCell>
+                      <TableCell className="text-sm break-words">{g.dates.parentRedmineIds?.map((id) => `#${id}`).join(", ") || "—"}</TableCell>
                       <TableCell><PriorityBadge priority={g.milestonePriority} /></TableCell>
                       <TableCell className="align-top text-xs">
                         <div className="space-y-1">
@@ -946,6 +962,10 @@ export default function Tasks() {
                           <span className="text-xs text-muted-foreground">{g.avgProgress}%</span>
                         </div>
                       </TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.targetStartDate)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.targetEndDate)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.actualStartDate)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.actualEndDate)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{fmtDate(g.goLiveDate)}</TableCell>
                     </TableRow>
                   ))
