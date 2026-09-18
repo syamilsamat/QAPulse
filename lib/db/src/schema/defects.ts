@@ -51,6 +51,13 @@ export const defectsTable = pgTable(
     // only by Lead-tier+ users (see getRoleTierRank in middleware/access.ts).
     defectCategory: text("defect_category"),
     redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }), // issue created_on
+    // CR080 — QA-sourced defects only, gates the New Defect -> Fixed/Resolved
+    // transition for Critical/High severity (see GATE_RESOLVED_STATES in
+    // routes/defects.ts). QM Pulse-native, deliberately not pushed to Redmine —
+    // same "local only" precedent as defectCategory below.
+    rootCause: text("root_cause"),
+    rootCauseCategory: text("root_cause_category"), // code_defect | configuration | data_issue | environment | requirement_gap | third_party
+    resolutionSummary: text("resolution_summary"),
     // CR020 escape review (production defects only)
     escapeStatus: text("escape_status").notNull().default("pending"), // pending | analyzing | closed
     escapeClass: text("escape_class"), // coverage_gap | selection_gap | passed_wrongly

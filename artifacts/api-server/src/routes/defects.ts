@@ -157,6 +157,13 @@ async function canSetDefectCategory(role: string): Promise<boolean> {
   return (await getRoleTierRank(role)) >= 2;
 }
 
+// CR080 — root cause taxonomy for the fields the gate below requires on
+// Critical/High QA-sourced defects. No tier gate, unlike DEFECT_CATEGORIES —
+// whoever can already change the defect's status can fill these in.
+const ROOT_CAUSE_CATEGORIES = [
+  "code_defect", "configuration", "data_issue", "environment", "requirement_gap", "third_party",
+] as const;
+
 // CR061 — title/description/tracker can be wrong at creation and Redmine
 // won't let just anyone edit them once synced, so this is deliberately
 // narrower than the general project-access gate: the original reporter (they
@@ -1003,6 +1010,22 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       }
     }
 
+    // CR080 — root cause & resolution gate. Same QA-sourced boundary as the
+    // code-review gate above, and independently enforced (both can block the
+    // same transition). Only Critical/High severity is mandatory — Medium/Low
+    // stays optional, not worth the overhead on a typo-class fix. The fields
+    // themselves are set via PATCH /defects/:id (same as escapeNotes etc.),
+    // so this only checks what's already on the row.
+    if (GATE_RESOLVED_STATES.test(statusRow.name) && defect.source === "qa" && (defect.severity === "critical" || defect.severity === "high")) {
+      if (!defect.rootCause?.trim() || !defect.resolutionSummary?.trim()) {
+        if (verificationEvidence) {
+          await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));
+        }
+        res.status(409).json({ error: "Root cause and resolution are required for a High/Critical severity defect before it can be marked Fixed/Resolved." });
+        return;
+      }
+    }
+
     // Write-through: Redmine is still the record. Only defects without a
     // Redmine id (pending sync) may change status locally.
     if (defect.redmineId) {
@@ -1664,7 +1687,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     const patch: Record<string, any> = {};
-    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker", "expectedResult", "actualResult", "foundIn", "milestoneId"]) {
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker", "expectedResult", "actualResult", "foundIn", "milestoneId", "rootCause", "rootCauseCategory", "resolutionSummary"]) {
       if (key in (req.body ?? {})) patch[key] = req.body[key];
     }
     if ("defectCategory" in patch) {
@@ -1673,6 +1696,10 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
         return;
       }
       if (!(await canSetDefectCategory(ctx.role))) delete patch.defectCategory;
+    }
+    if ("rootCauseCategory" in patch && patch.rootCauseCategory != null && !ROOT_CAUSE_CATEGORIES.includes(patch.rootCauseCategory)) {
+      res.status(400).json({ error: "Invalid rootCauseCategory" });
+      return;
     }
     // CR061 — the defect's own "info" fields (everything the New Defect
     // dialog collects, minus Redmine-creation-only bits like assignee/

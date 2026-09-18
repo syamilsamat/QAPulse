@@ -28,6 +28,7 @@ import {
   Eye,
   Download,
   FileCheck2,
+  Wrench,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DefectReviewSection } from "@/components/DefectReviewSection";
@@ -68,6 +69,7 @@ import {
 } from "@/lib/execution-api";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
 import { defectCategoryLabel } from "@/lib/defect-categories";
+import { ROOT_CAUSE_CATEGORIES } from "@/lib/root-cause-categories";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -110,6 +112,9 @@ interface DefectRow {
   tracker: string | null;
   category: string | null;
   defectCategory: string | null;
+  rootCause: string | null;
+  rootCauseCategory: string | null;
+  resolutionSummary: string | null;
   redmineCreatedAt: string | null;
   escapeStatus: string;
   escapeClass: string | null;
@@ -945,6 +950,64 @@ export default function Defects() {
                   {d.source === "qa" && d.assigneeId != null && (
                     <DefectReviewSection defectId={d.id} assigneeId={d.assigneeId} />
                   )}
+
+                  {/* CR080: root cause & resolution — QA-sourced defects only.
+                      Mandatory for Critical/High severity before the status
+                      gate above allows Fixed/Resolved; saved independently via
+                      PATCH /defects/:id (same generic patch as escape notes). */}
+                  {d.source === "qa" && (() => {
+                    const needsRootCause = (d.severity === "critical" || d.severity === "high") && (!d.rootCause?.trim() || !d.resolutionSummary?.trim());
+                    return (
+                      <div
+                        className={`rounded-md border px-3 py-2.5 space-y-2 ${
+                          needsRootCause ? "border-dashed border-violet-300 bg-violet-50/60 dark:bg-violet-950/20" : "bg-background"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className="text-xs font-semibold flex items-center gap-1.5">
+                            <Wrench className="w-3.5 h-3.5 text-violet-600" />
+                            Root Cause &amp; Resolution
+                          </p>
+                          {needsRootCause && (
+                            <Badge className="bg-violet-100 text-violet-700 hover:bg-violet-100 text-[10px] capitalize">
+                              Required &middot; {d.severity} severity
+                            </Badge>
+                          )}
+                        </div>
+                        <Select
+                          value={d.rootCauseCategory ?? ""}
+                          onValueChange={(v) => handleEscapePatch(d, { rootCauseCategory: v })}
+                        >
+                          <SelectTrigger className="w-56 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                            <SelectValue placeholder="Root cause category..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ROOT_CAUSE_CATEGORIES.map((c) => (
+                              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Textarea
+                          placeholder="Root cause detail — what actually went wrong?"
+                          defaultValue={d.rootCause ?? ""}
+                          className="text-xs min-h-14"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            if (e.target.value !== (d.rootCause ?? "")) handleEscapePatch(d, { rootCause: e.target.value });
+                          }}
+                        />
+                        <Textarea
+                          placeholder="Resolution / fix summary — what was changed to fix it?"
+                          defaultValue={d.resolutionSummary ?? ""}
+                          className="text-xs min-h-14"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            if (e.target.value !== (d.resolutionSummary ?? "")) handleEscapePatch(d, { resolutionSummary: e.target.value });
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
 
                   {/* Linked TCs */}
                   {d.links.length === 0 && <p className="text-xs text-muted-foreground">No linked test cases.</p>}

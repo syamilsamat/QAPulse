@@ -63,6 +63,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR053](#cr053--return-to-fa-flow) | Return-to-FA Flow | ✅ Deployed | 2026-07-18 |
 | [CR078](#cr078--compact-tc-numbering-on-the-execution-sheet) | Compact TC Numbering on the Execution Sheet | ✅ Deployed | 2026-09-15 |
 | [CR079](#cr079--platform-issues-internal-bug-tracking-for-qm-pulse) | Platform Issues (Internal Bug Tracking for QM Pulse) | ✅ Deployed | 2026-09-15 |
+| [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
 
 ---
 
@@ -1615,5 +1616,47 @@ It is a single statement on purpose. Data-modifying CTEs within one statement al
 **Sequencing:** no dependency on CR019–CR021 — separate table, no Redmine bridge. Mockup drafted 2026-09-15, built same day.
 
 **Addendum (2026-09-17) — Email escalation for blocking/major issues:** `notifyAdmins()` only reaches an admin who already has QM Pulse open in a tab (in-app notification + SSE ping) — nobody finds out about an urgent report until they next log in and check the bell icon. Added `sendDevAlertEmail()` in `platform-issues.ts`, fired (fire-and-forget, errors logged not thrown) on `POST /platform-issues` when `severity` is `blocking` or `major` — `minor` stays in-app-only to avoid inbox noise. Reuses the same Office 365 SMTP config as the PMO report (`verdict-report.ts`): `SMTP_HOST`/`PORT`/`SECURE`/`USER`/`PASS`, `EMAIL_FROM`. Recipients are hardcoded to `syamil.samat@bestinet.com.my` and `raimi.rosman@bestinet.com.my` (not an env var — a fixed two-person dev list, unlike `PMO_EMAIL_TO` which varies per report send). Link back to `/platform-issues` in the email body is best-effort, derived from the first entry in `CORS_ORIGIN`; omitted if unset. `pnpm --filter api-server typecheck` clean. Not exercised against a live SMTP send in this environment.
+
+---
+
+### CR080 — Defect Root Cause & Resolution
+**Status: ✅ Deployed (2026-09-18)**
+
+**Origin:** `defects` today has no field for *why* a defect happened or *how* it was fixed — `description`/`stepsToReproduce`/`expectedResult`/`actualResult` capture the QA-reported symptom, but nothing captures the dev's diagnosis once it's fixed. Verified against the schema (`defects.ts`) and `REDMINE_DEFECT_FIELD_MAPPING.md` before scoping this — neither QM Pulse nor the Redmine QA Defect Tracking Form has an equivalent field today, so this is new ground, not a gap in an existing mapping. Mockup drafted as a Design canvas artifact (interactive Defect Detail + lifecycle diagram) walking through the exact fill-in flow before this write-up.
+
+**Why this matters:** without a recorded root cause, a recurring defect (same bug, different sprint) can't be spotted as a pattern, and retrospectives have nothing but a title to go on. Industry-standard practice ties this to severity — mandatory for Critical/High (the ones worth analyzing so they don't recur), optional for Medium/Low (not worth the overhead on a typo-class fix).
+
+**Data model — new columns on `defectsTable`, no new table:**
+- `rootCause` (text, nullable) — free-text diagnosis
+- `rootCauseCategory` (text, nullable) — fixed taxonomy: `code_defect | configuration | data_issue | environment | requirement_gap | third_party`
+- `resolutionSummary` (text, nullable) — free-text fix description
+
+QM Pulse-native only, deliberately **not** pushed to Redmine — mirrors the precedent already set by `defectCategory` (CR029), which the schema comment calls out as "independent of the Redmine category... deliberately local-only." Redmine's Description concatenation (`description + expectedResult + actualResult`, per the field-mapping doc) stays as-is; folding freeform root-cause text into that write-through would corrupt it for no benefit, since the QA Defect Tracking Form has no matching field to receive it anyway.
+
+Requires `pnpm --filter @workspace/db push` — same as CR029's `defectCategory` column, `defects` has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL of its own.
+
+**Implementation deviates from the original plan below** — once in the code, the existing "Escape analysis" section (production defects, `escapeStatus`/`escapeClass`/`escapeNotes`) turned out to be the closer precedent than the `verificationTarget` dialog: it's the same shape of problem (freeform diagnostic fields on a defect row) solved with inline Select/Textarea controls that `onBlur`-save via the *generic* `PATCH /defects/:id`, no dialog, no bundling into the status-change request. Reusing that exact pattern for root cause/resolution meant the status endpoint only has to *check* the fields, not *carry* them — simpler on both ends, and one fewer state shape in `Defects.tsx`.
+
+**Backend gate (`defects.ts`, `PATCH /defects/:id/status`):** a second gate alongside the existing code-review gate (now at line ~973–1002), checked in the same place — after the code-review check, before the Redmine write-through — so both can independently block the same transition:
+- Applies only when `GATE_RESOLVED_STATES.test(statusRow.name)`, `defect.source === "qa"`, and `defect.severity` is `critical` or `high` — same QA-sourced boundary the code-review gate already draws; production/escape defects keep their separate `escapeStatus`/`escapeClass`/`escapeNotes` lifecycle (CR020) untouched (see Not Yet Scoped below). Medium/Low stays optional — the check doesn't run at all.
+- Reads `defect.rootCause`/`defect.resolutionSummary` off the row already fetched earlier in the handler (set beforehand via the PATCH below) — no new request-body fields on this endpoint. Reject with `409 { error: "Root cause and resolution are required for a High/Critical severity defect before it can be marked Fixed/Resolved." }` unless both are present and non-empty after trim; same verification-evidence cleanup on failure the code-review gate already does.
+
+**Backend fields (`defects.ts`, `PATCH /defects/:id`):** `rootCause`, `rootCauseCategory`, `resolutionSummary` added to the generic patch field allowlist alongside `escapeStatus`/`escapeClass`/`escapeNotes`. `rootCauseCategory` validated against a new `ROOT_CAUSE_CATEGORIES` const (`code_defect | configuration | data_issue | environment | requirement_gap | third_party`) — `400` on an unrecognized value, same style as the existing `defectCategory` check. No tier gate (unlike `defectCategory`, which needs Lead-tier+) — these aren't in `infoFields` either, so no reporter/qa_lead restriction: anyone who can already reach this defect can fill them in, same as `escapeNotes` today.
+
+**Frontend (`Defects.tsx`):** a new card in the expanded defect row, right after the `DefectReviewSection` code-review card, gated to `d.source === "qa"`. Category `Select` + two `Textarea`s (root cause detail, resolution/fix summary), each saving independently `onBlur` via the same `handleEscapePatch` helper the escape-analysis section already uses (a plain `PATCH /defects/:id` wrapper — reused as-is rather than renamed, since it was already fully generic). When severity is Critical/High and either field is still empty, the card gets a dashed violet border and a "Required · {severity} severity" badge so the gate reads as an in-context warning, not a rejected click. New `lib/root-cause-categories.ts` (mirrors `lib/defect-categories.ts`'s shape) for the taxonomy + label lookup.
+
+**Access:** no new role gate — whoever already has permission to change the defect's status (existing project/module access check) can fill these in at the same moment, or ahead of time. Not restricted to the assignee, since a lead sometimes closes out a defect on a dev's behalf.
+
+**Not yet scoped / open questions:**
+- **Production defects (`source === "production"`):** these already carry `escapeNotes` (CR020), which overlaps in intent with `resolutionSummary`. Whether to extend this gate to escape defects too, fold `escapeNotes` into this instead, or keep them deliberately separate (escape review is triage speed, this is a peer-reviewed fix record) is a decision for whoever picks this up — flagging it here rather than guessing.
+- **Editing after the fact:** v1 has no edit UI once the fields are set at the Fixed/Resolved transition — a dev who wants to refine wording later has no path to do so. Natural follow-up once real usage shows whether this is actually needed.
+- **Analytics:** not fed into CR026's QA analytics dashboard (recurring-root-cause reporting, category breakdowns) in v1 — the data needs to exist first before a dashboard view is worth building.
+- **Backfill:** defects already sitting in Fixed/Resolved/Closed before this ships are grandfathered with `null` values — no retroactive data entry, no historical-quality report (unlike CR079's bug.md backfill, there's no source text to backfill *from* here).
+
+**Scope:** `lib/db/src/schema/defects.ts` (3 new nullable columns). `artifacts/api-server/src/routes/defects.ts` (`ROOT_CAUSE_CATEGORIES` const, gate in `PATCH /defects/:id/status`, field allowlist + validation in `PATCH /defects/:id`). `artifacts/qm-pulse/src/lib/root-cause-categories.ts` (new). `artifacts/qm-pulse/src/pages/Defects.tsx` (`DefectRow` interface + new card).
+
+**Verified:** `pnpm run typecheck` clean across all workspace packages (`lib/db`, `api-server`, `qm-pulse`, `scripts`, `mockup-sandbox`). **Not yet exercised against a live database** — no `DATABASE_URL` configured in this environment (same gap CR079 hit), so `pnpm --filter @workspace/db push` has not been run and the card has not been clicked through in a browser. Next step before this is truly done: push the schema, then smoke-test the fill-in flow and the Fixed/Resolved gate against a real Critical/High QA defect.
+
+**Sequencing:** no dependency on CR021 (native lifecycle cutover) — this rides on the existing Redmine-backed status transition endpoint exactly as the code-review and verification-evidence gates already do, and needs no changes if/when CR021 later swaps the status source.
 
 ---
