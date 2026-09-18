@@ -1301,19 +1301,35 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       // A QA Pipeline milestone names its FA/Dev/QA owners up front in Step 2,
       // rather than letting them accrue from workflow events. Where such
       // explicit owners exist they win for that department — a direct statement
-      // of who's accountable beats an inference. Departments left unassigned
-      // still fall back to the derived names above, so a partially staffed
-      // pipeline doesn't lose the information it does have.
+      // of who's accountable beats an inference.
       const pipelineNames = (ids: number[] | null) =>
         (ids ?? []).map((id) => usersById.get(id)?.name).filter((n): n is string => !!n);
       const pipelineFa = pipelineNames(info.pipelineFaIds);
       const pipelineDev = pipelineNames(info.pipelineDevIds);
       const pipelineQa = pipelineNames(info.pipelineQaIds);
-      const picByDepartment = {
-        FA: [...new Set(pipelineFa.length > 0 ? pipelineFa : faAll)],
-        Dev: [...new Set(pipelineDev.length > 0 ? pipelineDev : devAll)],
-        QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
-      };
+
+      // On a pipeline milestone the FA and Dev fallbacks are not just weaker
+      // evidence, they are evidence of something that never happened: faAll
+      // reads createdBy/approvedBy and devAll reads devAssigneeId, and a
+      // pipeline runs neither the FA approval nor the dev handoff that set
+      // those. The result was rows attributing a milestone's FA to whoever
+      // imported the requirement — "Admin User" — which reads to a manager as
+      // a real assignment. Unassigned means unassigned here, so the column
+      // shows a dash.
+      //
+      // QA keeps its fallback: those names come from the execution files' QA
+      // PIC, which IS a pipeline artifact (steps 3–4), not an inference.
+      const picByDepartment = m.pipelineEnabled
+        ? {
+            FA: [...new Set(pipelineFa)],
+            Dev: [...new Set(pipelineDev)],
+            QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+          }
+        : {
+            FA: [...new Set(pipelineFa.length > 0 ? pipelineFa : faAll)],
+            Dev: [...new Set(pipelineDev.length > 0 ? pipelineDev : devAll)],
+            QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+          };
       const assignee = [
         `FA: ${fmtNames(picByDepartment.FA)}`,
         `Dev: ${fmtNames(picByDepartment.Dev)}`,
@@ -1350,6 +1366,10 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
         milestoneName: m.name,
         milestonePriority: (m as any).priority ?? null,
         milestoneStatus: m.status,
+        // Lets the Tasks board say a milestone runs on the QA Pipeline, which
+        // is what explains its empty FA/Dev columns and its gate-based phase
+        // labels rather than the usual FA→Dev→QA progression.
+        pipelineEnabled: !!m.pipelineEnabled,
         parentRedmineIds,
         targetStartDate: m.startDate?.toISOString() ?? null,
         targetEndDate: m.targetDate?.toISOString() ?? null,

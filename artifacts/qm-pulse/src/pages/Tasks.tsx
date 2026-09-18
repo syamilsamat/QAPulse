@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, Workflow } from "lucide-react";
 
 // CR060 — Tasks is a read-only, auto-populated rollup of requirements within
 // their milestones (no manual creation). CR073 removed GET
@@ -51,6 +51,10 @@ interface TaskBoardRow {
   actualStartDate?: string | null;
   actualEndDate?: string | null;
   milestoneStatus: string;
+  // Milestones running on the QA Pipeline don't go through FA approval or dev
+  // handoff, so their FA/Dev PICs are legitimately empty and their phase comes
+  // from the pipeline's gates. Flagged so the board can say so.
+  pipelineEnabled?: boolean;
   phase: "requirements" | "gap" | "develop" | "qa" | "uat";
   phaseLabel: string;
   statusLabel: string;
@@ -747,6 +751,7 @@ export default function Tasks() {
     const groups = new Map<number, {
       milestoneId: number; milestoneName: string; milestonePriority: string | null;
       milestoneStatus: string; projectId: number | null; goLiveDate: string | null;
+      pipelineEnabled: boolean;
       rows: TaskBoardRow[];
     }>();
     for (const r of filtered) {
@@ -755,6 +760,7 @@ export default function Tasks() {
         g = {
           milestoneId: r.milestoneId, milestoneName: r.milestoneName, milestonePriority: r.milestonePriority,
           milestoneStatus: r.milestoneStatus, projectId: r.projectId, goLiveDate: r.goLiveDate,
+          pipelineEnabled: !!r.pipelineEnabled,
           rows: [],
         };
         groups.set(r.milestoneId, g);
@@ -916,7 +922,21 @@ export default function Tasks() {
                 ) : (
                   paginatedMilestones.map((g) => (
                     <TableRow key={g.milestoneId} id={highlightRowId(g.milestoneId)}>
-                      <TableCell className="font-medium truncate sticky left-0 z-10 bg-card" title={g.milestoneName}>{g.milestoneName}</TableCell>
+                      <TableCell className="font-medium sticky left-0 z-10 bg-card" title={g.milestoneName}>
+                        <div className="truncate">{g.milestoneName}</div>
+                        {/* Says why this row's FA/Dev are blank and why its
+                            phase reads as a pipeline gate rather than the usual
+                            FA→Dev→QA progression. */}
+                        {g.pipelineEnabled && (
+                          <Badge
+                            variant="outline"
+                            className="mt-1 h-4 text-[10px] font-normal gap-1 bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800"
+                            title="Runs on the QA Pipeline — QA-led, with no FA approval or dev handoff stage"
+                          >
+                            <Workflow className="w-2.5 h-2.5" /> QA Pipeline
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell className="truncate text-sm text-muted-foreground">
                         {g.projectId != null ? projectNameById.get(g.projectId) ?? "—" : "—"}
                       </TableCell>
@@ -924,12 +944,24 @@ export default function Tasks() {
                       <TableCell><PriorityBadge priority={g.milestonePriority} /></TableCell>
                       <TableCell className="align-top text-xs">
                         <div className="space-y-1">
-                          {PIC_DEPARTMENTS.map((department) => (
-                            <div key={department} className="flex gap-2">
-                              <span className="w-7 shrink-0 font-semibold">{department}:</span>
-                              <span className="min-w-0 break-words text-muted-foreground">{g.pics[department].join(", ") || "—"}</span>
-                            </div>
-                          ))}
+                          {PIC_DEPARTMENTS.map((department) => {
+                            // On a pipeline milestone an empty FA/Dev is by
+                            // design, not an unfilled slot — spell that out so
+                            // the dash doesn't read as someone to chase.
+                            const notApplicable =
+                              g.pipelineEnabled && department !== "QA" && g.pics[department].length === 0;
+                            return (
+                              <div key={department} className="flex gap-2">
+                                <span className="w-7 shrink-0 font-semibold">{department}:</span>
+                                <span
+                                  className="min-w-0 break-words text-muted-foreground"
+                                  title={notApplicable ? "Not part of the QA Pipeline flow" : undefined}
+                                >
+                                  {g.pics[department].join(", ") || "—"}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       </TableCell>
                       <TableCell><MilestoneStatusBadge status={g.milestoneStatus} /></TableCell>
