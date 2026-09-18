@@ -6,6 +6,7 @@ import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyRolesInProject, notifyUser } from "./_notify";
 import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow } from "./lessons-learned-excel";
+import { syncMilestoneStatus } from "../lib/milestone-status";
 
 const router: IRouter = Router();
 
@@ -514,7 +515,18 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
 
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
   await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
-  res.json(fmt(updated));
+
+  // Don't fight a status the caller just set explicitly in this same request —
+  // otherwise re-sync (e.g. after signedOffAt changed) so the response
+  // reflects any auto-advance immediately instead of on the next load.
+  let responseMilestone = updated;
+  if (req.body.status === undefined) {
+    await syncMilestoneStatus(id);
+    const [fresh] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+    if (fresh) responseMilestone = fresh;
+  }
+
+  res.json(fmt(responseMilestone));
 });
 
 // ── CR054p2: milestone staffing ─────────────────────────────────────────────

@@ -23,6 +23,7 @@ import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope }
 import { logActivity } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
 import { canReview, canApproveExecutionFile, reviewRoleNames, fileApprovalRoleNames } from "../lib/review-eligibility";
+import { syncMilestoneStatus } from "../lib/milestone-status";
 import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI, type ExcelEvidenceLink } from "./excel-builder";
@@ -545,6 +546,10 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       }
     }
 
+    if ((file as any).milestoneId != null) {
+      await syncMilestoneStatus((file as any).milestoneId);
+    }
+
     res.status(201).json({
       id: file.id,
       redmineTicketId: file.redmineTicketId,
@@ -981,6 +986,10 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
         id,
         ctx.userId,
       ).catch(() => {});
+    }
+
+    if ((action === "approve" || action === "reject") && (file_ as any).milestoneId != null) {
+      await syncMilestoneStatus((file_ as any).milestoneId);
     }
 
     res.json(updated);
@@ -2026,6 +2035,10 @@ router.post(
             }
           }
         }
+      }
+
+      if (file.milestoneId != null) {
+        await syncMilestoneStatus(file.milestoneId);
       }
 
       // 6. Trigger live update to dashboard

@@ -4,6 +4,7 @@ import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
 import { canReview, reviewRoleNames } from "../lib/review-eligibility";
+import { syncMilestoneStatus } from "../lib/milestone-status";
 import { getNameDirectory } from "../lib/lookups";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { computeRequirementTimelines, buildPhaseTimeline } from "./dashboard";
@@ -880,6 +881,10 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
         excludeUserIds: recipients,
       }).catch(() => {});
     }
+  }
+
+  if (action === "approve" && updated.milestoneId != null) {
+    await syncMilestoneStatus(updated.milestoneId);
   }
 
   res.json(await formatRequirement(updated));
