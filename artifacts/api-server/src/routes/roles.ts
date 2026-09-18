@@ -287,6 +287,20 @@ export async function bootstrap() {
       )
     `),
     pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`),
+    // Persistent library references, independent of execution evidence.
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS test_case_attachments (
+        id SERIAL PRIMARY KEY,
+        test_case_id INTEGER NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data_base64 TEXT NOT NULL,
+        uploaded_by INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS test_case_attachments_case_idx ON test_case_attachments(test_case_id)
+    `),
     // Optional evidence attached to Passed execution test cases.
     pool.query(`
       CREATE TABLE IF NOT EXISTS execution_tc_evidence (

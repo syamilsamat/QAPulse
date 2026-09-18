@@ -1,3 +1,4 @@
+import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
 import React, {
   useState,
   useRef,
@@ -733,6 +734,7 @@ const DesktopTableRow = React.memo(
             style={{ left: readOnly ? 0 : "14.5rem" }}
           >
             <span className="text-xs text-muted-foreground font-mono select-all">{row.caseId || row.testCaseId || "—"}</span>
+            <CompiledLibraryAttachments testCaseId={row.libraryTcId} />
           </td>
         )}
         {!hide("userStory") && (
@@ -3145,7 +3147,9 @@ export default function TestCasesExecutionProgressPage() {
         }}
         onDefectCreated={handleDefectCreated}
         testCaseName={defectRow?.caseName ?? defectRow?.scenario ?? ""}
-        stepName={defectRow?.testSteps ?? undefined}
+        testSteps={defectRow?.testSteps ?? undefined}
+        moduleName={defectRow?.moduleName ?? undefined}
+        projectId={currentFileProjectId}
         testCaseId={defectRow?.testCaseId ?? undefined}
         expectedResult={defectRow?.expectedResult ?? undefined}
         parentIssueId={defectParentIssueId}
@@ -4339,6 +4343,7 @@ export default function TestCasesExecutionProgressPage() {
                             );
                           })()}
                           {renderPassEvidence(row, canEdit)}
+                          <CompiledLibraryAttachments testCaseId={row.libraryTcId} />
                         </div>
                         <div>
                           <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
@@ -4558,6 +4563,7 @@ export default function TestCasesExecutionProgressPage() {
                                           );
                                         })()}
                                         {renderPassEvidence(row, canEdit, true)}
+                                        <CompiledLibraryAttachments testCaseId={row.libraryTcId} />
                                       </div>
                                       <div>
                                         <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA PIC</div>

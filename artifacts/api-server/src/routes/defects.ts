@@ -681,7 +681,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineId, title, description, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, tracker } = req.body ?? {};
+    const { redmineId, title, description, stepsToReproduce, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, tracker, projectId: requestedProjectId } = req.body ?? {};
     if (!redmineId || !title) {
       res.status(400).json({ error: "redmineId and title are required" });
       return;
@@ -691,10 +691,20 @@ router.post("/defects/register", async (req, res): Promise<void> => {
       return;
     }
 
+    if (requestedProjectId != null && (!Number.isSafeInteger(requestedProjectId) || requestedProjectId <= 0)) {
+      res.status(400).json({ error: "projectId must be a positive integer" }); return;
+    }
+    if (stepsToReproduce != null && typeof stepsToReproduce !== "string") {
+      res.status(400).json({ error: "stepsToReproduce must be text" }); return;
+    }
+    const normalizedSeverity = typeof severity === "string" ? severity.trim().toLowerCase() : "medium";
+    if (!["critical", "high", "medium", "low"].includes(normalizedSeverity)) {
+      res.status(400).json({ error: "Invalid severity" }); return;
+    }
     const actorId = actorFromReq(req);
     const categoryAllowed = defectCategory != null && (await canSetDefectCategory(ctx.role));
 
-    // derive project + environment from the execution row's file
+    // Derive the default project + environment from the execution row's file.
     let projectId: number | null = null;
     let milestoneId: number | null = null;
     let foundIn = "SIT";
@@ -711,6 +721,10 @@ router.post("/defects/register", async (req, res): Promise<void> => {
         .from(executionTestCasesTable)
         .leftJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
         .where(eq(executionTestCasesTable.id, Number(executionTcId)));
+      if (!row) { res.status(404).json({ error: "Execution test case not found" }); return; }
+      if (!(await canAccessDefectProject(ctx, row.fileProjectId))) {
+        res.status(403).json({ error: "Access denied to the execution project" }); return;
+      }
       if (row) {
         projectId = row.fileProjectId ?? null;
         // CR050 — carry the execution file's milestone onto the defect, same
@@ -722,11 +736,20 @@ router.post("/defects/register", async (req, res): Promise<void> => {
       }
     }
 
+    // Persist the editable QM Pulse selection separately from the Redmine project.
+    if (requestedProjectId != null) {
+      if (requestedProjectId !== projectId) milestoneId = null;
+      projectId = requestedProjectId;
+    }
     if (!(await canAccessDefectProject(ctx, projectId))) {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
 
+    if (projectId != null) {
+      const [project] = await db.select({ id: projectsTable.id }).from(projectsTable).where(eq(projectsTable.id, projectId));
+      if (!project) { res.status(400).json({ error: "QM Pulse project not found" }); return; }
+    }
     const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
     let defect = existing;
     if (!existing) {
@@ -745,9 +768,10 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           .values({
             title: String(title),
             description: description ?? null,
+            stepsToReproduce: stepsToReproduce ?? null,
             expectedResult: expectedResult ?? null,
             actualResult: actualResult ?? null,
-            severity: severity ?? "medium",
+            severity: normalizedSeverity,
             module: module ?? null,
             projectId,
             milestoneId,

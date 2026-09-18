@@ -1,3 +1,4 @@
+import { TestCaseAttachments } from "@/components/TestCaseAttachments";
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1556,6 +1557,7 @@ export default function TestCases() {
                   <DetailItem label="Test Steps" value={tc.testSteps} isCode />
                   <DetailItem label="Expected Result" value={tc.expectedResult} highlight />
                   <DetailItem label="Additional / Comments / Issues" value={tc.comments} />
+                  <TestCaseAttachments testCaseId={tc.id} />
                 </div>
               </div>
             </TableCell>
@@ -1993,6 +1995,7 @@ export default function TestCases() {
                             />
                           </div>
                           <DetailItem label="Comments" value={tc.comments} />
+                          <TestCaseAttachments testCaseId={tc.id} />
                         </div>
                       </CardContent>
                     )}
@@ -2374,6 +2377,7 @@ export default function TestCases() {
               />
             </div>
           </div>
+          {editingTC && <TestCaseAttachments testCaseId={editingTC.id} />}
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0 sm:justify-between w-full">
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             </div>

@@ -47,7 +47,9 @@ interface Props {
   onClose: () => void;
   onDefectCreated: (result: DefectCreationResult) => void;
   testCaseName: string;
-  stepName?: string;
+  testSteps?: string;
+  moduleName?: string;
+  projectId?: number | null;
   testCaseId?: string;
   expectedResult?: string;
   parentIssueId?: string | number | null;
@@ -61,7 +63,9 @@ export default function DefectCreationModal({
   onClose,
   onDefectCreated,
   testCaseName,
-  stepName,
+  testSteps,
+  moduleName,
+  projectId,
   testCaseId,
   expectedResult,
   parentIssueId,
@@ -80,6 +84,7 @@ export default function DefectCreationModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
+  const [stepsToReproduce, setStepsToReproduce] = useState(testSteps ?? "");
   const [actualResult, setActualResult] = useState("");
   const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
   const [defectDescription, setDefectDescription] = useState("");
@@ -117,6 +122,12 @@ export default function DefectCreationModal({
   useEffect(() => {
     if (!open) return;
     setExpectedResultValue(expectedResult ?? "");
+    setStepsToReproduce(testSteps ?? "");
+    setDefectModule(moduleName ?? "");
+    setQmpulseProjectId(projectId ?? null);
+    setDefectDescription("");
+    setActualResult("");
+    setScreenshots([]);
     // Default the subject to the test case's own name — the user can still
     // edit it manually below.
     const prefix = parentIssueId ? `#${parentIssueId} - ` : "";
@@ -131,7 +142,7 @@ export default function DefectCreationModal({
         setQaDefectTrackerId(qa?.id ?? list[0]?.id ?? null);
       })
       .catch(() => {});
-  }, [open, expectedResult, testCaseName, testCaseId, parentIssueId]);
+  }, [open, expectedResult, testCaseName, testCaseId, parentIssueId, testSteps, moduleName, projectId]);
 
   // Load project config when project changes. The assignee list deliberately
   // does NOT reload here: it used to come from the selected project's Redmine
@@ -185,9 +196,10 @@ export default function DefectCreationModal({
 
   const buildDescription = () => {
     let desc = "";
-    if (defectDescription.trim()) desc += `${defectDescription.trim()}\n\n`;
+    if (defectDescription.trim()) desc += `**Description:**\n${defectDescription.trim()}\n\n`;
+    if (stepsToReproduce.trim()) desc += `**Steps to Reproduce:**\n${stepsToReproduce.trim()}\n\n`;
     if (expectedResultValue.trim()) desc += `**Expected Result:**\n${expectedResultValue.trim()}\n\n`;
-    if (actualResult) desc += `**Actual Result:**\n${actualResult}\n\n`;
+    if (actualResult.trim()) desc += `**Actual Result:**\n${actualResult.trim()}\n\n`;
     if (testCaseId) desc += `**Test Case ID:** ${testCaseId}`;
     return desc.trim();
   };
@@ -198,6 +210,10 @@ export default function DefectCreationModal({
     registerLocalDefect({
       redmineId: issue.id.toString(),
       title: issue.subject,
+      description: defectDescription.trim() || undefined,
+      stepsToReproduce: stepsToReproduce.trim() || undefined,
+      expectedResult: expectedResultValue.trim() || undefined,
+      projectId: qmpulseProjectId,
       actualResult,
       severity,
       module: defectModule.trim() || undefined,
@@ -209,7 +225,7 @@ export default function DefectCreationModal({
       actualResult,
       screenshots: JSON.stringify(screenshots.map((s) => s.filename)),
     });
-    onClose();
+    handleClose();
   };
 
   const handleSubmit = async () => {
@@ -277,6 +293,8 @@ export default function DefectCreationModal({
         redmineId: result.id.toString(),
         title: subject.trim(),
         description: defectDescription.trim() || undefined,
+        stepsToReproduce: stepsToReproduce.trim() || undefined,
+        projectId: qmpulseProjectId,
         expectedResult: expectedResultValue.trim() || undefined,
         actualResult: actualResult.trim() || undefined,
         severity,
@@ -291,7 +309,7 @@ export default function DefectCreationModal({
         actualResult,
         screenshots: JSON.stringify(screenshots.map((s) => s.filename)),
       });
-      onClose();
+      handleClose();
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
@@ -301,6 +319,7 @@ export default function DefectCreationModal({
 
   const handleClose = () => {
     setExpectedResultValue(expectedResult ?? "");
+    setStepsToReproduce(testSteps ?? "");
     setActualResult("");
     setDefectDescription("");
     setScreenshots([]);
@@ -314,9 +333,9 @@ export default function DefectCreationModal({
     setLinkedIssueId(null);
     setSeverity("medium");
     setFoundIn("SIT");
-    setDefectModule("");
+    setDefectModule(moduleName ?? "");
     setDefectCategory("");
-    setQmpulseProjectId(null);
+    setQmpulseProjectId(projectId ?? null);
     onClose();
   };
 
@@ -341,6 +360,17 @@ export default function DefectCreationModal({
               value={defectDescription}
               onChange={(e) => setDefectDescription(e.target.value)}
               className="min-h-[70px]"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="defect-steps-to-reproduce">Steps to Reproduce</Label>
+            <Textarea
+              id="defect-steps-to-reproduce"
+              placeholder="Enter the steps to reproduce the defect..."
+              value={stepsToReproduce}
+              onChange={(e) => setStepsToReproduce(e.target.value)}
+              className="min-h-[100px]"
             />
           </div>
 
@@ -411,7 +441,7 @@ export default function DefectCreationModal({
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {["critical", "high", "medium", "low"].map((s) => (
-                      <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                      <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

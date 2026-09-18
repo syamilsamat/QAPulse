@@ -564,6 +564,8 @@ export const registerLocalDefect = async (payload: {
   redmineId: string;
   title: string;
   description?: string;
+  stepsToReproduce?: string;
+  projectId?: number | null;
   expectedResult?: string;
   actualResult?: string;
   severity?: string;
