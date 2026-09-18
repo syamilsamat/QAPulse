@@ -24,6 +24,7 @@ import {
   fetchRedmineTrackers,
   fetchContactAssignees,
   searchRedmineIssues,
+  fetchRedmineIssueRoot,
   createRedmineDefect,
   registerLocalDefect,
   fetchQmpulseProjects,
@@ -82,6 +83,11 @@ export default function DefectCreationModal({
     ? user.role.slice(4)
     : ["qa", "dev", "fa", "pm"].find((d) => user?.role?.startsWith(`${d}_`)) ?? null;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The last subject this component generated. Anything else in the field is
+  // the user's own wording and must survive the ancestry lookup landing.
+  const autoSubjectRef = useRef("");
+  const subjectFor = (issueId: string | number | null | undefined) =>
+    `${issueId ? `#${issueId} - ` : ""}[${testCaseId ?? ""}] ${testCaseName}`;
 
   const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
   const [stepsToReproduce, setStepsToReproduce] = useState(testSteps ?? "");
@@ -130,8 +136,29 @@ export default function DefectCreationModal({
     setScreenshots([]);
     // Default the subject to the test case's own name — the user can still
     // edit it manually below.
-    const prefix = parentIssueId ? `#${parentIssueId} - ` : "";
-    setSubject(`${prefix}[${testCaseId ?? ""}] ${testCaseName}`);
+    //
+    // The prefix names the TOP of the Redmine tree, not the ticket this test
+    // case links to. QA links cases to the leaf User Story (#40046), but that
+    // leaf hangs under the ticket the run is reported against
+    // (#40046 -> #40044 -> #40054), so titling the defect "#40046 - ..." named
+    // a ticket nobody tracks the run by. The leaf is used until the walk
+    // comes back, so the field is never empty while Redmine is answering, and
+    // the defect still nests under the leaf — only the title changes.
+    const fallback = subjectFor(parentIssueId);
+    autoSubjectRef.current = fallback;
+    setSubject(fallback);
+    let cancelled = false;
+    if (parentIssueId) {
+      fetchRedmineIssueRoot(parentIssueId)
+        .then((ancestry) => {
+          if (cancelled || !ancestry || ancestry.rootId === Number(parentIssueId)) return;
+          const resolved = subjectFor(ancestry.rootId);
+          // Only replace a subject the user has not typed over themselves.
+          setSubject((current) => (current === autoSubjectRef.current ? resolved : current));
+          autoSubjectRef.current = resolved;
+        })
+        .catch(() => {});
+    }
     fetchQmpulseProjects().then(setQmpulseProjects).catch(() => {});
     fetchRedmineProjects().then(setProjects).catch(() => {});
     fetchContactAssignees().then(setMembers).catch(() => {});
@@ -142,6 +169,7 @@ export default function DefectCreationModal({
         setQaDefectTrackerId(qa?.id ?? list[0]?.id ?? null);
       })
       .catch(() => {});
+    return () => { cancelled = true; };
   }, [open, expectedResult, testCaseName, testCaseId, parentIssueId, testSteps, moduleName, projectId]);
 
   // Load project config when project changes. The assignee list deliberately
@@ -196,7 +224,9 @@ export default function DefectCreationModal({
 
   const buildDescription = () => {
     let desc = "";
-    if (defectDescription.trim()) desc += `**Description:**\n${defectDescription.trim()}\n\n`;
+    // No "Description:" heading here — Redmine renders one above the field,
+    // and repeating it showed the word twice on every defect.
+    if (defectDescription.trim()) desc += `${defectDescription.trim()}\n\n`;
     if (stepsToReproduce.trim()) desc += `**Steps to Reproduce:**\n${stepsToReproduce.trim()}\n\n`;
     if (expectedResultValue.trim()) desc += `**Expected Result:**\n${expectedResultValue.trim()}\n\n`;
     if (actualResult.trim()) desc += `**Actual Result:**\n${actualResult.trim()}\n\n`;

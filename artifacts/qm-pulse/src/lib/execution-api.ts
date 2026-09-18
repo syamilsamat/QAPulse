@@ -472,6 +472,28 @@ export const fetchRedmineTrackers = async (): Promise<RedmineTracker[]> => {
   return res.json();
 };
 
+export interface RedmineIssueAncestry {
+  id: number;
+  /** Top of the parent chain — the id a defect's subject should name. */
+  rootId: number;
+  /** Leaf first, root last. */
+  chain: number[];
+  truncated: boolean;
+}
+
+/**
+ * Resolves the top-most ancestor of a Redmine issue. Returns null rather than
+ * throwing: a defect subject falling back to the linked ticket is a much
+ * smaller problem than blocking the defect form on a Redmine hiccup.
+ */
+export const fetchRedmineIssueRoot = async (
+  issueId: number | string,
+): Promise<RedmineIssueAncestry | null> => {
+  const res = await fetch(`/api/redmine/issues/${issueId}/root`, { headers: getHeaders() });
+  if (!res.ok) return null;
+  return res.json();
+};
+
 export const searchRedmineIssues = async (
   q: string,
   projectId: number,
