@@ -14,8 +14,9 @@
  *
  * Run on Replit Shell, once per environment (dev, then prod — each has its
  * own DATABASE_URL):
- *   cd scripts && npx tsx src/sync-milestone-statuses.ts            # preview
- *   cd scripts && npx tsx src/sync-milestone-statuses.ts --apply    # write
+ *   cd scripts && npx tsx src/sync-milestone-statuses.ts             # preview
+ *   cd scripts && npx tsx src/sync-milestone-statuses.ts --verbose   # preview + why each milestone did/didn't change
+ *   cd scripts && npx tsx src/sync-milestone-statuses.ts --apply     # write
  */
 
 import { Pool } from "pg";
@@ -38,13 +39,13 @@ async function computeTargetStatus(pool: Pool, m: {
   pipeline_enabled: boolean;
   requires_uat: boolean;
   signed_off_at: string | null;
-}): Promise<string | null> {
+}): Promise<{ target: string | null; debug: Record<string, unknown> }> {
   if (m.pipeline_enabled) {
     const { rows: files } = await pool.query<{ id: number; review_status: string }>(
       `SELECT id, review_status FROM execution_files WHERE milestone_id = $1`,
       [m.id],
     );
-    if (files.length === 0) return null;
+    if (files.length === 0) return { target: null, debug: { flow: "pipeline", executionFileCount: 0 } };
 
     const allFilesApproved = files.every((f) => f.review_status === "approved");
 
@@ -59,17 +60,21 @@ async function computeTargetStatus(pool: Pool, m: {
     const { rows: uatDocs } = await pool.query(`SELECT id FROM uat_signoffs WHERE milestone_id = $1`, [m.id]);
     const uatDocCount = uatDocs.length;
 
-    if (signedOff && (!m.requires_uat || uatDocCount > 0)) return "completed";
-    if (signedOff && m.requires_uat) return "uat";
-    if (allFilesApproved && totalExecRows > 0 && executedRows >= totalExecRows) return "verified";
-    return "active";
+    const debug = {
+      flow: "pipeline", executionFileCount: files.length, allFilesApproved,
+      totalExecRows, executedRows, signedOff, requiresUat: m.requires_uat, uatDocCount,
+    };
+    if (signedOff && (!m.requires_uat || uatDocCount > 0)) return { target: "completed", debug };
+    if (signedOff && m.requires_uat) return { target: "uat", debug };
+    if (allFilesApproved && totalExecRows > 0 && executedRows >= totalExecRows) return { target: "verified", debug };
+    return { target: "active", debug };
   }
 
   const { rows: approved } = await pool.query(
     `SELECT id FROM requirements WHERE milestone_id = $1 AND review_status = 'approved' LIMIT 1`,
     [m.id],
   );
-  if (approved.length === 0) return null;
+  if (approved.length === 0) return { target: null, debug: { flow: "normal", approvedRequirementExists: false } };
 
   async function rollup(fileType: "qa" | "uat") {
     const { rows } = await pool.query<{ result: string | null }>(
@@ -95,14 +100,16 @@ async function computeTargetStatus(pool: Pool, m: {
   const uatAllPassed = uat.tcCount > 0 && uat.failed === 0 && uat.blocked === 0 && uat.notRun === 0;
   const uatStarted = uat.tcCount > 0;
 
-  if (qaAllPassed && (!m.requires_uat || uatAllPassed)) return "completed";
-  if (qaAllPassed && m.requires_uat && uatStarted && !uatAllPassed) return "uat";
-  if (qaAllPassed) return "verified";
-  return "active";
+  const debug = { flow: "normal", qa, uat, qaAllPassed, uatAllPassed, uatStarted, requiresUat: m.requires_uat };
+  if (qaAllPassed && (!m.requires_uat || uatAllPassed)) return { target: "completed", debug };
+  if (qaAllPassed && m.requires_uat && uatStarted && !uatAllPassed) return { target: "uat", debug };
+  if (qaAllPassed) return { target: "verified", debug };
+  return { target: "active", debug };
 }
 
 async function main() {
   const apply = process.argv.includes("--apply");
+  const verbose = process.argv.includes("--verbose");
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL env var is required");
 
@@ -119,12 +126,18 @@ async function main() {
 
     let changed = 0;
     for (const m of milestones) {
-      const target = await computeTargetStatus(pool, m);
-      if (!target) continue;
-      if ((STATUS_RANK[target] ?? -1) <= (STATUS_RANK[m.status] ?? -1)) continue;
+      const { target, debug } = await computeTargetStatus(pool, m);
+      const wouldChange = !!target && (STATUS_RANK[target] ?? -1) > (STATUS_RANK[m.status] ?? -1);
+
+      if (verbose) {
+        console.log(`  #${m.id} "${m.name}" [current: ${m.status}, computed: ${target ?? "planned (no signal yet)"}${wouldChange ? " -> CHANGES" : ""}]`);
+        console.log(`      ${JSON.stringify(debug)}`);
+      }
+
+      if (!wouldChange) continue;
 
       changed++;
-      console.log(`  #${m.id} "${m.name}": ${m.status} -> ${target}`);
+      if (!verbose) console.log(`  #${m.id} "${m.name}": ${m.status} -> ${target}`);
       if (apply) {
         if (target === "completed") {
           await pool.query(`UPDATE milestones SET status = $1, completed_at = NOW() WHERE id = $2`, [target, m.id]);
