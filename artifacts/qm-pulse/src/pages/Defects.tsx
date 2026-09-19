@@ -375,11 +375,32 @@ export default function Defects() {
     setIsRefreshing(true);
     try {
       const res = await fetch(`${getApiUrl()}/defects/refresh-status`, { method: "POST", headers: authHeaders });
-      const data = await res.json();
-      toast({ title: `Status refreshed for ${data.refreshed ?? 0} defect(s)` });
-      invalidate();
-    } catch {
-      toast({ variant: "destructive", title: "Status refresh failed" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Could not refresh statuses from Redmine. Please try again.");
+      if (!data || !Number.isInteger(data.refreshed) || data.refreshed < 0 ||
+          !Number.isInteger(data.failed) || data.failed < 0) {
+        throw new Error("Received an invalid refresh response. Please try again.");
+      }
+      if (data.refreshed > 0) invalidate();
+      if (data.failed > 0) {
+        toast({
+          variant: "destructive",
+          title: data.refreshed > 0
+            ? `${data.refreshed} defect(s) refreshed; ${data.failed} could not be refreshed. Please retry.`
+            : "Could not refresh statuses from Redmine",
+          description: data.error,
+        });
+      } else {
+        toast({ title: data.refreshed > 0
+          ? `Status refreshed for ${data.refreshed} defect(s)`
+          : "No defects linked to Redmine" });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Status refresh failed",
+        description: err instanceof Error ? err.message : "Could not refresh statuses from Redmine. Please try again.",
+      });
     } finally {
       setIsRefreshing(false);
     }
