@@ -32,6 +32,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { DefectHistory } from "@/components/DefectHistory";
+import { useDefectHistorySummaries } from "@/lib/defect-history";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DefectReviewSection } from "@/components/DefectReviewSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -237,6 +240,7 @@ export default function Defects() {
     const highlight = Number(new URLSearchParams(searchString).get("highlight"));
     if (Number.isInteger(highlight) && highlight > 0) setExpanded(new Set([highlight]));
   }, [deepLinkedTab, searchString]);
+  const [detailTabs, setDetailTabs] = useState<Record<number, string>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [pullTracker, setPullTracker] = useState<string>(() => localStorage.getItem("qa_pulse_prod_tracker") ?? "");
@@ -353,7 +357,11 @@ export default function Defects() {
     },
   });
 
+  const historySummaries = useDefectHistorySummaries(defects, user?.id, token);
+
   const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["defect-history"] });
+    queryClient.invalidateQueries({ queryKey: ["defect-history-summaries"] });
     queryClient.invalidateQueries({ queryKey: ["defects"] });
     queryClient.invalidateQueries({ queryKey: ["defects-metrics"] });
   };
@@ -861,6 +869,7 @@ export default function Defects() {
         </div>
       )}
 
+      {historySummaries.isError && <p className="text-xs text-muted-foreground" role="status">History activity check unavailable: {historySummaries.error.message}</p>}
       {/* List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
@@ -975,6 +984,13 @@ export default function Defects() {
                         <Pencil className="w-3 h-3" />
                       </Button>
                     )}
+                    {!historySummaries.isError && historySummaries.data?.[d.id]?.hasUpdates && (
+                      <Button variant="secondary" size="sm" className="text-xs h-7 shrink-0"
+                        title={`Redmine activity since your last history view. Checked ${formatDistanceToNow(new Date(historySummaries.data[d.id].checkedAt), { addSuffix: true })}`}
+                        onClick={(e) => { e.stopPropagation(); setExpanded(prev => new Set(prev).add(d.id)); setDetailTabs(prev => ({ ...prev, [d.id]: "history" })); }}>
+                        New activity
+                      </Button>
+                    )}
                     {d.retestNeeded && (
                       <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] gap-1">
                         <RotateCw className="w-2.5 h-2.5" /> Retest needed
@@ -1005,6 +1021,10 @@ export default function Defects() {
 
               {expanded.has(d.id) && (
                 <div className="bg-muted/20 px-4 py-3 space-y-3">
+                  <Tabs value={detailTabs[d.id] ?? "details"} onValueChange={value => setDetailTabs(prev => ({ ...prev, [d.id]: value }))}>
+                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">Redmine History</TabsTrigger></TabsList>
+                    <TabsContent value="history"><DefectHistory key={`${user?.id}-${d.id}`} defectId={d.id} redmineId={d.redmineId} /></TabsContent>
+                    <TabsContent value="details" className="space-y-3">
                   {/* Status edit — write-through to Redmine */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1284,6 +1304,8 @@ export default function Defects() {
                       />
                     </div>
                   )}
+                    </TabsContent>
+                  </Tabs>
                 </div>
               )}
             </Fragment>

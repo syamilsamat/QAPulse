@@ -33,3 +33,4 @@ export * from "./code-reviews";
 export * from "./platform-issues";
 
 export * from "./test-case-attachments";
+export * from "./defect-history";

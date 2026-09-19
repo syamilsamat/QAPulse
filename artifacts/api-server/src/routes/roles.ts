@@ -326,6 +326,21 @@ export async function bootstrap() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS defect_history (
+        defect_id INTEGER NOT NULL REFERENCES defects(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        redmine_id TEXT NOT NULL,
+        credential_fingerprint TEXT NOT NULL,
+        snapshot_id TEXT NOT NULL,
+        entries JSONB NOT NULL,
+        issue_updated_at TIMESTAMPTZ NOT NULL,
+        synced_at TIMESTAMPTZ NOT NULL,
+        seen_journal_id INTEGER NOT NULL DEFAULT 0,
+        seen_updated_at TIMESTAMPTZ,
+        PRIMARY KEY (defect_id, user_id)
+      )
+    `),
     // CR067 — tracks who set qaPic, so the Tasks page can show "who assigned
     // QA" alongside the assignee, matching devAssignedBy's existing coverage of Dev.
     pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS qa_pic_set_by INTEGER`),
