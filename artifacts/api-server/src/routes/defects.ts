@@ -1428,7 +1428,7 @@ router.post("/defects/refresh-status", async (req, res): Promise<void> => {
   try {
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
     const result = await refreshDefectStatuses(apiKey);
-    res.json(result);
+    res.status(result.failed > 0 && result.refreshed === 0 ? 502 : 200).json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Refresh failed" });
   }
