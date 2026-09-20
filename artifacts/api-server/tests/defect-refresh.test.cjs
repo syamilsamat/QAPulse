@@ -8,7 +8,7 @@ const bridge = fs.readFileSync(path.join(__dirname, '../src/routes/redmine-defec
 const start = bridge.indexOf('export async function refreshDefectStatuses');
 const end = bridge.indexOf('\n}', start) + 2;
 const code = transformSync(bridge.slice(start, end).replace('export ', ''), { loader: 'ts' }).code;
-async function refresh(count, fetcher) {
+async function refresh(count, fetcher, allowedIds) {
   const rows = Array.from({ length: count }, (_, i) => ({ id: i + 1, redmineId: String(i + 1), status: 'Old' }));
   const context = {
     db: {
@@ -20,7 +20,8 @@ async function refresh(count, fetcher) {
   };
   vm.createContext(context);
   vm.runInContext(code, context);
-  return { result: await context.refreshDefectStatuses('test'), rows };
+  const availability = [];
+  return { result: await context.refreshDefectStatuses('test', allowedIds, async (row, unavailable) => availability.push({ id: row.id, unavailable })), rows, availability };
 }
 const response = ids => ({ ok: true, json: async () => ({ issues: ids.map(id => ({ id, status: { name: 'Resolved' } })) }) });
 test('no linked defects makes no Redmine request', async () => {
@@ -39,9 +40,10 @@ test('access errors and network failures retain old data and report failures', a
     assert.ok(rows.every(row => row.status === 'Old' && !row.statusSyncedAt));
   }
 });
-test('missing issues count as failures', async () => {
-  const { result, rows } = await refresh(2, async () => response([1]));
-  assert.equal(result.refreshed, 1); assert.equal(result.failed, 1); assert.match(result.error, /inaccessible/);
+test('missing issues are unavailable, preserve last status and persist an availability warning', async () => {
+  const { result, rows, availability } = await refresh(2, async () => response([1]));
+  assert.equal(result.refreshed, 1); assert.equal(result.failed, 0); assert.equal(result.unavailable, 1);
+  assert.deepEqual(availability, [{id: 2, unavailable: true}, {id: 1, unavailable: false}]);
   assert.equal(rows[1].status, 'Old');
 });
 test('a failed batch does not prevent later batches from refreshing', async () => {
@@ -55,7 +57,7 @@ const handlerEnd = page.indexOf('\n  const handlePull', handlerStart);
 const handlerCode = transformSync(page.slice(handlerStart, handlerEnd).replace('const handleRefreshStatus', 'globalThis.handleRefreshStatus'), { loader: 'ts' }).code;
 async function click(res) {
   const notifications = [], loading = []; let reloads = 0;
-  const context = { fetch: async () => res, getApiUrl: () => '', authHeaders: {}, setIsRefreshing: v => loading.push(v), toast: v => notifications.push(v), invalidate: () => reloads++ };
+  const context = { fetch: async () => res, getApiUrl: () => '', authHeaders: {}, setCheckingId: () => {}, setRefreshSummary: () => {}, setIsRefreshing: v => loading.push(v), toast: v => notifications.push(v), invalidate: () => reloads++ };
   vm.createContext(context); vm.runInContext(handlerCode, context);
   await context.handleRefreshStatus();
   assert.deepEqual(loading, [true, false]);
@@ -63,7 +65,7 @@ async function click(res) {
 }
 test('UI distinguishes success, partial success, empty and HTTP failures', async () => {
   for (const [refreshed, failed, expected] of [[2, 0, /Status refreshed/], [1, 1, /could not be refreshed/], [0, 0, /No defects linked/]]) {
-    const result = await click({ ok: true, json: async () => ({ refreshed, failed }) });
+    const result = await click({ ok: true, json: async () => ({ refreshed, failed, unavailable: 0 }) });
     assert.match(result.toast.title, expected); assert.equal(result.reloads, refreshed > 0 ? 1 : 0);
   }
   const result = await click({ ok: false, json: async () => ({ error: 'Access denied' }) });
@@ -73,4 +75,28 @@ test('UI rejects non-JSON errors and malformed success responses', async () => {
   for (const res of [{ ok: false, json: async () => { throw new Error('not JSON'); } }, { ok: true, json: async () => ({}) }]) {
     const result = await click(res); assert.equal(result.toast.variant, 'destructive'); assert.equal(result.reloads, 0);
   }
+});
+
+test('invalid and truncated lists cannot mark issues unavailable or clear previous warnings', async () => {
+  for (const data of [{}, { issues: [{bad: 1}] }, { issues: [], total_count: 2 }]) {
+    const { result, availability, rows } = await refresh(2, async () => ({ ok: true, json: async () => data }));
+    assert.equal(result.failed, 2); assert.equal(result.unavailable, 0); assert.deepEqual(availability, []);
+    assert.ok(rows.every(r => r.status === 'Old'));
+  }
+});
+test('only authorized defects are refreshed or recorded', async () => {
+  const { result, rows, availability } = await refresh(3, async url => {
+    assert.match(url, /issue_id=2&/); return response([2]);
+  }, [2]);
+  assert.equal(result.refreshed, 1); assert.equal(rows[0].status, 'Old'); assert.equal(rows[2].status, 'Old');
+  assert.deepEqual(availability, [{id: 2, unavailable: false}]);
+});
+test('all unavailable is an amber warning and reloads persistent badges', async () => {
+  const result = await click({ ok: true, json: async () => ({refreshed: 0, unavailable: 3, failed: 0}) });
+  assert.match(result.toast.title, /3 issue\(s\) unavailable/);
+  assert.notEqual(result.toast.variant, 'destructive'); assert.equal(result.reloads, 1);
+});
+test('HTTP failures never change availability', async () => {
+  const { availability } = await refresh(2, async () => ({ok: false, status: 404}));
+  assert.deepEqual(availability, []);
 });

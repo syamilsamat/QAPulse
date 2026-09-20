@@ -416,8 +416,8 @@ export async function pushAssigneeToRedmine(
 // side changed more recently wins — Redmine's issue.updated_on vs our own
 // assigneeAssignedAt — since native in-app assignment is now a first-class
 // QM Pulse action, not just a Redmine-side fact QM Pulse mirrors.
-export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed: number; failed: number; error?: string }> {
-  const rows = await db
+export async function refreshDefectStatuses(apiKey: string, allowedIds?: number[], record?: (defect: { id: number; redmineId: string | null }, unavailable: boolean) => Promise<void>): Promise<{ refreshed: number; failed: number; unavailable: number; error?: string }> {
+  const candidates = await db
     .select({
       id: defectsTable.id,
       redmineId: defectsTable.redmineId,
@@ -426,9 +426,11 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
     })
     .from(defectsTable)
     .where(isNotNull(defectsTable.redmineId));
-  if (rows.length === 0) return { refreshed: 0, failed: 0 };
+  const rows = allowedIds ? candidates.filter(row => allowedIds.includes(row.id)) : candidates;
+  if (rows.length === 0) return { refreshed: 0, failed: 0, unavailable: 0 };
 
   let refreshed = 0;
+  let unavailable = 0;
   const errors = new Set<string>();
   for (let i = 0; i < rows.length; i += 90) {
     const chunk = rows.slice(i, i + 90);
@@ -444,9 +446,20 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
         continue;
       }
       const data: any = await res.json();
-      for (const issue of data?.issues ?? []) {
-        const local = chunk.find((r: any) => r.redmineId === String(issue.id));
-        if (!local) continue;
+      // A malformed or incomplete list must never be interpreted as deletion.
+      if (!Array.isArray(data?.issues) || data.issues.some((issue: any) => !Number.isInteger(issue?.id)) ||
+          (data.total_count != null && data.total_count > data.issues.length)) {
+        throw new Error("Incomplete Redmine response");
+      }
+      for (const local of chunk) {
+        if (!data.issues.some((issue: any) => String(issue.id) === local.redmineId)) {
+          await record?.(local, true);
+          unavailable++;
+        }
+      }
+      for (const local of chunk) {
+        const issue = data.issues.find((issue: any) => local.redmineId === String(issue.id));
+        if (!issue) continue;
 
         const update: Record<string, any> = {
           status: issue.status?.name ?? "Unknown",
@@ -479,16 +492,18 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
         }
 
         await db.update(defectsTable).set(update).where(eq(defectsTable.id, local.id));
+        await record?.(local, false);
         refreshed++;
       }
     } catch {
       errors.add("Could not complete the refresh from Redmine. Please try again.");
     }
   }
-  const failed = rows.length - refreshed;
+  const failed = rows.length - refreshed - unavailable;
   return {
     refreshed,
     failed,
+    unavailable,
     ...(failed > 0 ? { error: errors.size
       ? [...errors].join(" ")
       : "Some linked issues were not returned by Redmine. They may be deleted or inaccessible." } : {}),
