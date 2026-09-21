@@ -17,5 +17,6 @@ export interface User {
   /** @nullable */
   avatarUrl?: string | null;
   mustChangePassword?: boolean;
+  emailNotificationsEnabled?: boolean;
   createdAt: string;
 }

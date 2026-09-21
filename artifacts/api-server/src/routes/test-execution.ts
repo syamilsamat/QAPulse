@@ -22,7 +22,8 @@ import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { logActivity } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
-import { canReview, reviewRoleNames } from "../lib/review-eligibility";
+import { canReview, canApproveExecutionFile, reviewRoleNames, fileApprovalRoleNames } from "../lib/review-eligibility";
+import { syncMilestoneStatus } from "../lib/milestone-status";
 import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI, type ExcelEvidenceLink } from "./excel-builder";
@@ -545,6 +546,10 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       }
     }
 
+    if ((file as any).milestoneId != null) {
+      await syncMilestoneStatus((file as any).milestoneId);
+    }
+
     res.status(201).json({
       id: file.id,
       redmineTicketId: file.redmineTicketId,
@@ -734,6 +739,7 @@ router.get("/execution-files/review-queue", async (req, res): Promise<void> => {
   if (!ctx) return;
 
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const mayApprove = await canApproveExecutionFile(ctx.role);
 
   try {
     const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId)).limit(1);
@@ -742,11 +748,26 @@ router.get("/execution-files/review-queue", async (req, res): Promise<void> => {
     const allFiles = await db.select().from(executionFilesTable);
     const scoped = allFiles.filter(t => accessible === null || (t.projectId != null && accessible.includes(t.projectId)));
 
-    const waitingOnMe = scoped.filter(t => {
-      const reviewStatus = (t as any).reviewStatus ?? "draft";
-      // Ensure segregation of duties: You cannot review your own submitted execution files
-      return reviewStatus === "in_review" && (t as any).qaPicSetBy !== ctx.userId && (t as any).qaPic !== userName;
-    });
+    // Only QA Lead+ can actually approve/reject a file (canApproveExecutionFile
+    // on the review route above), so a qa_member's queue never lists items
+    // they'd just get a 403 trying to act on. Module-scoped, same as that
+    // route's own module gate — a lead scoped to another module shouldn't see
+    // this file as "waiting on them" either.
+    const waitingOnMeRaw = mayApprove
+      ? scoped.filter(t => {
+          const reviewStatus = (t as any).reviewStatus ?? "draft";
+          // Ensure segregation of duties: You cannot review your own submitted execution files
+          return reviewStatus === "in_review" && (t as any).qaPicSetBy !== ctx.userId && (t as any).qaPic !== userName;
+        })
+      : [];
+    const waitingOnMe: typeof waitingOnMeRaw = [];
+    for (const t of waitingOnMeRaw) {
+      if (t.projectId == null) { waitingOnMe.push(t); continue; }
+      const scope = await getModuleScope(ctx.userId, ctx.role, t.projectId);
+      if (!scope.restricted) { waitingOnMe.push(t); continue; }
+      const fileModules = (t.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+      if (fileModules.length === 0 || fileModules.some((m) => scope.moduleNames.includes(m))) waitingOnMe.push(t);
+    }
 
     const awaitingMyRevision = scoped.filter(t => {
       const reviewStatus = (t as any).reviewStatus ?? "draft";
@@ -817,13 +838,24 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
 router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!(await canReview("qa", ctx.role))) { res.status(403).json({ error: "QA role required for review actions" }); return; }
 
   const id = parseInt(req.params.id);
   const { action, comment } = req.body as { action: "submit" | "approve" | "reject"; comment?: string };
 
   if (Number.isNaN(id) || !["submit", "approve", "reject"].includes(action)) {
     res.status(400).json({ error: "Invalid request payload" }); return;
+  }
+
+  // Submitting stays open to any QA role (a qa_member submits their own
+  // work). Approving/rejecting — signing off on it — is reserved for QA
+  // leadership (qa_lead/qa_manager/hod_qa), so it can't be self-approved via
+  // a lower-tier peer the way per-row acceptance can.
+  const authorized = action === "submit" ? await canReview("qa", ctx.role) : await canApproveExecutionFile(ctx.role);
+  if (!authorized) {
+    res.status(403).json({
+      error: action === "submit" ? "QA role required for review actions" : "Only a QA Lead, QA Manager, or HOD QA can approve or reject",
+    });
+    return;
   }
 
   try {
@@ -838,6 +870,21 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
     // the submitter on "submit" below, so it is the accountable party here.
     if ((action === "approve" || action === "reject") && file_.qaPicSetBy === ctx.userId) {
       res.status(403).json({ error: `You cannot ${action} an execution file you authored` }); return;
+    }
+
+    // Same project/module reach as the reviewers this file's "submitted for
+    // review" notification actually goes to (see notifyRolesInProject below)
+    // — a QA Lead scoped to another module in this project shouldn't be able
+    // to approve/reject a file outside it. Manager+ tiers are unrestricted
+    // (getModuleScope), matching their department-wide project access.
+    if ((action === "approve" || action === "reject") && file_.projectId != null) {
+      const scope = await getModuleScope(ctx.userId, ctx.role, file_.projectId);
+      if (scope.restricted) {
+        const fileModules = (file_.selectedModules ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+        if (fileModules.length > 0 && !fileModules.some((m) => scope.moduleNames.includes(m))) {
+          res.status(403).json({ error: "Access denied to this module" }); return;
+        }
+      }
     }
 
     const now = new Date();
@@ -910,11 +957,14 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
 
     // Peer review only works if peers hear about it — this flow previously
     // logged the transition and notified nobody, so a submitted file sat
-    // unseen unless someone opened their review queue unprompted.
+    // unseen unless someone opened their review queue unprompted. Notify only
+    // the roles that can actually act on it (QA Lead+) and only within this
+    // file's own project/module — the same reach the approve/reject gate
+    // above enforces.
     const label = file_.title || file_.redmineTicketId;
     if (action === "submit" && file_.projectId != null) {
       await notifyRolesInProject({
-        roles: await reviewRoleNames("qa"),
+        roles: await fileApprovalRoleNames(),
         projectId: file_.projectId,
         module: file_.selectedModules,
         title: "Execution file submitted for review",
@@ -936,6 +986,10 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
         id,
         ctx.userId,
       ).catch(() => {});
+    }
+
+    if ((action === "approve" || action === "reject") && (file_ as any).milestoneId != null) {
+      await syncMilestoneStatus((file_ as any).milestoneId);
     }
 
     res.json(updated);
@@ -1981,6 +2035,10 @@ router.post(
             }
           }
         }
+      }
+
+      if (file.milestoneId != null) {
+        await syncMilestoneStatus(file.milestoneId);
       }
 
       // 6. Trigger live update to dashboard

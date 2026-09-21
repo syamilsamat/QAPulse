@@ -1145,6 +1145,8 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
             filePic: executionFilesTable.qaPic,
             rowPic: executionTestCasesTable.qaPic,
             filePicSetBy: executionFilesTable.qaPicSetBy,
+            fileApprovedBy: executionFilesTable.approvedBy,
+            fileRejectedBy: executionFilesTable.rejectedBy,
             result: executionTestCasesTable.result,
             fileType: executionFilesTable.fileType,
           })
@@ -1178,6 +1180,10 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
   }
 
   const qaPicNamesByReq = new Map<number, Set<string>>();
+  // Everyone credited as QA PIC by having taken a file-level action on this
+  // requirement's execution file: who submitted it (qaPicSetBy) and — since
+  // approving or rejecting is a QA Lead+ taking ownership of the sign-off
+  // decision either way — whoever approved or rejected it.
   const qaSetterIdsByReq = new Map<number, Set<number>>();
   const qaFileIdByReq = new Map<number, number>();
   const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
@@ -1189,9 +1195,10 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
       qaPicNamesByReq.get(r.requirementId)!.add(pic);
     }
-    if (r.filePicSetBy != null) {
+    for (const creditedId of [r.filePicSetBy, r.fileApprovedBy, r.fileRejectedBy]) {
+      if (creditedId == null) continue;
       if (!qaSetterIdsByReq.has(r.requirementId)) qaSetterIdsByReq.set(r.requirementId, new Set());
-      qaSetterIdsByReq.get(r.requirementId)!.add(r.filePicSetBy);
+      qaSetterIdsByReq.get(r.requirementId)!.add(creditedId);
     }
     if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
     const bucket = resultsByReq.get(r.requirementId)!;

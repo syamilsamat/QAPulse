@@ -85,3 +85,30 @@ export async function canReview(domain: ReviewDomain, role: string | null | unde
   if (!row) return FALLBACK[domain].includes(role);
   return eligible(domain, row);
 }
+
+/**
+ * True when `role` may approve/reject an execution file (test case sign-off)
+ * — narrower than canReview("qa", ...), which stays open to qa_member for
+ * submitting a file and for per-row peer acceptance. Signing a file off is
+ * reserved for QA leadership: qa_lead and above.
+ */
+const FILE_APPROVAL_LEAD_TIER = 2;
+const FILE_APPROVAL_FALLBACK = ["qa_lead", "qa_manager", "hod_qa"];
+
+export async function canApproveExecutionFile(role: string | null | undefined): Promise<boolean> {
+  if (!role) return false;
+  if (UNRESTRICTED_ROLES.includes(role)) return true;
+  const rows = await loadRoles();
+  const row = rows.find((r) => r.name === role);
+  if (!row) return FILE_APPROVAL_FALLBACK.includes(role);
+  return row.department === "qa" && (row.tierRank ?? 1) >= FILE_APPROVAL_LEAD_TIER;
+}
+
+/** Every role slug that may approve/reject an execution file — for the
+ *  "submitted for review" notification fan-out, so a qa_member (who can no
+ *  longer act on it) isn't told to review something they can't approve. */
+export async function fileApprovalRoleNames(): Promise<string[]> {
+  const rows = await loadRoles();
+  if (rows.length === 0) return [...FILE_APPROVAL_FALLBACK, ...UNRESTRICTED_ROLES];
+  return rows.filter((r) => r.department === "qa" && (r.tierRank ?? 1) >= FILE_APPROVAL_LEAD_TIER).map((r) => r.name);
+}

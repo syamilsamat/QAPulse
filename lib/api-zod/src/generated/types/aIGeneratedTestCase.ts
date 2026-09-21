@@ -8,12 +8,14 @@
 
 export interface AIGeneratedTestCase {
   title: string;
-  objective: string;
-  preconditions: string;
+  redmineUserStory?: string;
+  tracker?: string;
+  scenario?: string;
+  preconditions?: string;
   testSteps: string;
+  testData?: string;
   expectedResult: string;
   type: string;
   priority: string;
   tags?: string;
-  automationCandidate?: boolean;
 }

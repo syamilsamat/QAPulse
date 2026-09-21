@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
@@ -60,6 +61,9 @@ export default function Settings() {
   const [team, setTeam] = useState(user?.team ?? "");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatarUrl ?? null);
   const [avatarData, setAvatarData] = useState<string | null>(null);
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(
+    (user as any)?.emailNotificationsEnabled ?? false,
+  );
 
   // Redmine API Key (per user)
   const [redmineApiKey, setRedmineApiKey] = useState((user as any)?.redmineApiKey ?? "");
@@ -135,6 +139,7 @@ export default function Settings() {
         name: name.trim(),
         team: team.trim() || undefined,
         avatarUrl: avatarData ?? user.avatarUrl ?? undefined,
+        emailNotificationsEnabled,
       },
     });
   };
@@ -372,6 +377,25 @@ export default function Settings() {
               <Label>Email</Label>
               <Input value={user?.email ?? ""} disabled className="bg-muted/50" />
               <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-start gap-2.5">
+            <Checkbox
+              id="emailNotificationsEnabled"
+              checked={emailNotificationsEnabled}
+              onCheckedChange={(v) => setEmailNotificationsEnabled(Boolean(v))}
+              className="mt-0.5"
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="emailNotificationsEnabled" className="font-normal cursor-pointer">
+                Send notifications to my email
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Off by default. When on, anything that would notify you in QM Pulse is also emailed to {user?.email ?? "your account email"}.
+              </p>
             </div>
           </div>
 

@@ -1649,7 +1649,7 @@ export default function TestCasesExecutionProgressPage() {
       .catch(() => setMilestoneOptions([]));
   }, [currentFileMilestoneId, currentFileProjectId]);
 
-  const { canReviewQa: canReview } = useReviewEligibility();
+  const { canReviewQa: canReview, canApproveExecutionFile } = useReviewEligibility();
 
   const handleReviewAction = async (action: "approve" | "reject", comment?: string) => {
     if (!currentFileId) return;
@@ -3469,9 +3469,9 @@ export default function TestCasesExecutionProgressPage() {
             <div>
               <p className="font-semibold text-sm">Execution is Locked</p>
               <p className="text-xs text-amber-700 mt-1">
-                This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status. 
-                You cannot execute test cases (Pass/Fail/Block) until it is approved. Review is peer-to-peer —
-                any QA colleague other than the person who submitted it can approve, not just a QA Lead or HOD.
+                This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status.
+                You cannot execute test cases (Pass/Fail/Block) until it is approved. Sign-off is reserved for a
+                QA Lead, QA Manager, or HOD QA other than the person who submitted it.
               </p>
               {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
                 <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
@@ -3481,7 +3481,7 @@ export default function TestCasesExecutionProgressPage() {
               )}
             </div>
           </div>
-          {(currentFileReviewStatus || '') === "in_review" && canReview && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
+          {(currentFileReviewStatus || '') === "in_review" && canApproveExecutionFile && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
                 <XCircle className="w-4 h-4 mr-2" /> Reject

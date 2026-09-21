@@ -326,7 +326,7 @@ export default function TestCasesExecution() {
   const { user, token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { canReviewQa: canReview } = useReviewEligibility();
+  const { canReviewQa: canReview, canApproveExecutionFile } = useReviewEligibility();
 
   const { data: reviewQueue } = useQuery<{ waitingOnMe: any[]; awaitingMyRevision: any[] }>({
     queryKey: ["execution-review-queue"],
@@ -1309,7 +1309,7 @@ export default function TestCasesExecution() {
                                 <Clock className="w-4 h-4 mr-2" /> Submit for Review
                               </DropdownMenuItem>
                             )}
-                            {(f as any).reviewStatus === "in_review" && canReview && (f as any).qaPicSetBy !== user?.id && (f as any).qaPic !== user?.name && (
+                            {(f as any).reviewStatus === "in_review" && canApproveExecutionFile && (f as any).qaPicSetBy !== user?.id && (f as any).qaPic !== user?.name && (
                               <>
                                 <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(f.id, "approve")}>
                                   <CheckCircle className="w-4 h-4 mr-2" /> Approve

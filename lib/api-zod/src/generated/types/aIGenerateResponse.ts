@@ -5,10 +5,10 @@
  * QM Pulse - QA Management Platform API
  * OpenAPI spec version: 0.1.0
  */
-import type { AIGeneratedTestCase } from './aIGeneratedTestCase';
+import type { AIGenerateResultGroup } from './aIGenerateResultGroup';
 
 export interface AIGenerateResponse {
-  testCases: AIGeneratedTestCase[];
+  results: AIGenerateResultGroup[];
   similarTestCasesUsed?: number;
   templateUsed?: string;
 }

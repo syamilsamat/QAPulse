@@ -11,6 +11,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db, uatSignoffsTable, milestonesTable, projectsTable, usersTable } from "@workspace/db";
 import { getAuthContext, canAccessProject, scopeToUserProjects } from "../middleware/access";
 import { logActivity } from "./_audit";
+import { syncMilestoneStatus } from "../lib/milestone-status";
 
 const router: IRouter = Router();
 
@@ -106,6 +107,9 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
     entityId: m.id,
     entityType: "milestone",
   });
+
+  await syncMilestoneStatus(m.id);
+
   res.status(201).json({ id: row.id });
 });
 

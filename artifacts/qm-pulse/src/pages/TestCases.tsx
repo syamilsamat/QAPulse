@@ -112,7 +112,7 @@ function AIGenerateDialog({
 }: any) {
   const { user: currentUser } = useAuth();
   const [form, setForm] = useState<
-    Partial<AIGenerateInput & { projectId?: number; authorId?: number; tracker?: string }>
+    Partial<AIGenerateInput & { projectId?: number; authorId?: number; tracker?: string; requirementId?: number; requirementTitle?: string }>
   >({
     generatePositive: true,
     generateNegative: false,

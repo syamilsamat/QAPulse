@@ -301,6 +301,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: milestoneId
+          in: query
+          schema:
+            type: integer
         - name: assigneeId
           in: query
           schema:
@@ -1112,6 +1116,8 @@ components:
           type: ["string", "null"]
         mustChangePassword:
           type: boolean
+        emailNotificationsEnabled:
+          type: boolean
         createdAt:
           type: string
 
@@ -1135,6 +1141,8 @@ components:
       properties:
         name:
           type: string
+        email:
+          type: string
         role:
           type: string
         team:
@@ -1142,6 +1150,8 @@ components:
         avatarUrl:
           type: string
         mustChangePassword:
+          type: boolean
+        emailNotificationsEnabled:
           type: boolean
         password:
           type: string
@@ -1631,6 +1641,8 @@ components:
           type: string
         tracker:
           type: string
+        blockedByTaskId:
+          type: integer
 
     TaskUpdate:
       type: object
@@ -1665,6 +1677,8 @@ components:
           type: string
         tracker:
           type: string
+        blockedByTaskId:
+          type: integer
 
     # Dashboard
     DashboardSummary:

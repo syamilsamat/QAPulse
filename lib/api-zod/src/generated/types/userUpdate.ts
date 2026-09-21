@@ -8,9 +8,11 @@
 
 export interface UserUpdate {
   name?: string;
+  email?: string;
   role?: string;
   team?: string;
   avatarUrl?: string;
   mustChangePassword?: boolean;
+  emailNotificationsEnabled?: boolean;
   password?: string;
 }

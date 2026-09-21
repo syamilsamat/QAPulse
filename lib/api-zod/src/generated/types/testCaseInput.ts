@@ -12,8 +12,8 @@ export interface TestCaseInput {
   preconditions?: string;
   testSteps?: string;
   expectedResult?: string;
-  type: string;
-  priority: string;
+  type?: string;
+  priority?: string;
   tags?: string;
   requirementId?: number;
   projectId?: number;

@@ -163,8 +163,8 @@ export default function Team() {
         setEditingUser(null);
         toast({ title: "User updated" });
       },
-      onError: () =>
-        toast({ variant: "destructive", title: "Failed to update user" }),
+      onError: (error: any) =>
+        toast({ variant: "destructive", title: "Failed to update user", description: error?.message }),
     },
   });
 

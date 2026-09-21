@@ -8,6 +8,7 @@
 
 export type ListRequirementsParams = {
 projectId?: number;
+milestoneId?: number;
 assigneeId?: number;
 status?: string;
 priority?: string;

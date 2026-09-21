@@ -519,23 +519,30 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
   );
 }
 
+function picNamesForRow(row: TaskBoardRow, department: "FA" | "Dev" | "QA"): string[] {
+  // Keep the page compatible while an older API instance finishes deploying.
+  const legacy = row.assignee?.split(" · ").find((part) => part.startsWith(department + ": "));
+  const assigned = row.picByDepartment?.[department] ?? legacy?.slice(department.length + 2).split(",") ?? [];
+  return assigned.map((value) => value.trim()).filter((name) => name && name !== "—");
+}
+
 function collectPICs(rows: TaskBoardRow[]): DepartmentPICs {
   const result: DepartmentPICs = { FA: [], Dev: [], QA: [] };
   for (const department of PIC_DEPARTMENTS) {
     const names = new Map<string, string>();
     for (const row of rows) {
-      // Keep the page compatible while an older API instance finishes deploying.
-      const legacy = row.assignee?.split(" · ").find((part) => part.startsWith(department + ": "));
-      const assigned = row.picByDepartment?.[department] ?? legacy?.slice(department.length + 2).split(",") ?? [];
-      for (const value of assigned) {
-        const name = value.trim();
-        if (name && name !== "—") names.set(name.toLowerCase(), name);
+      for (const name of picNamesForRow(row, department)) {
+        names.set(name.toLowerCase(), name);
       }
     }
     result[department] = [...names.values()].sort((a, b) => a.localeCompare(b));
   }
   return result;
 }
+
+// Maps a viewer's own department (lowercase, as stored on the user/role) to
+// the PIC-column key their rows are tracked under.
+const DEPARTMENT_TO_PIC: Record<string, "FA" | "Dev" | "QA"> = { qa: "QA", fa: "FA", dev: "Dev" };
 
 function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
   const data = rows.map((r) => ({
@@ -591,12 +598,29 @@ function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; me
   const [page, setPage] = useState(1);
   const PER_PAGE = 5;
 
+  const picDept = department ? DEPARTMENT_TO_PIC[department] ?? null : null;
+
+  // Counted per milestone (matching the board's own one-row-per-milestone
+  // view and its avgProgress), not per requirement — a milestone with five
+  // requirements assigned to the same QA is one open item, not five.
   const counts = useMemo(() => {
+    if (!picDept) return members.map((m) => ({ ...m, openCount: 0 }));
+    const milestoneGroups = new Map<number, TaskBoardRow[]>();
+    for (const r of rows) {
+      const g = milestoneGroups.get(r.milestoneId);
+      if (g) g.push(r);
+      else milestoneGroups.set(r.milestoneId, [r]);
+    }
+    const openMilestones = [...milestoneGroups.values()].filter(
+      (group) => group.reduce((sum, r) => sum + r.progress, 0) / group.length < 100,
+    );
     return members.map((m) => ({
       ...m,
-      openCount: rows.filter((r) => r.assignee === m.name && r.progress < 100).length,
+      openCount: openMilestones.filter((group) =>
+        group.some((r) => picNamesForRow(r, picDept).some((name) => name.toLowerCase() === m.name.toLowerCase())),
+      ).length,
     }));
-  }, [members, rows]);
+  }, [members, rows, picDept]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
