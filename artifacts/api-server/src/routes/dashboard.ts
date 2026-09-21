@@ -484,6 +484,34 @@ export function computeTimelineFromEvents(
   return segments;
 }
 
+// Pipeline testing does not depend on requirement approval or dev handoff.
+// Import time is not testing time: start only at an actual execution.
+export function computePipelineTimeline(
+  qaExecTimes: Date[],
+  uatExecTimes: Date[],
+  milestone: { requiresUat: boolean; signedOffAt: Date | null; completedAt: Date | null },
+): { timeline: PhaseSegment[]; status: string } {
+  const now = new Date();
+  const validTimes = (times: Date[]) => times
+    .filter(t => !milestone.completedAt || t <= milestone.completedAt)
+    .sort((a, b) => a.getTime() - b.getTime());
+  const qaStart = validTimes(qaExecTimes)[0];
+  const uatStart = milestone.requiresUat ? validTimes(uatExecTimes)[0] : undefined;
+  const timeline: PhaseSegment[] = [];
+  if (qaStart) {
+    const boundaries = [milestone.signedOffAt, uatStart, milestone.completedAt]
+      .filter((t): t is Date => !!t && t >= qaStart)
+      .sort((a, b) => a.getTime() - b.getTime());
+    timeline.push(makeSegment("qa", 1, qaStart, boundaries[0] ?? null, now));
+  }
+  if (uatStart) timeline.push(makeSegment("uat", 1, uatStart, milestone.completedAt, now));
+  const status = milestone.completedAt ? "Completed"
+    : uatStart ? "In UAT"
+    : milestone.signedOffAt ? (milestone.requiresUat ? "Awaiting UAT" : "QA signed off")
+    : qaStart ? "In QA testing" : "Awaiting QA";
+  return { timeline, status };
+}
+
 interface RequirementTimelineEntry {
   id: number;
   title: string;
@@ -498,8 +526,8 @@ interface RequirementTimelineEntry {
 // no-N+1 discipline as the CR026 analytics endpoint.
 //
 // Prefer computeRequirementTimelinesBatch() when you have more than one
-// milestone: this single-milestone entry point costs three round trips, and
-// callers that looped it over every milestone were paying 3N.
+// milestone: this single-milestone entry point batches its reads, while
+// callers that looped it over every milestone were paying per milestone.
 export async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
   const byMilestone = await computeRequirementTimelinesBatch([{ id: milestoneId, completedAt: milestoneCompletedAt }]);
   return byMilestone.get(milestoneId) ?? [];
@@ -507,7 +535,7 @@ export async function computeRequirementTimelines(milestoneId: number, milestone
 
 /**
  * Same computation as computeRequirementTimelines, for many milestones in a
- * fixed three queries total instead of three per milestone.
+ * fixed batch queries instead of queries per milestone.
  *
  * The per-milestone version was being called inside a loop over every
  * milestone the user can see (the Tasks board, /dashboard/summary,
@@ -553,18 +581,20 @@ export async function computeRequirementTimelinesBatch(
   }
   const reqIds = allReqs.map((r) => r.id);
 
-  const [activityRows, execRows] = await Promise.all([
+  const [activityRows, execRows, milestoneRows] = await Promise.all([
     db
       .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
       .from(activityTable)
       .where(and(eq(activityTable.entityType, "requirement"), inArray(activityTable.entityId, reqIds)))
       .orderBy(activityTable.createdAt),
     db
-      .select({ requirementId: executionTestCasesTable.requirementId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
+      .select({ requirementId: executionTestCasesTable.requirementId, milestoneId: executionFilesTable.milestoneId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
       .from(executionTestCasesTable)
       .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
       .where(inArray(executionTestCasesTable.requirementId, reqIds)),
+    db.select().from(milestonesTable).where(inArray(milestonesTable.id, milestoneIds)),
   ]);
+  const milestoneById = new Map(milestoneRows.map(m => [m.id, m]));
 
   // Actual work excludes record creation/import and assignment-only events.
   const workEventTypes = new Set(["requirement_submit", "requirement_approve", "requirement_reject", "requirement_dev_start", "requirement_dev_ready_for_qa", "requirement_dev_return_to_dev", "requirement_return_to_fa"]);
@@ -589,6 +619,8 @@ export async function computeRequirementTimelinesBatch(
   for (const row of execRows) {
     if (row.requirementId == null || !row.executedAt) continue;
     if (!execByReq.has(row.requirementId)) execByReq.set(row.requirementId, { qa: [], uat: [] });
+    const ownerId = milestoneByReqId.get(row.requirementId);
+    if (ownerId != null && milestoneById.get(ownerId)?.pipelineEnabled && row.milestoneId !== ownerId) continue;
     const bucket = execByReq.get(row.requirementId)!;
     if (row.fileType === "qa") bucket.qa.push(row.executedAt);
     else if (row.fileType === "uat") bucket.uat.push(row.executedAt);
@@ -606,6 +638,13 @@ export async function computeRequirementTimelinesBatch(
     const exec = execByReq.get(r.id) ?? { qa: [], uat: [] };
     const qaExecTimes = [...exec.qa].sort((a, b) => a.getTime() - b.getTime());
     const uatExecTimes = [...exec.uat].sort((a, b) => a.getTime() - b.getTime());
+    const milestone = milestoneById.get(milestoneId);
+    if (milestone?.pipelineEnabled) {
+      const pipeline = computePipelineTimeline(qaExecTimes, uatExecTimes, milestone);
+      out.get(milestoneId)!.push({ id: r.id, title: r.title, parentId: r.parentId ?? null,
+        ...pipeline, actualWorkStartedAt: pipeline.timeline[0]?.start ?? null });
+      continue;
+    }
     const timeline = computeTimelineFromEvents(r.createdAt, events, qaExecTimes, uatExecTimes, milestoneCompletedAt);
 
     let status: string;
@@ -722,16 +761,17 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   }
 
   const milestoneShape = {
+    pipelineEnabled: milestone.pipelineEnabled,
     id: milestone.id,
     name: milestone.name,
     status: milestone.status,
     targetDate: milestone.targetDate?.toISOString() ?? null,
     createdAt: milestone.createdAt.toISOString(),
     startDate: (milestone as any).startDate?.toISOString() ?? null,
-    reqTargetDate: (milestone as any).reqTargetDate?.toISOString() ?? null,
-    devTargetDate: (milestone as any).devTargetDate?.toISOString() ?? null,
+    reqTargetDate: milestone.pipelineEnabled ? null : milestone.reqTargetDate?.toISOString() ?? null,
+    devTargetDate: milestone.pipelineEnabled ? null : milestone.devTargetDate?.toISOString() ?? null,
     qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
-    uatTargetDate: (milestone as any).uatTargetDate?.toISOString() ?? null,
+    uatTargetDate: milestone.pipelineEnabled && !milestone.requiresUat ? null : milestone.uatTargetDate?.toISOString() ?? null,
     goLiveDate: (milestone as any).goLiveDate?.toISOString() ?? null,
     environment: (milestone as any).environment ?? null,
   };
@@ -756,7 +796,9 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     ))
     .orderBy(activityTable.createdAt);
 
-  const { firstPassPct, stabilityPct } = computeKpiMetrics(allReqIds, kpiActivityRows);
+  const { firstPassPct, stabilityPct } = milestone.pipelineEnabled
+    ? { firstPassPct: null, stabilityPct: null }
+    : computeKpiMetrics(allReqIds, kpiActivityRows);
 
   // ── Burn rate & SPI ───────────────────────────────────────────────────────
   const approvedCount = requirementTimelines.filter(r => r.status.startsWith("Approved")).length;
@@ -781,14 +823,15 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 
   // ── Planned phase durations from milestone target dates ───────────────────
   const startDate = (milestone as any).startDate as Date | null;
-  const reqTargetDate = (milestone as any).reqTargetDate as Date | null;
-  const devTargetDate = (milestone as any).devTargetDate as Date | null;
+  const reqTargetDate = milestone.pipelineEnabled ? null : milestone.reqTargetDate;
+  const devTargetDate = milestone.pipelineEnabled ? null : milestone.devTargetDate;
   const qaTargetDate = (milestone as any).qaTargetDate as Date | null;
-  const uatTargetDate = (milestone as any).uatTargetDate as Date | null;
+  const uatTargetDate = milestone.pipelineEnabled && !milestone.requiresUat ? null : milestone.uatTargetDate;
+  const qaPlannedStart = milestone.pipelineEnabled ? startDate : devTargetDate;
   const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate || uatTargetDate) ? {
     requirements: (reqTargetDate && startDate) ? Math.max(0, Math.round((reqTargetDate.getTime() - startDate.getTime()) / 86_400_000)) : null,
     develop: (devTargetDate && reqTargetDate) ? Math.max(0, Math.round((devTargetDate.getTime() - reqTargetDate.getTime()) / 86_400_000)) : null,
-    qa: (qaTargetDate && devTargetDate) ? Math.max(0, Math.round((qaTargetDate.getTime() - devTargetDate.getTime()) / 86_400_000)) : null,
+    qa: (qaTargetDate && qaPlannedStart) ? Math.max(0, Math.round((qaTargetDate.getTime() - qaPlannedStart.getTime()) / 86_400_000)) : null,
     uat: (uatTargetDate && qaTargetDate) ? Math.max(0, Math.round((uatTargetDate.getTime() - qaTargetDate.getTime()) / 86_400_000)) : null,
   } : null;
 
@@ -866,7 +909,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     const mReqIds = entries.map(e => e.id);
     let mFirstPassPct: number | null = null;
     let mStabilityPct: number | null = null;
-    if (mReqIds.length > 0) {
+    if (mReqIds.length > 0 && !m.pipelineEnabled) {
       const mEvents = await db
         .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
         .from(activityTable)
@@ -994,10 +1037,10 @@ export function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestone
   const groups: { key: PhaseTimelineEntry["key"]; label: string; segKeys: PhaseKey[]; plannedStart: Date | null; plannedEnd: Date | null }[] = [
     { key: "requirements", label: "Requirements", segKeys: ["requirements"], plannedStart: m.startDate ?? null, plannedEnd: m.reqTargetDate ?? null },
     { key: "development", label: "Development", segKeys: ["gap", "develop"], plannedStart: m.reqTargetDate ?? null, plannedEnd: m.devTargetDate ?? null },
-    { key: "qa", label: "Testing", segKeys: ["qa"], plannedStart: m.devTargetDate ?? null, plannedEnd: m.qaTargetDate ?? null },
+    { key: "qa", label: "Testing", segKeys: ["qa"], plannedStart: (m.pipelineEnabled ? m.startDate : m.devTargetDate) ?? null, plannedEnd: m.qaTargetDate ?? null },
     { key: "uat", label: "UAT", segKeys: ["uat"], plannedStart: m.qaTargetDate ?? null, plannedEnd: m.uatTargetDate ?? null },
   ];
-  return groups.map((g) => {
+  return groups.filter(g => !m.pipelineEnabled || g.key === "qa" || (g.key === "uat" && m.requiresUat)).map((g) => {
     const segs = segments.filter((s) => g.segKeys.includes(s.key));
     const lastSeg = segs[segs.length - 1];
     return {

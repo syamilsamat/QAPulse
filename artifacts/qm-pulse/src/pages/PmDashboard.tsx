@@ -151,6 +151,7 @@ interface TopBlocker {
 
 interface PhaseReport {
   milestone: {
+    pipelineEnabled?: boolean;
     id: number;
     name: string;
     status: string;
@@ -1060,9 +1061,10 @@ function BenchmarkTable({ trend }: { trend: NonNullable<PhaseReport["trend"]> })
 // in development is Develop (indigo), awaiting QA is the synthesized
 // Awaiting QA filler (slate), and QA testing/UAT get their own phase colors.
 function statusBadgeClasses(status: string): string {
-  if (status === "Approved · in UAT") return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400";
-  if (status === "Approved · in QA testing") return "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400";
-  if (status === "Approved · awaiting QA") return "bg-slate-100 text-slate-700 dark:bg-slate-950 dark:text-slate-400";
+  if (status === "Completed" || status === "QA signed off") return "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400";
+  if (status === "Approved · in UAT" || status === "In UAT" || status === "Awaiting UAT") return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400";
+  if (status === "Approved · in QA testing" || status === "In QA testing") return "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400";
+  if (status === "Approved · awaiting QA" || status === "Awaiting QA") return "bg-slate-100 text-slate-700 dark:bg-slate-950 dark:text-slate-400";
   if (status === "Approved · in development") return "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400";
   if (status === "Approved · awaiting Dev") return "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
   // Draft / In review / Rejected — awaiting revision — all still Requirements phase
@@ -1159,7 +1161,7 @@ function RequirementGanttChart({
   const planPhases = ([
     { key: "requirements", from: milestone.startDate, to: milestone.reqTargetDate },
     { key: "develop", from: milestone.reqTargetDate, to: milestone.devTargetDate },
-    { key: "qa", from: milestone.devTargetDate, to: milestone.qaTargetDate },
+    { key: "qa", from: milestone.pipelineEnabled ? milestone.startDate : milestone.devTargetDate, to: milestone.qaTargetDate },
     { key: "uat", from: milestone.qaTargetDate, to: milestone.uatTargetDate },
   ] as const)
     .filter((p) => p.from && p.to && new Date(p.to) > new Date(p.from))
