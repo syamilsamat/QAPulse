@@ -1,3 +1,5 @@
+import { Link, useLocation } from "wouter";
+import { verdictExecutionUrl, type VerdictResult } from "@/lib/verdict-drilldown";
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -246,12 +248,14 @@ function StatBox({
   label,
   value,
   color,
+  href,
 }: {
+  href?: string;
   label: string;
   value: number;
   color: string;
 }) {
-  return (
+  const content = (
     <div
       className={`flex-1 flex flex-col items-center justify-center rounded-xl p-2 sm:p-3 ${color} w-full`}
     >
@@ -261,6 +265,7 @@ function StatBox({
       </span>
     </div>
   );
+  return href ? <Link href={href} aria-label={`View ${label.toLowerCase()} test cases`} className="rounded-xl hover:opacity-80 focus-visible:ring-2 focus-visible:ring-primary">{content}</Link> : content;
 }
 
 function RedmineSection({
@@ -593,6 +598,7 @@ function RedmineSection({
 }
 
 export default function VerdictReport() {
+  const [, navigate] = useLocation();
   const { token, user } = useAuth();
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
@@ -920,6 +926,11 @@ export default function VerdictReport() {
       setIsSendingVerdict(false);
     }
   };
+
+  const resultUrl = (result: VerdictResult, module?: string) => verdictExecutionUrl(data!.redmineId, result, module);
+  const ResultLink = ({ result, value, module }: { result: VerdictResult; value: number; module?: string }) => (
+    <Link href={resultUrl(result, module)} className="underline underline-offset-2 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-primary" aria-label={`View ${value} ${result.toLowerCase()} test cases${module ? ` in ${module}` : ""}`}>{value}</Link>
+  );
 
   const execData = data
     ? [
@@ -1449,6 +1460,8 @@ export default function VerdictReport() {
                                 <Pie
                                   isAnimationActive={false}
                                   data={execData}
+                                  onClick={(entry) => navigate(resultUrl(entry.name as VerdictResult))}
+                                  className="cursor-pointer"
                                   cx="50%"
                                   cy="45%"
                                   innerRadius={60}
@@ -1480,16 +1493,19 @@ export default function VerdictReport() {
                               <StatBox
                                 label="PASSED"
                                 value={data.testExecution.passed}
+                                href={resultUrl("Passed")}
                                 color="bg-green-100 text-green-800"
                               />
                               <StatBox
                                 label="FAILED"
                                 value={data.testExecution.failed}
+                                href={resultUrl("Failed")}
                                 color="bg-red-100 text-red-800"
                               />
                               <StatBox
                                 label="BLOCKED"
                                 value={data.testExecution.blocked}
+                                href={resultUrl("Blocked")}
                                 color="bg-orange-100 text-orange-800"
                               />
                             </div>
@@ -1498,11 +1514,13 @@ export default function VerdictReport() {
                               <StatBox
                                 label="IN PROGRESS"
                                 value={data.testExecution.inProgress}
+                                href={resultUrl("In Progress")}
                                 color="bg-blue-100 text-blue-800"
                               />
                               <StatBox
                                 label="NOT EXECUTED"
                                 value={data.testExecution.notExecuted}
+                                href={resultUrl("Not Executed")}
                                 color="bg-gray-100 text-gray-700"
                               />
                             </div>
@@ -1569,19 +1587,19 @@ export default function VerdictReport() {
                                     {m.total}
                                   </td>
                                   <td className="text-center py-2 px-2 text-green-700">
-                                    {m.passed}
+                                    <ResultLink result="Passed" value={m.passed} module={m.module} />
                                   </td>
                                   <td className="text-center py-2 px-2 text-red-700">
-                                    {m.failed}
+                                    <ResultLink result="Failed" value={m.failed} module={m.module} />
                                   </td>
                                   <td className="text-center py-2 px-2 text-orange-700">
-                                    {m.blocked}
+                                    <ResultLink result="Blocked" value={m.blocked} module={m.module} />
                                   </td>
                                   <td className="text-center py-2 px-2 text-blue-700">
-                                    {m.inProgress}
+                                    <ResultLink result="In Progress" value={m.inProgress} module={m.module} />
                                   </td>
                                   <td className="text-center py-2 px-2 text-gray-600">
-                                    {m.notExecuted}
+                                    <ResultLink result="Not Executed" value={m.notExecuted} module={m.module} />
                                   </td>
                                   <td className="text-center py-2 px-2">
                                     <span
@@ -1601,19 +1619,19 @@ export default function VerdictReport() {
                                   {data.testExecution.total}
                                 </td>
                                 <td className="text-center py-2 px-2 text-green-700">
-                                  {data.testExecution.passed}
+                                  <ResultLink result="Passed" value={data.testExecution.passed} />
                                 </td>
                                 <td className="text-center py-2 px-2 text-red-700">
-                                  {data.testExecution.failed}
+                                  <ResultLink result="Failed" value={data.testExecution.failed} />
                                 </td>
                                 <td className="text-center py-2 px-2 text-orange-700">
-                                  {data.testExecution.blocked}
+                                  <ResultLink result="Blocked" value={data.testExecution.blocked} />
                                 </td>
                                 <td className="text-center py-2 px-2 text-blue-700">
-                                  {data.testExecution.inProgress}
+                                  <ResultLink result="In Progress" value={data.testExecution.inProgress} />
                                 </td>
                                 <td className="text-center py-2 px-2">
-                                  {data.testExecution.notExecuted}
+                                  <ResultLink result="Not Executed" value={data.testExecution.notExecuted} />
                                 </td>
                                 <td className="text-center py-2 px-2 text-green-700">
                                   {data.testExecution.passRate}%
@@ -1647,7 +1665,7 @@ export default function VerdictReport() {
                                     Passed:
                                   </span>
                                   <span className="font-semibold text-green-700">
-                                    {m.passed}
+                                    <ResultLink result="Passed" value={m.passed} module={m.module} />
                                   </span>
                                 </div>
                                 <div className="flex justify-between">
@@ -1655,7 +1673,7 @@ export default function VerdictReport() {
                                     Failed:
                                   </span>
                                   <span className="font-semibold text-red-700">
-                                    {m.failed}
+                                    <ResultLink result="Failed" value={m.failed} module={m.module} />
                                   </span>
                                 </div>
                                 <div className="flex justify-between">
@@ -1663,7 +1681,7 @@ export default function VerdictReport() {
                                     Blocked:
                                   </span>
                                   <span className="font-semibold text-orange-700">
-                                    {m.blocked}
+                                    <ResultLink result="Blocked" value={m.blocked} module={m.module} />
                                   </span>
                                 </div>
                                 <div className="flex justify-between">
@@ -1671,14 +1689,14 @@ export default function VerdictReport() {
                                     In Prog:
                                   </span>
                                   <span className="font-semibold text-blue-700">
-                                    {m.inProgress}
+                                    <ResultLink result="In Progress" value={m.inProgress} module={m.module} />
                                   </span>
                                 </div>
                               </div>
 
                               <div className="flex justify-between items-center pt-2 border-t text-xs font-medium">
                                 <span className="text-muted-foreground">
-                                  Not Exec: {m.notExecuted}
+                                  Not Exec: <ResultLink result="Not Executed" value={m.notExecuted} module={m.module} />
                                 </span>
                                 <div className="flex gap-3">
                                   <span

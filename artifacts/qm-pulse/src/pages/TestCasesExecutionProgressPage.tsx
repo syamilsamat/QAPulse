@@ -1,3 +1,4 @@
+import { readVerdictDrilldown, matchesExecutionResult } from "@/lib/verdict-drilldown";
 import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
 import React, {
   useState,
@@ -1540,6 +1541,15 @@ export default function TestCasesExecutionProgressPage() {
   // ?tc=<caseId> deep link (e.g. from the TC Library "In N runs" dialog):
   // pre-fill the search with the case ID and expand its module in tree view
   const searchString = useSearch();
+  const verdictDrilldown = useMemo(() => readVerdictDrilldown(searchString), [searchString]);
+  useEffect(() => {
+    if (!verdictDrilldown) return;
+    setGlobalSearch("");
+    setResultFilters([verdictDrilldown.result]);
+    setModuleFilters(verdictDrilldown.module === null ? [] : [verdictDrilldown.module]);
+    setQaFilters([]);
+    hasSetDefaultQaFilter.current = true;
+  }, [verdictDrilldown]);
   const tcParam = useMemo(
     () => new URLSearchParams(searchString).get("tc") ?? "",
     [searchString],
@@ -2145,13 +2155,13 @@ export default function TestCasesExecutionProgressPage() {
 
   // Default QA filter: only for qa_member — show own rows + unassigned; other roles see everything
   useEffect(() => {
-    if (!hasSetDefaultQaFilter.current && currentUser?.name) {
+    if (!verdictDrilldown && !hasSetDefaultQaFilter.current && currentUser?.name) {
       hasSetDefaultQaFilter.current = true;
       if (currentUser.role === "qa_member") {
         setQaFilters([currentUser.name, ""]);
       }
     }
-  }, [currentUser]);
+  }, [currentUser, verdictDrilldown]);
 
   // Merge server rows into local state — skips dirty rows so unsaved changes aren't overwritten
   const mergeServerData = useCallback((serverRows: AppExecutionTestCase[]) => {
@@ -2655,7 +2665,7 @@ export default function TestCasesExecutionProgressPage() {
           if (!moduleFilters.includes(row.moduleName || "")) return false;
         }
         if (resultFilters.length > 0) {
-          if (!resultFilters.includes(row.result || "")) return false;
+          if (!matchesExecutionResult(row.result, resultFilters)) return false;
         }
         if (qaFilters.length > 0) {
           if (!qaFilters.includes(row.qaPic || "")) return false;
