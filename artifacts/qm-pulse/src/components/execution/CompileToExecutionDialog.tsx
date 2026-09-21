@@ -155,7 +155,9 @@ export function CompileToExecutionDialog({
           method: "POST",
           headers,
           body: JSON.stringify({
-            redmineTicketId: form.redmineTicketId.trim(),
+            // Blank is allowed — the server mints an internal "INT-nnnn"
+            // reference for runs that have no Redmine ticket behind them.
+            redmineTicketId: form.redmineTicketId.trim() || undefined,
             title: form.title || undefined,
             remarks: form.remarks || undefined,
             selectedModules: selectedModuleNames.length ? selectedModuleNames.join(",") : undefined,
@@ -224,7 +226,6 @@ export function CompileToExecutionDialog({
   };
 
   const canCompileNew =
-    !!form.redmineTicketId.trim() &&
     !!form.projectId &&
     !!form.milestoneId &&
     form.selectedModules.length > 0;
@@ -325,12 +326,17 @@ export function CompileToExecutionDialog({
           {step === "new" && (
             <div className="space-y-4">
               <div className="space-y-1">
-                <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
+                <Label>Redmine Ticket ID <span className="text-xs text-muted-foreground">(optional)</span></Label>
                 <Input
                   placeholder="e.g. 38032"
                   value={form.redmineTicketId}
                   onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value.replace(/\D/g, "") })}
                 />
+                {!form.redmineTicketId.trim() && (
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank for a run with no Redmine ticket — an internal reference is generated instead.
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>Title</Label>

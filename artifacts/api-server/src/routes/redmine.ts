@@ -433,6 +433,11 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
 
 // ─── Create issue ────────────────────────────────────────────────────────────
 
+// Substrings that mark a Redmine validation error as being about one of the
+// custom fields this route sends. Used to decide whether retrying without them
+// could possibly help — see the retry in POST /redmine/issues.
+const CUSTOM_FIELD_ERROR_HINTS = ["complexity", "targeted start", "targeted completion", "source"];
+
 router.post("/redmine/issues", async (req, res): Promise<void> => {
   const {
     projectId,
@@ -505,50 +510,87 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       customFields.push({ id: Number(sourceFieldId), value: sourceValue });
     }
 
+    // A parent Redmine cannot resolve fails the whole create with "Parent task
+    // is invalid", and callers do not always supply a real issue id. The
+    // execution sheet falls back to the execution file's own reference when
+    // none of the file's requirements carries a Redmine ticket — and that
+    // reference is a QM Pulse identifier, not a Redmine issue. Check it first
+    // and file the defect unparented rather than losing the whole report; the
+    // response says so, so the UI can tell the reporter to link it by hand.
+    let parentDropped: string | null = null;
+    let effectiveParentId: number | null = parentIssueId ? Number(parentIssueId) : null;
+    if (effectiveParentId == null || Number.isNaN(effectiveParentId)) {
+      effectiveParentId = null;
+    } else {
+      const parentRes = await redmineRead(`/issues/${effectiveParentId}.json`, apiKey);
+      if (!parentRes.ok) {
+        parentDropped = `#${effectiveParentId} could not be used as the parent task (Redmine returned ${parentRes.status}), so the issue was created without one.`;
+        effectiveParentId = null;
+      }
+    }
+
     const baseIssue: any = {
       project_id: projectId,
       tracker_id: trackerId,
       subject,
       description: description ?? "",
-      ...(parentIssueId && { parent_issue_id: Number(parentIssueId) }),
+      ...(effectiveParentId != null && { parent_issue_id: effectiveParentId }),
       ...(assigneeId && { assigned_to_id: Number(assigneeId) }),
       ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
     };
 
-    let response = await redmineFetch("/issues.json", apiKey, {
-      method: "POST",
-      body: JSON.stringify({
-        issue: { ...baseIssue, ...(customFields.length > 0 && { custom_fields: customFields }) },
-      }),
+    const postIssue = (issue: any) =>
+      redmineFetch("/issues.json", apiKey, { method: "POST", body: JSON.stringify({ issue }) });
+
+    // Redmine answers validation failures with {"errors":[...]}. Assignees come
+    // from the whole contact directory rather than the project's own members,
+    // so "Assignee is invalid" (the user is not an allowed assignee on that
+    // project) is a normal outcome a QA needs to read and act on — not a raw
+    // JSON blob in a toast.
+    const readErrors = async (r: Response): Promise<string[]> => {
+      const body = await r.text();
+      try {
+        const parsed = JSON.parse(body);
+        if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) return parsed.errors.map(String);
+      } catch { /* not JSON — fall back to the raw body */ }
+      return [body];
+    };
+
+    let response = await postIssue({
+      ...baseIssue,
+      ...(customFields.length > 0 && { custom_fields: customFields }),
     });
 
-    // Complexity/date/source custom fields are configured globally, but not
-    // every Redmine project actually has all of them enabled — Redmine then
-    // rejects the whole issue rather than ignoring the fields it doesn't
-    // recognize. Retry once with no custom fields at all so the defect still
-    // gets created; only the metadata that project doesn't support is lost.
     let customFieldsDropped = false;
-    if (!response.ok && customFields.length > 0) {
-      response = await redmineFetch("/issues.json", apiKey, {
-        method: "POST",
-        body: JSON.stringify({ issue: baseIssue }),
-      });
-      customFieldsDropped = response.ok;
+    let firstErrors: string[] = [];
+    if (!response.ok) {
+      firstErrors = await readErrors(response);
+      // Complexity/date/source custom fields are configured globally, but not
+      // every Redmine project actually has all of them enabled — Redmine then
+      // rejects the whole issue rather than ignoring the fields it doesn't
+      // recognize. Retry without them so the defect still gets created; only
+      // the metadata that project doesn't support is lost.
+      //
+      // Gated on the errors actually naming one of those fields. Retrying blind
+      // made every unrelated failure worse: an unusable parent came back as
+      // "Complexity cannot be blank; Targeted Start Date cannot be blank;
+      // Targeted Completion Date cannot be blank; Parent task is invalid",
+      // because the retry stripped fields the tracker requires and the second
+      // response was the one reported. Only the last clause was the real cause.
+      const namesACustomField = firstErrors.some((message) =>
+        CUSTOM_FIELD_ERROR_HINTS.some((hint) => message.toLowerCase().includes(hint)),
+      );
+      if (customFields.length > 0 && namesACustomField) {
+        response = await postIssue(baseIssue);
+        customFieldsDropped = response.ok;
+      }
     }
 
     if (!response.ok) {
-      const errBody = await response.text();
-      // Redmine answers validation failures with {"errors":[...]}. Assignees
-      // now come from the whole contact directory rather than the project's
-      // own members, so "Assignee is invalid" (the user is not an allowed
-      // assignee on that project) is a normal outcome a QA needs to read and
-      // act on — not a raw JSON blob in a toast.
-      let detail = errBody;
-      try {
-        const parsed = JSON.parse(errBody);
-        if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) detail = parsed.errors.join("; ");
-      } catch { /* not JSON — fall back to the raw body */ }
-      throw new Error(`Redmine returned ${response.status}: ${detail}`);
+      // Always the FIRST attempt's errors: the retry deliberately sends a
+      // weaker payload, so its complaints describe what we removed, not what
+      // the reporter got wrong.
+      throw new Error(`Redmine returned ${response.status}: ${firstErrors.join("; ")}`);
     }
 
     const data: any = await response.json();
@@ -556,6 +598,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       id: data.issue.id,
       url: `${getBaseUrl()}/issues/${data.issue.id}`,
       customFieldsDropped,
+      ...(parentDropped ? { parentDropped } : {}),
     });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to create issue: ${err.message}` });

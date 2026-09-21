@@ -87,6 +87,32 @@ export interface ExecutionTestCase {
   addedBy?: number | null;
   addedByName?: string | null;
   acceptedByName?: string | null;
+  // The linked requirement's dev work is still open. An approved test case is
+  // approved to be run later, not run now — the Result control stays locked
+  // until dev hands the requirement over.
+  requirementInDevelopment?: boolean;
+  // Client-only, sent with the next save and stored on the history entry.
+  // Set when a tester overwrites a result that was already recorded.
+  resultChangeReason?: string;
+}
+
+/** One entry in a test case's execution trail. */
+export interface ExecutionTcTrailEntry {
+  kind: "result" | "lifecycle";
+  at: string;
+  actorName: string | null;
+  fromStatus: string | null;
+  toStatus: string | null;
+  label: string;
+  reason: string | null;
+}
+
+export interface ExecutionTcTrail {
+  testCaseId: string | null;
+  caseName: string | null;
+  currentResult: string | null;
+  addedByName: string | null;
+  entries: ExecutionTcTrailEntry[];
 }
 
 /** A row a reviewer sent back for rework — held off the execution sheet. */
@@ -286,6 +312,24 @@ export const reviewExecutionTestCase = async (
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `Failed to ${action} test case`);
+  }
+  return res.json();
+};
+
+/**
+ * Full execution trail for one row: every result change (who, when, from -> to
+ * and why) plus the row's acceptance lifecycle, newest first.
+ */
+export const fetchTestCaseTrail = async (
+  ticketId: string,
+  rowId: number,
+): Promise<ExecutionTcTrail> => {
+  const res = await fetch(`/api/execution-files/${ticketId}/test-cases/${rowId}/history`, {
+    headers: getHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? "Failed to load test case history");
   }
   return res.json();
 };
@@ -560,7 +604,14 @@ export interface CreateDefectPayload {
 
 export const createRedmineDefect = async (
   payload: CreateDefectPayload,
-): Promise<{ id: number; url: string; customFieldsDropped?: boolean }> => {
+): Promise<{
+  id: number;
+  url: string;
+  customFieldsDropped?: boolean;
+  /** Set when the requested parent issue couldn't be resolved in Redmine and
+   *  the defect was filed without one, so the reporter can link it by hand. */
+  parentDropped?: string;
+}> => {
   const res = await fetch("/api/redmine/issues", {
     method: "POST",
     headers: getHeaders(),

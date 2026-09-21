@@ -83,9 +83,12 @@ import {
   deleteExecutionEvidence,
   executionEvidenceUrl,
   reviewExecutionTestCase,
+  fetchTestCaseTrail,
   type ReturnedExecutionTestCase,
+  type ExecutionTcTrail,
 } from "@/lib/execution-api";
 import { getAllDescendants } from "@/lib/utils";
+import { splitTestSteps, numberTestSteps, isAlreadyNumbered } from "@/lib/test-steps";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
 const RESULT_OPTIONS = [
@@ -141,6 +144,41 @@ export type AppExecutionTestCase = ExecutionTestCase & {
 // signed off on, so it stays frozen until a peer accepts it individually.
 // Execution eligibility is therefore the file gate AND this row gate.
 const isRowAccepted = (row: AppExecutionTestCase) => (row.reviewState ?? "accepted") === "accepted";
+
+// The requirement this case covers is still being built. Reviewing and
+// approving a test case says the case itself is sound — it does not say the
+// feature is finished, so the Result control stays locked until dev hands the
+// requirement over. Enforced server-side too; this is what stops a tester
+// discovering it only from a silently reverted save.
+const isRowInDevelopment = (row: AppExecutionTestCase) => row.requirementInDevelopment === true;
+
+// ── Test steps ───────────────────────────────────────────────────────────────
+// splitTestSteps / numberTestSteps live in lib/test-steps.ts — the execution
+// sheet, the edit-mode normaliser and the Redmine defect description all have
+// to number steps identically, or "step 4 failed" means a different step
+// depending on where you read it.
+
+/** Read-only test steps, renumbered from line order. */
+function NumberedSteps({ value, className = "" }: { value: string | null | undefined; className?: string }) {
+  const steps = splitTestSteps(value);
+  if (steps.length === 0) {
+    return <span className="text-xs italic opacity-40">—</span>;
+  }
+  // A single step needs no "1." in front of it — that reads as a list of one.
+  if (steps.length === 1) {
+    return <span className={`text-xs text-foreground whitespace-pre-wrap ${className}`}>{steps[0]}</span>;
+  }
+  return (
+    <ol className={`text-xs text-foreground space-y-1 ${className}`}>
+      {steps.map((step, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="shrink-0 tabular-nums font-semibold text-muted-foreground select-none">{i + 1}.</span>
+          <span className="min-w-0 whitespace-pre-wrap break-words">{step}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 // Fields compared to detect drift between an execution copy and its linked library
 // test case. Execution-only concerns (QA PIC, Result, Defect Number, QA Notes) are
@@ -387,6 +425,10 @@ interface ImportSummary {
 const CopilotTextarea = ({
   value: rawValue,
   onChange,
+  // Called once on blur with the final text. Separate from onChange because
+  // rewriting the text on every keystroke would fight the caret — the test
+  // steps field uses it to renumber the lines once the author has stopped.
+  onCommit,
   fieldName,
   className,
   minHeight = "80px",
@@ -454,6 +496,7 @@ const CopilotTextarea = ({
   const handleBlur = () => {
     setSuggestion("");
     setIsTyping(false);
+    onCommit?.(value);
   };
 
   useEffect(() => {
@@ -582,6 +625,7 @@ interface RowProps {
   libraryDrift: boolean;
   onBlurRow: (id: string | number) => void;
   onAcknowledgeRevision: (id: string | number) => void;
+  onOpenTrail: (row: AppExecutionTestCase) => void;
   availableModules: ExecutionModule[];
   availableTrackers: TrackerOption[];
   qaUsers: ExecutionUser[];
@@ -607,6 +651,7 @@ const DesktopTableRow = React.memo(
     libraryDrift,
     onBlurRow,
     onAcknowledgeRevision,
+    onOpenTrail,
     availableModules,
     availableTrackers,
     qaUsers,
@@ -633,7 +678,7 @@ const DesktopTableRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
 
     if (row.rowType === "group") {
       return (
@@ -784,8 +829,8 @@ const DesktopTableRow = React.memo(
         </td>
         <td className="border border-border p-0 relative align-top">
           {readOnly
-            ? <div className="px-2 py-2">{roCell(row.testSteps)}</div>
-            : <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+            ? <div className="px-2 py-2"><NumberedSteps value={row.testSteps} /></div>
+            : <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) onUpdate(row.id as string, "testSteps", numberTestSteps(val)); }} />
           }
         </td>
         {!hide("testData") && (
@@ -824,6 +869,24 @@ const DesktopTableRow = React.memo(
             >
               <Clock className="w-2.5 h-2.5" /> Pending acceptance
             </span>
+          )}
+          {isRowInDevelopment(row) && (
+            <span
+              className="mx-2 mb-1.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1 w-fit dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+              title="The linked requirement is still in development — the test case is approved, but there is nothing finished to run it against yet"
+            >
+              <Clock className="w-2.5 h-2.5" /> In development
+            </span>
+          )}
+          {typeof row.id === "number" && (
+            <button
+              type="button"
+              onClick={() => onOpenTrail(row)}
+              className="mx-2 mb-1.5 text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
+              title="Who changed this result, when, and why"
+            >
+              <Clock className="w-2.5 h-2.5" /> History
+            </button>
           )}
         </td>
         {!hide("executedAt") && !isQaMember && (
@@ -955,6 +1018,7 @@ const MobileCardRow = React.memo(
     onDelete,
     onBlurRow,
     onAcknowledgeRevision,
+    onOpenTrail,
     availableModules,
     availableTrackers,
     qaUsers,
@@ -968,7 +1032,7 @@ const MobileCardRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
 
     return (
       <Card
@@ -1056,6 +1120,24 @@ const MobileCardRow = React.memo(
                 <Clock className="w-2.5 h-2.5" /> Pending acceptance
               </span>
             )}
+            {isRowInDevelopment(row) && (
+              <span
+                className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1 w-fit dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+                title="The linked requirement is still in development — the test case is approved, but there is nothing finished to run it against yet"
+              >
+                <Clock className="w-2.5 h-2.5" /> In development
+              </span>
+            )}
+            {typeof row.id === "number" && (
+              <button
+                type="button"
+                onClick={() => onOpenTrail(row)}
+                className="mt-1 text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1 w-fit"
+                title="Who changed this result, when, and why"
+              >
+                <Clock className="w-2.5 h-2.5" /> History
+              </button>
+            )}
           </div>
         </div>
 
@@ -1139,9 +1221,9 @@ const MobileCardRow = React.memo(
             Steps {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
           </Label>
           {readOnly
-            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.testSteps || "—"}</p>
+            ? <div className="px-2 py-1"><NumberedSteps value={row.testSteps} /></div>
             : <div className="border border-input rounded-md focus-within:ring-1">
-                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) onUpdate(row.id as string, "testSteps", numberTestSteps(val)); }} />
               </div>
           }
         </div>
@@ -1502,6 +1584,20 @@ export default function TestCasesExecutionProgressPage() {
   const [passEvidenceFile, setPassEvidenceFile] = useState<File | null>(null);
   const [isUploadingPassEvidence, setIsUploadingPassEvidence] = useState(false);
 
+  // Overwriting a result that was already recorded is the case the trail exists
+  // to explain, so the reason is collected at the moment of the change rather
+  // than reconstructed later. A first result needs no reason — "why" is just
+  // "it was run" — so this only interrupts a genuine change.
+  const [resultChangePrompt, setResultChangePrompt] = useState<
+    { id: string | number; from: string; to: string } | null
+  >(null);
+  const [resultChangeReason, setResultChangeReason] = useState("");
+
+  // Per-test-case execution trail (result changes + acceptance lifecycle).
+  const [trailRow, setTrailRow] = useState<AppExecutionTestCase | null>(null);
+  const [trailData, setTrailData] = useState<ExecutionTcTrail | null>(null);
+  const [trailLoading, setTrailLoading] = useState(false);
+
   // Dismissible warning banners
   const [editWarningDismissed, setEditWarningDismissed] = useState(false);
 
@@ -1834,33 +1930,53 @@ export default function TestCasesExecutionProgressPage() {
     setHasUnsavedChanges(true);
   };
 
+  // The result change itself, once any reason has been collected. Kept separate
+  // from updateCell so the reason prompt can run first and then resume exactly
+  // this flow (including the Pass-evidence and Fail-defect dialogs it opens).
+  const applyResultChange = useCallback((id: string | number, value: string) => {
+    if (value === "Passed") {
+      // Do not change the result until the optional-evidence choice is
+      // explicit. Cancel therefore preserves the previous result.
+      setPendingPassRowId(id);
+      setPassEvidenceMode("pass");
+      setPassEvidenceFile(null);
+      setPassEvidenceDialogOpen(true);
+      return;
+    }
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
+    setData((prev) => {
+      const updated = prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row);
+      dataRef.current = updated;
+      return updated;
+    });
+    setHasUnsavedChanges(true);
+    if (value === "Failed") {
+      pendingFailRowIdRef.current = id;
+      setPendingFailRowId(id);
+      setDefectModalOpen(true);
+    }
+  }, []);
+
   const updateCell = useCallback(
     (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
       // Update ref immediately so blur-save and polling see it without waiting for useEffect
       if (field === "result") {
-        if (value === "Passed") {
-          // Do not change the result until the optional-evidence choice is
-          // explicit. Cancel therefore preserves the previous result.
-          setPendingPassRowId(id);
-          setPassEvidenceMode("pass");
-          setPassEvidenceFile(null);
-          setPassEvidenceDialogOpen(true);
+        const current = dataRef.current.find((r) => r.id === id);
+        const previous = normalizeResultValue(current?.result);
+        const next = normalizeResultValue(value);
+        // Only a genuine overwrite of a recorded outcome needs explaining.
+        // First results, and re-picking the value already stored, go straight
+        // through — an interruption there would be noise, not an audit trail.
+        const isOverwrite =
+          !!previous && previous !== "Not Executed" && next !== previous;
+        if (isOverwrite) {
+          setResultChangeReason("");
+          setResultChangePrompt({ id, from: previous, to: next || "(cleared)" });
           return;
         }
-        dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
-        setDirtyRowIds(dirtyRowIdsRef.current);
-        const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
-        setData((prev) => {
-          const updated = prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row);
-          dataRef.current = updated;
-          return updated;
-        });
-        setHasUnsavedChanges(true);
-        if (value === "Failed") {
-          pendingFailRowIdRef.current = id;
-          setPendingFailRowId(id);
-          setDefectModalOpen(true);
-        }
+        applyResultChange(id, value);
         return;
       }
       dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
@@ -1872,8 +1988,43 @@ export default function TestCasesExecutionProgressPage() {
       });
       setHasUnsavedChanges(true);
     },
-    [],
+    [applyResultChange],
   );
+
+  /** Stamps the reason onto the row (it rides along on the next save, where
+   *  the server writes it into the history entry) and resumes the change. */
+  const confirmResultChange = useCallback(() => {
+    const prompt = resultChangePrompt;
+    const reason = resultChangeReason.trim();
+    if (!prompt || !reason) return;
+    setData((prev) => {
+      const updated = prev.map((row) =>
+        row.id === prompt.id ? { ...row, resultChangeReason: reason } : row,
+      );
+      dataRef.current = updated;
+      return updated;
+    });
+    setResultChangePrompt(null);
+    setResultChangeReason("");
+    // "(cleared)" is the label shown in the prompt, never a stored value.
+    applyResultChange(prompt.id, prompt.to === "(cleared)" ? "" : prompt.to);
+  }, [resultChangePrompt, resultChangeReason, applyResultChange]);
+
+  /** Opens the execution trail for one saved row. */
+  const openTrail = useCallback(async (row: AppExecutionTestCase) => {
+    if (typeof row.id !== "number") return;
+    setTrailRow(row);
+    setTrailData(null);
+    setTrailLoading(true);
+    try {
+      setTrailData(await fetchTestCaseTrail(ticketId, row.id));
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Couldn't load history", description: String(err?.message ?? err) });
+      setTrailRow(null);
+    } finally {
+      setTrailLoading(false);
+    }
+  }, [ticketId, toast]);
 
   const handleDefectCreated = useCallback((result: DefectCreationResult) => {
     const rowId = pendingFailRowIdRef.current;
@@ -1947,6 +2098,8 @@ export default function TestCasesExecutionProgressPage() {
       const result = await saveTestCases(ticketId, rowsToSave as any, Array.from(deleted));
       if (result?.testCases) applyReturnedRows(result.testCases);
       applyRenumbered((result as any)?.renumbered);
+      clearSavedResultReasons();
+      warnAboutRevertedResults(result);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
       setHasUnsavedChanges(false);
@@ -2030,7 +2183,15 @@ export default function TestCasesExecutionProgressPage() {
           merged.push(row); // dirty — keep local version
         } else {
           const serverRow = serverMap.get(row.id as number);
-          if (serverRow) merged.push(serverRow); // clean — use server version; omit if server deleted it
+          // A row waiting on the Pass-evidence dialog is not dirty yet but is
+          // already carrying the reason the tester typed. The server has no
+          // such field to send back, so carry it across the merge or the
+          // pending change would land in the trail unexplained.
+          if (serverRow) merged.push(
+            row.resultChangeReason
+              ? { ...serverRow, resultChangeReason: row.resultChangeReason }
+              : serverRow,
+          ); // clean — use server version; omit if server deleted it
         }
       }
       // Add new rows from server that don't exist locally
@@ -2171,6 +2332,42 @@ export default function TestCasesExecutionProgressPage() {
     setPullDialogOpen(false);
     setSelectedPullIds(new Set());
     setIsPulling(false);
+  };
+
+  // The reason is a one-shot payload: once the server has written it into the
+  // history entry, leaving it on the row would re-attach it to whatever the
+  // next result change happens to be.
+  const clearSavedResultReasons = () => {
+    setData((prev) => {
+      if (!prev.some((row) => row.resultChangeReason)) return prev;
+      const next = prev.map((row) =>
+        row.resultChangeReason ? { ...row, resultChangeReason: undefined } : row,
+      );
+      dataRef.current = next;
+      return next;
+    });
+  };
+
+  // The server reverts a result it won't accept rather than failing the whole
+  // save, so the only way the tester learns is if we say so. Each list names
+  // the rows and the reason they were held.
+  const warnAboutRevertedResults = (result: any) => {
+    const reverted: string[] = [];
+    if (result?.blockedResultRows?.length) {
+      reverted.push(`Linked requirement is blocked: ${result.blockedResultRows.join(", ")}`);
+    }
+    if (result?.inDevelopmentResultRows?.length) {
+      reverted.push(`Linked requirement is still in development: ${result.inDevelopmentResultRows.join(", ")}`);
+    }
+    if (result?.unacceptedResultRows?.length) {
+      reverted.push(`Still awaiting peer acceptance: ${result.unacceptedResultRows.join(", ")}`);
+    }
+    if (reverted.length === 0) return;
+    toast({
+      variant: "destructive",
+      title: "Some results weren't saved",
+      description: reverted.join(" · "),
+    });
   };
 
   const applyReturnedRows = (savedRows: any[]) => {
@@ -2408,13 +2605,8 @@ export default function TestCasesExecutionProgressPage() {
       const result = await saveTestCases(ticketId, allRows as any, Array.from(deletedDbIds), true);
       if (result?.testCases) applyReturnedRows(result.testCases);
       applyRenumbered((result as any)?.renumbered);
-      if ((result as any)?.blockedResultRows?.length) {
-        toast({
-          variant: "destructive",
-          title: "Some results weren't saved",
-          description: `Linked requirement is blocked: ${(result as any).blockedResultRows.join(", ")}`,
-        });
-      }
+      clearSavedResultReasons();
+      warnAboutRevertedResults(result);
       toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
       setHasUnsavedChanges(false);
       setSaveStatus("saved");
@@ -3134,6 +3326,15 @@ export default function TestCasesExecutionProgressPage() {
   // requirement's linked ticket; if the row has no requirement (e.g. a
   // manually added row), fall back to the first linked ticket among this
   // file's own requirements, then to the file's own ticketId.
+  //
+  // That last fallback only holds when the file's reference IS a Redmine issue
+  // number. An execution file's reference is a QM Pulse identifier that merely
+  // tends to be a ticket id — a file created without one carries a generated
+  // "INT-0004" instead, and even an all-digits reference may name no issue at
+  // all. Sending one Redmine can't resolve used to fail the whole defect with
+  // "Parent task is invalid", so a non-numeric reference is not offered as a
+  // parent, and the server drops any id that doesn't resolve rather than
+  // losing the report.
   const defectParentIssueId = (() => {
     const ownReq = defectRow?.requirementId
       ? requirementsList.find((r) => r.id === Number(defectRow.requirementId))
@@ -3143,7 +3344,8 @@ export default function TestCasesExecutionProgressPage() {
       (r) => currentFileMilestoneId == null || r.milestoneId === currentFileMilestoneId,
     );
     const firstLinked = fileScoped.find((r) => r.redmineTicketId)?.redmineTicketId;
-    return firstLinked ?? ticketId ?? null;
+    if (firstLinked) return firstLinked;
+    return /^\d+$/.test(ticketId ?? "") ? ticketId : null;
   })();
 
   return (
@@ -3216,6 +3418,124 @@ export default function TestCasesExecutionProgressPage() {
                 {passEvidenceMode === "pass" ? "Save as Passed" : "Upload attachment"}
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reason for overwriting an already-recorded result. Mandatory: an
+          unexplained Passed -> Failed is exactly the entry the trail exists to
+          answer, so the change doesn't proceed without one. */}
+      <Dialog
+        open={resultChangePrompt !== null}
+        onOpenChange={(open) => { if (!open) { setResultChangePrompt(null); setResultChangeReason(""); } }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" /> Why is this result changing?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {resultChangePrompt && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`px-2 py-0.5 rounded-full border text-xs font-medium ${RESULT_PILL_ACTIVE[resultChangePrompt.from] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                  {resultChangePrompt.from}
+                </span>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className={`px-2 py-0.5 rounded-full border text-xs font-medium ${RESULT_PILL_ACTIVE[resultChangePrompt.to] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                  {resultChangePrompt.to}
+                </span>
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground">
+              This is recorded against the test case with your name and the time, and shown in its History.
+            </p>
+            <Textarea
+              autoFocus
+              value={resultChangeReason}
+              onChange={(e) => setResultChangeReason(e.target.value)}
+              placeholder="e.g. Retested after fix #38120 — the defect is still reproducible on Env 3"
+              className="min-h-[90px] text-sm"
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setResultChangePrompt(null); setResultChangeReason(""); }}>
+              Cancel
+            </Button>
+            <Button onClick={confirmResultChange} disabled={!resultChangeReason.trim()}>
+              Save reason &amp; change result
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Execution trail for one test case. */}
+      <Dialog open={trailRow !== null} onOpenChange={(open) => { if (!open) { setTrailRow(null); setTrailData(null); } }}>
+        <DialogContent className="sm:max-w-[620px] max-h-[85vh] flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-primary" /> Execution history
+            </DialogTitle>
+            {trailRow && (
+              <p className="text-sm text-muted-foreground pt-1">
+                <span className="font-mono text-xs text-primary">{trailRow.caseId || trailRow.testCaseId}</span>
+                {trailRow.caseName ? ` · ${trailRow.caseName}` : ""}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto py-2">
+            {trailLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+            ) : !trailData || trailData.entries.length === 0 ? (
+              <div className="text-center py-10 space-y-1">
+                <p className="text-sm text-muted-foreground">No result has been recorded yet.</p>
+                {trailData?.addedByName && (
+                  <p className="text-xs text-muted-foreground">Added by {trailData.addedByName}</p>
+                )}
+              </div>
+            ) : (
+              <ol className="relative border-l border-border ml-3 space-y-5 py-1">
+                {trailData.entries.map((entry, i) => (
+                  <li key={i} className="ml-5">
+                    <span
+                      className={`absolute -left-[5px] mt-1.5 w-2.5 h-2.5 rounded-full ring-4 ring-background ${
+                        entry.kind === "result"
+                          ? RESULT_DOT_COLOR[normalizeResultValue(entry.toStatus)] ?? "bg-slate-400"
+                          : "bg-slate-400"
+                      }`}
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {entry.kind === "result" ? (
+                        <>
+                          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${RESULT_PILL_ACTIVE[normalizeResultValue(entry.fromStatus)] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                            {normalizeResultValue(entry.fromStatus) || "Not Executed"}
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${RESULT_PILL_ACTIVE[normalizeResultValue(entry.toStatus)] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                            {normalizeResultValue(entry.toStatus) || "Not Executed"}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-medium">{entry.label}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {entry.actorName ?? "Unknown user"} · {format(new Date(entry.at), "dd MMM yyyy, HH:mm")}
+                    </p>
+                    {entry.reason ? (
+                      <p className="text-xs mt-1.5 rounded-md border bg-muted/40 px-2.5 py-1.5 whitespace-pre-wrap break-words">
+                        {entry.reason}
+                      </p>
+                    ) : entry.kind === "result" ? (
+                      <p className="text-xs mt-1.5 italic text-muted-foreground/70">No reason recorded</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          <DialogFooter className="shrink-0 border-t pt-3">
+            <Button variant="outline" onClick={() => { setTrailRow(null); setTrailData(null); }}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -4026,6 +4346,7 @@ export default function TestCasesExecutionProgressPage() {
                           onUpdate={updateCell}
                           onBlurRow={saveBlurRow}
                           onAcknowledgeRevision={acknowledgeRevision}
+                          onOpenTrail={openTrail}
                           onDelete={requestSingleDelete}
                           onPromote={openPromoteDialog}
                           onUpdateLibrary={handleUpdateLibraryFromExecution}
@@ -4153,9 +4474,9 @@ export default function TestCasesExecutionProgressPage() {
               const isQaMember = currentUser?.role === "qa_member";
               const isAssignedToMe = row.qaPic === currentUser?.name;
               const isUnassigned = !row.qaPic;
-              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
+              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
-              const steps = parseLines(row.testSteps);
+              const steps = splitTestSteps(row.testSteps);
               const expectations = parseLines(row.expectedResult);
               const getExpected = (i: number) => {
                 if (expectations.length === 0) return "";
@@ -4306,7 +4627,7 @@ export default function TestCasesExecutionProgressPage() {
                         {mode === "edit" ? (
                           <div className={`grid grid-cols-2 ${dividerX}`}>
                             <div className="p-3">
-                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} />
+                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) updateCell(row.id as string | number, "testSteps", numberTestSteps(val)); }} />
                             </div>
                             <div className="p-3">
                               <CopilotTextarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} fieldName="Expected Result" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "expectedResult", val)} />
@@ -4315,7 +4636,10 @@ export default function TestCasesExecutionProgressPage() {
                         ) : (
                           displaySteps.map((step, i) => (
                             <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
-                              <div className={cellCls}>{step || "—"}</div>
+                              <div className={`${cellCls} flex gap-2`}>
+                                <span className="shrink-0 tabular-nums font-semibold text-muted-foreground select-none">{i + 1}.</span>
+                                <span className="min-w-0 break-words">{step || "—"}</span>
+                              </div>
                               <div className={cellCls}>{getExpected(i) || ""}</div>
                             </div>
                           ))
@@ -4324,7 +4648,19 @@ export default function TestCasesExecutionProgressPage() {
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Result</div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2 flex items-center gap-2">
+                            Result
+                            {typeof row.id === "number" && (
+                              <button
+                                type="button"
+                                onClick={() => openTrail(row)}
+                                className="normal-case font-medium text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
+                                title="Who changed this result, when, and why"
+                              >
+                                <Clock className="w-3 h-3" /> History
+                              </button>
+                            )}
+                          </div>
                           {(() => {
                             const linkedReq = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
                             if (linkedReq?.isBlocked) {
@@ -4334,6 +4670,24 @@ export default function TestCasesExecutionProgressPage() {
                                     <AlertTriangle className="w-3 h-3" /> Requirement blocked
                                   </span>
                                   <p className="text-[11px] text-muted-foreground">Cannot execute — {linkedReq.blockedReason}</p>
+                                </div>
+                              );
+                            }
+                            // Approved test case, unfinished feature. Say so where
+                            // the pills would have been, rather than leaving a
+                            // read-only badge the tester can't explain.
+                            if (isRowInDevelopment(row)) {
+                              return (
+                                <div className="space-y-1 max-w-[240px]">
+                                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                    <Clock className="w-3 h-3" /> In development
+                                  </span>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Cannot execute yet — the linked requirement is still being built. It opens for execution once dev marks it Ready for QA.
+                                  </p>
+                                  <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                    {normalizeResultValue(row.result) || "Not Executed"}
+                                  </span>
                                 </div>
                               );
                             }
@@ -4454,7 +4808,7 @@ export default function TestCasesExecutionProgressPage() {
                         const isQaMember = currentUser?.role === "qa_member";
                         const isAssignedToMe = row.qaPic === currentUser?.name;
                         const isUnassigned = !row.qaPic;
-                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row);
+                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
                         if (row.rowType === "group") {
                           return (
                             <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">
@@ -4487,7 +4841,7 @@ export default function TestCasesExecutionProgressPage() {
                             {/* Expanded detail panel — document style (mobile) */}
                             {isTcOpen && (() => {
                               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
-                              const steps = parseLines(row.testSteps);
+                              const steps = splitTestSteps(row.testSteps);
                               const expectations = parseLines(row.expectedResult);
                               const getExpected = (i: number) => {
                                 if (expectations.length === 0) return "";
@@ -4540,14 +4894,29 @@ export default function TestCasesExecutionProgressPage() {
                                       </div>
                                       {displaySteps.map((step, i) => (
                                         <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
-                                          <div className="p-2 text-xs whitespace-pre-wrap">{step || "—"}</div>
+                                          <div className="p-2 text-xs whitespace-pre-wrap flex gap-2">
+                                            <span className="shrink-0 tabular-nums font-semibold text-muted-foreground select-none">{i + 1}.</span>
+                                            <span className="min-w-0 break-words">{step || "—"}</span>
+                                          </div>
                                           <div className="p-2 text-xs whitespace-pre-wrap">{getExpected(i) || ""}</div>
                                         </div>
                                       ))}
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div>
-                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Result</div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1 flex items-center gap-2">
+                                          Result
+                                          {typeof row.id === "number" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => openTrail(row)}
+                                              className="normal-case font-medium text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
+                                              title="Who changed this result, when, and why"
+                                            >
+                                              <Clock className="w-3 h-3" /> History
+                                            </button>
+                                          )}
+                                        </div>
                                         {(() => {
                                           const linkedReq = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
                                           if (linkedReq?.isBlocked) {
@@ -4555,6 +4924,18 @@ export default function TestCasesExecutionProgressPage() {
                                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-red-50 text-red-700 border-red-200">
                                                 <AlertTriangle className="w-2.5 h-2.5" /> Blocked
                                               </span>
+                                            );
+                                          }
+                                          if (isRowInDevelopment(row)) {
+                                            return (
+                                              <div className="space-y-1">
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                                  <Clock className="w-2.5 h-2.5" /> In development
+                                                </span>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                  Cannot execute yet — the linked requirement is still being built.
+                                                </p>
+                                              </div>
                                             );
                                           }
                                           return canEdit ? (

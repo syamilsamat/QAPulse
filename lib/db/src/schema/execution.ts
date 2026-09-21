@@ -136,9 +136,16 @@ export const executionTcHistoryTable = pgTable("execution_tc_history", {
   changedBy: integer("changed_by"),
   fromStatus: text("from_status"),
   toStatus: text("to_status"),
+  // Why the result moved. Captured from the tester when they overwrite a
+  // result that was already recorded (Passed -> Failed and the like) — the
+  // case the trail exists to explain. Null on a first result, where "why"
+  // is just "it was run", and on rows written before this column existed.
+  reason: text("reason"),
   changedAt: timestamp("changed_at").defaultNow().notNull(),
 }, (t) => [
   index("exec_tc_history_file_idx").on(t.executionFileId),
+  // The per-test-case trail reads one row's entries newest-first.
+  index("exec_tc_history_file_tc_idx").on(t.executionFileId, t.testCaseId),
 ]);
 
 // 5. Execution File Audit Log (populates Doc Info + Review Log sheets)

@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { numberTestSteps } from "@/lib/test-steps";
 import { useAuth } from "@/contexts/AuthContext";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
 import { ModuleSelect } from "@/components/ModuleSelect";
@@ -90,7 +91,7 @@ export default function DefectCreationModal({
     `${issueId ? `#${issueId} - ` : ""}[${testCaseId ?? ""}] ${testCaseName}`;
 
   const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
-  const [stepsToReproduce, setStepsToReproduce] = useState(testSteps ?? "");
+  const [stepsToReproduce, setStepsToReproduce] = useState(numberTestSteps(testSteps));
   const [actualResult, setActualResult] = useState("");
   const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
   const [defectDescription, setDefectDescription] = useState("");
@@ -128,7 +129,7 @@ export default function DefectCreationModal({
   useEffect(() => {
     if (!open) return;
     setExpectedResultValue(expectedResult ?? "");
-    setStepsToReproduce(testSteps ?? "");
+    setStepsToReproduce(numberTestSteps(testSteps));
     setDefectModule(moduleName ?? "");
     setQmpulseProjectId(projectId ?? null);
     setDefectDescription("");
@@ -201,6 +202,14 @@ export default function DefectCreationModal({
     return () => clearTimeout(timer);
   }, [selectedProjectId, subject]);
 
+  // Custom fields this form collects that have no Redmine field id configured.
+  // Source is excluded: it is only rendered when its field id exists.
+  const unmappedCustomFields = [
+    !projectConfig?.complexityFieldId ? "Complexity" : null,
+    !projectConfig?.targetedStartDateFieldId ? "Targeted Start Date" : null,
+    !projectConfig?.targetedCompletionDateFieldId ? "Targeted Completion Date" : null,
+  ].filter((label): label is string => label !== null);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     files.forEach((file) => {
@@ -227,7 +236,12 @@ export default function DefectCreationModal({
     // No "Description:" heading here — Redmine renders one above the field,
     // and repeating it showed the word twice on every defect.
     if (defectDescription.trim()) desc += `${defectDescription.trim()}\n\n`;
-    if (stepsToReproduce.trim()) desc += `**Steps to Reproduce:**\n${stepsToReproduce.trim()}\n\n`;
+    // Numbered the same way the execution sheet numbers them, so a developer
+    // reading the ticket and a tester reading the sheet mean the same thing by
+    // "step 2". numberTestSteps strips whatever numbering the author typed
+    // before applying its own, so this never doubles up.
+    const numberedSteps = numberTestSteps(stepsToReproduce);
+    if (numberedSteps) desc += `**Steps to Reproduce:**\n${numberedSteps}\n\n`;
     if (expectedResultValue.trim()) desc += `**Expected Result:**\n${expectedResultValue.trim()}\n\n`;
     if (actualResult.trim()) desc += `**Actual Result:**\n${actualResult.trim()}\n\n`;
     if (testCaseId) desc += `**Test Case ID:** ${testCaseId}`;
@@ -314,9 +328,14 @@ export default function DefectCreationModal({
 
       toast({
         title: `Defect #${result.id} created in Redmine`,
-        description: result.customFieldsDropped
-          ? "This Redmine project doesn't have Complexity/Date/Source fields set up — they were skipped."
-          : undefined,
+        description: [
+          result.customFieldsDropped
+            ? "This Redmine project doesn't have Complexity/Date/Source fields set up — they were skipped."
+            : null,
+          // The defect exists but hangs off nothing, so whoever triages it needs
+          // to know to parent it by hand rather than assume the link is there.
+          result.parentDropped ?? null,
+        ].filter(Boolean).join(" ") || undefined,
       });
       // CR019: record locally so the Defects page tracks it (best-effort)
       registerLocalDefect({
@@ -349,7 +368,7 @@ export default function DefectCreationModal({
 
   const handleClose = () => {
     setExpectedResultValue(expectedResult ?? "");
-    setStepsToReproduce(testSteps ?? "");
+    setStepsToReproduce(numberTestSteps(testSteps));
     setActualResult("");
     setDefectDescription("");
     setScreenshots([]);
@@ -623,10 +642,17 @@ export default function DefectCreationModal({
               </div>
             </div>
 
-            {!projectConfig && selectedProjectId && (
+            {/* Checked per field, not just "is there a config row". A config
+                that exists but leaves a field id blank sends nothing for that
+                field, and Redmine rejects the whole issue with "<field> cannot
+                be blank" — which reads as if the form were empty when it is
+                visibly filled in. Say which ones up front. */}
+            {selectedProjectId && unmappedCustomFields.length > 0 && (
               <p className="text-xs text-amber-600">
-                No custom field config for this project. Complexity and date fields won't be set.
-                Configure in Settings → Redmine Integration.
+                {unmappedCustomFields.join(", ")} {unmappedCustomFields.length === 1 ? "has" : "have"} no
+                Redmine field mapping, so {unmappedCustomFields.length === 1 ? "it won't be" : "they won't be"} sent.
+                If the tracker requires {unmappedCustomFields.length === 1 ? "it" : "them"}, Redmine will reject
+                this issue — map {unmappedCustomFields.length === 1 ? "it" : "them"} in Settings → Redmine Integration.
               </p>
             )}
           </div>

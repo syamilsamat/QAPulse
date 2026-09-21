@@ -17,6 +17,7 @@ import {
   milestonesTable,
   notificationsTable,
   projectMembersTable,
+  tasksTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
@@ -135,6 +136,80 @@ function hasRealResult(result: unknown): boolean {
   if (typeof result !== "string") return false;
   const trimmed = result.trim();
   return trimmed !== "" && trimmed.toLowerCase() !== "not executed";
+}
+
+// A requirement whose dev work is still open. devStatus runs
+// null -> 'assigned' -> 'in_progress' -> 'ready_for_qa' (CR030), so these two
+// values are the window where development is demonstrably still running and QA
+// must not record an outcome against the code yet — an approved test case is
+// approved to be *run later*, not approved to be run now.
+const IN_DEVELOPMENT_DEV_STATUSES = ["assigned", "in_progress"];
+
+/**
+ * requirementIds (of those given) whose dev work is still open.
+ *
+ * Two independent signals, because either one alone leaves a hole:
+ *
+ *  - devStatus in ('assigned','in_progress') — the dev handoff was started and
+ *    hasn't reached Ready for QA.
+ *  - the requirement has dev tasks and not all of them are Done — the same
+ *    "provably incomplete" test maybeAdvanceRequirement/maybeRevertIfIncomplete
+ *    use. A Dev Lead who adds tasks straight from the Requirements page without
+ *    going through PATCH /requirements/:id/dev leaves devStatus null, so the
+ *    first signal alone would read that requirement as executable.
+ *
+ * A null devStatus with no dev tasks stays executable on purpose: it means the
+ * requirement never entered the dev-handoff flow at all (QA Pipeline milestones
+ * sync straight from Redmine and skip it), and freezing those would leave no
+ * way to release them.
+ */
+async function findInDevelopmentRequirementIds(requirementIds: number[]): Promise<Set<number>> {
+  if (requirementIds.length === 0) return new Set();
+
+  const byDevStatus = await db
+    .select({ id: requirementsTable.id })
+    .from(requirementsTable)
+    .where(
+      and(
+        inArray(requirementsTable.id, requirementIds),
+        inArray(requirementsTable.devStatus, IN_DEVELOPMENT_DEV_STATUSES),
+      ),
+    );
+  const inDevelopment = new Set(byDevStatus.map((r) => r.id));
+
+  const devTasks = await db
+    .select({ requirementId: tasksTable.requirementId, status: tasksTable.status })
+    .from(tasksTable)
+    .where(inArray(tasksTable.requirementId, requirementIds));
+  for (const task of devTasks) {
+    if (task.requirementId == null || task.status === "done") continue;
+    inDevelopment.add(task.requirementId);
+  }
+
+  return inDevelopment;
+}
+
+// Reference for an execution file that has no Redmine ticket behind it.
+// redmineTicketId is the unique key every /execution-files/:ticketId route
+// resolves a file by, so one still has to exist — this mints a readable,
+// obviously-not-a-Redmine-number stand-in ("INT-0007") from the highest
+// INT- reference already stored. Concurrent creates can collide on the
+// unique index; the caller retries, and the next read sees the winner.
+const INTERNAL_TICKET_PREFIX = "INT-";
+
+async function nextInternalTicketId(): Promise<string> {
+  const existing = await db
+    .select({ redmineTicketId: executionFilesTable.redmineTicketId })
+    .from(executionFilesTable)
+    .where(ilike(executionFilesTable.redmineTicketId, `${INTERNAL_TICKET_PREFIX}%`));
+  let highest = 0;
+  for (const row of existing) {
+    const match = /^INT-(\d+)$/.exec(row.redmineTicketId ?? "");
+    if (!match) continue;
+    const n = parseInt(match[1], 10);
+    if (n > highest) highest = n;
+  }
+  return `${INTERNAL_TICKET_PREFIX}${String(highest + 1).padStart(4, "0")}`;
 }
 
 // --- 1. SETUP SERVER-SENT EVENTS (SSE) CLIENTS ---
@@ -488,10 +563,6 @@ router.post("/execution-files", async (req, res): Promise<void> => {
   if (!ctx) return;
   try {
     const { redmineTicketId, title, qaPic, remarks, selectedModules, tracker, projectId, requirementId, milestoneId, fileType } = req.body;
-    if (!redmineTicketId || !redmineTicketId.trim()) {
-      res.status(400).json({ error: "Redmine Ticket ID is required" });
-      return;
-    }
     if (!milestoneId) {
       res.status(400).json({ error: "Milestone is required" });
       return;
@@ -500,22 +571,51 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
-    const [file] = await db
-      .insert(executionFilesTable)
-      .values({
-        redmineTicketId: redmineTicketId.trim(),
-        title: title || null,
-        qaPic: qaPic || null,
-        remarks: remarks || null,
-        selectedModules: selectedModules || null,
-        tracker: tracker || null,
-        projectId: projectId ? Number(projectId) : null,
-        requirementId: requirementId ? Number(requirementId) : null,
-        milestoneId: milestoneId ? Number(milestoneId) : null,
-        fileType: fileType || "qa",
-        qaPicSetBy: ctx.userId,
-      } as any)
-      .returning();
+    // Not every run starts from a Redmine ticket — ad-hoc regression sweeps and
+    // internal test rounds have no issue to quote. redmineTicketId is still the
+    // column every /execution-files/:ticketId route addresses a file by, so a
+    // blank one gets a generated in-house reference instead of being rejected.
+    const suppliedTicketId = redmineTicketId ? String(redmineTicketId).trim() : "";
+    const baseValues = {
+      title: title || null,
+      qaPic: qaPic || null,
+      remarks: remarks || null,
+      selectedModules: selectedModules || null,
+      tracker: tracker || null,
+      projectId: projectId ? Number(projectId) : null,
+      requirementId: requirementId ? Number(requirementId) : null,
+      milestoneId: milestoneId ? Number(milestoneId) : null,
+      fileType: fileType || "qa",
+      qaPicSetBy: ctx.userId,
+    };
+
+    let file: typeof executionFilesTable.$inferSelect | undefined;
+    if (suppliedTicketId) {
+      [file] = await db
+        .insert(executionFilesTable)
+        .values({ ...baseValues, redmineTicketId: suppliedTicketId } as any)
+        .returning();
+    } else {
+      // Two people compiling at the same moment can derive the same next
+      // reference; the unique index catches it, so take the next one and retry
+      // rather than failing a create the user can do nothing about.
+      for (let attempt = 0; attempt < 5 && !file; attempt++) {
+        const candidate = await nextInternalTicketId();
+        try {
+          [file] = await db
+            .insert(executionFilesTable)
+            .values({ ...baseValues, redmineTicketId: candidate } as any)
+            .returning();
+        } catch (err: any) {
+          const isDuplicate = err?.code === "23505" || err?.cause?.code === "23505";
+          if (!isDuplicate || attempt === 4) throw err;
+        }
+      }
+    }
+    if (!file) {
+      res.status(500).json({ error: "Failed to create execution file" });
+      return;
+    }
     // Audit: log execution file creation
     let creatorName: string | null = null;
     const createAuth = req.headers.authorization;
@@ -570,7 +670,13 @@ router.post("/execution-files", async (req, res): Promise<void> => {
     // errors in DrizzleQueryError, so both the code and the real message
     // live at err.cause, not on err itself.
     if (err?.code === "23505" || err?.cause?.code === "23505" || err?.message?.includes("unique") || err?.cause?.message?.includes("unique")) {
-      res.status(409).json({ error: `An execution file for ticket #${req.body.redmineTicketId} already exists` });
+      // With no ticket supplied, a duplicate here means five generated
+      // references in a row were taken — a retry storm, not a user mistake.
+      res.status(409).json({
+        error: req.body.redmineTicketId
+          ? `An execution file for ticket #${req.body.redmineTicketId} already exists`
+          : "Couldn't reserve an internal reference for this execution file — please try again",
+      });
       return;
     }
     console.error("[execution-files POST]", err);
@@ -1411,6 +1517,14 @@ router.get(
         }
       }
 
+      // Rows whose linked requirement is still being built. The sheet greys
+      // their Result control out and says why, so a tester learns it before
+      // clicking rather than from a reverted save afterwards.
+      const linkedRequirementIds = [...new Set(
+        testCases.map((t) => t.requirementId).filter((v): v is number => v != null),
+      )];
+      const inDevelopmentReqIds = await findInDevelopmentRequirementIds(linkedRequirementIds);
+
       // Names for whoever added / returned a row still under acceptance, so the
       // sheet can say who to chase without a second round-trip per row.
       const reviewUserIds = [...new Set(
@@ -1487,6 +1601,9 @@ router.get(
             addedBy: (t as any).addedBy ?? null,
             addedByName: nameOf((t as any).addedBy),
             acceptedByName: nameOf((t as any).acceptedBy),
+            // Dev work on the linked requirement is still open — not
+            // executable yet, however the test case itself was reviewed.
+            requirementInDevelopment: t.requirementId != null && inDevelopmentReqIds.has(t.requirementId),
           };
         }),
         // Held off the sheet, shown to their author for rework.
@@ -1505,6 +1622,145 @@ router.get(
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch test cases" });
+    }
+  },
+);
+
+// Audit trail for one execution row: every result change (who, when, from ->
+// to, and the reason they gave) plus the row's own acceptance lifecycle, so
+// "why does this say Failed now when it passed last week" is answerable from
+// the sheet instead of from memory.
+//
+// Result changes live in execution_tc_history keyed by the TC label, which
+// CR078 renumbering rewrites in place — so reading by label here stays correct
+// after a delete or reorder. The lifecycle entries are read off the row itself
+// (added/accepted/returned are already stamped there) rather than duplicated
+// into the history table.
+router.get(
+  "/execution-files/:ticketId/test-cases/:rowId/history",
+  async (req, res): Promise<void> => {
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
+    try {
+      const rowId = Number(req.params.rowId);
+      if (Number.isNaN(rowId)) {
+        res.status(400).json({ error: "Invalid row id" });
+        return;
+      }
+
+      const [file] = await db
+        .select()
+        .from(executionFilesTable)
+        .where(eq(executionFilesTable.redmineTicketId, req.params.ticketId));
+      if (!file) {
+        res.status(404).json({ error: "Execution file not found" });
+        return;
+      }
+      if (!(await canAccessFileProject(ctx, file.projectId))) {
+        res.status(403).json({ error: "Access denied to this project" });
+        return;
+      }
+
+      const [row] = await db
+        .select()
+        .from(executionTestCasesTable)
+        .where(
+          and(
+            eq(executionTestCasesTable.id, rowId),
+            eq(executionTestCasesTable.executionFileId, file.id),
+          ),
+        );
+      if (!row) {
+        res.status(404).json({ error: "Test case not found in this execution file" });
+        return;
+      }
+
+      const historyRows = row.testCaseId
+        ? await db
+            .select()
+            .from(executionTcHistoryTable)
+            .where(
+              and(
+                eq(executionTcHistoryTable.executionFileId, file.id),
+                eq(executionTcHistoryTable.testCaseId, row.testCaseId),
+              ),
+            )
+        : [];
+
+      const userIds = [...new Set([
+        ...historyRows.map((h) => h.changedBy),
+        (row as any).addedBy,
+        (row as any).acceptedBy,
+        (row as any).returnedBy,
+      ].filter((v): v is number => typeof v === "number"))];
+      const nameById = new Map<number, string>();
+      if (userIds.length > 0) {
+        const users = await db
+          .select({ id: usersTable.id, name: usersTable.name })
+          .from(usersTable)
+          .where(inArray(usersTable.id, userIds));
+        for (const u of users) nameById.set(u.id, u.name);
+      }
+      const nameOf = (uid: number | null | undefined) =>
+        typeof uid === "number" ? nameById.get(uid) ?? null : null;
+
+      type TrailEntry = {
+        kind: "result" | "lifecycle";
+        at: string;
+        actorName: string | null;
+        fromStatus: string | null;
+        toStatus: string | null;
+        label: string;
+        reason: string | null;
+      };
+
+      const entries: TrailEntry[] = historyRows.map((h) => ({
+        kind: "result",
+        at: h.changedAt.toISOString(),
+        actorName: nameOf(h.changedBy),
+        fromStatus: h.fromStatus,
+        toStatus: h.toStatus,
+        label: "Result changed",
+        reason: (h as any).reason ?? null,
+      }));
+
+      const acceptedAt = (row as any).acceptedAt as Date | null | undefined;
+      if (acceptedAt) {
+        entries.push({
+          kind: "lifecycle",
+          at: acceptedAt.toISOString(),
+          actorName: nameOf((row as any).acceptedBy),
+          fromStatus: null,
+          toStatus: null,
+          label: "Accepted for execution",
+          reason: null,
+        });
+      }
+      const returnedAt = (row as any).returnedAt as Date | null | undefined;
+      if (returnedAt) {
+        entries.push({
+          kind: "lifecycle",
+          at: returnedAt.toISOString(),
+          actorName: nameOf((row as any).returnedBy),
+          fromStatus: null,
+          toStatus: null,
+          label: "Returned for rework",
+          reason: (row as any).reviewComment ?? null,
+        });
+      }
+
+      // Newest first — a trail is read from "what happened last" backwards.
+      entries.sort((a, b) => b.at.localeCompare(a.at));
+
+      res.json({
+        testCaseId: row.testCaseId,
+        caseName: row.caseName,
+        currentResult: row.result,
+        addedByName: nameOf((row as any).addedBy),
+        entries,
+      });
+    } catch {
+      res.status(500).json({ error: "Failed to fetch test case history" });
     }
   },
 );
@@ -1627,21 +1883,25 @@ router.post(
         }
       }
 
-      // 2. Auto-assign TC IDs — find the highest existing sequence number
+      // 2. Auto-assign TC IDs — find the highest existing sequence number.
+      //
+      // Matched on the trailing sequence rather than "TC-<digits>-<digits>":
+      // a file created without a Redmine ticket carries a generated reference
+      // ("INT-0004"), so its labels read TC-INT-0004-001 and the old
+      // digits-only pattern matched none of them — every new row on such a
+      // file would have been handed sequence 001.
+      const trailingSeq = (label: string | null | undefined): number | null => {
+        const match = label ? /-(\d+)$/.exec(label) : null;
+        return match ? parseInt(match[1], 10) : null;
+      };
       let nextSeq = 1;
       for (const r of existingRows) {
-        const match = r.testCaseId ? /TC-\d+-(\d+)/.exec(r.testCaseId) : null;
-        if (match) {
-          const n = parseInt(match[1], 10);
-          if (n >= nextSeq) nextSeq = n + 1;
-        }
+        const n = trailingSeq(r.testCaseId);
+        if (n !== null && n >= nextSeq) nextSeq = n + 1;
       }
       for (const t of testCases) {
-        const match = t.testCaseId ? /TC-\d+-(\d+)/.exec(t.testCaseId) : null;
-        if (match) {
-          const n = parseInt(match[1], 10);
-          if (n >= nextSeq) nextSeq = n + 1;
-        }
+        const n = trailingSeq(t.testCaseId);
+        if (n !== null && n >= nextSeq) nextSeq = n + 1;
       }
 
       // CR064 — a TC linked to a blocked requirement can't record a new
@@ -1660,8 +1920,17 @@ router.post(
               .map((r) => r.id)
           : [],
       );
+      // A test case can be written, reviewed and approved while the feature it
+      // covers is still being built — that approval says the case is sound, not
+      // that the build is ready to run it against. Until dev hands the
+      // requirement over (devStatus 'ready_for_qa'), a result recorded here
+      // would be an outcome against unfinished code. Reverted per row like the
+      // blocked-requirement guard above, for the same reason: one frozen row
+      // must not cost the rest of the sheet its edits.
+      const inDevelopmentReqIds = await findInDevelopmentRequirementIds(incomingReqIds);
       const blockedResultRows: string[] = [];
       const unacceptedResultRows: string[] = [];
+      const inDevelopmentResultRows: string[] = [];
 
       // 3. Upsert incoming rows — UPDATE if DB id exists, INSERT if new
       const insertedRows: any[] = [];
@@ -1683,6 +1952,10 @@ router.post(
         let newResult = (t.result?.trim() || null) as string | null;
         if (t.requirementId && blockedReqIds.has(Number(t.requirementId)) && newResult !== (existing?.result ?? null)) {
           blockedResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
+          newResult = existing?.result ?? null;
+        }
+        if (t.requirementId && inDevelopmentReqIds.has(Number(t.requirementId)) && newResult !== (existing?.result ?? null)) {
+          inDevelopmentResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
           newResult = existing?.result ?? null;
         }
         // A row still waiting on peer acceptance isn't executable yet — the
@@ -1764,7 +2037,10 @@ router.post(
         }
       }
 
-      // 3a. Write status change history for incoming rows
+      // 3a. Write status change history for incoming rows. `resultChangeReason`
+      // is what the sheet collects when a tester overwrites a result that was
+      // already recorded — the trail's whole point is that "Passed -> Failed,
+      // three weeks later" is answerable without asking around.
       const historyRows = processedCases
         .filter((t: any) => t.testCaseId)
         .flatMap((t: any) => {
@@ -1772,12 +2048,14 @@ router.post(
           const oldResult = existing?.result ?? null;
           const newResult = (t.result?.trim() || null) as string | null;
           if (oldResult === newResult || (!oldResult && !newResult)) return [];
+          const reason = typeof t.resultChangeReason === "string" ? t.resultChangeReason.trim() : "";
           return [{
             executionFileId: file.id,
             testCaseId: t.testCaseId,
             changedBy,
             fromStatus: oldResult,
             toStatus: newResult,
+            reason: reason || null,
             changedAt: now,
           }];
         });
@@ -2067,6 +2345,9 @@ router.post(
         // Attempted result changes reverted because the row is still awaiting
         // peer acceptance (or was returned to its author for rework).
         ...(unacceptedResultRows.length > 0 ? { unacceptedResultRows } : {}),
+        // Attempted result changes reverted because the linked requirement is
+        // still in development, so there is nothing finished to test against.
+        ...(inDevelopmentResultRows.length > 0 ? { inDevelopmentResultRows } : {}),
         ...(pendingInserts.length > 0 ? { pendingAcceptance: pendingInserts.length } : {}),
       });
 

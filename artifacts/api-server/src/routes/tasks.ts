@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable, milestonesTable, rolesTable } from "@workspace/db";
+import { db, tasksTable, usersTable, projectsTable, requirementsTable, taskEventsTable, executionModulesTable, milestonesTable, rolesTable, insertTaskSchema } from "@workspace/db";
 import { notifyUser } from "./_notify";
 import { actorFromReq } from "./auth";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope, getRoleTierRank, getRoleDepartment } from "../middleware/access";
@@ -9,14 +9,24 @@ import { submitForReview, getLatestReview, decideReview, maybeAdvanceRequirement
 
 const ENV_NAMES: Record<number, string> = { 1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7" };
 import {
-  CreateTaskBody,
-  UpdateTaskBody,
   GetTaskParams,
   UpdateTaskParams,
   DeleteTaskParams,
   ListTasksQueryParams,
   ReleaseTaskParams,
 } from "@workspace/api-zod";
+
+// Bodies are validated against insertTaskSchema (drizzle-zod, derived from
+// tasksTable) rather than api-zod's CreateTaskBody/UpdateTaskBody. Those are
+// generated from openapi.yaml, which still describes the pre-CR shape of this
+// table: it requires a `type` column that was dropped, and carries a single
+// `assigneeId` where the table has an `assigneeIds` array. Every dev task
+// created from the Requirements page therefore failed validation with 400
+// ("type: Required") the moment FA approval made the Dev Tasks card appear,
+// and any assignee that did pass would have been stripped as an unknown key.
+// Deriving from the table keeps the two in step by construction.
+const CreateTaskBody = insertTaskSchema;
+const UpdateTaskBody = insertTaskSchema.partial();
 
 const router: IRouter = Router();
 
