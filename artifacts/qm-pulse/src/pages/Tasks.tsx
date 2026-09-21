@@ -5,6 +5,16 @@ import { highlightRowId } from "@/hooks/use-highlight";
 import * as XLSX from "xlsx-js-style";
 import { listProjects, getListProjectsQueryKey, listUsers, getListUsersQueryKey } from "@workspace/api-client-react";
 import { getApiUrl, authHeaders } from "@/lib/api";
+import {
+  PIC_DEPARTMENTS,
+  picNamesForRow,
+  collectPICs,
+  DEPARTMENT_TO_PIC,
+  type TaskBoardRow,
+  type DepartmentPICs,
+  type PicDepartment,
+} from "@/lib/task-board";
+import { TaskVisualization } from "@/components/tasks/TaskVisualization";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -15,9 +25,10 @@ import { Progress } from "@/components/ui/progress";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, Workflow } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, Workflow, BarChart3, LayoutList } from "lucide-react";
 
 // CR060 — Tasks is a read-only, auto-populated rollup of requirements within
 // their milestones (no manual creation). CR073 removed GET
@@ -25,53 +36,18 @@ import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarC
 // project access sees every row. The API still returns one row per
 // requirement; this page's own list is one row per milestone (no
 // requirement-level drill-down) — see groupedByMilestone below.
-interface PhaseTimelineEntry {
-  key: "requirements" | "development" | "qa" | "uat";
-  label: string;
-  plannedStart: string | null;
-  plannedEnd: string | null;
-  actualStart: string | null;
-  actualEnd: string | null;
-}
-
-type DepartmentPICs = Record<"FA" | "Dev" | "QA", string[]>;
-const PIC_DEPARTMENTS = ["FA", "Dev", "QA"] as const;
-
-interface TaskBoardRow {
-  requirementId: number;
-  title: string;
-  parentId: number | null;
-  projectId: number | null;
-  milestoneId: number;
-  milestoneName: string;
-  milestonePriority: string | null;
-  parentRedmineIds?: string[];
-  targetStartDate?: string | null;
-  targetEndDate?: string | null;
-  actualStartDate?: string | null;
-  actualEndDate?: string | null;
-  milestoneStatus: string;
-  // Milestones running on the QA Pipeline don't go through FA approval or dev
-  // handoff, so their FA/Dev PICs are legitimately empty and their phase comes
-  // from the pipeline's gates. Flagged so the board can say so.
-  pipelineEnabled?: boolean;
-  phase: "requirements" | "gap" | "develop" | "qa" | "uat";
-  phaseLabel: string;
-  statusLabel: string;
-  assignee: string | null;
-  picByDepartment?: DepartmentPICs;
-  progress: number;
-  dueDate: string | null;
-  goLiveDate: string | null;
-  devAssigneeId: number | null;
-  executionFileId: number | null;
-  phaseTimeline: PhaseTimelineEntry[];
-  devTaskCounts: { done: number; total: number } | null;
-}
+//
+// TaskBoardRow and the PIC helpers live in lib/task-board.ts so the
+// Visualization tab reads people and departments off a row exactly the way
+// this table does.
 
 interface Member {
   id: number;
   name: string;
+  /** The PIC column this person's work is tracked under, from their role's
+   *  department. Carried per member so the panel can show several departments
+   *  at once for a viewer who isn't scoped to one. */
+  picDepartment: PicDepartment | null;
 }
 
 const PRIORITY_CLASSES: Record<string, string> = {
@@ -519,31 +495,6 @@ function EventsDialog({ anchor }: { anchor: EventAnchor }) {
   );
 }
 
-function picNamesForRow(row: TaskBoardRow, department: "FA" | "Dev" | "QA"): string[] {
-  // Keep the page compatible while an older API instance finishes deploying.
-  const legacy = row.assignee?.split(" · ").find((part) => part.startsWith(department + ": "));
-  const assigned = row.picByDepartment?.[department] ?? legacy?.slice(department.length + 2).split(",") ?? [];
-  return assigned.map((value) => value.trim()).filter((name) => name && name !== "—");
-}
-
-function collectPICs(rows: TaskBoardRow[]): DepartmentPICs {
-  const result: DepartmentPICs = { FA: [], Dev: [], QA: [] };
-  for (const department of PIC_DEPARTMENTS) {
-    const names = new Map<string, string>();
-    for (const row of rows) {
-      for (const name of picNamesForRow(row, department)) {
-        names.set(name.toLowerCase(), name);
-      }
-    }
-    result[department] = [...names.values()].sort((a, b) => a.localeCompare(b));
-  }
-  return result;
-}
-
-// Maps a viewer's own department (lowercase, as stored on the user/role) to
-// the PIC-column key their rows are tracked under.
-const DEPARTMENT_TO_PIC: Record<string, "FA" | "Dev" | "QA"> = { qa: "QA", fa: "FA", dev: "Dev" };
-
 function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
   const data = rows.map((r) => ({
     Milestone: r.milestoneName,
@@ -593,18 +544,20 @@ function exportTaskBoardToExcel(rows: TaskBoardRow[]) {
 // qa, fa sees fa, dev sees dev), open-row counts derived from the already
 // department-scoped `rows` — pm/admin (seesEverything) skip this entirely,
 // since "everyone's workload at once" isn't a single department's view.
-function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; members: Member[]; department: string | null }) {
+function WorkloadPanel({ rows, members, showDepartment }: { rows: TaskBoardRow[]; members: Member[]; showDepartment: boolean }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const PER_PAGE = 5;
 
-  const picDept = department ? DEPARTMENT_TO_PIC[department] ?? null : null;
-
   // Counted per milestone (matching the board's own one-row-per-milestone
   // view and its avgProgress), not per requirement — a milestone with five
   // requirements assigned to the same QA is one open item, not five.
+  //
+  // Each member is counted against their OWN department's PIC column rather
+  // than one department fixed for the whole panel, so a viewer who isn't
+  // scoped to a single department (admin/cto/PM) sees every team here instead
+  // of an empty card.
   const counts = useMemo(() => {
-    if (!picDept) return members.map((m) => ({ ...m, openCount: 0 }));
     const milestoneGroups = new Map<number, TaskBoardRow[]>();
     for (const r of rows) {
       const g = milestoneGroups.get(r.milestoneId);
@@ -616,11 +569,15 @@ function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; me
     );
     return members.map((m) => ({
       ...m,
-      openCount: openMilestones.filter((group) =>
-        group.some((r) => picNamesForRow(r, picDept).some((name) => name.toLowerCase() === m.name.toLowerCase())),
-      ).length,
+      openCount: m.picDepartment
+        ? openMilestones.filter((group) =>
+            group.some((r) =>
+              picNamesForRow(r, m.picDepartment!).some((name) => name.toLowerCase() === m.name.toLowerCase()),
+            ),
+          ).length
+        : 0,
     }));
-  }, [members, rows, picDept]);
+  }, [members, rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -631,7 +588,7 @@ function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; me
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
 
-  if (!department || members.length === 0) return null;
+  if (members.length === 0) return null;
 
   return (
     <Card>
@@ -659,7 +616,10 @@ function WorkloadPanel({ rows, members, department }: { rows: TaskBoardRow[]; me
             {pageItems.map((m) => (
               <div key={m.id} className="border rounded-md p-3 text-sm">
                 <p className="font-medium truncate" title={m.name}>{m.name}</p>
-                <p className="text-muted-foreground text-xs mt-1">{m.openCount} open</p>
+                <p className="text-muted-foreground text-xs mt-1">
+                  {m.openCount} open
+                  {showDepartment && m.picDepartment ? ` · ${m.picDepartment}` : ""}
+                </p>
               </div>
             ))}
           </div>
@@ -739,11 +699,21 @@ export default function Tasks() {
   });
 
   const departmentByRole = useMemo(() => new Map(roles.map((r) => [r.name, r.department])), [roles]);
-  const membersOf = (dept: string): Member[] =>
-    (users as any[])
-      .filter((u) => departmentByRole.get(u.role) === dept)
-      .map((u) => ({ id: u.id, name: u.name }));
-  const ownDeptMembers = useMemo(() => (department ? membersOf(department) : []), [users, departmentByRole, department]);
+
+  // Everyone whose role sits in a department the board tracks a PIC column for.
+  // A viewer scoped to one department sees only their own team; admin/cto and
+  // PM (seesEverything) get all three, which is the point of the card for them
+  // — it used to render nothing at all for those roles.
+  const workloadMembers = useMemo<Member[]>(() => {
+    return (users as any[])
+      .map((u) => {
+        const dept = departmentByRole.get(u.role);
+        const picDepartment = dept ? DEPARTMENT_TO_PIC[dept] ?? null : null;
+        return { id: u.id, name: u.name, picDepartment };
+      })
+      .filter((m) => m.picDepartment !== null)
+      .filter((m) => seesEverything || (department != null && m.picDepartment === DEPARTMENT_TO_PIC[department]));
+  }, [users, departmentByRole, department, seesEverything]);
 
   const projectNameById = useMemo(() => new Map((projects as any[]).map((p) => [p.id, p.name])), [projects]);
 
@@ -865,183 +835,204 @@ export default function Tasks() {
         </Button>
       </div>
 
-      <WorkloadPanel rows={rows} members={ownDeptMembers} department={seesEverything ? null : department} />
+      {/* The Visualization tab reads the same `filtered` rows the board below
+          renders, so the page's project/milestone/phase/priority filters shape
+          both views — a chart that ignored them would answer a different
+          question from the table beside it. */}
+      <Tabs defaultValue="board" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="board" className="gap-1.5">
+            <LayoutList className="w-4 h-4" /> Board
+          </TabsTrigger>
+          <TabsTrigger value="visualization" className="gap-1.5">
+            <BarChart3 className="w-4 h-4" /> Visualization
+          </TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader className="pb-3 space-y-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search milestone, requirement or PIC..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-              className="pl-8"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <SearchableSelect
-              value={filterProject}
-              onValueChange={(v) => { setFilterProject(v); setFilterMilestone("all"); setCurrentPage(1); }}
-              options={[{ value: "all", label: "All Projects" }, ...projects.map((p) => ({ value: String(p.id), label: p.name }))]}
-              placeholder="Project"
-              searchPlaceholder="Search project..."
-              className="flex-1 min-w-[140px]"
-            />
-            {filterProject !== "all" && (
-              <SearchableSelect
-                value={filterMilestone}
-                onValueChange={(v) => { setFilterMilestone(v); setCurrentPage(1); }}
-                options={[{ value: "all", label: "All Milestones" }, ...filterMilestones.map((m) => ({ value: String(m.id), label: m.name }))]}
-                placeholder="Milestone"
-                searchPlaceholder="Search milestone..."
-                className="flex-1 min-w-[140px]"
-              />
-            )}
-            <SearchableSelect
-              value={filterPhase}
-              onValueChange={(v) => { setFilterPhase(v); setCurrentPage(1); }}
-              options={PHASE_FILTER_OPTIONS}
-              placeholder="Phase"
-              searchPlaceholder="Search phase..."
-              className="flex-1 min-w-[130px]"
-            />
-            <SearchableSelect
-              value={filterPriority}
-              onValueChange={(v) => { setFilterPriority(v); setCurrentPage(1); }}
-              options={PRIORITY_FILTER_OPTIONS}
-              placeholder="Priority"
-              searchPlaceholder="Search priority..."
-              className="flex-1 min-w-[130px]"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table className="table-fixed min-w-[2100px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[220px] sticky left-0 z-10 bg-card">Milestone</TableHead>
-                  <TableHead className="w-[150px]">Project</TableHead>
-                  <TableHead className="w-[150px]">Redmine ID (Parent)</TableHead>
-                  <TableHead className="w-[130px]">Priority</TableHead>
-                  <TableHead className="w-[250px]">PIC</TableHead>
-                  <TableHead className="w-[140px]">Status</TableHead>
-                  <TableHead className="w-[150px]">Requirements</TableHead>
-                  <TableHead className="w-[180px]">Phases</TableHead>
-                  <TableHead className="w-[140px]">Progress</TableHead>
-                  <TableHead className="w-[145px]">Target Start Date</TableHead>
-                  <TableHead className="w-[145px]">Target End Date</TableHead>
-                  <TableHead className="w-[145px]">Actual Start Date</TableHead>
-                  <TableHead className="w-[145px]">Actual End Date</TableHead>
-                  <TableHead className="w-[130px]">Go-Live</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedMilestones.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={14} className="text-center text-muted-foreground py-10">
-                      No milestones match your filters.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedMilestones.map((g) => (
-                    <TableRow key={g.milestoneId} id={highlightRowId(g.milestoneId)}>
-                      <TableCell className="font-medium sticky left-0 z-10 bg-card" title={g.milestoneName}>
-                        <div className="truncate">{g.milestoneName}</div>
-                        {/* Says why this row's FA/Dev are blank and why its
-                            phase reads as a pipeline gate rather than the usual
-                            FA→Dev→QA progression. */}
-                        {g.pipelineEnabled && (
-                          <Badge
-                            variant="outline"
-                            className="mt-1 h-4 text-[10px] font-normal gap-1 bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800"
-                            title="Runs on the QA Pipeline — QA-led, with no FA approval or dev handoff stage"
-                          >
-                            <Workflow className="w-2.5 h-2.5" /> QA Pipeline
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="truncate text-sm text-muted-foreground">
-                        {g.projectId != null ? projectNameById.get(g.projectId) ?? "—" : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm break-words">{g.dates.parentRedmineIds?.map((id) => `#${id}`).join(", ") || "—"}</TableCell>
-                      <TableCell><PriorityBadge priority={g.milestonePriority} /></TableCell>
-                      <TableCell className="align-top text-xs">
-                        <div className="space-y-1">
-                          {PIC_DEPARTMENTS.map((department) => {
-                            // On a pipeline milestone an empty FA/Dev is by
-                            // design, not an unfilled slot — spell that out so
-                            // the dash doesn't read as someone to chase.
-                            const notApplicable =
-                              g.pipelineEnabled && department !== "QA" && g.pics[department].length === 0;
-                            return (
-                              <div key={department} className="flex gap-2">
-                                <span className="w-7 shrink-0 font-semibold">{department}:</span>
-                                <span
-                                  className="min-w-0 break-words text-muted-foreground"
-                                  title={notApplicable ? "Not part of the QA Pipeline flow" : undefined}
-                                >
-                                  {g.pics[department].join(", ") || "—"}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell><MilestoneStatusBadge status={g.milestoneStatus} /></TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="text-[10px] h-4">{g.rows.length}</Badge>
-                          <EventsDialog
-                            anchor={{
-                              milestoneId: g.milestoneId,
-                              title: g.milestoneName,
-                              requirements: g.rows.map((r) => ({ id: r.requirementId, title: r.title })),
-                            }}
-                          />
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {PHASE_FILTER_OPTIONS.slice(1).map((p) =>
-                            g.phaseCounts[p.value] ? (
-                              <Badge key={p.value} variant="outline" className={`text-[10px] h-4 ${PHASE_CLASSES[p.value] ?? ""}`}>
-                                {g.phaseCounts[p.value]} {p.label}
-                              </Badge>
-                            ) : null,
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Progress value={g.avgProgress} className="w-16 shrink-0" />
-                          <span className="text-xs text-muted-foreground">{g.avgProgress}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.targetStartDate)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.targetEndDate)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.actualStartDate)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.actualEndDate)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{fmtDate(g.goLiveDate)}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between p-4 border-t">
-              <p className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages} ({groupedByMilestone.length} milestones)
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>Previous</Button>
-                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage((p) => p + 1)}>Next</Button>
+        <TabsContent value="visualization" className="mt-0">
+          <TaskVisualization rows={filtered} />
+        </TabsContent>
+
+        <TabsContent value="board" className="mt-0 space-y-6">
+          <WorkloadPanel rows={rows} members={workloadMembers} showDepartment={seesEverything} />
+
+          <Card>
+            <CardHeader className="pb-3 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search milestone, requirement or PIC..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                  className="pl-8"
+                />
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              <div className="flex flex-wrap gap-2">
+                <SearchableSelect
+                  value={filterProject}
+                  onValueChange={(v) => { setFilterProject(v); setFilterMilestone("all"); setCurrentPage(1); }}
+                  options={[{ value: "all", label: "All Projects" }, ...projects.map((p) => ({ value: String(p.id), label: p.name }))]}
+                  placeholder="Project"
+                  searchPlaceholder="Search project..."
+                  className="flex-1 min-w-[140px]"
+                />
+                {filterProject !== "all" && (
+                  <SearchableSelect
+                    value={filterMilestone}
+                    onValueChange={(v) => { setFilterMilestone(v); setCurrentPage(1); }}
+                    options={[{ value: "all", label: "All Milestones" }, ...filterMilestones.map((m) => ({ value: String(m.id), label: m.name }))]}
+                    placeholder="Milestone"
+                    searchPlaceholder="Search milestone..."
+                    className="flex-1 min-w-[140px]"
+                  />
+                )}
+                <SearchableSelect
+                  value={filterPhase}
+                  onValueChange={(v) => { setFilterPhase(v); setCurrentPage(1); }}
+                  options={PHASE_FILTER_OPTIONS}
+                  placeholder="Phase"
+                  searchPlaceholder="Search phase..."
+                  className="flex-1 min-w-[130px]"
+                />
+                <SearchableSelect
+                  value={filterPriority}
+                  onValueChange={(v) => { setFilterPriority(v); setCurrentPage(1); }}
+                  options={PRIORITY_FILTER_OPTIONS}
+                  placeholder="Priority"
+                  searchPlaceholder="Search priority..."
+                  className="flex-1 min-w-[130px]"
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table className="table-fixed min-w-[2100px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[220px] sticky left-0 z-10 bg-card">Milestone</TableHead>
+                      <TableHead className="w-[150px]">Project</TableHead>
+                      <TableHead className="w-[150px]">Redmine ID (Parent)</TableHead>
+                      <TableHead className="w-[130px]">Priority</TableHead>
+                      <TableHead className="w-[250px]">PIC</TableHead>
+                      <TableHead className="w-[140px]">Status</TableHead>
+                      <TableHead className="w-[150px]">Requirements</TableHead>
+                      <TableHead className="w-[180px]">Phases</TableHead>
+                      <TableHead className="w-[140px]">Progress</TableHead>
+                      <TableHead className="w-[145px]">Target Start Date</TableHead>
+                      <TableHead className="w-[145px]">Target End Date</TableHead>
+                      <TableHead className="w-[145px]">Actual Start Date</TableHead>
+                      <TableHead className="w-[145px]">Actual End Date</TableHead>
+                      <TableHead className="w-[130px]">Go-Live</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedMilestones.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={14} className="text-center text-muted-foreground py-10">
+                          No milestones match your filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      paginatedMilestones.map((g) => (
+                        <TableRow key={g.milestoneId} id={highlightRowId(g.milestoneId)}>
+                          <TableCell className="font-medium sticky left-0 z-10 bg-card" title={g.milestoneName}>
+                            <div className="truncate">{g.milestoneName}</div>
+                            {/* Says why this row's FA/Dev are blank and why its
+                                phase reads as a pipeline gate rather than the usual
+                                FA→Dev→QA progression. */}
+                            {g.pipelineEnabled && (
+                              <Badge
+                                variant="outline"
+                                className="mt-1 h-4 text-[10px] font-normal gap-1 bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800"
+                                title="Runs on the QA Pipeline — QA-led, with no FA approval or dev handoff stage"
+                              >
+                                <Workflow className="w-2.5 h-2.5" /> QA Pipeline
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="truncate text-sm text-muted-foreground">
+                            {g.projectId != null ? projectNameById.get(g.projectId) ?? "—" : "—"}
+                          </TableCell>
+                          <TableCell className="text-sm break-words">{g.dates.parentRedmineIds?.map((id) => `#${id}`).join(", ") || "—"}</TableCell>
+                          <TableCell><PriorityBadge priority={g.milestonePriority} /></TableCell>
+                          <TableCell className="align-top text-xs">
+                            <div className="space-y-1">
+                              {PIC_DEPARTMENTS.map((department) => {
+                                // On a pipeline milestone an empty FA/Dev is by
+                                // design, not an unfilled slot — spell that out so
+                                // the dash doesn't read as someone to chase.
+                                const notApplicable =
+                                  g.pipelineEnabled && department !== "QA" && g.pics[department].length === 0;
+                                return (
+                                  <div key={department} className="flex gap-2">
+                                    <span className="w-7 shrink-0 font-semibold">{department}:</span>
+                                    <span
+                                      className="min-w-0 break-words text-muted-foreground"
+                                      title={notApplicable ? "Not part of the QA Pipeline flow" : undefined}
+                                    >
+                                      {g.pics[department].join(", ") || "—"}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </TableCell>
+                          <TableCell><MilestoneStatusBadge status={g.milestoneStatus} /></TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-[10px] h-4">{g.rows.length}</Badge>
+                              <EventsDialog
+                                anchor={{
+                                  milestoneId: g.milestoneId,
+                                  title: g.milestoneName,
+                                  requirements: g.rows.map((r) => ({ id: r.requirementId, title: r.title })),
+                                }}
+                              />
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {PHASE_FILTER_OPTIONS.slice(1).map((p) =>
+                                g.phaseCounts[p.value] ? (
+                                  <Badge key={p.value} variant="outline" className={`text-[10px] h-4 ${PHASE_CLASSES[p.value] ?? ""}`}>
+                                    {g.phaseCounts[p.value]} {p.label}
+                                  </Badge>
+                                ) : null,
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Progress value={g.avgProgress} className="w-16 shrink-0" />
+                              <span className="text-xs text-muted-foreground">{g.avgProgress}%</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.targetStartDate)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.targetEndDate)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.actualStartDate)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(g.dates.actualEndDate)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{fmtDate(g.goLiveDate)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between p-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Page {currentPage} of {totalPages} ({groupedByMilestone.length} milestones)
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>Previous</Button>
+                    <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage((p) => p + 1)}>Next</Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -35,3 +35,20 @@ shared service account. List activity checks use batched issue timestamps. Openi
 History fetches journals; the first successful view establishes the unread baseline.
 Cached snapshots are returned only for temporary upstream failures, never for
 explicit access denial or a missing issue. Notes are rendered as plain text.
+
+# Task create/update body
+
+Run `node --test artifacts/api-server/tests/task-create-body.test.cjs` from the
+repository root. The test bundles `insertTaskSchema` from `@workspace/db/schema`
+with the existing esbuild dependency and parses the exact body the Requirements
+page's Dev Tasks panel posts. No database, server, credentials or network.
+
+It exists because POST /tasks used to validate against api-zod's generated
+`CreateTaskBody`, which is generated from `openapi.yaml` and had drifted from
+the table: it required a `type` column that had been dropped and carried a
+single `assigneeId` where the table has an `assigneeIds` array. Adding a dev
+task to an FA-approved requirement therefore always failed with 400
+"type: Required". Coverage: the panel's payload parses, `assigneeIds` survives,
+`type` is not required, an older client still sending `type` is not broken by it
+(and `type` never reaches the insert), a nameless task is still rejected, and
+the `.partial()` form used by PATCH accepts a single-field edit.

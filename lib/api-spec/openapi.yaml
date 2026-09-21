@@ -1609,11 +1609,12 @@ components:
 
     TaskInput:
       type: object
-      required: [name, type, status]
+      # `type` was dropped from the tasks table and `assigneeId` became the
+      # `assigneeIds` array (multi-assignee). `status` carries a column default,
+      # so it is not required on create either.
+      required: [name]
       properties:
         name:
-          type: string
-        type:
           type: string
         redmineId:
           type: string
@@ -1623,8 +1624,12 @@ components:
           type: integer
         projectId:
           type: integer
-        assigneeId:
+        milestoneId:
           type: integer
+        assigneeIds:
+          type: array
+          items:
+            type: integer
         startDate:
           type: string
         dueDate:
@@ -1649,8 +1654,6 @@ components:
       properties:
         name:
           type: string
-        type:
-          type: string
         redmineId:
           type: string
         requirementId:
@@ -1659,8 +1662,12 @@ components:
           type: integer
         projectId:
           type: integer
-        assigneeId:
+        milestoneId:
           type: integer
+        assigneeIds:
+          type: array
+          items:
+            type: integer
         startDate:
           type: string
         dueDate:
