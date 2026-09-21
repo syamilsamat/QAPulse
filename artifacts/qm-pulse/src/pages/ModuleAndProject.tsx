@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Card,
   CardContent,
@@ -486,6 +487,24 @@ export default function ModuleAndProject() {
   const [contactToDelete, setContactToDelete] = useState<ContactRow | null>(null);
   const [contactDeleting, setContactDeleting] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
+  const [contactType, setContactType] = useState("all");
+  const [contactEmail, setContactEmail] = useState("all");
+  const hasContactFilters = Boolean(contactSearch || contactType !== "all" || contactEmail !== "all");
+  const clearContactFilters = () => {
+    setContactSearch("");
+    setContactType("all");
+    setContactEmail("all");
+  };
+  const filteredContacts = useMemo(() => {
+    const query = contactSearch.trim().toLowerCase();
+    return contacts.filter((contact) => {
+      const email = (contact.email ?? "").trim();
+      const matchesSearch = !query || contact.fullName.toLowerCase().includes(query) || email.toLowerCase().includes(query);
+      const matchesType = contactType === "all" || (contactType === "group" ? contact.isGroup : !contact.isGroup);
+      const matchesEmail = contactEmail === "all" || (contactEmail === "with" ? Boolean(email) : !email);
+      return matchesSearch && matchesType && matchesEmail;
+    });
+  }, [contacts, contactSearch, contactType, contactEmail]);
 
   const loadContacts = async () => {
     setContactsLoading(true);
@@ -1195,37 +1214,60 @@ export default function ModuleAndProject() {
                   </div>
                 ) : (
                   <div className="divide-y">
-                    <div className="px-6 py-3 border-b">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search by name or email..."
-                          value={contactSearch}
-                          onChange={(e) => setContactSearch(e.target.value)}
-                          className="pl-9 h-8 text-sm"
-                        />
+                    <div className="px-6 py-3 space-y-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                        <div className="relative flex-1 min-w-0 sm:min-w-48">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            aria-label="Search contacts by name or email"
+                            placeholder="Search by name or email..."
+                            value={contactSearch}
+                            onChange={(e) => setContactSearch(e.target.value)}
+                            className="pl-9 h-8 text-sm"
+                          />
+                        </div>
+                        <Select value={contactType} onValueChange={setContactType}>
+                          <SelectTrigger aria-label="Contact type" className="h-8 w-full sm:w-40 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All types</SelectItem>
+                            <SelectItem value="individual">Individuals</SelectItem>
+                            <SelectItem value="group">Groups</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Select value={contactEmail} onValueChange={setContactEmail}>
+                          <SelectTrigger aria-label="Email availability" className="h-8 w-full sm:w-44 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All email availability</SelectItem>
+                            <SelectItem value="with">With email</SelectItem>
+                            <SelectItem value="missing">Missing email</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 min-h-7">
+                        <p role="status" className="text-xs text-muted-foreground">Showing {filteredContacts.length} of {contacts.length} contacts</p>
+                        {hasContactFilters && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearContactFilters}>Clear filters</Button>}
                       </div>
                     </div>
-                    <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 px-6 py-3 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    <div className="overflow-x-auto">
+                    <div className="min-w-[640px] divide-y">
+                    <div className="grid grid-cols-[minmax(0,1fr)_100px_minmax(0,1fr)_70px_64px] gap-4 px-6 py-3 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       <span>Name</span>
+                      <span>Type</span>
                       <span>Email</span>
                       <span>Source</span>
                       <span></span>
                     </div>
-                    {contacts
-                      .filter((c) => {
-                        const q = contactSearch.toLowerCase();
-                        return !q || c.fullName.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
-                      })
-                      .map((contact) => (
-                        <div key={contact.id} id={highlightRowId(contact.id)} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium truncate">{contact.fullName}</span>
-                            {contact.isGroup && <Badge variant="outline" className="text-[10px] py-0">Group</Badge>}
-                          </div>
-                          <span className={`text-sm truncate ${contact.email ? "text-muted-foreground" : "text-muted-foreground/40 italic"}`}>
-                            {contact.email || "no email — click edit to add"}
-                          </span>
+                    {filteredContacts.map((contact) => (
+                        <div key={contact.id} id={highlightRowId(contact.id)} className="grid grid-cols-[minmax(0,1fr)_100px_minmax(0,1fr)_70px_64px] gap-4 items-center px-6 py-3 hover:bg-muted/30 transition-colors">
+                          <span className="text-sm font-medium truncate" title={contact.fullName}>{contact.fullName}</span>
+                          <Badge variant="outline" className="text-[10px] py-0 w-fit">{contact.isGroup ? "Group" : "Individual"}</Badge>
+                          {contact.email?.trim() ? (
+                            <span className="text-sm truncate text-muted-foreground" title={contact.email}>{contact.email}</span>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] py-0 w-fit gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400" title="Edit this contact to add an email address">
+                              <AlertTriangle className="w-3 h-3" /> Missing email
+                            </Badge>
+                          )}
                           <Badge variant={contact.source === "redmine" ? "secondary" : "outline"} className="text-[10px] py-0 shrink-0">
                             {contact.source === "redmine" ? "Redmine" : "Manual"}
                           </Badge>
@@ -1241,12 +1283,11 @@ export default function ModuleAndProject() {
                           </div>
                         </div>
                       ))}
-                    {contacts.length > 0 && contactSearch && contacts.filter((c) => {
-                      const q = contactSearch.toLowerCase();
-                      return c.fullName.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
-                    }).length === 0 && (
-                      <div className="py-8 text-center text-sm text-muted-foreground">No contacts match "{contactSearch}"</div>
+                    {filteredContacts.length === 0 && (
+                      <div className="py-8 text-center text-sm text-muted-foreground">No contacts match your filters. Try a different search or clear the filters.</div>
                     )}
+                    </div>
+                    </div>
                   </div>
                 )}
               </CardContent>
