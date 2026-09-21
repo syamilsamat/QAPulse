@@ -52,3 +52,21 @@ task to an FA-approved requirement therefore always failed with 400
 `type` is not required, an older client still sending `type` is not broken by it
 (and `type` never reaches the insert), a nameless task is still rejected, and
 the `.partial()` form used by PATCH accepts a single-field edit.
+
+# Test step numbering
+
+Run `node --test artifacts/api-server/tests/test-steps.test.cjs` from the
+repository root. It compiles `artifacts/qm-pulse/src/lib/test-steps.ts` straight
+from its path (a standalone module, no imports) with the existing esbuild
+dependency. No database, server, credentials or network.
+
+Step numbering is applied in three places — the execution sheet's read-only
+views, the edit-mode normaliser that rewrites the stored text on blur, and the
+Redmine defect description — so all three must agree or "step 4 failed" means a
+different step depending on where it is read. The trap covered here is
+idempotence: the defect modal prefills already-numbered text and numbers it
+again on submit, and an edit blur re-runs over text it numbered a moment ago,
+so anything that is not a fixed point produces "1. 1. Open statements".
+Coverage also includes stripping the author's own numbering in its several
+forms, renumbering from position after a deleted step, CRLF from pasted Word
+content, and the decimal guard that keeps "1.5x zoom" intact.

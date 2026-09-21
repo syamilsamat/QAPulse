@@ -87,6 +87,7 @@ import {
   type ExecutionTcTrail,
 } from "@/lib/execution-api";
 import { getAllDescendants } from "@/lib/utils";
+import { splitTestSteps, numberTestSteps, isAlreadyNumbered } from "@/lib/test-steps";
 import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
 
 const RESULT_OPTIONS = [
@@ -151,20 +152,10 @@ const isRowAccepted = (row: AppExecutionTestCase) => (row.reviewState ?? "accept
 const isRowInDevelopment = (row: AppExecutionTestCase) => row.requirementInDevelopment === true;
 
 // ── Test steps ───────────────────────────────────────────────────────────────
-// Steps are stored as one free-text block, so numbering is a display concern.
-// Authors number them inconsistently ("1.", "1)", "Step 1 -", or not at all);
-// this strips whatever prefix is there and renumbers from the real line order,
-// so every sheet reads the same way and a tester can say "step 4 failed" and
-// have that mean one thing.
-const STEP_PREFIX = /^\s*(?:step\s*)?\d+\s*[.)\-:]\s*/i;
-
-function splitTestSteps(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.replace(STEP_PREFIX, "").trim())
-    .filter((line) => line.length > 0);
-}
+// splitTestSteps / numberTestSteps live in lib/test-steps.ts — the execution
+// sheet, the edit-mode normaliser and the Redmine defect description all have
+// to number steps identically, or "step 4 failed" means a different step
+// depending on where you read it.
 
 /** Read-only test steps, renumbered from line order. */
 function NumberedSteps({ value, className = "" }: { value: string | null | undefined; className?: string }) {
@@ -433,6 +424,10 @@ interface ImportSummary {
 const CopilotTextarea = ({
   value: rawValue,
   onChange,
+  // Called once on blur with the final text. Separate from onChange because
+  // rewriting the text on every keystroke would fight the caret — the test
+  // steps field uses it to renumber the lines once the author has stopped.
+  onCommit,
   fieldName,
   className,
   minHeight = "80px",
@@ -500,6 +495,7 @@ const CopilotTextarea = ({
   const handleBlur = () => {
     setSuggestion("");
     setIsTyping(false);
+    onCommit?.(value);
   };
 
   useEffect(() => {
@@ -833,7 +829,7 @@ const DesktopTableRow = React.memo(
         <td className="border border-border p-0 relative align-top">
           {readOnly
             ? <div className="px-2 py-2"><NumberedSteps value={row.testSteps} /></div>
-            : <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+            : <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) onUpdate(row.id as string, "testSteps", numberTestSteps(val)); }} />
           }
         </td>
         {!hide("testData") && (
@@ -1226,7 +1222,7 @@ const MobileCardRow = React.memo(
           {readOnly
             ? <div className="px-2 py-1"><NumberedSteps value={row.testSteps} /></div>
             : <div className="border border-input rounded-md focus-within:ring-1">
-                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} />
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) onUpdate(row.id as string, "testSteps", numberTestSteps(val)); }} />
               </div>
           }
         </div>
@@ -4621,7 +4617,7 @@ export default function TestCasesExecutionProgressPage() {
                         {mode === "edit" ? (
                           <div className={`grid grid-cols-2 ${dividerX}`}>
                             <div className="p-3">
-                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} />
+                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) updateCell(row.id as string | number, "testSteps", numberTestSteps(val)); }} />
                             </div>
                             <div className="p-3">
                               <CopilotTextarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} fieldName="Expected Result" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "expectedResult", val)} />

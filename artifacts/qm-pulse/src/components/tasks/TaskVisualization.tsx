@@ -32,44 +32,101 @@ const PHASE_SERIES: { key: TaskBoardRow["phase"]; label: string; light: string; 
   { key: "uat", label: "UAT", light: "#e87ba4", dark: "#d55181" },
 ];
 
-// Open vs delivered is emphasis, not identity: the open load is the story, so it
-// takes the accent hue and delivered work recedes to grey.
+// Three states that partition a member's milestones, so the segments sum to the
+// total with nothing counted twice. Overdue is carved OUT of open rather than
+// laid over it — it is the segment a lead acts on, and leaving it only in the
+// table meant the chart couldn't show the one thing worth looking for.
+//
+// Overdue wears the reserved status red (never a series colour elsewhere here);
+// the rest is emphasis — open work carries the accent hue, delivered recedes to
+// grey. Legend, direct totals and the table keep identity off colour alone.
 const LOAD_SERIES = {
-  open: { label: "Open", light: "#2a78d6", dark: "#3987e5" },
-  done: { label: "Delivered", light: "#c9c8c3", dark: "#4a4a47" },
+  overdue: { key: "overdue", label: "Overdue", light: "#d03b3b", dark: "#d03b3b" },
+  open: { key: "open", label: "Open", light: "#2a78d6", dark: "#3987e5" },
+  done: { key: "done", label: "Delivered", light: "#c9c8c3", dark: "#4a4a47" },
+} as const;
+
+const LOAD_STACK = [LOAD_SERIES.overdue, LOAD_SERIES.open, LOAD_SERIES.done];
+const LOAD_LABELS: Record<string, string> = {
+  overdue: LOAD_SERIES.overdue.label,
+  open: LOAD_SERIES.open.label,
+  done: LOAD_SERIES.done.label,
 };
 
 interface MemberLoad {
   name: string;
   department: PicDepartment;
+  /** Open and NOT overdue — the three counts partition `total`. */
   open: number;
   done: number;
   overdue: number;
   total: number;
 }
 
-/** One entry per (person, department) pair, read off the PIC columns. */
+/**
+ * One entry per (person, department) pair, counted in MILESTONES rather than
+ * requirements.
+ *
+ * A milestone with five requirements all assigned to the same tester is one
+ * piece of work on their plate, not five — counting requirements made a single
+ * busy milestone look like a whole backlog and put everyone on roughly the same
+ * bar. This is also the unit the Team Workload card above already uses, so the
+ * two now agree.
+ *
+ * A milestone is Delivered for a member once every requirement in it (within
+ * the current filters) reads 100%, matching the card's own "average progress
+ * below 100 means open" test; it is Overdue when it is still open and at least
+ * one of its requirements is past due.
+ */
 function buildMemberLoads(rows: TaskBoardRow[]): MemberLoad[] {
-  const byKey = new Map<string, MemberLoad>();
+  // (person, department) -> milestoneId -> rolled-up state of that milestone
+  const byKey = new Map<
+    string,
+    { name: string; department: PicDepartment; milestones: Map<number, { allDone: boolean; anyOverdue: boolean }> }
+  >();
+
   for (const row of rows) {
     for (const department of PIC_DEPARTMENTS) {
       for (const name of picNamesForRow(row, department)) {
         const key = `${department}::${name.toLowerCase()}`;
         let entry = byKey.get(key);
         if (!entry) {
-          entry = { name, department, open: 0, done: 0, overdue: 0, total: 0 };
+          entry = { name, department, milestones: new Map() };
           byKey.set(key, entry);
         }
-        entry.total += 1;
-        if (row.progress >= 100) entry.done += 1;
-        else entry.open += 1;
-        if (isRowOverdue(row)) entry.overdue += 1;
+        const state = entry.milestones.get(row.milestoneId);
+        const rowDone = row.progress >= 100;
+        const rowOverdue = isRowOverdue(row);
+        if (!state) {
+          entry.milestones.set(row.milestoneId, { allDone: rowDone, anyOverdue: rowOverdue });
+        } else {
+          state.allDone = state.allDone && rowDone;
+          state.anyOverdue = state.anyOverdue || rowOverdue;
+        }
       }
     }
   }
-  return [...byKey.values()].sort(
-    (a, b) => b.open - a.open || b.total - a.total || a.name.localeCompare(b.name),
-  );
+
+  return [...byKey.values()]
+    .map(({ name, department, milestones }) => {
+      let open = 0;
+      let done = 0;
+      let overdue = 0;
+      for (const state of milestones.values()) {
+        if (state.allDone) done += 1;
+        else if (state.anyOverdue) overdue += 1;
+        else open += 1;
+      }
+      return { name, department, open, done, overdue, total: milestones.size };
+    })
+    // Whoever is most behind first — overdue outranks a merely large plate.
+    .sort(
+      (a, b) =>
+        b.overdue - a.overdue ||
+        b.open - a.open ||
+        b.total - a.total ||
+        a.name.localeCompare(b.name),
+    );
 }
 
 /** Requirements per department, split by the phase each currently sits in. */
@@ -169,6 +226,7 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
   const chartMembers = visibleMembers.slice(0, 20);
   const chartData = chartMembers.map((m) => ({
     name: departmentFilter === "all" ? `${m.name} · ${m.department}` : m.name,
+    overdue: m.overdue,
     open: m.open,
     done: m.done,
     total: m.total,
@@ -185,16 +243,20 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {/* These five count REQUIREMENTS. The member chart below counts
+            milestones — different questions, so the hints name the unit rather
+            than leaving two numbers on one screen that look like they should
+            reconcile and don't. */}
         <StatTile label="Requirements" value={totals.total} hint="in the current view" />
-        <StatTile label="Open" value={totals.open} hint="not yet at 100%" />
-        <StatTile label="Overdue" value={totals.overdue} hint="past due, still open" />
+        <StatTile label="Open" value={totals.open} hint="requirements under 100%" />
+        <StatTile label="Overdue" value={totals.overdue} hint="requirements past due, still open" />
         <StatTile label="People with work" value={totals.people} hint="named as a PIC" />
         <StatTile label="Unassigned" value={totals.unassigned} hint="no PIC in any department" />
       </div>
 
       <ChartPanel
         title="Workload by member"
-        description="One bar per person, counting the requirements they are named PIC on. Open work carries the colour and delivered work recedes, so the coloured length is the load they are actually still carrying."
+        description="Milestones each person is named PIC on — a milestone with five requirements on one tester is one piece of work, not five, which is the same unit the Team Workload card uses. Overdue means still open with at least one requirement past due. Sorted by who is most behind."
         action={
           <div className="flex flex-wrap items-center gap-1.5">
             {DEPARTMENT_FILTERS.map((option) => (
@@ -235,21 +297,40 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
                 <Tooltip
                   cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.4 }}
                   contentStyle={tooltipStyle}
-                  formatter={(value, name) => [value, name === "open" ? LOAD_SERIES.open.label : LOAD_SERIES.done.label]}
+                  formatter={(value, name) => [value, LOAD_LABELS[String(name)] ?? String(name)]}
                 />
                 <Legend
-                  formatter={(value) => (value === "open" ? LOAD_SERIES.open.label : LOAD_SERIES.done.label)}
+                  formatter={(value) => LOAD_LABELS[String(value)] ?? String(value)}
                   wrapperStyle={{ fontSize: 12 }}
                 />
-                <Bar dataKey="open" stackId="load" fill={hue(LOAD_SERIES.open)} barSize={18} stroke={surface} strokeWidth={2} />
-                <Bar dataKey="done" stackId="load" fill={hue(LOAD_SERIES.done)} barSize={18} stroke={surface} strokeWidth={2} radius={[0, 4, 4, 0]}>
-                  <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                </Bar>
+                {LOAD_STACK.map((series, i) => {
+                  const isLast = i === LOAD_STACK.length - 1;
+                  return (
+                    <Bar
+                      key={series.key}
+                      dataKey={series.key}
+                      stackId="load"
+                      fill={hue(series)}
+                      barSize={18}
+                      stroke={surface}
+                      strokeWidth={2}
+                      radius={isLast ? [0, 4, 4, 0] : undefined}
+                    >
+                      {isLast && (
+                        <LabelList
+                          dataKey="total"
+                          position="right"
+                          style={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                      )}
+                    </Bar>
+                  );
+                })}
               </BarChart>
             </ResponsiveContainer>
             {visibleMembers.length > chartMembers.length && (
               <p className="text-xs text-muted-foreground mt-2">
-                Showing the {chartMembers.length} most loaded of {visibleMembers.length} people — the table below lists everyone.
+                Showing the {chartMembers.length} most behind of {visibleMembers.length} people — the table below lists everyone.
               </p>
             )}
             {showTable && (
@@ -259,9 +340,9 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
                     <TableRow>
                       <TableHead>Member</TableHead>
                       <TableHead className="w-[90px]">Dept</TableHead>
+                      <TableHead className="w-[90px] text-right">Overdue</TableHead>
                       <TableHead className="w-[80px] text-right">Open</TableHead>
                       <TableHead className="w-[100px] text-right">Delivered</TableHead>
-                      <TableHead className="w-[90px] text-right">Overdue</TableHead>
                       <TableHead className="w-[80px] text-right">Total</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -270,11 +351,11 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
                       <TableRow key={`${m.department}-${m.name}`}>
                         <TableCell className="font-medium">{m.name}</TableCell>
                         <TableCell className="text-muted-foreground">{m.department}</TableCell>
-                        <TableCell className="text-right tabular-nums">{m.open}</TableCell>
-                        <TableCell className="text-right tabular-nums">{m.done}</TableCell>
                         <TableCell className={`text-right tabular-nums ${m.overdue > 0 ? "text-destructive font-medium" : ""}`}>
                           {m.overdue}
                         </TableCell>
+                        <TableCell className="text-right tabular-nums">{m.open}</TableCell>
+                        <TableCell className="text-right tabular-nums">{m.done}</TableCell>
                         <TableCell className="text-right tabular-nums">{m.total}</TableCell>
                       </TableRow>
                     ))}
@@ -288,7 +369,7 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
 
       <ChartPanel
         title="Team workload by phase"
-        description="Where each department's requirements currently sit. A department stacked heavily on one phase is where the queue is forming; the number at the end of each bar is everything that department is named on."
+        description="Requirements — not milestones — so a department's queue is visible at the level work actually moves through. Where each department's requirements currently sit right now; the number at the end of each bar is everything that department is named on."
       >
         <ResponsiveContainer width="100%" height={230}>
           <BarChart data={phaseMix} layout="vertical" margin={{ top: 4, right: 44, bottom: 0, left: 8 }}>
