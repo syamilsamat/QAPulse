@@ -1,3 +1,4 @@
+import { readAvailability, recordAvailability } from "./defect-availability";
 import { Router, type IRouter } from "express";
 import { eq, and, inArray, desc, ilike } from "drizzle-orm";
 import {
@@ -69,6 +70,15 @@ async function canAccessDefectProject(
 ): Promise<boolean> {
   if (projectId == null) return true;
   return canAccessProject(ctx.userId, ctx.role, projectId);
+}
+
+async function blockUnavailable(req: any, res: any, userId: number, defect: { id: number; redmineId: string | null }): Promise<boolean> {
+  if (!defect.redmineId) return false;
+  const key = await resolveApiKeyFromToken(req.headers.authorization);
+  const rows = await readAvailability(userId, key, [defect.id]);
+  if (!rows.some(row => row.redmineId === defect.redmineId)) return false;
+  res.status(409).json({ error: "This Redmine issue is unavailable. Use Check again before updating it. Your last saved details are retained." });
+  return true;
 }
 
 // Redmine statuses that mean "fix landed, QA should retest"
@@ -256,6 +266,9 @@ router.get("/defects", async (req, res): Promise<void> => {
     }
 
     const ids = defects.map((d: any) => d.id);
+    const availabilityKey = await resolveApiKeyFromToken(req.headers.authorization).catch(() => null);
+    const unavailableRows = availabilityKey !== null ? await readAvailability(ctx.userId, availabilityKey, ids) : [];
+    const unavailableById = new Map(unavailableRows.map(row => [row.defectId, row]));
     const verificationEvidence = ids.length
       ? await db.select({
           id: defectVerificationEvidenceTable.id,
@@ -312,6 +325,8 @@ router.get("/defects", async (req, res): Promise<void> => {
     const projectById = new Map<number, any>(projects.map((p: any) => [p.id, p.name]));
 
     let result = defects.map((d: any) => {
+      const unavailable = unavailableById.get(d.id);
+      d.redmineUnavailableAt = unavailable && unavailable.redmineId === d.redmineId ? unavailable.checkedAt.toISOString() : null;
       const dLinks = links
         .filter((l: any) => l.defectId === d.id)
         .map((l: any) => {
@@ -365,6 +380,7 @@ router.get("/defects", async (req, res): Promise<void> => {
       result = result.filter((d: any) => d.assigneeId === ctx.userId);
     }
 
+    if (req.query.availability === "unavailable") result = result.filter((d: any) => d.redmineUnavailableAt);
     res.json(result);
   } catch (err: any) {
     console.error("[GET /defects]", err);
@@ -973,6 +989,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
+    if (await blockUnavailable(req, res, ctx.userId, defect)) return;
     const [statusRow] = await db
       .select()
       .from(redmineStatusesTable)
@@ -1363,6 +1380,7 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
+    if (await blockUnavailable(req, res, ctx.userId, defect)) return;
 
     let assigneeName: string | null = null;
     if (assigneeId != null) {
@@ -1424,11 +1442,19 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
 // ─── Refresh cached Redmine statuses (one-way read) ──────────────────────────
 
 router.post("/defects/refresh-status", async (req, res): Promise<void> => {
-  if (!requireAuth(req, res)) return;
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   try {
     const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-    const result = await refreshDefectStatuses(apiKey);
-    res.json(result);
+    const requestedId = req.body?.defectId;
+    if (requestedId != null && (!Number.isInteger(requestedId) || requestedId < 1)) {
+      res.status(400).json({ error: "Invalid defect ID" }); return;
+    }
+    const candidates = requestedId != null ? [requestedId] : (await db.select({ id: defectsTable.id }).from(defectsTable)).map(d => d.id);
+    const visible = candidates.length ? await loadSelectableDefects(ctx, candidates) : [];
+    if (requestedId != null && !visible.length) { res.status(404).json({ error: "Defect not found" }); return; }
+    const result = await refreshDefectStatuses(apiKey, visible.map(d => d.id), (defect, unavailable) => recordAvailability(ctx.userId, apiKey, defect, unavailable));
+    res.status(result.failed > 0 && result.refreshed === 0 && result.unavailable === 0 ? 502 : 200).json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Refresh failed" });
   }
@@ -1751,6 +1777,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
         return;
       }
       if (before.redmineId) {
+        if (await blockUnavailable(req, res, ctx.userId, before)) return;
         const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
         const push = await pushDefectFieldsToRedmine(before.redmineId, {
           title: patch.title,

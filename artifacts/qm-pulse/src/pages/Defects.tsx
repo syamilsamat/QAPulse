@@ -32,6 +32,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { DefectHistory } from "@/components/DefectHistory";
+import { useDefectHistorySummaries } from "@/lib/defect-history";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DefectReviewSection } from "@/components/DefectReviewSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,6 +130,7 @@ interface DefectRow {
   escapeClass: string | null;
   escapeNotes: string | null;
   statusSyncedAt: string | null;
+  redmineUnavailableAt: string | null;
   createdAt: string;
   links: DefectLink[];
   retestNeeded: boolean;
@@ -237,6 +241,10 @@ export default function Defects() {
     const highlight = Number(new URLSearchParams(searchString).get("highlight"));
     if (Number.isInteger(highlight) && highlight > 0) setExpanded(new Set([highlight]));
   }, [deepLinkedTab, searchString]);
+  const [onlyUnavailable, setOnlyUnavailable] = useState(false);
+  const [checkingId, setCheckingId] = useState<number | null>(null);
+  const [refreshSummary, setRefreshSummary] = useState<{ refreshed: number; unavailable: number; failed: number } | null>(null);
+  const [detailTabs, setDetailTabs] = useState<Record<number, string>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [pullTracker, setPullTracker] = useState<string>(() => localStorage.getItem("qa_pulse_prod_tracker") ?? "");
@@ -329,14 +337,15 @@ export default function Defects() {
   });
 
   const listParams = new URLSearchParams();
-  listParams.set("source", tab);
+  if (!onlyUnavailable) listParams.set("source", tab);
+  else listParams.set("availability", "unavailable");
   if (view !== "all") listParams.set("view", view);
   if (filterProject !== "all") listParams.set("projectId", filterProject);
   if (filterSeverity !== "all") listParams.set("severity", filterSeverity);
   if (search.trim()) listParams.set("search", search.trim());
 
   const { data: defects = [], isLoading } = useQuery<DefectRow[]>({
-    queryKey: ["defects", tab, view, filterProject, filterSeverity, search],
+    queryKey: ["defects", user?.id, tab, view, filterProject, filterSeverity, search, onlyUnavailable],
     queryFn: async () => {
       const res = await fetch(`${getApiUrl()}/defects?${listParams.toString()}`, { headers: authHeaders });
       if (!res.ok) throw new Error("Failed to fetch defects");
@@ -353,7 +362,11 @@ export default function Defects() {
     },
   });
 
+  const historySummaries = useDefectHistorySummaries(defects, user?.id, token);
+
   const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["defect-history"] });
+    queryClient.invalidateQueries({ queryKey: ["defect-history-summaries"] });
     queryClient.invalidateQueries({ queryKey: ["defects"] });
     queryClient.invalidateQueries({ queryKey: ["defects-metrics"] });
   };
@@ -371,17 +384,46 @@ export default function Defects() {
       return next;
     });
 
-  const handleRefreshStatus = async () => {
+  const handleRefreshStatus = async (defectId?: number) => {
     setIsRefreshing(true);
+    setCheckingId(defectId ?? null);
     try {
-      const res = await fetch(`${getApiUrl()}/defects/refresh-status`, { method: "POST", headers: authHeaders });
-      const data = await res.json();
-      toast({ title: `Status refreshed for ${data.refreshed ?? 0} defect(s)` });
-      invalidate();
-    } catch {
-      toast({ variant: "destructive", title: "Status refresh failed" });
+      const res = await fetch(`${getApiUrl()}/defects/refresh-status`, { method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" }, body: JSON.stringify(defectId ? { defectId } : {}) });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Could not refresh statuses from Redmine. Please try again.");
+      if (!data || !Number.isInteger(data.refreshed) || data.refreshed < 0 ||
+          !Number.isInteger(data.failed) || data.failed < 0 ||
+          !Number.isInteger(data.unavailable) || data.unavailable < 0) {
+        throw new Error("Received an invalid refresh response. Please try again.");
+      }
+      if (data.refreshed > 0 || data.unavailable > 0) invalidate();
+      setRefreshSummary(data);
+      if (data.failed > 0) {
+        toast({
+          variant: "destructive",
+          title: data.refreshed > 0
+            ? `${data.refreshed} defect(s) refreshed; ${data.failed} could not be refreshed. Please retry.`
+            : "Could not refresh statuses from Redmine",
+          description: [data.error, data.unavailable > 0 ? `${data.unavailable} issue(s) unavailable.` : ""].filter(Boolean).join(" "),
+        });
+      } else if (data.unavailable > 0) {
+        toast({ title: `${data.refreshed} refreshed · ${data.unavailable} issue(s) unavailable`,
+          description: "These issues may have been deleted or you no longer have access. Last saved details are retained.",
+          className: "border-amber-500/40 bg-background text-amber-600 dark:text-amber-400" });
+      } else {
+        toast({ title: data.refreshed > 0
+          ? `Status refreshed for ${data.refreshed} defect(s)`
+          : "No defects linked to Redmine" });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Status refresh failed",
+        description: err instanceof Error ? err.message : "Could not refresh statuses from Redmine. Please try again.",
+      });
     } finally {
       setIsRefreshing(false);
+      setCheckingId(null);
     }
   };
 
@@ -713,7 +755,7 @@ export default function Defects() {
           <Button variant="outline" onClick={() => setSyncOpen(true)} className="gap-2">
             <CloudDownload className="w-4 h-4" /> Sync from Redmine
           </Button>
-          <Button variant="outline" onClick={handleRefreshStatus} disabled={isRefreshing} className="gap-2">
+          <Button variant="outline" onClick={() => handleRefreshStatus()} disabled={isRefreshing} className="gap-2">
             {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Refresh status
           </Button>
@@ -723,29 +765,37 @@ export default function Defects() {
         </div>
       </div>
 
+      {refreshSummary && refreshSummary.unavailable > 0 && (
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <span>{refreshSummary.refreshed} refreshed · {refreshSummary.unavailable} issue(s) unavailable{refreshSummary.failed > 0 ? ` · ${refreshSummary.failed} failed` : ""}</span>
+          <Button size="sm" variant="outline" onClick={() => { setOnlyUnavailable(true); setView("all"); setFilterProject("all"); setFilterSeverity("all"); setSearch(""); }}>View affected defects</Button>
+        </div>
+      )}
+      {onlyUnavailable && <div className="text-sm flex items-center gap-3">Showing unavailable issues across all defect categories<Button variant="ghost" size="sm" onClick={() => setOnlyUnavailable(false)}>Clear filter</Button></div>}
       {/* Tabs */}
       <div className="flex gap-1 border-b">
         <button
           className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "qa" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          onClick={() => { setTab("qa"); setExpanded(new Set()); }}
+          onClick={() => { setOnlyUnavailable(false); setTab("qa"); setExpanded(new Set()); }}
         >
           QA defects
         </button>
         <button
           className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "production" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          onClick={() => { setTab("production"); setView("all"); setExpanded(new Set()); }}
+          onClick={() => { setOnlyUnavailable(false); setTab("production"); setView("all"); setExpanded(new Set()); }}
         >
           Production
         </button>
         <button
           className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "other" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          onClick={() => { setTab("other"); setView("all"); setExpanded(new Set()); }}
+          onClick={() => { setOnlyUnavailable(false); setTab("other"); setView("all"); setExpanded(new Set()); }}
         >
           Others
         </button>
         <button
           className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "requirement" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          onClick={() => { setTab("requirement"); setView("all"); setExpanded(new Set()); }}
+          onClick={() => { setOnlyUnavailable(false); setTab("requirement"); setView("all"); setExpanded(new Set()); }}
         >
           Requirement defects
         </button>
@@ -790,6 +840,7 @@ export default function Defects() {
             {o.label}
           </button>
         ))}
+        <button onClick={() => { setOnlyUnavailable(!onlyUnavailable); setView("all"); }} className={`px-3 py-1 rounded-full text-xs border ${onlyUnavailable ? "border-amber-500 text-amber-500 bg-amber-500/10" : "border-border text-muted-foreground"}`}>Redmine unavailable</button>
         <div className="flex-1" />
         <Select value={filterProject} onValueChange={(v) => { setFilterProject(v); setPullMilestone(""); }}>
           <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All projects" /></SelectTrigger>
@@ -840,6 +891,7 @@ export default function Defects() {
         </div>
       )}
 
+      {historySummaries.isError && <p className="text-xs text-muted-foreground" role="status">History activity check unavailable: {historySummaries.error.message}</p>}
       {/* List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
@@ -943,7 +995,8 @@ export default function Defects() {
                       </Badge>
                     )}
                     <span className="font-medium text-sm truncate">{d.title}</span>
-                    {canEditDefectInfo(d) && (
+                    {d.redmineUnavailableAt && <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600 dark:text-amber-400"><AlertTriangle className="w-3 h-3" />Redmine issue unavailable</span>}
+                    {!d.redmineUnavailableAt && canEditDefectInfo(d) && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -952,6 +1005,13 @@ export default function Defects() {
                         onClick={(e) => { e.stopPropagation(); setEditingDefect(d); }}
                       >
                         <Pencil className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {!historySummaries.isError && historySummaries.data?.[d.id]?.hasUpdates && (
+                      <Button variant="secondary" size="sm" className="text-xs h-7 shrink-0"
+                        title={`Redmine activity since your last history view. Checked ${formatDistanceToNow(new Date(historySummaries.data[d.id].checkedAt), { addSuffix: true })}`}
+                        onClick={(e) => { e.stopPropagation(); setExpanded(prev => new Set(prev).add(d.id)); setDetailTabs(prev => ({ ...prev, [d.id]: "history" })); }}>
+                        New activity
                       </Button>
                     )}
                     {d.retestNeeded && (
@@ -976,7 +1036,10 @@ export default function Defects() {
                   </p>
                 </div>
                 <SeverityBadge severity={d.severity} />
-                <StatusBadge status={d.status} />
+                <div className="flex flex-col items-end gap-1">
+                  {d.redmineUnavailableAt && <span className="text-[10px] text-muted-foreground">Last known status</span>}
+                  <StatusBadge status={d.status} />
+                </div>
                 <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QM Pulse" : d.assigneeName ? "Redmine-only (unassigned in QM Pulse)" : undefined}>
                   {d.assigneeName ?? "Unassigned"}
                 </span>
@@ -984,11 +1047,27 @@ export default function Defects() {
 
               {expanded.has(d.id) && (
                 <div className="bg-muted/20 px-4 py-3 space-y-3">
+                  {d.redmineUnavailableAt && (
+                    <div role="status" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 space-y-2 text-sm">
+                      <p className="font-medium text-amber-600 dark:text-amber-400">Redmine issue #{d.redmineId} is unavailable</p>
+                      <p>This issue may have been deleted in Redmine, or you no longer have access. Last saved defect details are retained. Redmine updates are paused until the issue is accessible again.</p>
+                      <p className="text-xs text-muted-foreground">Checked {new Date(d.redmineUnavailableAt).toLocaleString()} · Last successful sync: {d.statusSyncedAt ? new Date(d.statusSyncedAt).toLocaleString() : "Never"}</p>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" disabled={isRefreshing} onClick={() => handleRefreshStatus(d.id)}>{checkingId === d.id ? "Checking…" : "Check again"}</Button>
+                        <Button size="sm" variant="ghost" asChild><a href={`${REDMINE_BASE}/issues/${d.redmineId}`} target="_blank" rel="noopener noreferrer">Open in Redmine <ExternalLink className="ml-1 w-3 h-3" /></a></Button>
+                      </div>
+                    </div>
+                  )}
+                  <Tabs value={detailTabs[d.id] ?? "details"} onValueChange={value => setDetailTabs(prev => ({ ...prev, [d.id]: value }))}>
+                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">Redmine History</TabsTrigger></TabsList>
+                    <TabsContent value="history"><DefectHistory key={`${user?.id}-${d.id}`} defectId={d.id} redmineId={d.redmineId} /></TabsContent>
+                    <TabsContent value="details" className="space-y-3">
                   {/* Status edit — write-through to Redmine */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-muted-foreground">Status:</span>
                       <Select
+                        disabled={!!d.redmineUnavailableAt}
                         value={String(statuses.find((s) => s.name.toLowerCase() === d.status.toLowerCase())?.redmineId ?? "")}
                         onValueChange={(v) => handleStatusChange(d, Number(v))}
                       >
@@ -1098,6 +1177,7 @@ export default function Defects() {
                         <span className="text-xs text-muted-foreground">Assignee:</span>
                         {canEditAssignee ? (
                           <Select
+                            disabled={!!d.redmineUnavailableAt}
                             value={d.assigneeId ? String(d.assigneeId) : "unassigned"}
                             onValueChange={(v) => handleAssign(d, v === "unassigned" ? null : Number(v))}
                           >
@@ -1263,6 +1343,8 @@ export default function Defects() {
                       />
                     </div>
                   )}
+                    </TabsContent>
+                  </Tabs>
                 </div>
               )}
             </Fragment>
