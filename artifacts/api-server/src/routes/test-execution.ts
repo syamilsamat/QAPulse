@@ -1944,6 +1944,7 @@ router.post(
       const blockedResultRows: string[] = [];
       const unacceptedResultRows: string[] = [];
       const inDevelopmentResultRows: string[] = [];
+      const unassignedResultRows: string[] = [];
 
       // 3. Upsert incoming rows — UPDATE if DB id exists, INSERT if new
       const insertedRows: any[] = [];
@@ -1970,6 +1971,18 @@ router.post(
         if (t.requirementId && inDevelopmentReqIds.has(Number(t.requirementId)) && newResult !== (existing?.result ?? null)) {
           inDevelopmentResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
           newResult = existing?.result ?? null;
+        }
+        // A result is an outcome somebody owns: the QA PIC is who the trail,
+        // the defect and any retest hang off. Changing the result on a row
+        // nobody has taken leaves the verdict unattributable, so it is reverted
+        // the same per-row way as the guards above. The incoming qaPic counts,
+        // so "assign to me and record the result" still saves in one go.
+        // Scoped to rows already stored: a first import carries whatever the
+        // spreadsheet recorded, and legacy sheets routinely have no QA PIC
+        // column — blanking their results on the way in would lose real data.
+        if (existing && !(t.qaPic || "").trim() && newResult !== (existing.result ?? null)) {
+          unassignedResultRows.push(tcId || t.caseId || `row ${idx + 1}`);
+          newResult = existing.result ?? null;
         }
         // A row still waiting on peer acceptance isn't executable yet — the
         // same freeze the file-level gate applies, applied per row. Reverted
@@ -2361,6 +2374,9 @@ router.post(
         // Attempted result changes reverted because the linked requirement is
         // still in development, so there is nothing finished to test against.
         ...(inDevelopmentResultRows.length > 0 ? { inDevelopmentResultRows } : {}),
+        // Attempted result changes reverted because the row has no QA PIC —
+        // nobody owns the execution, so there is nobody to attribute it to.
+        ...(unassignedResultRows.length > 0 ? { unassignedResultRows } : {}),
         ...(pendingInserts.length > 0 ? { pendingAcceptance: pendingInserts.length } : {}),
       });
 
