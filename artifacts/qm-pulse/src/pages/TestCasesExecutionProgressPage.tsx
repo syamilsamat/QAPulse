@@ -4790,9 +4790,10 @@ export default function TestCasesExecutionProgressPage() {
                                 ))}
                               </div>
                             ) : (
-                              // Locked: show why, and the one action that
-                              // unlocks it, instead of a pill that ignores
-                              // every click with nothing else on offer.
+                              // Locked: say why, instead of a pill that ignores
+                              // every click with no explanation. The action
+                              // that unlocks it is the QA PIC control beside
+                              // this one — no second copy of it here.
                               <div className="space-y-1.5 max-w-[240px]">
                                 <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
                                   {normalizeResultValue(row.result) || "Not Executed"}
@@ -4801,14 +4802,6 @@ export default function TestCasesExecutionProgressPage() {
                                   <p className="text-[11px] text-muted-foreground flex items-start gap-1">
                                     <Lock className="w-3 h-3 mt-[2px] shrink-0" /> {executionLock.reason}
                                   </p>
-                                )}
-                                {executionLock?.code === "unassigned" && isQaMember && (
-                                  <button
-                                    className="text-[11px] px-2.5 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
-                                    onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}
-                                  >
-                                    + Assign to me
-                                  </button>
                                 )}
                               </div>
                             );
@@ -5064,14 +5057,6 @@ export default function TestCasesExecutionProgressPage() {
                                                 <p className="text-[10px] text-muted-foreground flex items-start gap-1">
                                                   <Lock className="w-2.5 h-2.5 mt-[2px] shrink-0" /> {executionLock.reason}
                                                 </p>
-                                              )}
-                                              {executionLock?.code === "unassigned" && isQaMember && (
-                                                <button
-                                                  className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
-                                                  onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}
-                                                >
-                                                  + Assign to me
-                                                </button>
                                               )}
                                             </div>
                                           );
