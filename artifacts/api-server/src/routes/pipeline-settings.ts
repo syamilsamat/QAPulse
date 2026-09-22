@@ -19,7 +19,7 @@ router.get("/pipeline-settings", async (req, res) => {
     return res.json(settings);
   } catch (error) {
     console.error("Error fetching pipeline settings:", error);
-    res.status(500).json({ error: "Failed to fetch pipeline settings" });
+    return res.status(500).json({ error: "Failed to fetch pipeline settings" });
   }
 });
 
@@ -62,10 +62,10 @@ router.put("/pipeline-settings", async (req, res) => {
         .returning();
     }
 
-    res.json(updated);
+    return res.json(updated);
   } catch (error) {
     console.error("Error updating pipeline settings:", error);
-    res.status(500).json({ error: "Failed to update pipeline settings" });
+    return res.status(500).json({ error: "Failed to update pipeline settings" });
   }
 });
 

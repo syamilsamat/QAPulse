@@ -1,6 +1,6 @@
-# QAPulse
+# QM Pulse
 
-QAPulse is a QA management platform built for software testing teams. It centralises test case authoring, task tracking, execution progress, defect creation, and PMO reporting — with deep Redmine integration throughout.
+QM Pulse is a QA management platform built for software testing teams. It centralises test case authoring, task tracking, execution progress, defect creation, and PMO reporting — with deep Redmine integration throughout.
 
 ---
 
@@ -10,7 +10,7 @@ Before you begin, make sure you have the following installed and available:
 
 - **Node.js** v18 or higher
 - **pnpm** v8 or higher — this workspace enforces pnpm. Running `npm install` or `yarn` will exit with an error.
-- **PostgreSQL** — a running instance with a database created for QAPulse
+- **PostgreSQL** — a running instance with a database created for QM Pulse
 - **Redmine** — a running Redmine instance with API access enabled
 - **Google GenAI API key** — required for AI-assisted test case generation
 - **Office 365 SMTP credentials** — required for PMO report email delivery
@@ -57,7 +57,7 @@ Open two terminal windows and run each separately:
 
 ```bash
 # Terminal 1 — Frontend
-cd artifacts/qa-pulse
+cd artifacts/qm-pulse
 pnpm dev
 
 # Terminal 2 — API server
@@ -75,7 +75,7 @@ Create a `.env` file at the workspace root with the following variables:
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string, e.g. `postgresql://user:pass@localhost:5432/qapulse` |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string, e.g. `postgresql://user:pass@localhost:5432/qmpulse` |
 | `JWT_SECRET` | ✅ | Secret used to sign JWT tokens. Use a strong random string in production. |
 | `CORS_ORIGIN` | ✅ | Allowed frontend origin, e.g. `http://localhost:5173` |
 | `REDMINE_API_KEY` | ✅ | System-level fallback Redmine API key. Individual users can override this with their own key in Settings. |
@@ -88,12 +88,12 @@ Create a `.env` file at the workspace root with the following variables:
 
 ## Project Structure
 
-QAPulse is a pnpm monorepo. The main packages are:
+QM Pulse is a pnpm monorepo. The main packages are:
 
 ```
-QAPulse/
+QMPulse/
 ├── artifacts/
-│   ├── qa-pulse/           ← React frontend (Vite + TypeScript)
+│   ├── qm-pulse/           ← React frontend (Vite + TypeScript)
 │   ├── api-server/         ← Express REST API (TypeScript)
 │   └── mockup-sandbox/     ← Design playground
 ├── lib/
@@ -119,7 +119,7 @@ QAPulse/
 
 ## User Roles
 
-QAPulse uses role-based access control. Roles are assigned per user account.
+QM Pulse uses role-based access control. Roles are assigned per user account.
 
 | Role | Access |
 |---|---|
@@ -155,7 +155,7 @@ Authentication uses JWT Bearer tokens with an 8-hour expiry.
 pnpm install
 
 # Run frontend dev server
-cd artifacts/qa-pulse && pnpm dev
+cd artifacts/qm-pulse && pnpm dev
 
 # Run API server
 cd artifacts/api-server && pnpm dev

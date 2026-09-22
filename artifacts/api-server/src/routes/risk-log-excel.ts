@@ -6,7 +6,7 @@
  * falling back to SheetJS (values only, no formatting) if xlsx-populate is
  * unavailable.
  *
- * Column mapping is deliberately honest: QMPulse's risk model doesn't
+ * Column mapping is deliberately honest: QM Pulse's risk model doesn't
  * collect every field the template has a slot for (no separate residual
  * post-treatment impact/likelihood assessment, no contingency plan, no
  * progress-update log). Those columns are left blank rather than
@@ -17,7 +17,7 @@
  * Doc Info's revision-history table (B9:G108, extended from the source
  * template's original 11 rows) is populated from real audit-trail events —
  * each risk's creation and every status change — not invented rows.
- * Reviewed By / Reviewed Date stay blank; QMPulse has no peer-review step
+ * Reviewed By / Reviewed Date stay blank; QM Pulse has no peer-review step
  * on risks to report there.
  */
 import { readFileSync } from "fs";
@@ -51,7 +51,7 @@ const TEMPLATE_BUFFER = loadTemplate();
 export interface RiskLogRow {
   riskNumber: string;       // "R001", "R002", … — sequential within the export, not the DB id
   entryDate: string | null; // ISO date
-  title: string;            // -> D: Risk Description (QMPulse's title already reads as a risk statement)
+  title: string;            // -> D: Risk Description (QM Pulse's title already reads as a risk statement)
   description: string | null; // -> E: Risk Impact on Project
   category: string;         // -> F: Risk Area/Category (display label, not the raw enum)
   impact: "Low" | "Medium" | "High";     // -> G
@@ -86,7 +86,7 @@ function riskMapFormula(g: string, h: string, i: string): string {
   );
 }
 
-// QMPulse's pre-treatment status is richer (open/mitigating/closed/realized)
+// QM Pulse's pre-treatment status is richer (open/mitigating/closed/realized)
 // than the template's binary Open/Closed (per its own Read Me sheet) — only
 // "closed" maps to Closed; everything still being tracked reads as Open.
 function statusToTemplate(status: string): "Open" | "Closed" {
@@ -116,7 +116,7 @@ export async function buildRiskLogExcel(
 
     // Revision history (B9:G108) — real audit-trail events, not invented
     // rows: each risk's creation and every status change it's been through.
-    // Reviewed By / Reviewed Date (F/G) stay blank — QMPulse has no peer-
+    // Reviewed By / Reviewed Date (F/G) stay blank — QM Pulse has no peer-
     // review step on risks to report there.
     const DI_HIST_FIRST = 9;
     const DI_HIST_MAX_ROWS = 100;
@@ -152,7 +152,7 @@ export async function buildRiskLogExcel(
       const mitigatedDate = fmtDate(r.mitigatedDate);
       if (mitigatedDate) rlSheet.cell(`P${row}`).value(mitigatedDate);
       // Q/R/S/T (post-treatment residual impact/likelihood/status/map),
-      // N (contingency plan), O (progress update): QMPulse doesn't collect
+      // N (contingency plan), O (progress update): QM Pulse doesn't collect
       // a separate residual risk assessment or a contingency/progress-log
       // field — left blank rather than inferring values the data doesn't
       // actually support.

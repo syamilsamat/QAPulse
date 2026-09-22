@@ -25,14 +25,19 @@ import {
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
-import { notifyUser, notifyRolesInProject } from "./_notify";
 import pLimit from "p-limit";
 
 const ai = new GoogleGenAI({});
 
-const QA_REVIEW_ROLES = ["qa_lead", "qa_member", "hod_qa", "admin"];
-
 const router: IRouter = Router();
+
+// Test designs and execution linkage are internal project records. Enforce
+// authentication once for the complete route surface, including detail and
+// export handlers that do not need to repeat the same guard.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 function safeParseJSON(content: string, fallback: any) {
   let cleaned = content
@@ -61,6 +66,33 @@ function safeParseJSON(content: string, fallback: any) {
     }
     return fallback;
   }
+}
+
+// Every AI-authored field on a test case maps to a plain text column, but a
+// model will return an object or a nested array where a string was asked for —
+// testData as {"username":"a","password":"b"} is the common one, and the
+// OpenRouter fallbacks run with no responseSchema at all. Flatten to readable
+// text so the row survives CreateTestCaseBody validation when it is saved.
+// Returns undefined, never null, because zod .optional() rejects null.
+function toText(value: unknown, depth = 0): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth > 4) return undefined; // guard against deep nesting / cycles
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => toText(v, depth + 1)).filter((v): v is string => !!v);
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  if (typeof value === "object") {
+    const parts = Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => {
+        const t = toText(v, depth + 1);
+        return t ? `${k}: ${t}` : undefined;
+      })
+      .filter((v): v is string => !!v);
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  return undefined;
 }
 
 async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise<string> {
@@ -111,7 +143,7 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
       clearTimeout(timeoutId); // Clear timeout if response is received
 
       if (response.ok) {
-        const data = await response.json() as any;
+        const data: any = await response.json() as any;
         if (data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
           console.log(`✅ Success with Fallback Node: ${model}`);
           return data.choices[0].message.content;
@@ -155,6 +187,7 @@ async function formatTestCase(tc: any) {
   return {
     id: tc.id,
     title: tc.title,
+    objective: tc.objective,
     type: tc.type,
     priority: tc.priority,
     redmineUserStory: tc.redmineUserStory,
@@ -173,15 +206,16 @@ async function formatTestCase(tc: any) {
     requirementTitle,
     projectId: tc.projectId,
     projectName,
+    linkedBug: tc.linkedBug,
     authorId: tc.authorId,
     authorName,
     aiAssisted: tc.aiAssisted,
     status: tc.status,
-    reviewStatus: tc.reviewStatus,
-    approvedBy: tc.approvedBy,
-    approvedAt: tc.approvedAt ? new Date(tc.approvedAt).toISOString() : null,
-    rejectedBy: tc.rejectedBy,
-    rejectedAt: tc.rejectedAt ? new Date(tc.rejectedAt).toISOString() : null,
+    // The library test case carries no review state of its own: peer review
+    // happens once, on the compiled execution file (PATCH
+    // /execution-files/:id/review). The review_status / approved_by /
+    // rejected_by columns are left in place for the historical audit trail
+    // but are no longer read or written.
     // CR023p4 — informational badge only here; the actionable "Revised"
     // control lives on the execution file page (per-instance ack)
     requirementRevisedAt: tc.requirementRevisedAt ? new Date(tc.requirementRevisedAt).toISOString() : null,
@@ -216,6 +250,12 @@ const tcGenResponseSchema: Schema = {
   required: ["testCases"],
 };
 
+// The AI-authored fields CreateTestCaseBody types as optional strings.
+const AI_TEXT_FIELDS = [
+  "title", "tracker", "scenario", "preconditions", "testSteps", "testData",
+  "expectedResult", "tags", "type", "priority",
+] as const;
+
 async function generateForRequirement(
   req: { id: number; title: string; description?: string },
   opts: {
@@ -244,6 +284,7 @@ async function generateForRequirement(
   const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 to 10 highly detailed test cases for the single requirement provided.
     CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
     If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
+    "expectedResult" must be short and direct: state the outcome as one imperative sentence (or a tight list of outcomes), no explanation, no narrative, no filler words.
     Return ONLY a valid JSON object with a "testCases" array.`;
 
   const userPrompt = `Requirement: [#${req.id}] ${req.title}\nDescription: ${req.description || "No description provided"}\n\nModule: ${opts.featureModule || "N/A"}\nTracker: ${opts.selectedTracker || "N/A"}\nFocus Scenarios: ${opts.caseTypes.join(", ")}\nNotes: ${opts.additionalNotes || "None"}${existingContext}`;
@@ -271,13 +312,31 @@ async function generateForRequirement(
   }
 
   const parsed = safeParseJSON(finalRawText, { testCases: [] });
-  const testCases = (parsed.testCases ?? []).map((tc: any) => {
-    if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
-    else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
+  const testCases = (parsed.testCases ?? []).map((tc: any, i: number) => {
+    // An array arrived one step per line already; only a run-together string needs re-breaking below.
+    const stepsWereList = Array.isArray(tc.testSteps);
+    // Flatten every text field first, so nothing downstream sees an object.
+    for (const f of AI_TEXT_FIELDS) tc[f] = toText(tc[f]);
+    // "title" is the one field CreateTestCaseBody requires (not `.optional()`),
+    // so a missing/blank one 400s the entire bulk save — and the whole batch
+    // is inserted atomically, so one bad row blocks every sibling in it too.
+    // Gemini's responseSchema marks title "required", but that's a hint, not
+    // an enforced guarantee, and the OpenRouter fallback models (used when
+    // Gemini errors) have no schema enforcement at all — either can still
+    // hand back a case with no title. Derive one rather than losing the row.
+    if (!tc.title) tc.title = tc.scenario ? tc.scenario.slice(0, 120) : `${req.title} — case ${i + 1}`;
+    // Tags read better inline than one per line.
+    if (tc.tags) tc.tags = tc.tags.split("\n").join(", ");
+    // Re-break run-together numbered steps ("1. a 2. b") onto their own lines.
+    if (tc.testSteps && !stepsWereList) tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
     // The AI has no way to know the real Redmine ticket — it was only ever
     // given this requirement's internal DB id, and would otherwise invent a
-    // number. Always use the requirement's actual redmineTicketId instead.
-    tc.redmineUserStory = actualRedmineTicketId;
+    // number. Always use the requirement's actual redmineTicketId instead —
+    // but drop the key when the requirement has none, because
+    // CreateTestCaseBody types it as an optional string and zod's .optional()
+    // accepts undefined while rejecting null, which would 400 the save.
+    if (actualRedmineTicketId != null) tc.redmineUserStory = actualRedmineTicketId;
+    else delete tc.redmineUserStory;
     return tc;
   });
   return { testCases };
@@ -407,6 +466,59 @@ router.post("/test-cases", async (req, res): Promise<void> => {
     entityType: "test_case",
   });
   res.status(201).json(await formatTestCase(tc));
+});
+
+// Save an AI-generated preview as one database statement. The previous UI
+// issued one request per row, so a 30+ case generation could partially save
+// when any individual request failed. This endpoint validates every row first
+// and then inserts the complete set atomically.
+router.post("/test-cases/bulk", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const input = req.body?.testCases;
+  if (!Array.isArray(input) || input.length === 0) {
+    res.status(400).json({ error: "testCases must be a non-empty array" });
+    return;
+  }
+  if (input.length > 200) {
+    res.status(400).json({ error: "A maximum of 200 test cases can be saved at once" });
+    return;
+  }
+
+  const payloads: any[] = [];
+  for (let index = 0; index < input.length; index++) {
+    const parsed = CreateTestCaseBody.safeParse(input[index]);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `Test case ${index + 1} is invalid: ${parsed.error.issues[0]?.message ?? "validation failed"}`,
+        rowIndex: index,
+      });
+      return;
+    }
+    const payload: any = { ...parsed.data };
+    if (!payload.authorId) payload.authorId = ctx.userId;
+    payloads.push(payload);
+  }
+
+  const projectIds = [...new Set(payloads.map((payload) => payload.projectId).filter((id): id is number => Number.isInteger(id)))];
+  for (const projectId of projectIds) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) {
+      res.status(403).json({ error: `Access denied to project ${projectId}` });
+      return;
+    }
+  }
+
+  const created = await db.insert(testCasesTable).values(payloads).returning();
+  await Promise.all(created.map((tc) => logActivity({
+    type: "test_case_created",
+    description: `Test case "${tc.title}" was created${tc.aiAssisted ? " (AI-assisted)" : ""}`,
+    userId: tc.authorId,
+    entityId: tc.id,
+    entityType: "test_case",
+  })));
+
+  res.status(201).json({ saved: created.length, ids: created.map((tc) => tc.id) });
 });
 
 // Execution files that contain this library TC (one entry per file, newest

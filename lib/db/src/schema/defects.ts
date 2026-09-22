@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-// CR019: native defect records. QAPulse is the front door for QA defects
+// CR019: native defect records. QM Pulse is the front door for QA defects
 // (write-through to Redmine, which stays the system of record for lifecycle);
 // production defects are pulled in from the Redmine incident tracker (CR020).
 // All Redmine-specific sync code lives in redmine-defect-bridge.ts only.
@@ -44,13 +44,20 @@ export const defectsTable = pgTable(
     // now but keep their real tracker recorded (Sync from Redmine dialog)
     tracker: text("tracker"),
     category: text("category"), // Redmine category name, saved alongside the tracker
-    // QAPulse-native defect classification (independent of the Redmine category
+    // QM Pulse-native defect classification (independent of the Redmine category
     // above, which is a freeform per-project Redmine field) — one of a fixed
     // set: functional | ui_ux | usability | performance | security | data |
     // compatibility | integration | configuration | localization. Settable
     // only by Lead-tier+ users (see getRoleTierRank in middleware/access.ts).
     defectCategory: text("defect_category"),
     redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }), // issue created_on
+    // CR080 — QA-sourced defects only, gates the New Defect -> Fixed/Resolved
+    // transition for Critical/High severity (see GATE_RESOLVED_STATES in
+    // routes/defects.ts). QM Pulse-native, deliberately not pushed to Redmine —
+    // same "local only" precedent as defectCategory below.
+    rootCause: text("root_cause"),
+    rootCauseCategory: text("root_cause_category"), // code_defect | configuration | data_issue | environment | requirement_gap | third_party
+    resolutionSummary: text("resolution_summary"),
     // CR020 escape review (production defects only)
     escapeStatus: text("escape_status").notNull().default("pending"), // pending | analyzing | closed
     escapeClass: text("escape_class"), // coverage_gap | selection_gap | passed_wrongly
@@ -90,7 +97,28 @@ export const defectLinksTable = pgTable(
   (t) => [index("defect_links_defect_idx").on(t.defectId)],
 );
 
+// Mandatory QA evidence captured whenever a defect is moved to Verified.
+// Stored separately from code-review evidence because this proves retest
+// verification, not implementation review.
+export const defectVerificationEvidenceTable = pgTable(
+  "defect_verification_evidence",
+  {
+    id: serial("id").primaryKey(),
+    defectId: integer("defect_id")
+      .references(() => defectsTable.id, { onDelete: "cascade" })
+      .notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    dataBase64: text("data_base64").notNull(),
+    uploadedBy: integer("uploaded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("defect_verification_evidence_defect_idx").on(t.defectId)],
+);
+
 export const insertDefectSchema = createInsertSchema(defectsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertDefect = z.infer<typeof insertDefectSchema>;
 export type Defect = typeof defectsTable.$inferSelect;
 export type DefectLink = typeof defectLinksTable.$inferSelect;
+export type DefectVerificationEvidence = typeof defectVerificationEvidenceTable.$inferSelect;

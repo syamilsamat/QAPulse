@@ -1,0 +1,372 @@
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useLocation } from "wouter";
+import { useLogin, useChangePassword } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+
+import PulseScene from "@/components/landing/PulseScene";
+import { scrollState } from "@/components/landing/scrollState";
+import { PulseLogo } from "@/components/PulseLogo";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
+
+const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+const pwSchema = z
+  .object({
+    newPassword: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string().min(1, "Please confirm your password"),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+type LoginFormValues = z.infer<typeof loginSchema>;
+type PwFormValues = z.infer<typeof pwSchema>;
+
+// Shared field styling so inputs read correctly on the dark glass card.
+const darkInput =
+  "h-11 bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-teal-400/50 focus-visible:border-teal-400/40";
+const eyeToggle =
+  "absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-100 transition-colors";
+const primaryBtn =
+  "w-full h-11 rounded-full bg-gradient-to-r from-teal-400 to-sky-500 text-[#04070f] font-semibold border-0 shadow-lg shadow-teal-500/25 hover:shadow-teal-400/40 hover:scale-[1.02] transition-all";
+
+// Shared shell: the QM Pulse dark backdrop + 3D pulse scene + vignette.
+// Defined at module scope so it keeps a stable identity across renders
+// (a shell defined inside Login would remount the form on every keystroke).
+function Shell({
+  onBack,
+  children,
+}: {
+  onBack: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative min-h-[100svh] flex items-center justify-center overflow-hidden bg-[#04070f] text-slate-100 antialiased p-4 selection:bg-teal-400/30">
+      {/* WebGL backdrop shared with the landing page */}
+      <PulseScene />
+      {/* soft vignette so the form stays readable over the scene */}
+      <div className="pointer-events-none fixed inset-0 z-[1] bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(4,7,15,0.88)_100%)]" />
+
+      <Button
+        variant="ghost"
+        className="absolute top-4 left-4 sm:top-8 sm:left-8 z-20 text-slate-400 hover:text-teal-300 hover:bg-white/5"
+        onClick={onBack}
+      >
+        <ArrowLeft className="w-4 h-4 mr-2" />
+        Back to Home
+      </Button>
+
+      <div className="w-full max-w-md space-y-8 relative z-10">{children}</div>
+    </div>
+  );
+}
+
+export default function Login() {
+  const [, setLocation] = useLocation();
+  const { login } = useAuth();
+  const { toast } = useToast();
+  const loginMutation = useLogin();
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // After login succeeds, if mustChangePassword we show this overlay
+  const [pendingUser, setPendingUser] = useState<{
+    id: number;
+    name: string;
+    token: string;
+  } | null>(null);
+  const changePasswordMutation = useChangePassword({
+    request: {
+      headers: pendingUser?.token
+        ? { Authorization: `Bearer ${pendingUser.token}` }
+        : undefined,
+    },
+  });
+
+  // Pointer parallax for the shared 3D backdrop (matches the landing page).
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      scrollState.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+      scrollState.mouseY = -((e.clientY / window.innerHeight) * 2 - 1);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  const form = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: "", password: "" },
+  });
+
+  const pwForm = useForm<PwFormValues>({
+    resolver: zodResolver(pwSchema),
+    defaultValues: { newPassword: "", confirmPassword: "" },
+  });
+
+  const onSubmit = (values: LoginFormValues) => {
+    loginMutation.mutate(
+      { data: values },
+      {
+        onSuccess: (data) => {
+          if (data.user.mustChangePassword) {
+            setPendingUser({ id: data.user.id, name: data.user.name, token: data.token });
+          } else {
+            login(data.user, data.token, (data as any).refreshToken ?? "", rememberMe);
+            setLocation("/my-work");
+          }
+        },
+        onError: (error: any) => {
+          toast({
+            variant: "destructive",
+            title: "Login failed",
+            description:
+              error?.message || "Please check your credentials and try again.",
+          });
+        },
+      },
+    );
+  };
+
+  const onChangePassword = (values: PwFormValues) => {
+    if (!pendingUser) return;
+    changePasswordMutation.mutate(
+      { data: { userId: pendingUser.id, newPassword: values.newPassword } },
+      {
+        onSuccess: () => {
+          setPendingUser(null);
+          form.reset();
+          pwForm.reset();
+          loginMutation.reset();
+          changePasswordMutation.reset();
+          setLocation("/login");
+          toast({
+            title:
+              "Password updated. Please sign in again with your new password.",
+          });
+        },
+        onError: () => {
+          toast({
+            variant: "destructive",
+            title: "Failed to update password. Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  // ── Force password change overlay ──────────────────────────────────────────
+  if (pendingUser) {
+    return (
+      <Shell
+        onBack={() => {
+          setPendingUser(null);
+          setLocation("/");
+        }}
+      >
+        <div className="flex flex-col items-center text-center gap-3">
+          <span className="grid place-items-center w-14 h-14 rounded-full border border-teal-400/30 bg-teal-400/10">
+            <ShieldCheck className="w-7 h-7 text-teal-300" />
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight">Set a new password</h1>
+          <p className="text-slate-400 text-sm max-w-xs">
+            Hi {pendingUser.name}! Your account requires a password change before
+            you can continue.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-2xl shadow-black/40 p-6 sm:p-8">
+          <form onSubmit={pwForm.handleSubmit(onChangePassword)} className="space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="newPassword" className="text-slate-300">
+                New password
+              </Label>
+              <div className="relative">
+                <Input
+                  id="newPassword"
+                  type={showNewPw ? "text" : "password"}
+                  placeholder="At least 6 characters"
+                  className={darkInput}
+                  {...pwForm.register("newPassword")}
+                />
+                <button
+                  type="button"
+                  className={eyeToggle}
+                  onClick={() => setShowNewPw((v) => !v)}
+                  tabIndex={-1}
+                >
+                  {showNewPw ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              {pwForm.formState.errors.newPassword && (
+                <p className="text-xs text-red-400">
+                  {pwForm.formState.errors.newPassword.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPassword" className="text-slate-300">
+                Confirm password
+              </Label>
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPw ? "text" : "password"}
+                  placeholder="Repeat your new password"
+                  className={darkInput}
+                  {...pwForm.register("confirmPassword")}
+                />
+                <button
+                  type="button"
+                  className={eyeToggle}
+                  onClick={() => setShowConfirmPw((v) => !v)}
+                  tabIndex={-1}
+                >
+                  {showConfirmPw ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              {pwForm.formState.errors.confirmPassword && (
+                <p className="text-xs text-red-400">
+                  {pwForm.formState.errors.confirmPassword.message}
+                </p>
+              )}
+            </div>
+            <Button
+              type="submit"
+              className={primaryBtn}
+              disabled={changePasswordMutation.isPending}
+            >
+              {changePasswordMutation.isPending
+                ? "Saving..."
+                : "Set password & continue"}
+            </Button>
+          </form>
+        </div>
+      </Shell>
+    );
+  }
+
+  // ── Normal login form ───────────────────────────────────────────────────────
+  return (
+    <Shell onBack={() => setLocation("/")}>
+      <div className="flex flex-col items-center justify-center text-center gap-4">
+        <PulseLogo size="lg" showWord={false} />
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight">
+            Welcome to QM<span className="text-teal-300">Pulse</span>
+          </h1>
+          <p className="text-slate-400 text-sm">
+            Sign in to manage your quality workflows
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-2xl shadow-black/40 p-6 sm:p-8">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-300">Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="qa@example.com"
+                      className={darkInput}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="text-red-400" />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-300">Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        className={darkInput}
+                        {...field}
+                      />
+                      <button
+                        type="button"
+                        className={eyeToggle}
+                        onClick={() => setShowPassword((v) => !v)}
+                        tabIndex={-1}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </FormControl>
+                  <FormMessage className="text-red-400" />
+                </FormItem>
+              )}
+            />
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="rememberMe"
+                checked={rememberMe}
+                onCheckedChange={(v) => setRememberMe(Boolean(v))}
+                className="border-white/25 data-[state=checked]:bg-teal-400 data-[state=checked]:border-teal-400 data-[state=checked]:text-[#04070f]"
+              />
+              <Label
+                htmlFor="rememberMe"
+                className="text-sm font-normal cursor-pointer text-slate-300"
+              >
+                Remember me
+              </Label>
+            </div>
+            <Button
+              type="submit"
+              className={primaryBtn}
+              disabled={loginMutation.isPending}
+            >
+              {loginMutation.isPending ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+        </Form>
+      </div>
+    </Shell>
+  );
+}

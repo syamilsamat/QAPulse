@@ -22,8 +22,8 @@
  *     prefixed scenario titles) uses that convention anywhere.
  *
  * Kept untouched, always:
- *   - the `users` table (every account — pw.*@qapulse.test test actors AND
- *     the *@qapulse.org org hierarchy — survives so nothing needs
+ *   - the `users` table (every account — pw.*@qmpulse.test test actors AND
+ *     the *@qmpulse.org org hierarchy — survives so nothing needs
  *     re-provisioning)
  *   - the SPARROW project and everything in it
  *   - the demo dataset and everything in it

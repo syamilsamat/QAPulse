@@ -1,26 +1,26 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -n 'setForm\\({ name: \"\", type: \"cr\"' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/Milestones.tsx)",
-      "Bash(awk 'NR==580,0 {print NR\": \"$0; if \\(NR>580 && /^router\\\\.\\(get|post|patch|delete\\)/\\) {print \"STOP\"; exit}}' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/api-server/src/routes/dashboard.ts)",
+      "Bash(grep -n 'setForm\\({ name: \"\", type: \"cr\"' /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/qm-pulse/src/pages/Milestones.tsx)",
+      "Bash(awk 'NR==580,0 {print NR\": \"$0; if \\(NR>580 && /^router\\\\.\\(get|post|patch|delete\\)/\\) {print \"STOP\"; exit}}' /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/api-server/src/routes/dashboard.ts)",
       "Bash(awk -F'[\\(:]' '{print $2}')",
       "Bash(awk '$1 < 960')",
       "Bash(awk '$1 < 970')",
-      "Bash(grep -rn '\"/tasks\\\\?\\\\|`/tasks?\\\\|navigate\\(.*\"/tasks\\\\|setLocation\\(.*\"/tasks\\\\|href.*\"/tasks' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/)",
+      "Bash(grep -rn '\"/tasks\\\\?\\\\|`/tasks?\\\\|navigate\\(.*\"/tasks\\\\|setLocation\\(.*\"/tasks\\\\|href.*\"/tasks' /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/qm-pulse/src/)",
       "Bash(git commit -m ' *)",
       "Bash(git fetch *)",
       "Bash(git commit *)",
       "Bash(awk -F: '$1 > 1235 && $1 < 1650')",
-      "Bash(grep -n \"setViewLayout\\\\|localStorage.setItem\\(\\\\`qa_pulse_exec_view\" /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx)",
-      "Bash(awk 'NR==1236,NR==1650 {print NR\": \"$0}' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx)",
+      "Bash(grep -n \"setViewLayout\\\\|localStorage.setItem\\(\\\\`qa_pulse_exec_view\" /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx)",
+      "Bash(awk 'NR==1236,NR==1650 {print NR\": \"$0}' /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx)",
       "Bash(env)",
       "Bash(awk -F: '$1 > 1000 && $1 < 1250')",
-      "Bash(awk 'NR>=1290 && NR<=1420 && /res\\\\.json/' /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/api-server/src/routes/test-execution.ts)",
+      "Bash(awk 'NR>=1290 && NR<=1420 && /res\\\\.json/' /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/api-server/src/routes/test-execution.ts)",
       "Bash(awk -F: '$1>1290 && $1<1450')",
-      "Bash(grep -rn \"redmineTicketId.*milestone\\\\|milestone.*redmineTicketId\\\\|MS-\\\\${\" /Users/syamilabdulsamat/Desktop/QAPulse/QAPulse/artifacts/api-server/src -i)",
+      "Bash(grep -rn \"redmineTicketId.*milestone\\\\|milestone.*redmineTicketId\\\\|MS-\\\\${\" /Users/syamilabdulsamat/Desktop/QMPulse/QMPulse/artifacts/api-server/src -i)",
       "Bash(xargs -I{} cat -n {})",
-      "Bash(ls -la ~/Desktop/QAPulse/qa-automation 2>&1 | head -50)",
-      "Read(//Users/syamilabdulsamat/Desktop/QAPulse/qa-automation/**)"
+      "Bash(ls -la ~/Desktop/QMPulse/qa-automation 2>&1 | head -50)",
+      "Read(//Users/syamilabdulsamat/Desktop/QMPulse/qa-automation/**)"
     ]
   }
 }

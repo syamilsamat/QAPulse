@@ -33,7 +33,7 @@ function requireAuth(req: any, res: any): { userId: number; role: string } | nul
 }
 const PRIVILEGED_ROLES = ["admin", "cto"];
 
-function formatUser(u: typeof usersTable.$inferSelect) {
+function formatUser(u: typeof usersTable.$inferSelect, includeSecrets = false) {
   return {
     id: u.id,
     name: u.name,
@@ -43,7 +43,8 @@ function formatUser(u: typeof usersTable.$inferSelect) {
     avatarUrl: u.avatarUrl,
     mustChangePassword: u.mustChangePassword,
     isActive: u.isActive ?? true,
-    redmineApiKey: u.redmineApiKey ?? null,
+    emailNotificationsEnabled: u.emailNotificationsEnabled ?? false,
+    ...(includeSecrets ? { redmineApiKey: u.redmineApiKey ?? null } : {}),
     createdAt: u.createdAt.toISOString(),
   };
 }
@@ -67,7 +68,7 @@ router.get("/users", async (req, res): Promise<void> => {
     }
   }
 
-  res.json(users.map(formatUser));
+  res.json(users.map((user) => formatUser(user)));
 });
 
 router.post("/users", async (req, res): Promise<void> => {
@@ -98,7 +99,8 @@ router.post("/users", async (req, res): Promise<void> => {
 });
 
 router.get("/users/:id", async (req, res): Promise<void> => {
-  if (!requireAuth(req, res)) return;
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const params = GetUserParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -114,7 +116,7 @@ router.get("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser(user));
+  res.json(formatUser(user, ctx.userId === user.id));
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {
@@ -144,9 +146,60 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Only an admin can change a user's role" }); return;
   }
 
+  const [targetUser] = await db.select().from(usersTable).where(eq(usersTable.id, params.data.id));
+  if (!targetUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  // Email is identity, not a preference — same Manager-tier+ gate as a
+  // password reset, and never self-service here (Settings' own Profile tab
+  // deliberately disables the field; this is the admin/manager path).
+  // usersTable.email is unique, so a collision needs a clean 409 rather than
+  // the raw DB constraint error the update below would otherwise throw.
+  let normalizedEmail: string | undefined;
+  if (parsed.data.email !== undefined) {
+    if (!isManager) {
+      res.status(403).json({ error: "Manager tier or above required to change a user's email" }); return;
+    }
+    normalizedEmail = parsed.data.email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      res.status(400).json({ error: "Email cannot be empty" }); return;
+    }
+    if (normalizedEmail !== targetUser.email.toLowerCase()) {
+      const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, normalizedEmail));
+      if (existing && existing.id !== targetUser.id) {
+        res.status(409).json({ error: "Another user already has this email" }); return;
+      }
+    }
+  }
+
+  // Self-service password changes belong exclusively to /auth/change-password,
+  // where the current password is verified. Managers may issue temporary
+  // passwords to ordinary users, but only admin/cto may reset another
+  // privileged account.
+  if (parsed.data.password !== undefined) {
+    if (isSelf) {
+      res.status(400).json({ error: "Use the change-password endpoint to change your own password" }); return;
+    }
+    if (!isManager) {
+      res.status(403).json({ error: "Manager tier or above required to reset passwords" }); return;
+    }
+    if (PRIVILEGED_ROLES.includes(targetUser.role) && !isAdmin) {
+      res.status(403).json({ error: "Only an admin can reset an admin/cto password" }); return;
+    }
+    if (parsed.data.password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" }); return;
+    }
+  }
+
   const updateData: Record<string, unknown> = { ...parsed.data };
+  if (normalizedEmail !== undefined) {
+    updateData.email = normalizedEmail;
+  }
   if (parsed.data.password) {
     updateData.password = await bcrypt.hash(parsed.data.password, 12);
+    updateData.mustChangePassword = true;
   }
 
   const [user] = await db
@@ -159,7 +212,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser(user));
+  res.json(formatUser(user, isSelf));
 });
 
 router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
@@ -185,7 +238,7 @@ router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  res.json(formatUser(user));
+  res.json(formatUser(user, ctx.userId === user.id));
 });
 
 router.get("/users/:id/stats", async (req, res): Promise<void> => {
@@ -199,10 +252,8 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
   const { id } = params.data;
   const now = new Date();
 
-  const tasks = await db
-    .select()
-    .from(tasksTable)
-    .where(eq(tasksTable.assigneeId, id));
+  const allTasks = await db.select().from(tasksTable);
+  const tasks = allTasks.filter((t) => t.assigneeIds?.includes(id));
 
   const tasksCompleted = tasks.filter((t) => t.status === "released_to_production").length;
   const tasksPending = tasks.filter((t) =>

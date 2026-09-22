@@ -6,7 +6,10 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "backfill:case-ids": "tsx ./src/backfill-execution-case-ids.ts",
+    "sync:milestone-status": "tsx ./src/sync-milestone-statuses.ts",
     "fix:orphaned-summaries": "tsx ./src/fix-orphaned-summaries.ts",
+    "seed:platform-issues-from-bugmd": "tsx ./src/seed-platform-issues-from-bugmd.ts",
+    "check:platform-issues": "node --env-file=.env.platform-issues ./src/check-open-platform-issues.mjs",
     "seed:demo": "tsx ./src/seed-demo-data.ts",
     "seed:demo:backdate": "tsx ./src/backdate-demo-activity.ts",
     "seed:demo:clear": "tsx ./src/clear-demo-data.ts",
@@ -28,6 +31,12 @@
     "seed:sparrow:data-prep-bonus:finalize": "tsx ./src/finalize-sparrow-data-prep-bonus.ts",
     "seed:sparrow:clear": "tsx ./src/clear-sparrow-data.ts",
     "clear:playwright": "tsx ./src/clear-playwright-data.ts",
+    "preprod:smoke": "tsx ./src/preprod-smoke.ts",
+    "preprod:crud": "tsx ./src/preprod-crud.ts",
+    "preprod:auth": "tsx ./src/preprod-auth.ts",
+    "preprod:boundaries": "tsx ./src/preprod-boundaries.ts",
+    "preprod:config": "tsx ./src/preprod-config.ts",
+    "preprod:load": "tsx ./src/preprod-load.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

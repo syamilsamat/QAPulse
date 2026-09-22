@@ -9,7 +9,7 @@
  *
  * Run from the Replit shell:
  *   cd scripts
- *   QAPULSE_API_URL=https://<your-repl-url> npx tsx src/clear-sparrow-data.ts
+ *   QMPULSE_API_URL=https://<your-repl-url> npx tsx src/clear-sparrow-data.ts
  */
 
 import pg from "pg";

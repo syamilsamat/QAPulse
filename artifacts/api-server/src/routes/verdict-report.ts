@@ -1,11 +1,13 @@
+import { resolveDocumentReference } from "./_document-register";
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq, and, ilike } from "drizzle-orm";
+import { eq, and, ilike, inArray } from "drizzle-orm";
 import { execSync } from "child_process";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
 import { actorFromReq } from "./auth";
 import { logActivity } from "./_audit";
 import { getAuthContext } from "../middleware/access";
+import { getLatestReview } from "./_code-review";
 
 let nodemailer: any = null;
 try {
@@ -66,17 +68,12 @@ import {
   executionFilesTable,
   executionTestCasesTable,
   executionFileAuditTable,
-  documentRegisterTable,
-  projectsTable,
   activityTable,
+  defectsTable,
+  defectLinksTable,
 } from "@workspace/db";
 
-function normaliseTracker(tracker: string): "CR" | "SIT" | "UAT" {
-  const t = (tracker ?? "").toLowerCase();
-  if (t.includes("uat")) return "UAT";
-  if (t.includes("sit")) return "SIT";
-  return "CR";
-}
+export { normaliseTracker } from "./_document-reference";
 
 let mysql2: any = null;
 try {
@@ -504,7 +501,7 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
       )) as [any[], any];
 
       for (const row of reopenRows) {
-        reopenCounts[row.issue_id] = Number(row.reopen_count);
+        reopenCounts[(row as any).issue_id] = Number(row.reopen_count);
       }
     }
 
@@ -570,11 +567,11 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
   };
 
   try {
-    const issueData = await safeJson(`${baseUrl}/issues/${issueId}.json`);
+    const issueData: any = await safeJson(`${baseUrl}/issues/${issueId}.json`);
     if (!issueData?.issue) return null;
-    const main = issueData.issue;
+    const main = (issueData as any).issue;
 
-    const childData = await safeJson(
+    const childData: any = await safeJson(
       `${baseUrl}/issues.json?parent_id=${issueId}&limit=100&status_id=*`,
     );
     const children: any[] = childData?.issues ?? [];
@@ -605,10 +602,10 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
       defects.map(async (d: any) => {
         try {
           let count = 0;
-          const detailedIssue = await safeJson(`${baseUrl}/issues/${d.id}.json?include=journals`);
+          const detailedIssue: any = await safeJson(`${baseUrl}/issues/${d.id}.json?include=journals`);
 
           if (detailedIssue?.issue?.journals) {
-            for (const j of detailedIssue.issue.journals) {
+            for (const j of (detailedIssue as any).issue.journals) {
               if (j.details) {
                 for (const det of j.details) {
                   // status_id = '8' is ReOpen
@@ -651,48 +648,109 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
 }
 
 async function reportFromLocalDB(issueId: string): Promise<Record<string, unknown> | null> {
+  // Native QM Pulse defects for this ticket. Two ways a defect can be "for"
+  // this ticket:
+  //  1. Raised against a test case row inside the execution file itself
+  //     (linkType "found_by" — the normal QA-fail-modal path).
+  //  2. Raised directly against a linked requirement (linkType "requirement"
+  //     — a requirement defect, or a production escape not tied to any one
+  //     execution row).
+  // Previously this read tasksTable.type (t as any).type — a column that
+  // was removed from the schema entirely (see tasks.ts: "REMOVED: type"),
+  // so this always silently returned zero defects regardless of what was
+  // actually in the real Defects module.
+  const [file] = await db
+    .select()
+    .from(executionFilesTable)
+    .where(eq(executionFilesTable.redmineTicketId, issueId));
+
+  const execTcIds = file
+    ? (
+        await db
+          .select({ id: executionTestCasesTable.id })
+          .from(executionTestCasesTable)
+          .where(eq(executionTestCasesTable.executionFileId, file.id))
+      ).map((r) => r.id)
+    : [];
+
   const reqs = await db.select().from(requirementsTable);
-  const matched = reqs.filter(
+  const matchedReqs = reqs.filter(
     (r) =>
       r.redmineTicketId === issueId ||
       r.redmineTicketId === `#${issueId}` ||
       r.title.toLowerCase().includes(issueId.toLowerCase()),
   );
-  if (!matched.length) return null;
+  const reqIds = matchedReqs.map((r) => r.id);
 
-  const tasks = await db.select().from(tasksTable);
-  const users = await db.select().from(usersTable);
-  const reqIds = matched.map((r) => r.id);
+  if (execTcIds.length === 0 && reqIds.length === 0) return null;
 
-  const defectTasks = tasks.filter(
-    (t) =>
-      t.requirementId &&
-      reqIds.includes(t.requirementId) &&
-      ["bug_fix", "defect", "bug"].includes(t.type),
-  );
-  const getName = (id: number | null) =>
-    id ? (users.find((u) => u.id === id)?.name ?? "Unassigned") : "Unassigned";
+  // Two independent lookups, unioned in JS — defectLinksTable rows are
+  // "found_by" (execution_tc_id set) XOR "requirement" (requirement_id
+  // set), never both, so this can't double-count a single link row; the
+  // Set dedupes the (rare) case of the same defect showing up via both.
+  const linksByTc = execTcIds.length > 0
+    ? await db.select({ defectId: defectLinksTable.defectId }).from(defectLinksTable).where(inArray(defectLinksTable.executionTcId, execTcIds))
+    : [];
+  const linksByReq = reqIds.length > 0
+    ? await db.select({ defectId: defectLinksTable.defectId }).from(defectLinksTable).where(inArray(defectLinksTable.requirementId, reqIds))
+    : [];
+  const defectIds = [...new Set([...linksByTc, ...linksByReq].map((l) => l.defectId))];
 
-  const defects = defectTasks.map((t) => ({
-    id: t.id,
-    subject: t.name,
-    status: t.status,
-    priority: "Normal",
-    category: "Bug",
-    assignee: getName(t.assigneeId),
-    createdOn: t.createdAt.toISOString(),
-    reopenedCount: t.status.toLowerCase().includes("reopen") ? 1 : 0
+  if (defectIds.length === 0) {
+    // No linked defects, but the ticket itself is real (file or requirement
+    // matched) — return an empty-but-valid shape rather than null, so the
+    // caller doesn't fall through to the "no data found" error.
+    return buildReportShape(
+      issueId,
+      { subject: file?.title ?? matchedReqs[0]?.title ?? issueId, status: "", projectName: "" },
+      [],
+      [],
+    );
+  }
+
+  const defectRows = await db.select().from(defectsTable).where(inArray(defectsTable.id, defectIds));
+
+  const defects = defectRows.map((d) => ({
+    id: d.id,
+    subject: d.defectCode ? `${d.defectCode} — ${d.title}` : d.title,
+    status: d.status,
+    priority: d.severity ? d.severity.charAt(0).toUpperCase() + d.severity.slice(1) : "Normal",
+    category: d.defectCategory ?? d.category ?? "Bug",
+    assignee: d.assigneeName ?? "Unassigned",
+    createdOn: d.createdAt.toISOString(),
+    reopenedCount: 0, // reopen tracking only exists on the Redmine-API path
   }));
 
   return buildReportShape(
     issueId,
-    { subject: matched[0].title, status: matched[0].status, projectName: "" },
+    { subject: file?.title ?? matchedReqs[0]?.title ?? issueId, status: "", projectName: "" },
     [],
     defects,
   );
 }
 
 // ─── Main route ───────────────────────────────────────────────────────────────
+
+// Dev Tasks — code-review compliance stat for the PMO report. Deliberately
+// small for v1 (one {approved, total} pair, not a per-module breakdown): the
+// report is keyed by Redmine ticket, not requirement, so this resolves
+// ticket -> requirement(s) -> tasks -> latest review per task. N+1 on
+// getLatestReview is fine here — a single ticket's task count is small,
+// this endpoint isn't a bulk listing.
+async function getDevReviewStats(redmineTicketId: string): Promise<{ approved: number; total: number } | null> {
+  const reqs = await db.select({ id: requirementsTable.id }).from(requirementsTable).where(eq(requirementsTable.redmineTicketId, redmineTicketId));
+  if (reqs.length === 0) return null;
+  const reqIds = reqs.map((r) => r.id);
+  const tasks = await db.select({ id: tasksTable.id }).from(tasksTable).where(inArray(tasksTable.requirementId, reqIds));
+  if (tasks.length === 0) return null;
+
+  let approved = 0;
+  for (const t of tasks) {
+    const latest = await getLatestReview("task", t.id);
+    if (latest?.status === "approved") approved++;
+  }
+  return { approved, total: tasks.length };
+}
 
 router.get("/verdict-report/report", async (req, res): Promise<void> => {
   const { redmineId } = req.query;
@@ -712,25 +770,28 @@ router.get("/verdict-report/report", async (req, res): Promise<void> => {
     defectData = await reportFromLocalDB(cleanId);
   }
 
+  const devReview = await getDevReviewStats(cleanId).catch(() => null);
+
   if (testData && defectData) {
     res.json({
       ...testData,
       defects: defectData.defects,
       activeDefects: defectData.activeDefects,
-      issueSubject: defectData.issueSubject || testData.issueSubject,
+      issueSubject: (defectData as any).issueSubject || (testData as any).issueSubject,
       projectName: defectData.projectName || testData.projectName,
       trackerName: (defectData as any).trackerName || (testData as any).trackerName || "",
       source: "app_dashboard",
+      devReview,
     });
     return;
   }
 
   if (testData) {
-    res.json(testData);
+    res.json({ ...testData, devReview });
     return;
   }
   if (defectData) {
-    res.json(defectData);
+    res.json({ ...defectData, devReview });
     return;
   }
 
@@ -1147,8 +1208,8 @@ function buildEmailHtml(
     <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
       <tr>
         <td bgcolor="#1a3a6e" style="padding:28px 32px;background:linear-gradient(135deg,#1a3a6e 0%,#2563eb 100%);">
-          <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#93c5fd;margin-bottom:6px;">QMPulse &nbsp;·&nbsp; Verdict Report</div>
-          <div style="font-size:22px;font-weight:700;color:#ffffff;margin-bottom:4px;">QMPulse — Report Dashboard</div>
+          <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#93c5fd;margin-bottom:6px;">QM Pulse &nbsp;·&nbsp; Verdict Report</div>
+          <div style="font-size:22px;font-weight:700;color:#ffffff;margin-bottom:4px;">QM Pulse — Report Dashboard</div>
           <div style="font-size:13px;color:#bfdbfe;margin-top:4px;">Generated: ${generatedAt}</div>
           <div style="font-size:13px;color:#93c5fd;margin-top:4px;">Sent by ${senderName}</div>
         </td>
@@ -1160,7 +1221,7 @@ function buildEmailHtml(
       <div class="summary-card" style="border:1px solid #e5e7eb;border-radius:10px;padding:20px 24px;text-align:center;">
         <div class="summary-title" style="font-size:17px;font-weight:700;color:#111827;margin-bottom:6px;">Test Execution &amp; Defect Status Summary</div>
         <div class="summary-sub" style="font-size:12px;color:#6b7280;margin-bottom:10px;">as of ${generatedAt}</div>
-        <div class="summary-id" style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${d.issueSubject ? ` — ${d.issueSubject}` : ""}</div>
+        <div class="summary-id" style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">#${redmineId}${(d as any).issueSubject ? ` — ${(d as any).issueSubject}` : ""}</div>
         ${d.projectName ? `<div class="summary-sub" style="font-size:12px;color:#6b7280;margin-bottom:2px;">Project: ${d.projectName}</div>` : ""}
         <div class="muted-text" style="font-size:12px;color:#9ca3af;">Redmine #${redmineId}</div>
       </div>
@@ -1350,7 +1411,7 @@ function buildEmailHtml(
 
     <!-- Footer -->
     <div class="footer-bar" style="background:#f9fafb;padding:16px 32px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;">
-      <span class="footer-text">This report was automatically generated by QMPulse &nbsp;·&nbsp; ${generatedAt}</span><br>
+      <span class="footer-text">This report was automatically generated by QM Pulse &nbsp;·&nbsp; ${generatedAt}</span><br>
       <span class="footer-text">List of the Open Defect is attached to this email.</span>
     </div>
   </div>
@@ -1425,11 +1486,11 @@ router.post("/verdict-report/send-email", async (req, res) => {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,sans-serif;">
   <div style="max-width:940px;margin:0 auto;">
-    <img src="cid:qapulse-report"
-         alt="QMPulse Verdict Report"
+    <img src="cid:qmpulse-report"
+         alt="QM Pulse Verdict Report"
          style="width:100%;display:block;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px;">
-      Active defects are attached as an Excel spreadsheet &nbsp;·&nbsp; Generated by QMPulse
+      Active defects are attached as an Excel spreadsheet &nbsp;·&nbsp; Generated by QM Pulse
     </p>
   </div>
 </body>
@@ -1440,7 +1501,7 @@ router.post("/verdict-report/send-email", async (req, res) => {
       {
         filename: `QMPulse_Report_${redmineId ?? "report"}_${new Date().toISOString().slice(0, 10)}.png`,
         content: screenshotBuffer,
-        cid: "qapulse-report",
+        cid: "qmpulse-report",
         contentType: "image/png",
         contentDisposition: "inline",
       },
@@ -1470,7 +1531,7 @@ router.post("/verdict-report/send-email", async (req, res) => {
     }
 
     await transporter.sendMail({
-      from: `"QMPulse" <${emailFrom}>`,
+      from: `"QM Pulse" <${emailFrom}>`,
       to: emailTo,
       cc: emailCc,
       subject,
@@ -1552,11 +1613,11 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;padding:32px;border:1px solid #e5e7eb;">
-    <h2 style="margin:0 0 8px;font-size:18px;color:#111827;">QMPulse — Test Verdict</h2>
+    <h2 style="margin:0 0 8px;font-size:18px;color:#111827;">QM Pulse — Test Verdict</h2>
     <div style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;margin-bottom:24px;background:${verdict === "PASS" ? "#dcfce7" : "#fee2e2"};color:${verdict === "PASS" ? "#166534" : "#991b1b"};">${verdict}</div>
     <pre style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#374151;white-space:pre-wrap;margin:0;">${bodyText}</pre>
     <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center;">
-      Sent by ${senderName ?? "QA Team"} via QMPulse
+      Sent by ${senderName ?? "QA Team"} via QM Pulse
     </div>
   </div>
 </body>
@@ -1625,34 +1686,38 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         console.warn("[send-verdict] prior verdict lookup failed:", err);
       }
 
-      // Document register — look up Ref No by project + module + tracker
+      // Document register — look up Ref No by project + module + tracker.
+      // moduleName must come from the file's own selected module(s), not the
+      // parent project — matching it against the project name here always
+      // failed against Document Register entries like "ePLKS"/"eQuota". A
+      // file can have several selected modules (comma-separated) and only
+      // one of them may be registered. eQuota is the module of record when
+      // it's among them, so check it first regardless of list order;
+      // otherwise fall through the rest in their original order and use the
+      // first match.
       let refNo: string | undefined;
       try {
-        const [proj] = execFile?.projectId
-          ? await db.select({ name: projectsTable.name }).from(projectsTable).where(eq(projectsTable.id, execFile.projectId))
-          : [];
-        const moduleName = proj?.name ?? projectName ?? "";
-        const tracker = normaliseTracker(issueType ?? execFile?.tracker ?? "");
-        const [regEntry] = await db
-          .select()
-          .from(documentRegisterTable)
-          .where(
-            and(
-              ilike(documentRegisterTable.projectName, `%${projectName ?? ""}%`),
-              ilike(documentRegisterTable.moduleName, `%${moduleName}%`),
-              eq(documentRegisterTable.tracker, tracker),
-            )
-          )
-          .limit(1);
-        if (regEntry) {
-          refNo = regEntry.refNo;
-          console.log(`[send-verdict] refNo=${refNo} (project=${projectName} module=${moduleName} tracker=${tracker})`);
-        }
+        refNo = await resolveDocumentReference({
+          projectId: execFile?.projectId, projectName,
+          selectedModules: execFile?.selectedModules, tracker: issueType ?? execFile?.tracker ?? "",
+        });
       } catch (err) {
         console.warn("[send-verdict] document register lookup failed:", err);
       }
 
-      const xlsxBuffer = await buildTestCaseExcel(testCases, {
+      // Peer review: fill Doc Info's Reviewed By/Date once the file has
+      // actually gone through submit-for-review -> approve, same as the
+      // Execution Dashboard's own "Download" button.
+      let reviewedByName: string | null = null;
+      if (execFile && (execFile as any).reviewStatus === "approved" && (execFile as any).approvedBy) {
+        const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, (execFile as any).approvedBy));
+        reviewedByName = reviewer?.name ?? null;
+      }
+      const reviewedAt = execFile && (execFile as any).reviewStatus === "approved"
+        ? ((execFile as any).approvedAt instanceof Date ? (execFile as any).approvedAt.toISOString() : (execFile as any).approvedAt ?? null)
+        : null;
+
+      const xlsxBuffer = await buildTestCaseExcel(testCases as any, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",
@@ -1667,6 +1732,8 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
             updatedByName: a.updatedByName ?? null,
             createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
             tcCount: a.tcCount ?? 0,
+            reviewedByName: a.reviewedByName ?? null,
+            reviewedAt: a.reviewedAt instanceof Date ? a.reviewedAt.toISOString() : (a.reviewedAt ?? null),
           })),
           ...verdictAuditEntries,
           // CR011 P4: the send happening right now is the final Review Log row
@@ -1679,6 +1746,8 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
         // CR011 P4: a PASS verdict closes the CAPA loop — fills empty Actual Closure Dates
         capaClosureDate: verdict === "PASS" ? new Date().toISOString() : undefined,
+        reviewedByName,
+        reviewedAt,
       });
       console.log(`[send-verdict] xlsxBuffer=${xlsxBuffer ? xlsxBuffer.length + " bytes" : "null"}`);
       if (xlsxBuffer) {
@@ -1710,7 +1779,7 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
     });
 
     await transporter.sendMail({
-      from: `"QMPulse" <${emailFrom}>`,
+      from: `"QM Pulse" <${emailFrom}>`,
       to: formatRecipients(to),
       cc: cc?.length ? formatRecipients(cc) : undefined,
       subject,

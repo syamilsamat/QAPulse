@@ -14,7 +14,7 @@ const router: IRouter = Router();
 if (!process.env.JWT_SECRET && process.env.NODE_ENV === "production") {
   throw new Error("JWT_SECRET env var is required in production — server will not start without it");
 }
-const JWT_SECRET = process.env.JWT_SECRET ?? "qa-pulse-dev-secret-change-in-production-2024";
+const JWT_SECRET = process.env.JWT_SECRET ?? "qm-pulse-dev-secret-change-in-production-2024";
 const JWT_EXPIRES_IN = "1h";
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -98,6 +98,7 @@ async function formatUser(user: typeof usersTable.$inferSelect) {
     mustChangePassword: user.mustChangePassword,
     isActive: user.isActive ?? true,
     redmineApiKey: user.redmineApiKey ?? null,
+    emailNotificationsEnabled: user.emailNotificationsEnabled ?? false,
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -259,23 +260,41 @@ router.get("/auth/me", async (req, res): Promise<void> => {
 router.post("/auth/change-password", async (req, res): Promise<void> => {
   const { userId, currentPassword, newPassword } = req.body;
 
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  let authenticatedUserId: number;
+  try {
+    authenticatedUserId = verifyToken(authHeader.slice(7)).id;
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
     res.status(400).json({ error: "New password must be at least 8 characters" });
     return;
   }
 
-  if (!userId) {
-    res.status(400).json({ error: "userId is required" });
+  if (userId != null && Number(userId) !== authenticatedUserId) {
+    res.status(403).json({ error: "You can only change your own password" });
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, Number(userId)));
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, authenticatedUserId));
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;
   }
 
-  if (!user.mustChangePassword && currentPassword) {
+  if (!user.mustChangePassword) {
+    if (!currentPassword || typeof currentPassword !== "string") {
+      res.status(400).json({ error: "Current password is required" });
+      return;
+    }
     let currentValid = false;
     if (user.password.startsWith("$2")) {
       currentValid = await bcrypt.compare(currentPassword, user.password);

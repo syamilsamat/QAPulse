@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -15,9 +15,25 @@ export const requirementsTable = pgTable("requirements", {
   status: text("status").notNull().default("open"),
   tracker: varchar("tracker", { length: 255 }),
   parentId: integer("parent_id"),
+  // Parent-exclude sync: set only when this requirement's real Redmine parent
+  // was deliberately left out of the import (the "Include parent ticket"
+  // toggle was off), so there's no parentId row to point at. Denormalized
+  // instead of a synthetic parent requirement, so nothing else in the app
+  // (counts, approvals, reports) needs to know to filter out a placeholder
+  // row. Null whenever parentId is set — never both at once.
+  parentRedmineId: text("parent_redmine_id"),
+  parentRedmineTitle: text("parent_redmine_title"),
   redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }),
   // CR014p2 — milestone scoping
   milestoneId: integer("milestone_id"),
+  // Where this requirement was created from — currently only ever set to
+  // "qa_pipeline" (by QA Pipeline Step 2's sync); everything else (manual
+  // creation, the Requirements page's own Redmine import, the Excel-import
+  // resolve-redmine path) leaves this null. Two things key off it: pipeline-
+  // sourced requirements are auto-approved on creation instead of going
+  // through FA review (see reviewStatus below), and qa_member gets edit
+  // rights on them that they don't have on requirements in general.
+  source: text("source"), // 'qa_pipeline' | null
   // CR022p1 — structured acceptance criteria (JSON array of strings)
   acceptanceCriteria: text("acceptance_criteria"),
   // CR014p4 — FA review workflow
@@ -76,7 +92,16 @@ export const requirementsTable = pgTable("requirements", {
   pipelineQaId: integer("pipeline_qa_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  // computeRequirementTimelines() reads one milestone's requirements; the
+  // list endpoints scope by project. Both were sequential scans.
+  index("requirements_milestone_idx").on(t.milestoneId),
+  index("requirements_project_idx").on(t.projectId),
+  index("requirements_parent_idx").on(t.parentId),
+  index("requirements_redmine_ticket_idx").on(t.redmineTicketId),
+  // GET /requirements always orders by created_at.
+  index("requirements_created_at_idx").on(t.createdAt),
+]);
 
 export const insertRequirementSchema = createInsertSchema(requirementsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRequirement = z.infer<typeof insertRequirementSchema>;
@@ -91,9 +116,19 @@ export type Requirement = typeof requirementsTable.$inferSelect;
 // (lib/db/src/schema/tasks.ts) as what the Tasks/History Trail pages surface,
 // since that table is hard-FK'd to the now-frozen ad-hoc tasksTable and can't
 // attach to a requirement.
+// CR074 — an event can now anchor to a milestone instead of a single
+// requirement, so a milestone-wide disruption (server down for a week) is
+// logged once rather than re-typed on all 29 of its requirements. Exactly one
+// of requirementId / milestoneId is the anchor:
+//   requirementId set, milestoneId null  → the original per-requirement event
+//   milestoneId set,  requirementId null → a milestone event; requirementIds
+//     optionally narrows it to a subset of that milestone's requirements
+//     (null/empty = the whole milestone).
 export const requirementEventsTable = pgTable("requirement_events", {
   id: serial("id").primaryKey(),
-  requirementId: integer("requirement_id").notNull(),
+  requirementId: integer("requirement_id"),
+  milestoneId: integer("milestone_id"),
+  requirementIds: integer("requirement_ids").array(),
   type: text("type").notNull(), // e.g. "Blocker" | "Server down" | "Automation unavailable" | custom text
   description: text("description"),
   startDate: timestamp("start_date", { withTimezone: true }).notNull(),
@@ -102,6 +137,9 @@ export const requirementEventsTable = pgTable("requirement_events", {
   updatedBy: integer("updated_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("requirement_events_requirement_idx").on(t.requirementId),
+  index("requirement_events_milestone_idx").on(t.milestoneId),
+]);
 
 export type RequirementEvent = typeof requirementEventsTable.$inferSelect;

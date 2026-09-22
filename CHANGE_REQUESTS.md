@@ -1,6 +1,6 @@
-# QAPulse — Change Request Register
+# QM Pulse — Change Request Register
 
-Canonical list of all CRs for QAPulse. Update status here whenever a CR is deployed, started, or planned.
+Canonical list of all CRs for QM Pulse. Update status here whenever a CR is deployed, started, or planned.
 
 ---
 
@@ -16,8 +16,8 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR006](#cr006--ai-enhancements) | AI Enhancements | ✅ Deployed | 2026-06-27 |
 | [CR007](#cr007--auth--session-management) | Auth & Session Management | ✅ Deployed | 2026-06-29 |
 | [CR008](#cr008--execution-sheet-ux-overhaul) | Execution Sheet UX Overhaul | ✅ Deployed | 2026-06-28 |
-| [CR009](#cr009--playwrightqapulse-reporter) | Playwright→QAPulse Reporter | ⏳ Pending | — |
-| [CR010](#cr010--trigger-playwright-from-qapulse-ui) | Trigger Playwright from QAPulse UI | ⏳ Pending | — |
+| [CR009](#cr009--playwrightqmpulse-reporter) | Playwright→QM Pulse Reporter | ⏳ Pending | — |
+| [CR010](#cr010--trigger-playwright-from-qmpulse-ui) | Trigger Playwright from QM Pulse UI | ⏳ Pending | — |
 | [CR011](#cr011--audit-trail-enhancement) | Audit Trail Enhancement | ✅ Deployed | 2026-07-04 |
 | [CR012](#cr012--scalability--performance-hardening) | Scalability & Performance Hardening | 📋 Planned | 2026-06-30 |
 | [CR013](#cr013--microsoft-login-sso) | Microsoft Login SSO | ⏳ Pending | — |
@@ -61,6 +61,10 @@ Canonical list of all CRs for QAPulse. Update status here whenever a CR is deplo
 | [CR051](#cr051--audit-pass-5-deferred-batch) | Audit Pass 5 (deferred batch) | ✅ Deployed | 2026-07-18 |
 | [CR052](#cr052--return-to-dev-timeline-gap) | Return-to-Dev Timeline Gap | ✅ Deployed | 2026-07-18 |
 | [CR053](#cr053--return-to-fa-flow) | Return-to-FA Flow | ✅ Deployed | 2026-07-18 |
+| [CR078](#cr078--compact-tc-numbering-on-the-execution-sheet) | Compact TC Numbering on the Execution Sheet | ✅ Deployed | 2026-09-15 |
+| [CR079](#cr079--platform-issues-internal-bug-tracking-for-qm-pulse) | Platform Issues (Internal Bug Tracking for QM Pulse) | ✅ Deployed | 2026-09-15 |
+| [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
+| [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ⏳ Pending | 2026-09-21 |
 
 ---
 
@@ -141,17 +145,17 @@ Full session & auth hardening:
 
 ---
 
-### CR009 — Playwright→QAPulse Reporter
+### CR009 — Playwright→QM Pulse Reporter
 **Status:** ⏳ Pending
 
-Custom Playwright reporter that auto-pushes test results into QAPulse execution files:
+Custom Playwright reporter that auto-pushes test results into QM Pulse execution files:
 - Upsert by caseId
 - Covers all suites
 - One fixed ticketId per suite
 
 ---
 
-### CR010 — Trigger Playwright from QAPulse UI
+### CR010 — Trigger Playwright from QM Pulse UI
 **Status:** ⏳ Pending
 **Depends on:** CR009
 
@@ -228,10 +232,10 @@ Addresses bottlenecks found in codebase audit:
 **Status:** ⏳ Pending
 **Source:** unmerged branch `claude/microsoft-login-integration-6cm4go`
 
-Replace email/password auth with Microsoft Entra ID (Azure AD) SSO, single-tenant, org accounts only. Password login removed entirely; admins pre-create user accounts (name, email, role — no password). Users signing in with a Microsoft email not already in QAPulse get a "contact admin" error (no auto-provisioning).
+Replace email/password auth with Microsoft Entra ID (Azure AD) SSO, single-tenant, org accounts only. Password login removed entirely; admins pre-create user accounts (name, email, role — no password). Users signing in with a Microsoft email not already in QM Pulse get a "contact admin" error (no auto-provisioning).
 
 - Make `password` nullable on `usersTable`
-- New `POST /auth/microsoft` — validates Azure AD ID token via `jwks-rsa` + `jsonwebtoken`, looks up user by email, issues QA Pulse JWT
+- New `POST /auth/microsoft` — validates Azure AD ID token via `jwks-rsa` + `jsonwebtoken`, looks up user by email, issues QM Pulse JWT
 - Remove `POST /auth/login`; keep `/auth/me`, `/auth/logout`, `/auth/change-password`
 - Frontend: MSAL redirect flow (`@azure/msal-browser`, `@azure/msal-react`) replaces the Login page's email/password form
 - Remove password fields from Settings' user creation form
@@ -281,7 +285,7 @@ Full plan: `docs/change-requests/microsoft-login-sso.md` (on the `claude/microso
 
 **Original plan (for reference):**
 
-Expands QAPulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO), driven by two new **admin-configurable** columns on the existing `roles` table (`department`, `tierRank`) rather than a hardcoded lookup — admin can retier/re-department any role via the existing Roles page, no deploy needed. Still **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
+Expands QM Pulse to match this org's real reporting structure: a CTO above four department HODs (PM, FA & BI combined, QA, Dev — Dev stays external/no login), each with Lead/Manager tiers below. Requires project-level access control as a prerequisite — today every authenticated user can read/write every project's data with no membership scoping. Visibility escalates by role tier (IC → Lead → Manager → HOD → CTO), driven by two new **admin-configurable** columns on the existing `roles` table (`department`, `tierRank`) rather than a hardcoded lookup — admin can retier/re-department any role via the existing Roles page, no deploy needed. Still **no new "reports-to" schema** — a deliberate simplification, not true org-chart modeling. Covers both a single Change Request and a full new-project rollout via one shared primitive (Milestones).
 
 **Part 1 — Project-level access control (prerequisite)**
 - New `project_members` table (projectId + userId, no per-project sub-roles yet)
@@ -336,7 +340,7 @@ Fixes AI Generate on the Test Cases page so multi-requirement batches (e.g. #231
 **Scope:**
 - `lib/api-spec/openapi.yaml` — replace singular `requirementDescription`/`requirementId` on `AIGenerateInput` with a `requirements: [{id, title, description}]` array; wrap `AIGenerateResponse` in per-requirement `results` groups; also correct `AIGeneratedTestCase` schema fields to match actual route output (drops stale `objective`/`automationCandidate`, which don't match what the route returns). Regenerate via `pnpm --filter @workspace/api-spec run codegen`.
 - `artifacts/api-server/src/routes/test-cases.ts:178-314` — extract single-generation logic into a per-requirement helper, fan out with `p-limit` + `Promise.allSettled`.
-- `artifacts/qa-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
+- `artifacts/qm-pulse/src/pages/TestCases.tsx` — `handleGenerate` (~126-152) sends requirement array instead of joined string; preview screen (~478-523) renders grouped sections; `handleAISuccess` (~1230-1263) saves each test case with its own group's `requirementId`.
 
 Implemented as planned above; deployed 2026-07-04 (commit `2f356f3`). The mislink bug (all generated TCs saved under one `requirementId`) is fixed — generation and save are per-requirement.
 
@@ -354,7 +358,7 @@ Follow-up to CR005. Now that child requirements carry their own test case links,
 - Excel export mirrors the hierarchy: indented `↳` child rows, plus a rolled-up summary row for parents.
 - Module filter keeps a tree when the root or any descendant matches; status filter applies to the root's rolled-up status.
 
-**Scope:** `artifacts/api-server/src/routes/traceability.ts` (rewritten — tree assembly + recursive rollup), `artifacts/qa-pulse/src/pages/TraceabilityMatrix.tsx` (recursive rows + hierarchical export). No DB changes.
+**Scope:** `artifacts/api-server/src/routes/traceability.ts` (rewritten — tree assembly + recursive rollup), `artifacts/qm-pulse/src/pages/TraceabilityMatrix.tsx` (recursive rows + hierarchical export). No DB changes.
 
 ---
 
@@ -385,7 +389,7 @@ Extends the traceability matrix (CR005/CR016) now that milestones exist as a fir
 
 **Explicitly out of scope (first cut):** carry-over/trend view ("requirement slipped 3 sprints"), burndown charts — needs result history semantics not yet settled.
 
-**Scope estimate:** `lib/db/src/schema/` (milestones table + FKs — shared with the milestone feature), `artifacts/api-server/src/routes/traceability.ts` (milestoneId param, scoped LATERAL join, pruned rollup), `artifacts/qa-pulse/src/pages/TraceabilityMatrix.tsx` (milestone filter dropdown, milestone group headers, scoped summary cards, export column).
+**Scope estimate:** `lib/db/src/schema/` (milestones table + FKs — shared with the milestone feature), `artifacts/api-server/src/routes/traceability.ts` (milestoneId param, scoped LATERAL join, pruned rollup), `artifacts/qm-pulse/src/pages/TraceabilityMatrix.tsx` (milestone filter dropdown, milestone group headers, scoped summary cards, export column).
 
 ---
 
@@ -396,7 +400,7 @@ The "In N runs" badge on the Test Case Library (table and mobile card views) is 
 
 Supports impact analysis before editing/deleting a library TC, avoiding duplicate compiles (CR003), and jumping straight to a failing run.
 
-**Scope:** `artifacts/api-server/src/routes/test-cases.ts` (new `GET /test-cases/:id/executions` — on-demand, one entry per execution file, newest row wins), `artifacts/qa-pulse/src/pages/TestCases.tsx` (`ExecutionRunsDialog` + clickable badges). No DB changes.
+**Scope:** `artifacts/api-server/src/routes/test-cases.ts` (new `GET /test-cases/:id/executions` — on-demand, one entry per execution file, newest row wins), `artifacts/qm-pulse/src/pages/TestCases.tsx` (`ExecutionRunsDialog` + clickable badges). No DB changes.
 
 ---
 
@@ -407,15 +411,15 @@ Supports impact analysis before editing/deleting a library TC, avoiding duplicat
 
 **Implementation note:** the execution fail modal already created Redmine issues directly (with assignee/custom fields/screenshots/duplicate check), so that flow was kept and extended with local registration (`POST /defects/register`, upsert by redmineId) instead of replacing it. Write-through `POST /defects` exists for the manual New Defect dialog. All Redmine code isolated in `redmine-defect-bridge.ts` as designed.
 
-First step toward native defect tracking in QAPulse. QAPulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so the future full cutover (CR021) only removes the Redmine write — schema and UI carry over unchanged.
+First step toward native defect tracking in QM Pulse. QM Pulse becomes the **front door** for defect creation while **Redmine stays the system of record** for defect lifecycle (write-through pattern). Designed so the future full cutover (CR021) only removes the Redmine write — schema and UI carry over unchanged.
 
-**Migration principle (applies to all Redmine-touching CRs):** every part is classified permanent or bridge. Permanent = QAPulse tables/pages/links/metrics, Redmine-agnostic, survive cutover unchanged. Bridge = the Redmine push/pull code, isolated in a single module (`redmine-defect-bridge.ts`) that nothing else imports Redmine details from — deleted at cutover.
+**Migration principle (applies to all Redmine-touching CRs):** every part is classified permanent or bridge. Permanent = QM Pulse tables/pages/links/metrics, Redmine-agnostic, survive cutover unchanged. Bridge = the Redmine push/pull code, isolated in a single module (`redmine-defect-bridge.ts`) that nothing else imports Redmine details from — deleted at cutover.
 
 **Ownership rules (the design hinges on these):**
-1. **One-way ownership** *(amended 2026-07-04 by user decision)*. QAPulse owns creation + TC linkage. Status is now **editable in QAPulse as write-through**: the full Redmine status list is synced locally (`redmine_statuses` table), a status change is pushed to Redmine first (`PUT /issues/:id`), and the local cache updates only on Redmine's success — on rejection QAPulse keeps the old status. Redmine remains the system of record (devs can still change status there; "Refresh status" reconciles, last write wins). Comments/assignment still Redmine-only until CR021. This is an early slice of CR021's native lifecycle, kept inside the bridge module.
+1. **One-way ownership** *(amended 2026-07-04 by user decision)*. QM Pulse owns creation + TC linkage. Status is now **editable in QM Pulse as write-through**: the full Redmine status list is synced locally (`redmine_statuses` table), a status change is pushed to Redmine first (`PUT /issues/:id`), and the local cache updates only on Redmine's success — on rejection QM Pulse keeps the old status. Redmine remains the system of record (devs can still change status there; "Refresh status" reconciles, last write wins). Comments/assignment still Redmine-only until CR021. This is an early slice of CR021's native lifecycle, kept inside the bridge module.
 2. **Backfill `defect_number`.** On creation, the returned Redmine ID is written into `execution_test_cases.defect_number` exactly as if typed — Pareto/CAPA sheets, verdict Excel, traceability matrix, and link-out chips keep working with zero changes, and IDs are guaranteed real (no more typo'd defect numbers).
 3. **Never block execution on Redmine.** If Redmine is down when a TC is failed, the defect row is created locally as "pending sync"; a background retry (with idempotency guard against duplicate Redmine tickets) pushes it and fills in the Redmine ID.
-4. **Reporter identity.** Per-user Redmine API keys (existing `resolveApiKey`) → actual QA shows as reporter in Redmine. Global-key fallback → prepend "Reported by {name} via QAPulse" to the description.
+4. **Reporter identity.** Per-user Redmine API keys (existing `resolveApiKey`) → actual QA shows as reporter in Redmine. Global-key fallback → prepend "Reported by {name} via QM Pulse" to the description.
 
 **Data model (new tables):**
 - `defects`: id, `defect_code` (auto `DEF-NNNN` per project), title, description, steps to reproduce / expected / actual, severity, status (cached from Redmine), module, `project_id`, `reporter_id`, `assignee_name` (cached), `redmine_id`, `sync_status` (`pending` | `synced` | `error`), **`source` (`qa` | `production`)**, **`found_in` (`SIT` | `UAT` | `Production`)**, timestamps. The source/found_in columns are added now (cheap) so CR020 prod defects need no migration.
@@ -428,13 +432,13 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 **Defects page (new, mockup approved 2026-07-03):**
 - Summary cards: Open · In progress · Awaiting retest · Closed (30d).
 - Saved-view tabs: All open / Blocking TCs / Awaiting retest / My defects; project + severity filters, search.
-- Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QAPulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
+- Rows: `DEF-NNNN` + Redmine chip (links out) + title, severity badge (QM Pulse-owned), status badge (Redmine-cached, "synced N min ago" indicator), assignee. Pending-sync rows show a "Syncing to Redmine" badge.
 - Expand row → linked TCs from `defect_links` with execution file + current result, deep-linking to the execution file via the CR018 `?tc=` filter.
 - **Retest flag:** defect Fixed/Resolved in Redmine while a linked TC is still Failed → TC line shows "Retest needed"; collected under the Awaiting retest tab/card.
 - Deliberately absent: comments, reassignment — those stay in Redmine until CR021. (Status editing was originally absent too, but was added post-deploy 2026-07-04 as write-through — see ownership rule 1.)
 - Fail-modal create dialog and Defects page mockups approved 2026-07-03.
 
-**Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qa-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qa-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
+**Scope estimate:** `lib/db/src/schema/` (defects + defect_links, DB push required), `artifacts/api-server/src/routes/` (new defects.ts: CRUD + Redmine push + status refresh batch), `artifacts/api-server/src/routes/redmine.ts` (issue-create helper), `artifacts/qm-pulse/src/pages/Defects.tsx` (new page + nav entry), `artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx` (fail modal → create-and-link flow).
 
 **Sequencing:** supersedes the earlier "read-only defect dashboard" idea. Implement after CR011 (reuses the `logActivity` audit pattern). Production defect workflow = CR020; full native cutover = CR021 (after CR014 so developers have proper roles).
 
@@ -443,7 +447,7 @@ First step toward native defect tracking in QAPulse. QAPulse becomes the **front
 ### CR020 — Production Defect Workflow (Escape Analysis)
 **Status:** ✅ Deployed (2026-07-04, together with CR019). PMO report Excel integration of leakage rate deferred — metrics live on the Defects page Production tab.
 
-Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QAPulse) and **QAPulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QAPulse closes the QA loop.
+Handles defects found in **production** — the mirror image of CR019: for prod incidents, **Redmine stays the front door** (support/helpdesk report there; they will never log into QM Pulse) and **QM Pulse pulls them in** (read-side sync filtered by the incident/support tracker, building on CR004's tracker sync). Both directions agree Redmine is the record; QM Pulse closes the QA loop.
 
 **Framing:** a prod defect is an *escape* — a bug that got past testing. The workflow answers "why did we miss it, and how do we make sure we never miss it again."
 
@@ -454,19 +458,19 @@ Handles defects found in **production** — the mirror image of CR019: for prod 
 - **Closed loop state:** regression TC added + retest passed → escape review complete.
 - **Metrics cards + PMO report:** prod defect count per release, **defect leakage rate** (prod ÷ total), escapes analyzed, regression TCs added. Leakage rate also feeds the existing Pareto/CAPA process.
 
-**Permanent vs bridge:** escape review, regression backfill, leakage metrics, Production tab = permanent (read QAPulse tables only). Pull sync + read-only Redmine status = bridge, lives in `redmine-defect-bridge.ts`, deleted at CR021 cutover (prod intake then happens directly in QAPulse or its replacement).
+**Permanent vs bridge:** escape review, regression backfill, leakage metrics, Production tab = permanent (read QM Pulse tables only). Pull sync + read-only Redmine status = bridge, lives in `redmine-defect-bridge.ts`, deleted at CR021 cutover (prod intake then happens directly in QM Pulse or its replacement).
 
-**Scope estimate:** `artifacts/api-server/src/routes/defects.ts` (pull-sync job + escape-review endpoints), `artifacts/qa-pulse/src/pages/Defects.tsx` (Production tab, escape panel, create-regression-TC dialog), `pmo-report.ts` (leakage metrics). No schema change beyond CR019's tables.
+**Scope estimate:** `artifacts/api-server/src/routes/defects.ts` (pull-sync job + escape-review endpoints), `artifacts/qm-pulse/src/pages/Defects.tsx` (Production tab, escape panel, create-regression-TC dialog), `pmo-report.ts` (leakage metrics). No schema change beyond CR019's tables.
 
 ---
 
 ### CR021 — Native Defect Tracking Cutover (Retire Redmine for Defects)
 **Status:** 📋 Planned (2026-07-03). Depends on CR019 + CR020; sequenced after CR014 (dev roles).
 
-The end state: QAPulse becomes the **system of record** for defects; Redmine is retired for defect tracking (it may remain for other uses — requirements import etc. are unaffected).
+The end state: QM Pulse becomes the **system of record** for defects; Redmine is retired for defect tracking (it may remain for other uses — requirements import etc. are unaffected).
 
 - **Delete the bridges:** remove `redmine-defect-bridge.ts` (write-through push, status read, prod pull). Everything permanent from CR019/CR020 continues unchanged.
-- **Enable native lifecycle:** status transitions (New → Open → In Progress → Fixed → Verified/Closed + Reopened/Rejected/Duplicate/Deferred), comments, assignment — on the existing Defects page. Developers work in QAPulse (requires CR014 roles).
+- **Enable native lifecycle:** status transitions (New → Open → In Progress → Fixed → Verified/Closed + Reopened/Rejected/Duplicate/Deferred), comments, assignment — on the existing Defects page. Developers work in QM Pulse (requires CR014 roles).
 - **History migration:** one-time import of remaining Redmine defect tickets via `redmine_legacy_id` (subject, status, assignee, journal); legacy `RM #` chips keep resolving for old records; unresolvable IDs surfaced in a data-quality report.
 - **Notifications:** assignee/reporter notified on transitions via the existing notifications table.
 - Retest loop switches from Redmine-status polling to native status transitions (same UI, different trigger).
@@ -486,7 +490,7 @@ Follow-ups to CR014's FA track onboarding — three separable features that deep
 
 **Part 2 — Discussion thread on requirements** *(depends on CR014's Detail page)*
 - New `requirement_comments` table + `GET`/`POST /requirements/:id/comments` (project-scoped; anyone who can view can comment)
-- Chronological thread on the Requirement Detail page between the review box and History panel — keeps the reject → revise → resubmit conversation in QAPulse instead of Teams/email
+- Chronological thread on the Requirement Detail page between the review box and History panel — keeps the reject → revise → resubmit conversation in QM Pulse instead of Teams/email
 - New comment notifies author, assignee, and prior commenters (deduped, minus the commenter); comments permanent (no edit/delete in v1)
 - Review-action comments stay in `activityTable` per CR014 — the thread is for discussion *between* review actions, not a replacement audit trail
 
@@ -509,7 +513,7 @@ A follow-up audit comparing CR014/CR022's actual shipped implementation against 
 - Segregation-of-duties check now guards both `approve` and `reject` — an author can no longer reject their own requirement.
 - Reject notifications now fan out to author + assignee + the milestone's PM (approve stays author+assignee only — "routine progress, no PM needed").
 - Editing a `rejected` requirement is now restricted to its author/assignee (revise & resubmit).
-- Redmine imports resolve `createdBy` by matching the Redmine issue's author name against QAPulse users (`ilike` on name); on no match, falls back to the importing user rather than ever leaving it `null` — closes the segregation-of-duties bypass for imported requirements.
+- Redmine imports resolve `createdBy` by matching the Redmine issue's author name against QM Pulse users (`ilike` on name); on no match, falls back to the importing user rather than ever leaving it `null` — closes the segregation-of-duties bypass for imported requirements.
 
 **Part 2 — `RequirementDetail.tsx` completed** (`e82dd6a`)
 - Breadcrumb now traces the real `parentId` ancestry chain (root first).
@@ -536,7 +540,7 @@ Filtering the TC Library by requirement previously matched only test cases linke
 - Extracted the recursive `getAllDescendants(parentId, allReqs, depth)` walk to module scope in `TestCases.tsx` — it previously existed only as an inline closure inside the AI Generate dialog's requirement picker. Both the filter and the AI dialog now share one implementation.
 - Client-side only: the filter builds a `Set` of {selected requirement id} ∪ all descendant ids and checks membership instead of strict equality, in both the normal and NL-search filter branches.
 
-**Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
+**Scope:** `artifacts/qm-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
 
 ---
 
@@ -549,7 +553,7 @@ Requirements and Tasks both gained a Milestone filter earlier the same day; TC L
 - `test_cases` has no `milestoneId` column of its own; a TC's milestone is derived through its linked requirement (`requirements.milestoneId`, mandatory per CR023 Part 3). A memoized `requirementId → milestoneId` lookup map drives the filter — a direct lookup, not a tree-expansion like CR024's requirement filter (each requirement, including children, already carries its own milestone value).
 - `?projectId=` and `?milestoneId=` URL params now pre-fill the Project and Milestone filters on load, extending the `?requirementId=` deep-link convention this page already had — enables future deep-links (e.g. from PM Dashboard or Milestones page) straight into a milestone-scoped TC list.
 
-**Scope:** `artifacts/qa-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
+**Scope:** `artifacts/qm-pulse/src/pages/TestCases.tsx` only. No backend or schema changes.
 
 ---
 
@@ -639,7 +643,7 @@ URL params: `?projectId=&milestoneId=&start=&end=` — persisted on filter chang
 
 **Permission bootstrap:** add `nav:qa-analytics` to `admin` + `cto` backfill list and seed into `qa_lead` / `qa_manager` / `hod_qa` in the nav-permissions bootstrap — same narrow single-key pattern used for `hod_pm`'s `nav:pm-dashboard` backfill (does not blanket-reapply full permission sets).
 
-**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (new endpoint), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/QAAnalytics.tsx` (new page), `artifacts/qa-pulse/src/components/Layout.tsx` (nav entry), `artifacts/qa-pulse/src/components/icons/animated.tsx` (HoverBarChart icon). No schema changes. No DB migration.
+**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (new endpoint), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qm-pulse/src/pages/QAAnalytics.tsx` (new page), `artifacts/qm-pulse/src/components/Layout.tsx` (nav entry), `artifacts/qm-pulse/src/components/icons/animated.tsx` (HoverBarChart icon). No schema changes. No DB migration.
 
 **Delivery order:** backend endpoint first (verify all 7 queries), then frontend panel-by-panel: Panel 1 Execution Trend → Panel 3 Pass by Milestone → Panels 4–5 Defect panels → Panel 2 Velocity → Panel 6 Escape Funnel → Panel 7 Coverage snapshot → CSV export.
 
@@ -735,9 +739,9 @@ Backend:
 - `artifacts/api-server/src/routes/requirement_comments.ts` — `comment_posted`
 
 Frontend:
-- `artifacts/qa-pulse/src/components/Layout.tsx` — replace bell link with `NotificationDropdown`; open SSE `EventSource` on mount; keep 30s poll as fallback
-- `artifacts/qa-pulse/src/components/NotificationDropdown.tsx` (new) — 5-item quick-glance popover with Part 1 routing
-- `artifacts/qa-pulse/src/pages/Inbox.tsx` — deep-link routing on click, entity-type filter chips, type badge column, explicit `→` nav button, empty state
+- `artifacts/qm-pulse/src/components/Layout.tsx` — replace bell link with `NotificationDropdown`; open SSE `EventSource` on mount; keep 30s poll as fallback
+- `artifacts/qm-pulse/src/components/NotificationDropdown.tsx` (new) — 5-item quick-glance popover with Part 1 routing
+- `artifacts/qm-pulse/src/pages/Inbox.tsx` — deep-link routing on click, entity-type filter chips, type badge column, explicit `→` nav button, empty state
 
 No schema changes. No DB migration. `entityType` and `entityId` columns already exist on `notificationsTable`.
 
@@ -760,13 +764,13 @@ Dev tooling, not an in-app feature: a reversible seed/clear script pair producin
 ### CR029 — Defect Category Classification
 **Status:** ✅ Deployed (2026-07-05)
 
-A fixed, QAPulse-native defect taxonomy (Functional, UI/UX, Usability, Performance, Security, Data/Database, Compatibility, Integration/API, Configuration/Environment, Localization), settable on both defect-creation paths (the Defects page's "New Defect" dialog and the execution fail pill's "Create Defect" modal) and gated to Lead-tier and above.
+A fixed, QM Pulse-native defect taxonomy (Functional, UI/UX, Usability, Performance, Security, Data/Database, Compatibility, Integration/API, Configuration/Environment, Localization), settable on both defect-creation paths (the Defects page's "New Defect" dialog and the execution fail pill's "Create Defect" modal) and gated to Lead-tier and above.
 
-- **New column, not a repurpose of the existing `category` field:** `defects.category` already existed, but it's a Redmine-mirror (whatever a given Redmine project's own issue-category field happens to say — freeform, only populated on production-defect pulls). Overloading it with a fixed QAPulse taxonomy would have collided with that unrelated existing meaning, so a new `defectCategory` column was added instead. Requires a `db push` (the `defects` table has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL at all — it was created via `drizzle-kit push` originally, unlike `milestones`/`requirements`, which have hand-written idempotent bootstrap statements).
+- **New column, not a repurpose of the existing `category` field:** `defects.category` already existed, but it's a Redmine-mirror (whatever a given Redmine project's own issue-category field happens to say — freeform, only populated on production-defect pulls). Overloading it with a fixed QM Pulse taxonomy would have collided with that unrelated existing meaning, so a new `defectCategory` column was added instead. Requires a `db push` (the `defects` table has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL at all — it was created via `drizzle-kit push` originally, unlike `milestones`/`requirements`, which have hand-written idempotent bootstrap statements).
 - **Lead-tier+ gate, enforced server-side, not just hidden in the UI:** added `getRoleTierRank(role)` to `middleware/access.ts` (admin → unrestricted, everyone else looked up from `roles.tier_rank`; Lead = 2 across every department by the existing tier convention). `POST /defects`, `POST /defects/register`, and `PATCH /defects/:id` all silently drop an incoming `defectCategory` if the caller's tier is below 2, rather than rejecting the whole request — a lower-tier caller hitting the API directly (bypassing the UI, which simply doesn't render the field for them) can't set it, but their otherwise-valid defect still gets created.
 - **`GET /auth/me` (and login/refresh) now return `tierRank`** so the frontend can decide whether to render the field at all — `formatUser()` in `auth.ts` was made async to join `roles.tier_rank` by the user's role name (admin hardcoded to a finite sentinel, 99, since `Infinity` doesn't survive `JSON.stringify`).
 - **Shared `DefectCategoryField` component** (dropdown + an (i) info button opening a dialog with all 10 categories and their descriptions) used identically by both creation dialogs — "all dialogs regarding defects" now means exactly these two, since a separate "Edit Defect" dialog doesn't exist (edits happen via small inline controls for `escapeStatus`/`escapeClass`/`escapeNotes` only). `PATCH /defects/:id` accepts `defectCategory` too, ahead of any future edit UI needing it.
-- **Scope estimate:** `lib/db/src/schema/defects.ts` (new column), `artifacts/api-server/src/middleware/access.ts` (`getRoleTierRank`), `artifacts/api-server/src/routes/auth.ts` (`tierRank` on the user payload), `artifacts/api-server/src/routes/defects.ts` (taxonomy constant + tier gate on all three write endpoints), `artifacts/qa-pulse/src/lib/defect-categories.ts` (taxonomy + label lookup, new), `artifacts/qa-pulse/src/components/DefectCategoryField.tsx` (new), `artifacts/qa-pulse/src/pages/Defects.tsx` + `DefectCreationModal.tsx` (both creation dialogs, plus a list-row display), `artifacts/qa-pulse/src/lib/execution-api.ts` (`registerLocalDefect` payload).
+- **Scope estimate:** `lib/db/src/schema/defects.ts` (new column), `artifacts/api-server/src/middleware/access.ts` (`getRoleTierRank`), `artifacts/api-server/src/routes/auth.ts` (`tierRank` on the user payload), `artifacts/api-server/src/routes/defects.ts` (taxonomy constant + tier gate on all three write endpoints), `artifacts/qm-pulse/src/lib/defect-categories.ts` (taxonomy + label lookup, new), `artifacts/qm-pulse/src/components/DefectCategoryField.tsx` (new), `artifacts/qm-pulse/src/pages/Defects.tsx` + `DefectCreationModal.tsx` (both creation dialogs, plus a list-row display), `artifacts/qm-pulse/src/lib/execution-api.ts` (`registerLocalDefect` payload).
 - **Not done:** no filter-by-category on the Defects list, and it isn't fed into CR026's planned defect-density dashboard yet — both natural follow-ups once real category data exists to look at.
 
 ---
@@ -774,19 +778,19 @@ A fixed, QAPulse-native defect taxonomy (Functional, UI/UX, Usability, Performan
 ### CR030 — Developer Workflow: Requirement Handoff & Defect Assignment
 **Status:** ✅ Deployed (2026-07-05)
 
-First slice of bringing Development into QAPulse as a native workflow participant rather than an external, no-login department (a reversal of CR014's original assumption — the `dev_member`/`dev_lead`/`hod_dev` roles it seeded already existed and can log in, but had no dev-specific workflow to do anything with). Two independent handoff loops, matching how the org actually works day to day:
+First slice of bringing Development into QM Pulse as a native workflow participant rather than an external, no-login department (a reversal of CR014's original assumption — the `dev_member`/`dev_lead`/`hod_dev` roles it seeded already existed and can log in, but had no dev-specific workflow to do anything with). Two independent handoff loops, matching how the org actually works day to day:
 
 - **Requirements:** FA-approved requirement → Lead assigns a developer → dev works it → dev marks Ready for QA. Ready-for-QA is the terminal dev-side state; QA picking the work back up for testing is already tracked by the existing execution tables, not a further status here.
-- **Defects:** QA creates/finds a defect → Lead-tier assigns a developer natively in QAPulse → dev fixes it (existing status-edit flow) → the already-built "Retest needed" surfacing (CR019/CR020) closes the loop back to QA. No new hand-back mechanism was needed — it already existed, just without a native assignee to notify.
+- **Defects:** QA creates/finds a defect → Lead-tier assigns a developer natively in QM Pulse → dev fixes it (existing status-edit flow) → the already-built "Retest needed" surfacing (CR019/CR020) closes the loop back to QA. No new hand-back mechanism was needed — it already existed, just without a native assignee to notify.
 
 **Part 1 — Native defect assignment, reconciled against Redmine by recency**
 
-Redmine assignment was previously read-only cache (`defects.assigneeName`, a plain string, refreshed one-way from Redmine on every status refresh). Decision (user call, 2026-07-05): make assignment native in QAPulse now — the Lead-tier+ user assigns a real QAPulse user — but keep the Redmine side in sync via **last-write-wins by timestamp**, not by picking one system as permanently authoritative:
+Redmine assignment was previously read-only cache (`defects.assigneeName`, a plain string, refreshed one-way from Redmine on every status refresh). Decision (user call, 2026-07-05): make assignment native in QM Pulse now — the Lead-tier+ user assigns a real QM Pulse user — but keep the Redmine side in sync via **last-write-wins by timestamp**, not by picking one system as permanently authoritative:
 
-- New columns on `defects`: `assigneeId` (FK to `users`, the source of truth for "who owns this in QAPulse") and `assigneeAssignedAt` (when that assignment was made).
+- New columns on `defects`: `assigneeId` (FK to `users`, the source of truth for "who owns this in QM Pulse") and `assigneeAssignedAt` (when that assignment was made).
 - `PATCH /defects/:id/assign` (Lead-tier+ gate, `getRoleTierRank >= 2` — mirrors the existing `canSetDefectCategory` gate) sets both columns, updates the cached `assigneeName` for display, logs activity, notifies the new assignee, and — if the defect already has a `redmineId` — best-effort pushes the assignment to Redmine.
-- Pushing to Redmine requires a Redmine *user id*, which QAPulse doesn't store for its own accounts (unlike the existing per-user Redmine API key, which authenticates outbound calls but doesn't identify the account to look up). Added `resolveRedmineUserIdByName`/`pushAssigneeToRedmine` in `redmine-defect-bridge.ts` — a best-effort name search against Redmine's own `/users.json`. A miss (no matching Redmine user, or Redmine unreachable) is silent: the native assignment stands locally regardless, exactly like `pushDefectToRedmine`'s existing "never block on Redmine" philosophy.
-- `refreshDefectStatuses` (the existing bulk Redmine→QAPulse pull) now reconciles the assignee both ways instead of blindly overwriting the cache: compares Redmine's `issue.updated_on` against our own `assigneeAssignedAt`. If QAPulse's native assignment is newer, the pull leaves it alone and fires the same best-effort push instead of clobbering it; if Redmine's is newer, the pull adopts Redmine's assignee name into the cache and — if it name-matches a QAPulse user — updates `assigneeId` too, so the native "My Defects" view stays consistent with reassignments made directly in Redmine.
+- Pushing to Redmine requires a Redmine *user id*, which QM Pulse doesn't store for its own accounts (unlike the existing per-user Redmine API key, which authenticates outbound calls but doesn't identify the account to look up). Added `resolveRedmineUserIdByName`/`pushAssigneeToRedmine` in `redmine-defect-bridge.ts` — a best-effort name search against Redmine's own `/users.json`. A miss (no matching Redmine user, or Redmine unreachable) is silent: the native assignment stands locally regardless, exactly like `pushDefectToRedmine`'s existing "never block on Redmine" philosophy.
+- `refreshDefectStatuses` (the existing bulk Redmine→QM Pulse pull) now reconciles the assignee both ways instead of blindly overwriting the cache: compares Redmine's `issue.updated_on` against our own `assigneeAssignedAt`. If QM Pulse's native assignment is newer, the pull leaves it alone and fires the same best-effort push instead of clobbering it; if Redmine's is newer, the pull adopts Redmine's assignee name into the cache and — if it name-matches a QM Pulse user — updates `assigneeId` too, so the native "My Defects" view stays consistent with reassignments made directly in Redmine.
 - Defects page: assignee picker (Lead-tier+ only; everyone else sees read-only text) scoped to `dev_member`/`dev_lead`/`hod_dev` users, and a new "My Defects" view tab (`view=mine`, filters to `assigneeId === current user`) alongside the existing All open/Blocking/Retest tabs.
 - Defects nav item, previously hardcoded to `["qa_member", "qa_lead", "admin"]` with no permission key (deliberately, per CR019, so it wouldn't get hidden on existing DBs before permission keys existed) now carries `nav:defects`, seeded to the dev department plus every role that could already reach it (`qa_manager`/`hod_qa` were quietly missing from that original hardcoded list too — now included).
 
@@ -802,7 +806,7 @@ Redmine assignment was previously read-only cache (`defects.assigneeName`, a pla
 
 **Also fixed in passing:** `lib/db/src/schema/requirements.ts` imported `z` from `"zod"` while every sibling schema file (and `drizzle-zod`'s own internals) uses `"zod/v4"` — a preexisting mismatch that was already failing typecheck on `main` before this CR (confirmed via `git stash`), and got worse (but not newly broken) as this CR added five more columns to the same table. Aligned the import with every other schema file.
 
-**Scope:** `lib/db/src/schema/defects.ts`, `lib/db/src/schema/requirements.ts` (new columns), `artifacts/api-server/src/routes/roles.ts` (bootstrap `ALTER TABLE`s, `nav:defects` permission key + narrow backfill), `artifacts/api-server/src/routes/redmine-defect-bridge.ts` (`pushAssigneeToRedmine`, `resolveRedmineUserIdByName`, reconciliation in `refreshDefectStatuses`), `artifacts/api-server/src/routes/defects.ts` (`PATCH /defects/:id/assign`, `view=mine`), `artifacts/api-server/src/routes/requirements.ts` (`PATCH /requirements/:id/dev`, `GET /requirements/dev-queue`, the route-ordering fix), `artifacts/qa-pulse/src/components/Layout.tsx` (nav), `artifacts/qa-pulse/src/pages/Defects.tsx`, `artifacts/qa-pulse/src/pages/RequirementDetail.tsx`, `artifacts/qa-pulse/src/pages/Requirements.tsx`.
+**Scope:** `lib/db/src/schema/defects.ts`, `lib/db/src/schema/requirements.ts` (new columns), `artifacts/api-server/src/routes/roles.ts` (bootstrap `ALTER TABLE`s, `nav:defects` permission key + narrow backfill), `artifacts/api-server/src/routes/redmine-defect-bridge.ts` (`pushAssigneeToRedmine`, `resolveRedmineUserIdByName`, reconciliation in `refreshDefectStatuses`), `artifacts/api-server/src/routes/defects.ts` (`PATCH /defects/:id/assign`, `view=mine`), `artifacts/api-server/src/routes/requirements.ts` (`PATCH /requirements/:id/dev`, `GET /requirements/dev-queue`, the route-ordering fix), `artifacts/qm-pulse/src/components/Layout.tsx` (nav), `artifacts/qm-pulse/src/pages/Defects.tsx`, `artifacts/qm-pulse/src/pages/RequirementDetail.tsx`, `artifacts/qm-pulse/src/pages/Requirements.tsx`.
 
 **DB change:** new columns only, all bootstrapped (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — no manual `db push` required, unlike CR029's `defects.defectCategory` (that table predates bootstrap coverage; these are the first bootstrap-owned columns added to it).
 
@@ -836,7 +840,7 @@ Today "something is wrong with this requirement" has exactly one outlet — flip
 - `foundIn`: new value `"Development"` for defects discovered outside a testing phase (e.g. a dev mid-implementation); `SIT` / `UAT` still apply when QA notices the issue during execution.
 - Link to the requirement via the existing `defectLinksTable` (`requirementId` + `linkType: 'requirement'`, already present and previously unused for this purpose — see comment at `defects.ts:63-75`).
 - `defectCategory` (the functional/ui_ux/... taxonomy) does not apply to this source and stays `null` — it's a product-defect classification, not a requirement-authoring one.
-- Requirement defects are QAPulse-native only: `redmineId` stays null, no Redmine push, consistent with the standing principle that Redmine integrations stay thin and disposable — this is a QAPulse concept with no Redmine tracker equivalent.
+- Requirement defects are QM Pulse-native only: `redmineId` stays null, no Redmine push, consistent with the standing principle that Redmine integrations stay thin and disposable — this is a QM Pulse concept with no Redmine tracker equivalent.
 - Status/retest lifecycle reuses the existing plain-string vocabulary and regex-based `retestNeeded` calculation (`New` → `In Progress` → `Fixed`/`Ready` → QA sees it needs retest → `Verified`/`Closed`) — no new state machine.
 
 ---
@@ -855,7 +859,7 @@ Today "something is wrong with this requirement" has exactly one outlet — flip
 
 **Stretch, not v1 scope:** a new `escapeClass` value (e.g. `bad_requirement`) on *production* defects, settable during CR020 escape review, to distinguish "QA missed a real code bug" from "the requirement itself was wrong" — and ideally auto-suggesting raising a requirement defect against the culprit requirement when that class is picked. Deferred until requirement defects have shipped and there's a production incident to validate the linkage against.
 
-**Scope:** `artifacts/api-server/src/routes/defects.ts` (`POST /defects` source handling + auto-assign, self-handoff exception on `PATCH /defects/:id/assign`), `artifacts/qa-pulse/src/pages/RequirementDetail.tsx` (Requirement Defect card), `artifacts/qa-pulse/src/pages/Requirements.tsx` (badge), `artifacts/qa-pulse/src/pages/Defects.tsx` (source filter). No schema files, no migration.
+**Scope:** `artifacts/api-server/src/routes/defects.ts` (`POST /defects` source handling + auto-assign, self-handoff exception on `PATCH /defects/:id/assign`), `artifacts/qm-pulse/src/pages/RequirementDetail.tsx` (Requirement Defect card), `artifacts/qm-pulse/src/pages/Requirements.tsx` (badge), `artifacts/qm-pulse/src/pages/Defects.tsx` (source filter). No schema files, no migration.
 
 **Open decisions before build starts:** (1) confirm the raiser role list above is complete — should `hod_dev`/`hod_qa` be explicit rather than implicit-via-tier; (2) confirm the self-handoff exception on `PATCH /defects/:id/assign` is the right mechanism vs. a dedicated `PATCH /defects/:id/route` action kept separate from Lead-tier assignment semantics.
 
@@ -891,13 +895,13 @@ Replace the fixed-named-phase model (`buildPhaseBreakdown`, `computeMilestonePha
 3. Return a flat ordered array (`{ key, cycle, label, start, end, days }`) instead of a fixed named object — `key` stays one of `requirements`/`develop`/`gap`/`qa`/`uat` for color-mapping purposes, `cycle` distinguishes the 1st occurrence from the 2nd/3rd for labeling ("Requirements (round 2)").
 4. Milestone-level aggregation: **sum a requirement's own per-cycle durations for a given phase key before averaging across requirements/milestones** (e.g. a requirement with two Requirements-phase cycles contributes their total, not two separate data points) — this answers "how much total time did requirements churn cost," which is the report's whole purpose, rather than diluting the average with cycle-count noise.
 
-**Frontend changes — `artifacts/qa-pulse/src/pages/PmDashboard.tsx`**
+**Frontend changes — `artifacts/qm-pulse/src/pages/PmDashboard.tsx`**
 
 `PhaseTimelineBar`/`phasesToSegments` (lines 225-280) already renders an arbitrary number of segments — it just needs to accept the new flat array shape instead of the fixed named object, plus a `develop` entry in `PHASE_COLOR` (lines 212-217). Repeated cycles of the same phase key can reuse that key's color (a repeating pattern reads more clearly than inventing new colors per cycle) with the round number available on hover/tooltip.
 
 **Stretch, not core scope:** labeling a Requirements-phase restart with *why* it reopened (CR031 requirement defect vs. a plain CR023 reject) by cross-referencing `defectLinksTable` for a `linkType: "requirement"` row created around that `requirement_submit` timestamp. Deferred — the phase timeline is useful without it, and the linkage is a nice-to-have, not required to fix the core distortion.
 
-**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (phase reconstruction rewrite), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (segment shape + Develop color). No schema files, no migration.
+**Scope:** `artifacts/api-server/src/routes/dashboard.ts` (phase reconstruction rewrite), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (segment shape + Develop color). No schema files, no migration.
 
 ---
 
@@ -980,9 +984,9 @@ Risk score is derived at read time from a 3×3 probability×impact matrix (low/m
 **Non-goals for this CR:**
 - **Initiating** (project charter, stakeholder register) — a genuinely new concept with no existing data to build on, unlike Closing/Risk which extend structures already in place. Worth its own CR if the org wants formal charter sign-off tracked in-app rather than in a separate doc.
 - **Executing** as a live work-in-progress board — the task board and dev-handoff status already exist elsewhere in the app (`Tasks.tsx`, the Development card); duplicating a live WIP view into the PM Dashboard is a bigger, separate design question (what's the delta over just linking to those existing pages?) rather than a natural extension of what's here.
-- **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QAPulse tracks cost at all.
+- **Cost/budget tracking** (would enable a PMBOK CPI alongside the existing SPI) — no cost/budget field exists anywhere in the schema today; out of scope until there's a decision on whether QM Pulse tracks cost at all.
 
-**Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qa-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).
+**Scope:** `lib/db/src/schema/milestones.ts` (2 new columns), `lib/db/src/schema/risks.ts` (new table + export from `schema/index.ts`), `artifacts/api-server/src/routes/milestones.ts` (closing fields), `artifacts/api-server/src/routes/dashboard.ts` (closed-milestones endpoint), `artifacts/api-server/src/routes/risks.ts` (new), `artifacts/api-server/src/routes/index.ts` (register), `artifacts/qm-pulse/src/pages/Milestones.tsx` (lessons-learned field), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (Closed Milestones section, Risks card). Requires a DB migration (`risks` table + 2 `milestones` columns).
 
 ---
 
@@ -1030,7 +1034,7 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 
 **Non-goals:** no new "assignment" table — this stays purely a read/derived view over existing task and execution-file data, same as the PM Dashboard's other panels. No historical trend of resource utilization over time (that's a QA Analytics-style panel, not this CR). No capacity *planning* (future allocation, what-if scenarios) — this is a current-state snapshot only.
 
-**Scope:** `artifacts/api-server/src/routes/roles.ts` (new `nav:resources` key + permission grants), `artifacts/api-server/src/routes/dashboard.ts` (new `resource-view` endpoint), `artifacts/qa-pulse/src/pages/Resources.tsx` (new page), `artifacts/qa-pulse/src/App.tsx`/`Layout.tsx` (new route + nav entry, gated on `nav:resources`). No schema changes, no DB migration.
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (new `nav:resources` key + permission grants), `artifacts/api-server/src/routes/dashboard.ts` (new `resource-view` endpoint), `artifacts/qm-pulse/src/pages/Resources.tsx` (new page), `artifacts/qm-pulse/src/App.tsx`/`Layout.tsx` (new route + nav entry, gated on `nav:resources`). No schema changes, no DB migration.
 
 ---
 
@@ -1068,14 +1072,14 @@ Known caveat carried into this CR, not fixed by it: `qaPic` is a free-text field
 
 **Non-goals:** not adding project-specific module *names* — `execution_modules` stays one global catalog of module names, `project_modules` only decides which of those names apply to which project(s) (a module can apply to more than one, per user 2026-07-13). Not touching Teams/Team Hangouts as a feature, only its role in project access. Not building module rename/delete tooling beyond the existing `POST /modules`.
 
-**Scope:** `lib/db/src/schema/project-members.ts` (3 new columns: `moduleId`, `assignedBy`, `assignedAt`), `lib/db/src/schema/project-modules.ts` (new junction table), `artifacts/api-server/src/routes/roles.ts` (remove bootstrap cross-join), `artifacts/api-server/src/middleware/access.ts` (rewrite `scopeToUserProjects`, new `canAccessModule`), `artifacts/api-server/src/routes/teams.ts` (extend members endpoints, HOD-tier gate, new project-modules endpoints), `artifacts/api-server/src/routes/{test-cases,requirements,test-execution,traceability,defects,tasks,dashboard}.ts` (module-scope checks), `artifacts/qa-pulse/src/pages/Configuration.tsx` (new Project Access panel + module association UI), `artifacts/qa-pulse/src/pages/Teams.tsx` (remove project-assignment UI), a new one-off migration script under `scripts/`. Requires a DB migration (new `project_modules` table + 3 new `project_members` columns) and a one-time data migration script.
+**Scope:** `lib/db/src/schema/project-members.ts` (3 new columns: `moduleId`, `assignedBy`, `assignedAt`), `lib/db/src/schema/project-modules.ts` (new junction table), `artifacts/api-server/src/routes/roles.ts` (remove bootstrap cross-join), `artifacts/api-server/src/middleware/access.ts` (rewrite `scopeToUserProjects`, new `canAccessModule`), `artifacts/api-server/src/routes/teams.ts` (extend members endpoints, HOD-tier gate, new project-modules endpoints), `artifacts/api-server/src/routes/{test-cases,requirements,test-execution,traceability,defects,tasks,dashboard}.ts` (module-scope checks), `artifacts/qm-pulse/src/pages/Configuration.tsx` (new Project Access panel + module association UI), `artifacts/qm-pulse/src/pages/Teams.tsx` (remove project-assignment UI), a new one-off migration script under `scripts/`. Requires a DB migration (new `project_modules` table + 3 new `project_members` columns) and a one-time data migration script.
 
 ---
 
 ### CR036 — PM Quick Wins: Verdict Report Rename, Task Dependencies, Overallocation Flag
 **Status:** ✅ Deployed (2026-07-15) — went live with the CR038+ deploys; the `tasks.blocked_by_task_id` column is bootstrap-covered (`ALTER TABLE ... IF NOT EXISTS` on server start), so no manual `db push` was needed
 
-**Implementation notes (2026-07-14):** All three parts built as specified below. Blocker resolution added to `formatTask` (`blockedByTaskName`/`blockedByTaskStatus`) so the badge grays out once the blocker is done. `validateBlocker` walks the chain with a visited set (bounded loop, no recursive CTE). On the Resources page the previous subtle green "on N milestones" label became the amber "Overallocated · N milestones" badge + row tint, with an "Overallocated only" checkbox filter. Rename covered the sidebar label, the standalone-PMO sidebar item, "Report Portal", and the "QMPulse — Report Dashboard" header.
+**Implementation notes (2026-07-14):** All three parts built as specified below. Blocker resolution added to `formatTask` (`blockedByTaskName`/`blockedByTaskStatus`) so the badge grays out once the blocker is done. `validateBlocker` walks the chain with a visited set (bounded loop, no recursive CTE). On the Resources page the previous subtle green "on N milestones" label became the amber "Overallocated · N milestones" badge + row tint, with an "Overallocated only" checkbox filter. Rename covered the sidebar label, the standalone-PMO sidebar item, "Report Portal", and the "QM Pulse — Report Dashboard" header.
 **Origin:** `docs/pmo-pain-points-review.md` — three of the four still-open items from that review, bundled as one low-risk deploy. The fourth (AI Risk Predictor, now unblocked by CR033's risk register) is deliberately **not** in this CR — it has a different risk profile (external AI dependency, prompt-quality iteration) and deserves its own rollback unit; it becomes CR037 when picked up. Utilization % is also excluded (see Non-goals).
 
 Three separable parts, deployable together because their file footprints barely overlap and only Part 2 touches the schema.
@@ -1105,11 +1109,11 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 - No backend change required (the array length is the flag); at most a convenience `overallocated: boolean` on the endpoint response if the frontend derivation feels awkward.
 
 **Non-goals:**
-- **Utilization %** ("estimated hours vs. available capacity") — requires an *available capacity* concept (per-user hours field + admin UI, or a wrong-for-part-timers 40h/week assumption) that doesn't exist in the schema. Parked until there's a decision on whether QMPulse models capacity at all — same open-question family as CR033's cost/budget note. Revisit alongside CR037.
+- **Utilization %** ("estimated hours vs. available capacity") — requires an *available capacity* concept (per-user hours field + admin UI, or a wrong-for-part-timers 40h/week assumption) that doesn't exist in the schema. Parked until there's a decision on whether QM Pulse models capacity at all — same open-question family as CR033's cost/budget note. Revisit alongside CR037.
 - **AI Risk Predictor** — CR037, own deploy (see Origin above).
 - No many-to-many dependency table, no Gantt/critical-path anything — `blockedByTaskId` is a field, not a scheduling engine.
 
-**Scope:** `lib/db/src/schema/tasks.ts` (+ bootstrap SQL) — one new column; `artifacts/api-server/src/routes/tasks.ts` (validation + cycle guard); `artifacts/qa-pulse/src/pages/Tasks.tsx` (picker + badge); `artifacts/qa-pulse/src/pages/PmoReport.tsx` + `artifacts/qa-pulse/src/components/Layout.tsx` (rename); `artifacts/qa-pulse/src/pages/Resources.tsx` (chip + filter). One `db push` for the tasks column; everything else additive.
+**Scope:** `lib/db/src/schema/tasks.ts` (+ bootstrap SQL) — one new column; `artifacts/api-server/src/routes/tasks.ts` (validation + cycle guard); `artifacts/qm-pulse/src/pages/Tasks.tsx` (picker + badge); `artifacts/qm-pulse/src/pages/PmoReport.tsx` + `artifacts/qm-pulse/src/components/Layout.tsx` (rename); `artifacts/qm-pulse/src/pages/Resources.tsx` (chip + filter). One `db push` for the tasks column; everything else additive.
 
 ---
 
@@ -1120,7 +1124,7 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 **Depends on:** CR033 (risk register — the data model this was explicitly deferred for in `docs/pmo-pain-points-review.md`), CR032 (multi-cycle phase timeline — the rework-churn signal), CR020 (escape history), CR026 (defect trend queries to reuse).
 **Origin:** third feature of the Bestinet AI-pitch trio (TC Generator → CR015 ✅, Verdict Writer → verdict email flow ✅, Risk Predictor → this). Kept out of CR036 deliberately — external AI dependency and prompt-quality iteration deserve their own rollback unit.
 
-**What it is:** a per-milestone AI risk assessment — predicted risk level + top contributing factors + suggested mitigation — synthesized from data QMPulse already collects. **Not** the existing `POST /ai/risk-score` (that's per-ticket/module execution scoring feeding the Verdict Report); this is its milestone-level sibling on the PM Dashboard.
+**What it is:** a per-milestone AI risk assessment — predicted risk level + top contributing factors + suggested mitigation — synthesized from data QM Pulse already collects. **Not** the existing `POST /ai/risk-score` (that's per-ticket/module execution scoring feeding the Verdict Report); this is its milestone-level sibling on the PM Dashboard.
 
 **Inputs (all existing, no new tracking):**
 1. CR033 risk register — open/mitigating risk rows for the milestone (probability × impact).
@@ -1138,13 +1142,13 @@ CR034's `GET /dashboard/resource-view` already returns `activeMilestones` as a *
 
 **Backend:** new `POST /ai/milestone-risk` in `artifacts/api-server/src/routes/ai.ts` — gathers the five input aggregates (reusing the dashboard/traceability query shapes, batched, no N+1), builds the prompt, stores + returns the assessment. `GET /milestones/:id/risk-assessments` for history. PM-tier + admin/cto gated, same `PM_ROLES` discipline as `dashboard.ts`.
 
-**Frontend:** `artifacts/qa-pulse/src/pages/PmDashboard.tsx` — Risk Assessment card (level badge reusing existing severity colors, top-3 factor list, mitigation line, Assess now button, last-assessed stamp, small history sparkline/list of prior levels).
+**Frontend:** `artifacts/qm-pulse/src/pages/PmDashboard.tsx` — Risk Assessment card (level badge reusing existing severity colors, top-3 factor list, mitigation line, Assess now button, last-assessed stamp, small history sparkline/list of prior levels).
 
 **Stretch, not v1:** AI-suggested new risk-register entries (write-path complexity — v2); utilization % rides along **only if** the capacity-model decision (per-user available hours vs. flat assumption) has been made by build time, else it stays parked.
 
 **Non-goals:** no automatic/scheduled assessment runs (a stale-data assessment silently going out to stakeholders is worse than an explicit button); no cross-milestone portfolio prediction (needs assessment history to exist first); no cost/CPI signals (no cost data — see CR033 non-goals).
 
-**Scope:** `lib/db/src/schema/` (new `milestone_risk_assessments` table + bootstrap `CREATE TABLE IF NOT EXISTS` in `roles.ts`, moved together per CR036 discipline), `artifacts/api-server/src/routes/ai.ts` (new endpoint), `artifacts/api-server/src/routes/milestones.ts` (history GET), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (card). One DB migration.
+**Scope:** `lib/db/src/schema/` (new `milestone_risk_assessments` table + bootstrap `CREATE TABLE IF NOT EXISTS` in `roles.ts`, moved together per CR036 discipline), `artifacts/api-server/src/routes/ai.ts` (new endpoint), `artifacts/api-server/src/routes/milestones.ts` (history GET), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (card). One DB migration.
 
 ---
 
@@ -1165,7 +1169,7 @@ CR014 seeded `qa_manager` at tier 3 (between `qa_lead` and `hod_qa`) but `middle
 
 **Part 2 — Utilization % on PM Dashboard Capacity table**
 
-Parked in CR034, CR036, and CR037 pending a decision on whether QAPulse models per-user available capacity or falls back to a flat assumption.
+Parked in CR034, CR036, and CR037 pending a decision on whether QM Pulse models per-user available capacity or falls back to a flat assumption.
 
 **Decision (user call, 2026-07-15):** flat 40h/week per person, no per-user configurable capacity field.
 
@@ -1173,7 +1177,7 @@ Parked in CR034, CR036, and CR037 pending a decision on whether QAPulse models p
 - `PmDashboard.tsx`'s `CapacityTable`: new "Utilization" column, red at ≥100%, amber at ≥80%, muted otherwise; tooltip notes the flat-40h assumption.
 - **Deliberately not added to the Resources page (CR034).** That page has no hours signal at all for any department, and QA/FA specifically have no natural hours-estimate source (execution PIC / requirement authorship don't carry effort estimates) — utilization there would need an entirely different proxy metric, not just this capacity-model decision. Only Dev/PM (task-based `estimatedHours`) get this column, on the page that already had the underlying data.
 
-**Scope:** `artifacts/api-server/src/middleware/access.ts` (2 threshold changes + doc comments), `artifacts/api-server/src/routes/dashboard.ts` (`WEEKLY_CAPACITY_HOURS`, `utilizationPct`), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (`CapacityEntry` type, Utilization column). No schema changes, no migration.
+**Scope:** `artifacts/api-server/src/middleware/access.ts` (2 threshold changes + doc comments), `artifacts/api-server/src/routes/dashboard.ts` (`WEEKLY_CAPACITY_HOURS`, `utilizationPct`), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (`CapacityEntry` type, Utilization column). No schema changes, no migration.
 
 ---
 
@@ -1216,7 +1220,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 - `GET /ai/requirement-chat/conversations/:id/messages` — full message list, ownership-checked.
 - Auth: `getAuthContext` required on all three (for `userId` ownership, not an added authorization layer — matches the lighter sibling precedent of `/ai/analyze-requirement`/`/ai/coverage-gap`, which rely on `nav:ai-hub` gating alone).
 
-**Frontend** (`artifacts/qa-pulse/src/pages/AiFeatures.tsx`):
+**Frontend** (`artifacts/qm-pulse/src/pages/AiFeatures.tsx`):
 - New 7th "Requirement Chat" tab — no picker, no requirement preview card. One header (label + "New Chat"), a message list, an input row.
 - An assistant message can carry a `matchedRequirement` badge (small pill above the bubble showing which requirement it answered from) or `candidates` (rendered as clickable chips instead of prose, for disambiguation).
 - History list (no active conversation) toggles with the live message thread (active conversation) — same panel, different content.
@@ -1226,14 +1230,14 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Non-goals:** no admin-facing browsing of other users' conversations; no project-scoping filter on the search (ambiguity is resolved by asking, confirmed as the intended behavior, not a gap to fix later); no reuse of `entityType`/`entityId` for anything beyond requirements in v1; no history-list browsing inside the floating widget's Requirement mode (AI Hub tab only).
 
-**Scope:** `lib/db/src/schema/conversations.ts` (3 new columns + 2 indexes), `lib/db/src/schema/index.ts` (missing exports), `artifacts/api-server/src/routes/roles.ts` (bootstrap table coverage), `artifacts/api-server/src/routes/ai.ts` (matching + grounding helpers, 3 new endpoints), `artifacts/qa-pulse/src/pages/AiFeatures.tsx` (new tab), `artifacts/qa-pulse/src/components/Layout.tsx` (Requirement mode toggle in the floating widget). Requires `pnpm --filter @workspace/db push` for existing dev databases (self-heals on fresh databases via the new bootstrap coverage).
+**Scope:** `lib/db/src/schema/conversations.ts` (3 new columns + 2 indexes), `lib/db/src/schema/index.ts` (missing exports), `artifacts/api-server/src/routes/roles.ts` (bootstrap table coverage), `artifacts/api-server/src/routes/ai.ts` (matching + grounding helpers, 3 new endpoints), `artifacts/qm-pulse/src/pages/AiFeatures.tsx` (new tab), `artifacts/qm-pulse/src/components/Layout.tsx` (Requirement mode toggle in the floating widget). Requires `pnpm --filter @workspace/db push` for existing dev databases (self-heals on fresh databases via the new bootstrap coverage).
 
 ---
 
 ### CR040 — Standalone Risk Register Page
 **Status:** ✅ Deployed (2026-07-15)
 
-**Origin:** a RACI exercise over QAPulse's core processes (done in a planning conversation, not a formal review) flagged that `qa_lead`/`fa_lead` are Consulted stakeholders for risk — they have the actual domain knowledge (quality/testing risk, requirement/scope risk) to make Risk Register entries meaningful — but structurally can't be, because CR033 built the Risk Register as a card embedded inside PM Dashboard, and PM Dashboard is `hod_pm`/`pm_lead`/`admin`/`cto`/`pmo`-only. Confirms a real gap, not a hypothetical one: `PmDashboard.tsx`'s own `CAN_WRITE_ROLES` constant already includes `qa_lead`/`fa_lead` (`["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"]`) and the backend write gate is tier-based (`getRoleTierRank(role) >= 2`, which both roles already clear) — the write path was already anticipated, it's simply unreachable because nothing gates the *page* at that grain.
+**Origin:** a RACI exercise over QM Pulse's core processes (done in a planning conversation, not a formal review) flagged that `qa_lead`/`fa_lead` are Consulted stakeholders for risk — they have the actual domain knowledge (quality/testing risk, requirement/scope risk) to make Risk Register entries meaningful — but structurally can't be, because CR033 built the Risk Register as a card embedded inside PM Dashboard, and PM Dashboard is `hod_pm`/`pm_lead`/`admin`/`cto`/`pmo`-only. Confirms a real gap, not a hypothetical one: `PmDashboard.tsx`'s own `CAN_WRITE_ROLES` constant already includes `qa_lead`/`fa_lead` (`["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "cto"]`) and the backend write gate is tier-based (`getRoleTierRank(role) >= 2`, which both roles already clear) — the write path was already anticipated, it's simply unreachable because nothing gates the *page* at that grain.
 
 **Decision: split, not duplicate.** Extract the Risk Register into its own page at its own permission key, rather than granting `qa_lead`/`fa_lead` the whole `nav:pm-dashboard` key (simpler, but hands them Burn Rate/SPI/Capacity/Closed-Milestones panels they have no RACI stake in) or duplicating the UI in two places (drifts over time).
 
@@ -1248,7 +1252,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Explicitly not granted:** `hod_qa`/`hod_fa`/`hod_dev` (marked Informed, not Consulted, in the RACI exercise) — Informed doesn't require page access; revisit only if there's a concrete ask for it, not preemptively.
 
-**Scope:** `artifacts/qa-pulse/src/components/` (new shared Risk Register component, extracted from `PmDashboard.tsx`), `artifacts/qa-pulse/src/pages/RiskRegister.tsx` (new), `artifacts/qa-pulse/src/pages/PmDashboard.tsx` (remove inline card, add link), `artifacts/qa-pulse/src/components/Layout.tsx` (nav entry + `pmo` special case), `artifacts/qa-pulse/src/App.tsx` (route), `artifacts/api-server/src/routes/roles.ts` (`nav:risk-register` key, grants, narrow backfill). No schema changes, no migration.
+**Scope:** `artifacts/qm-pulse/src/components/` (new shared Risk Register component, extracted from `PmDashboard.tsx`), `artifacts/qm-pulse/src/pages/RiskRegister.tsx` (new), `artifacts/qm-pulse/src/pages/PmDashboard.tsx` (remove inline card, add link), `artifacts/qm-pulse/src/components/Layout.tsx` (nav entry + `pmo` special case), `artifacts/qm-pulse/src/App.tsx` (route), `artifacts/api-server/src/routes/roles.ts` (`nav:risk-register` key, grants, narrow backfill). No schema changes, no migration.
 
 ---
 
@@ -1265,13 +1269,13 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 - New local `requireAdmin(req, res): boolean` (identical shape to `teams.ts`/`audit-log.ts`'s copies), called at the top of `POST /roles`, `PATCH /roles/:id`, `DELETE /roles/:id`, `PUT /roles/:id/permissions`. `GET /roles` and `GET /roles/:id/permissions` stay open — this closes the *change* gap the ask was actually about, not a blanket lockdown of reads that other parts of the app might depend on.
 - New `GET /roles/permissions-matrix`, `requireAdmin`-gated — returns `{ allKeys: string[], roles: [{ id, name, department, tierRank, isSystem, permissions: string[] }] }` in one call instead of N+1 (one `GET .../permissions` per role, which is what a naive matrix view would otherwise need). `admin`'s `permissions` is hardcoded to the full `ALL_NAV_KEYS` list, mirroring the same special case already in `GET /roles/:id/permissions` (line 527-529) rather than trusting DB rows that endpoint doesn't trust either; every other role reads its real `role_nav_permissions` rows, one query grouped in JS rather than N role-scoped queries.
 
-**Frontend (`artifacts/qa-pulse/src/pages/Roles.tsx`):**
+**Frontend (`artifacts/qm-pulse/src/pages/Roles.tsx`):**
 - Replaced the incomplete `NAV_PERMISSION_ITEMS` (11 of 18 keys — also missing the new `nav:risk-register` from CR040) with the full 18-key label map; the per-role permission editor's checkbox list now iterates it too, fixing the 6 previously-untoggleable keys as a side effect. The matrix view's columns come from the new endpoint's `allKeys` at runtime (`labelForNavKey()` falls back to a prettified key for anything not in the local map, so a future `nav:` key still renders instead of silently vanishing even before someone adds its label).
 - New "View Access Matrix" button (page header, alongside "New Role") opening a wide `Dialog` with a `Table`: roles as rows, grouped by department with a header row per group and sorted by tier descending within each group, permission keys as columns, read-only (a check icon per granted cell, no click-to-toggle), horizontal scroll for the 18 columns. Editing stays exclusively through the existing per-role permission dialog — the matrix is a reference view, not a second editing surface.
 
 **Non-goals:** no bulk/matrix-level editing (toggle cells directly in the grid) — that's meaningfully more UI/state complexity for a feature whose actual ask was "view," not "edit differently"; the existing per-role dialog remains the only way to change anything. No change to who can *view* `/roles` itself (still admin-only via the existing route gate) — this CR doesn't widen or narrow that.
 
-**Scope:** `artifacts/api-server/src/routes/roles.ts` (`requireAdmin` helper + 4 gate call-sites + new matrix endpoint), `artifacts/qa-pulse/src/pages/Roles.tsx` (matrix dialog, fixed permission-key label map). No schema changes, no migration.
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (`requireAdmin` helper + 4 gate call-sites + new matrix endpoint), `artifacts/qm-pulse/src/pages/Roles.tsx` (matrix dialog, fixed permission-key label map). No schema changes, no migration.
 
 ---
 
@@ -1286,7 +1290,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Deliberately unchanged:** raising requirement defects stays gated to `REQUIREMENT_DEFECT_ROLES` (dev/QA) — FA's RACI role is Consulted/receiver (they get assigned, fix, and resubmit via RequirementDetail), not raiser. Backend `GET /defects` needed no change (project-scoped, not department-gated).
 
-**Scope:** `artifacts/api-server/src/routes/roles.ts` (2 grants + backfill block), `artifacts/qa-pulse/src/components/Layout.tsx` (nav roles), `artifacts/qa-pulse/src/App.tsx` (route roles sync). No schema changes, no migration.
+**Scope:** `artifacts/api-server/src/routes/roles.ts` (2 grants + backfill block), `artifacts/qm-pulse/src/components/Layout.tsx` (nav roles), `artifacts/qm-pulse/src/App.tsx` (route roles sync). No schema changes, no migration.
 
 ---
 
@@ -1295,14 +1299,14 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Origin:** after CR041's Access Matrix shipped, the user expected to see the RACI letters from the access-review analysis in it — but RACI (Responsible/Accountable/Consulted/Informed per page × role) is a governance judgment, not data the system stores, so the live matrix could only ever show checkmarks. Decision: static overlay (option 1) — hardcode the RACI designation map in the frontend and add a view toggle — rather than a new editable table (option 2), which is only worth building if RACI becomes a living artifact admins maintain in-app.
 
-**Frontend (`artifacts/qa-pulse/src/pages/Roles.tsx`):**
+**Frontend (`artifacts/qm-pulse/src/pages/Roles.tsx`):**
 - `RACI_MAP`: hardcoded `Record<navKey, Record<roleName, "R"|"A"|"C"|"I">>` covering 15 of the 18 nav keys — utility pages (`nav:inbox`, `nav:team-hangouts`, `nav:admin-search`) deliberately carry no RACI. The designations mirror the access-review exercise (e.g. Requirements: fa_member R / fa_lead A; Risk Register: pm_lead R / hod_pm A / qa_lead+fa_lead C; Milestones' A on pm_lead and Verdict Report's A on hod_qa were flagged as debatable judgment calls at the time).
 - Access/RACI toggle in the matrix dialog. Access view unchanged (live checkmarks). RACI view: colored letter chips (R blue, A purple, C amber, I muted), red `X!`-style flag when an R/A/C role lacks the actual permission (live gap detection — the map is static but the gap check runs against real `role_nav_permissions` data), muted `·` for access with no RACI stake, and blank for custom roles (e.g. a hand-added `devops`) that have no RACI defined.
 - Legend row shown only in RACI view.
 
 **Non-goals:** no RACI editing, no RACI storage, no backend changes at all. When the org's RACI thinking changes, `RACI_MAP` is a code edit — that's the accepted trade-off of option 1.
 
-**Scope:** `artifacts/qa-pulse/src/pages/Roles.tsx` only. No schema changes, no migration.
+**Scope:** `artifacts/qm-pulse/src/pages/Roles.tsx` only. No schema changes, no migration.
 
 ### CR044 — Multi-Module Project Access
 **Status:** ✅ Deployed (2026-07-17)
@@ -1336,7 +1340,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 1. **Milestone create** (`milestones.ts`): notifies `fa_lead`+`fa_member` with project access — new `milestone_created` type (Calendar icon added to both frontend TYPE_CONFIG maps; deep-links to /milestones).
 2. **Requirement approve** (`requirements.ts`): additional fan-out to `dev_lead` (project+module scoped) — "ready for dev assignment", type `review_approved`, excludes author/assignee already notified.
 3. **Ready for QA** (`requirements.ts`): additional fan-out to `qa_lead` (project+module scoped), type `requirement_ready_for_qa`; existing FA-assignee + milestone-PM notifications kept, deduped via excludeUserIds.
-4. **Defect create with assignee** (`defects.ts` + both frontends): the dialogs' assignee is a Redmine member id, so both creation flows now also send `assigneeName`; backend resolves it via `resolveUserIdByName` (same convention as qaPic), stores `assigneeId`/`assigneeName`/`assigneeAssignedAt` on the local row (POST /defects non-requirement path + POST /defects/register), and notifies the dev with `defect_assigned`. Redmine-only names that don't match a QAPulse user store the name but skip the notification.
+4. **Defect create with assignee** (`defects.ts` + both frontends): the dialogs' assignee is a Redmine member id, so both creation flows now also send `assigneeName`; backend resolves it via `resolveUserIdByName` (same convention as qaPic), stores `assigneeId`/`assigneeName`/`assigneeAssignedAt` on the local row (POST /defects non-requirement path + POST /defects/register), and notifies the dev with `defect_assigned`. Redmine-only names that don't match a QM Pulse user store the name but skip the notification.
 
 **Bonus fix:** execution file **created** with qaPic already set now notifies the PIC (previously only the PATCH path did, and only on change).
 
@@ -1437,7 +1441,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Origin:** the items CR050 deferred because they needed a migration or larger rework. Bootstrap-covered — no manual db push.
 
 1. **Defect register upsert race → idempotent** (`defects.ts`, `roles.ts`, schema): added a partial `UNIQUE` index on `defects.redmine_id` (non-null only). Bootstrap dedupes any pre-existing duplicates first — repointing their `defect_links` to the surviving lowest-id row (FK cascades on delete, so repoint before deleting) — then creates the index, all guarded so it can't block boot. `POST /defects/register` now catches the `23505` unique violation and returns the existing row instead of inserting a twin (creation-only side effects — DEF-code, notifications — are skipped on the losing race).
-2. **Pending-sync Redmine duplication** (`redmine-defect-bridge.ts`): before creating a Redmine issue, `pushDefectToRedmine` searches (`/search.json`) for the unique marker it embeds in every description (`DEF-code` / "QMPulse defect #id"). If a prior push committed but its response was lost, the retry finds and reuses that issue instead of creating a second. Best-effort — search failure falls through to create.
+2. **Pending-sync Redmine duplication** (`redmine-defect-bridge.ts`): before creating a Redmine issue, `pushDefectToRedmine` searches (`/search.json`) for the unique marker it embeds in every description (`DEF-code` / "QM Pulse defect #id"). If a prior push committed but its response was lost, the retry finds and reuses that issue instead of creating a second. Best-effort — search failure falls through to create.
 3. **NaN query coercion** (`defects.ts` `GET /defects`): a non-integer `?projectId=` now returns 400 instead of silently matching nothing (scoped users) or everything (admins).
 4. **`?highlight=` deep-links now focus the row** (new `hooks/use-highlight.ts`): notification deep-links to Defects and Milestones scroll the target row into view and flash a ring. Additive hook (`useHighlightRow` + `highlightRowId`), no logic change. Tasks renders through a data-grid of plain row objects with no per-row DOM id — left as a fast-follow (its deep-link still navigates to the page correctly).
 
@@ -1498,7 +1502,7 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Template asset:** the real client workbook was sanitized (not rebuilt from scratch) — its 24 real project risk rows and project name were stripped, but every structural element was kept: 3 sheets (Doc Info, Risk Log, Read Me), the Bestinet letterhead logo, merged cells, column widths, fonts/borders, and — critically — the Risk Map column's live `IF()` formula (recalculates Red/Yellow/Green from Impact × Likelihood × Status in Excel itself, not baked in at export time). Row capacity extended from 24 to 200 pre-styled rows so real projects don't overflow. The template's patchwork of ad-hoc conditional-formatting ranges (grown organically as the original file was hand-extended row by row) was replaced with 4 clean rule sets spanning the full row range. Fixed a real defect found in the source file: J/T (Risk Map) cells carried a stray static pink fill (legacy indexed color 45) that showed through whenever no CF rule matched (e.g. "Closed") — added an explicit gray CF rule for "Closed" and stripped the base fill so only conditional formatting drives color.
 
-**Column mapping — honest, not fabricated:** QMPulse's risk model doesn't collect everything the template has a slot for. Mapped: Risk ID (sequential R001… by raised-date order), Entry Date, Description (← title), Impact on Project (← description), Category, Impact/Likelihood/Status (pre-treatment), Risk Map (live formula), Owner (resolved name), Describe Response Strategy (← mitigationPlan), Mitigated Date (← closedAt). Left genuinely blank rather than guessed: Response Strategy taxonomy (Avoid/Transfer/Mitigate/Accept — QMPulse has no such field), Contingency Plan, Progress Update, and the entire post-treatment residual block (Q–T) — QMPulse doesn't track a separate residual risk assessment.
+**Column mapping — honest, not fabricated:** QM Pulse's risk model doesn't collect everything the template has a slot for. Mapped: Risk ID (sequential R001… by raised-date order), Entry Date, Description (← title), Impact on Project (← description), Category, Impact/Likelihood/Status (pre-treatment), Risk Map (live formula), Owner (resolved name), Describe Response Strategy (← mitigationPlan), Mitigated Date (← closedAt). Left genuinely blank rather than guessed: Response Strategy taxonomy (Avoid/Transfer/Mitigate/Accept — QM Pulse has no such field), Contingency Plan, Progress Update, and the entire post-treatment residual block (Q–T) — QM Pulse doesn't track a separate residual risk assessment.
 
 **Backend:** `risk-log-excel.ts` (new) — same `xlsx-populate` + SheetJS-fallback architecture as the existing test-case template builder (`excel-builder.ts`), base64-embedded fallback (`risk-log-template-data.ts`) for environments where the asset file isn't readable. `GET /risks/export?projectId=X` in `risks.ts`, project-access gated, no elevated role required (same visibility as viewing the register).
 
@@ -1526,22 +1530,22 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 
 **Scope:** `lib/db` risks schema, `roles.ts` (bootstrap ALTER), `risks.ts` (+1 route, owner-name resolution), `risk-log-excel.ts` (K column), `RiskRegisterCard.tsx`, demo `demo-data.ts`/`seed-demo-data.ts`. No manual db push.
 
-**CR055 follow-up #2 (2026-07-21):** Doc Info sheet's revision-history table (previously always blank) now populates from real audit-trail events — each risk's creation and every status change, chronologically, with actor name and the existing human-readable activity description. Table extended from the source template's 11 pre-styled rows to 100 (`Doc Info` B9:G108) to hold real project history. Reviewed By / Reviewed Date columns stay blank — QMPulse has no peer-review step on risks to report there, so nothing is fabricated to fill them.
+**CR055 follow-up #2 (2026-07-21):** Doc Info sheet's revision-history table (previously always blank) now populates from real audit-trail events — each risk's creation and every status change, chronologically, with actor name and the existing human-readable activity description. Table extended from the source template's 11 pre-styled rows to 100 (`Doc Info` B9:G108) to hold real project history. Reviewed By / Reviewed Date columns stay blank — QM Pulse has no peer-review step on risks to report there, so nothing is fabricated to fill them.
 
 ### CR057 — Lessons Learned export to Bestinet's official "5.1 Lesson Learned" PMO template
 
 **Status: DEPLOYED (2026-07-21)**
 
-**Origin:** direct follow-on to CR055/056 (Risk Log export) — same ask, different template. Found the source at `~/Desktop/QAPulse/5.1 Lesson Learned/eQuota FWe Approval Project Lessons Learnt.xlsx` (Ref. No. BSB-PMO-TEM–24–V1.0), a real client's actual retrospective content.
+**Origin:** direct follow-on to CR055/056 (Risk Log export) — same ask, different template. Found the source at `~/Desktop/QMPulse/5.1 Lesson Learned/eQuota FWe Approval Project Lessons Learnt.xlsx` (Ref. No. BSB-PMO-TEM–24–V1.0), a real client's actual retrospective content.
 
-**Template asset:** sanitized the same way as the Risk Log (client's 7 real lesson rows + project name stripped, structure/logo/dropdown validations kept). Data-validation dropdowns for Phase (a fixed 13-value PM-phase list) and Lessons Learnt Type (What went wrong / What went right / Best Practice) preserved and extended across the full row range; the source file's inconsistent 4-value variant on 2 rows (a stray extra "Recommendation" option) standardized to one clean 3-value list throughout. Row capacity extended: Lessons Learnt 10→60 rows, Doc Info history 5→60 rows. Row heights on the Lessons Learnt data rows set to a generous fixed height (110pt) — the source file's original per-row heights were sized for each row's own short sample text and clipped QMPulse's longer real content.
+**Template asset:** sanitized the same way as the Risk Log (client's 7 real lesson rows + project name stripped, structure/logo/dropdown validations kept). Data-validation dropdowns for Phase (a fixed 13-value PM-phase list) and Lessons Learnt Type (What went wrong / What went right / Best Practice) preserved and extended across the full row range; the source file's inconsistent 4-value variant on 2 rows (a stray extra "Recommendation" option) standardized to one clean 3-value list throughout. Row capacity extended: Lessons Learnt 10→60 rows, Doc Info history 5→60 rows. Row heights on the Lessons Learnt data rows set to a generous fixed height (110pt) — the source file's original per-row heights were sized for each row's own short sample text and clipped QM Pulse's longer real content.
 
-**Real data-model mismatch, handled honestly:** the template expects one row per discrete, individually-classified lesson (Phase + Type). QMPulse captures lessons learned as a single free-text field per milestone at Closing (CR033p1) — one blob that can genuinely mix "what went wrong" and "what went right" in one paragraph (confirmed: the source template's own sample data did exactly this). Rather than force a misleading classification:
-- **Phase** is filled honestly as "Project Closure" — that's literally always when QMPulse captures this field, not a per-row guess.
+**Real data-model mismatch, handled honestly:** the template expects one row per discrete, individually-classified lesson (Phase + Type). QM Pulse captures lessons learned as a single free-text field per milestone at Closing (CR033p1) — one blob that can genuinely mix "what went wrong" and "what went right" in one paragraph (confirmed: the source template's own sample data did exactly this). Rather than force a misleading classification:
+- **Phase** is filled honestly as "Project Closure" — that's literally always when QM Pulse captures this field, not a per-row guess.
 - **Type** ships blank; its dropdown validation survives the export so a human can classify it manually afterward if they want to.
 - **Comments** carries the milestone name, since one export can span every completed milestone in a project and the reader needs to know which is which.
 
-**Doc Info revision history:** one row per milestone (date = completedAt, actor = closedBy's name, summary = "Lessons learned captured for milestone \"X\"") — reuses the same milestone rows already being exported, since QMPulse has no activity-log event distinct from the completion transition itself for this field.
+**Doc Info revision history:** one row per milestone (date = completedAt, actor = closedBy's name, summary = "Lessons learned captured for milestone \"X\"") — reuses the same milestone rows already being exported, since QM Pulse has no activity-log event distinct from the completion transition itself for this field.
 
 **Backend:** `lessons-learned-excel.ts` (new, same xlsx-populate + SheetJS-fallback architecture as `risk-log-excel.ts`), `lessons-learned-template-data.ts` (base64 fallback). `GET /milestones/lessons-learned/export?projectId=X` in `milestones.ts` — project-access gated, no elevated role required (same as viewing milestones). Only completed milestones with a non-empty `lessonsLearned` are included.
 
@@ -1552,3 +1556,153 @@ Plus `conversations_entity_idx`/`conversations_user_idx` indexes. `messages` unc
 **Scope:** new `lessons-learned-excel.ts`, `lessons-learned-template-data.ts`, `assets/lessons-learned-template.xlsx`; `milestones.ts` (+1 route); `Milestones.tsx` (export button). No schema changes, no db push.
 
 **CR057 fast-follow (2026-07-21):** closed the gap CR057 itself flagged — added `milestones.lessonsLearnedType` (what_went_wrong | what_went_right | best_practice, matching the export template's dropdown values exactly) with a picker next to the Lessons Learned textarea in the Milestones edit dialog. The export now writes the PM's real classification into column D when set, still blank (dropdown intact) when not — the honest "not classified" path stays available for the genuinely mixed-content case CR057 documented (a single lesson blob that discusses both what went wrong and what went right). Demo data: Sprint 10's clean-positive lesson tagged Best Practice; Sprint 12's deliberately-mixed lesson left unclassified. Bootstrap-covered, no manual db push.
+
+---
+
+### CR078 — Compact TC numbering on the execution sheet
+
+**Status: DEPLOYED (2026-09-15)**
+
+**Problem:** the sequence in an execution TC label (`TC-40926-017`) was handed out by `max(existing seq) + 1` and never reused. Deleting row 17 of 20 left the file reading `015, 016, 018, 019, 020` — permanently. On a file that had been edited for a while the numbering was full of holes, so the label no longer told a tester anything about where the case sat in the sheet.
+
+**Semantics chosen — the number is the row's position, not an identity.** A delete closes the gap and a drag-reorder moves the number with the row. Every save re-derives the whole file's labels from real row order (`ORDER BY row_order, id`), so this is an invariant rather than a delete-time special case. Files that already carry gaps heal on their next save, and the bootstrap step below compacts the whole existing database at server start so nobody has to open a file to fix it.
+
+**Backend** (`test-execution.ts`, save route, new step 3c): after the upsert, re-read the file's rows in order and rewrite any label that no longer matches its position. Placed deliberately *after* the history and audit blocks — those diff on the pre-renumber labels, and renaming first would make every shifted row look like a newly added TC and corrupt the `N test cases added` audit counts. Group/banner rows (`row_type = 'group'`) are skipped and consume no number. Only rows whose label actually moved are written, so a save on an already-compact file issues zero extra UPDATEs.
+
+**Why the rewrite is safe:** `defects.test_case_id` and `tasks.test_case_id` are **integer** row references, so defect and task linkage is untouched by a label change. The one text-keyed reference is `execution_tc_history.test_case_id`, which is remapped in the same request — keyed by *history row id*, not by label. A shift-up renames in a chain (`018→017`, `019→018`, …); running those as sequential `WHERE test_case_id = <old>` updates would re-catch rows an earlier step had just renamed and drag them down twice.
+
+**Frontend** (`TestCasesExecutionProgressPage.tsx`): the save response now carries a `renumbered` array (existing rows keyed by real DB id) alongside the existing `testCases` temp-id payload for freshly inserted rows. New `applyRenumbered()` relabels those rows in the open sheet, wired into all four save paths (explicit Save, blur-save, autosave flush, revision ack) so numbers correct themselves in place instead of going stale until the next reload. Newly added rows still carry an empty label client-side and are numbered by the server, so there is no client-side sequence to keep in sync.
+
+**Known trade-off:** the label is now positional, so a case referenced by number in an external note or an older exported sheet may point at a different row after a delete or reorder. In-app linkage (defects, tasks, history, evidence) all follows correctly.
+
+**Existing files heal on their own — no button, no manual step.** The save route only maintains the invariant for files someone actually saves, which would have left every pre-CR078 file carrying its old holes until a person happened to open and re-save it. `compactExecutionTcNumbering()` in `roles.ts` bootstrap closes that gap: one set-based statement compacts every execution file in the database at server start. It runs on *every* bootstrap rather than once behind a flag — it is a pure convergence step, so a converged database updates zero rows, and leaving it unconditional means the invariant self-heals regardless of how a file's rows got there (a restore, a direct DB edit, an older build still deployed).
+
+It is a single statement on purpose. Data-modifying CTEs within one statement all see the same snapshot, so the `hist` CTE reads the pre-renumber labels while the primary `UPDATE` writes the new ones; splitting it in two would break the history remap, because recomputing the label targets after the rename would find nothing left to map. Postgres runs a data-modifying CTE to completion even when the primary query never references its output. Group rows are excluded in `WHERE`, which is evaluated before the window function, so `ROW_NUMBER()` counts only real test cases and numbering never skips at a banner.
+
+**Deliberately no UI control.** A "Sync Numbering" button was considered and rejected: with bootstrap healing existing data and every save maintaining the invariant, a per-file button would only duplicate what Save already does, and a bulk admin sweep would rewrite labels in files other people have open for no added benefit.
+
+**Verified:** the bootstrap SQL was extracted verbatim from `roles.ts` and executed against a real Postgres (PGlite) over seeded fixtures — the reported case (20 rows, #17 deleted, giving contiguous `001..019`), history rows on both sides of the gap following the rename without double-shifting, interleaved banner rows consuming no number, an already-compact file left untouched, and a second run updating **0 rows** (the idempotency that makes running it on every boot safe). The save-route renumbering was separately exercised in isolation over the gap-close, reorder, no-op and swap cases. Both `api-server` and `qm-pulse` typecheck clean. The end-to-end save path has not been run against a live application instance.
+
+---
+
+### CR079 — Platform Issues (Internal Bug Tracking for QM Pulse)
+**Status: DEPLOYED (2026-09-15)**
+
+**Problem:** QM Pulse has no way for the people using it to report a bug in the tool itself. Today that's `bug.md` at the workspace root — a flat table one person edits by hand after the fact, with no reporter, no timestamp, no status, no screenshot, and no visibility to anyone without repo access. It currently holds 16 entries, all logged and fixed the same way: someone mentions it in passing, it gets fixed, a row gets added afterward. That breaks down as soon as QA members, developers, and FA staff — none of whom edit markdown files — are the ones hitting the bugs.
+
+**Not the same thing as Defects.** CR019–CR021 track bugs in the *client projects* QM Pulse tests (FWCMS, URP, MIFPS), reported by QA against Redmine-backed tickets. This CR tracks bugs in *QM Pulse itself*, reported by anyone using it. Reusing the Defects page or its terminology would train people to misfile one into the other. This is also why there's no Redmine involvement here at all — QM Pulse's own DB is the system of record from day one, so none of CR019–021's write-through/bridge complexity applies.
+
+**Target behavior (Phase 1 — MVP):**
+- Floating "Report issue" trigger, present on every authenticated page (not a nav item people have to remember exists)
+- Report form: title, type (bug / idea / question), severity (blocking / major / minor), optional description, optional screenshot
+- Auto-captured on submit, no user input required: current route, browser, role, timestamp
+- New `/platform-issues` page (admin-gated for now): table view, filter chips by status, search, sorted by age
+- Status lifecycle: Open → In Progress → Fixed / Won't Fix / Duplicate
+- Reuses the existing notifications table (CR027/CR045 patterns) to notify the reporter when status changes
+- One-time seed migrates `bug.md`'s 16 entries in as historical `status = 'fixed'` rows, then the file is retired
+
+**Data model (new table, no changes to `defects` or any existing schema):**
+- `platform_issues`: id, title, description, type (`bug` | `idea` | `question`), severity (`blocking` | `major` | `minor`), status (`open` | `in_progress` | `fixed` | `wont_fix` | `duplicate`), `reporter_id` (nullable, not a real FK constraint — matches `risks.raisedBy`/`defects.reporterId` elsewhere in this schema, and lets the bug.md backfill seed rows with no known reporter), `page_path` (auto-captured route), `browser_info` (auto-captured `navigator.userAgent`; **implemented as flat text, not the jsonb originally sketched** — no jsonb column exists anywhere else in this schema, and role is already derivable via a `reporter_id` join at read time, so jsonb would have been the only column of its kind for no real gain), `screenshot_url` (nullable — **a base64 `data:` URI, not a disk/S3 upload**; the app's existing 25mb JSON body cap covers one screenshot without pulling in the `multer`/`UPLOADS_DIR` machinery `requirement_attachments` uses), `promoted_cr` (nullable text, set once folded into a CR — e.g. `"CR080"`), `created_at` / `updated_at` / `resolved_at`.
+
+**Naming:** "Platform Issues" — chosen over "QM Pulse Feedback" (undersells that real defects get tracked to resolution here, not just suggestions) and "Internal Bugs" (excludes ideas/questions, and the first time someone wants to log an idea it'd be the wrong box). Deliberately avoids the word "Defects", which the client-facing page already owns.
+
+**Access model:** create (`POST /platform-issues`) is open to any authenticated user — anyone can report. List/triage (`GET`/`PATCH`/`DELETE`) is **admin-only on the API**, mirroring Audit Log's precedent (a single-owner internal tool, not department-scoped like Defects) rather than a new permission tier. The nav item and frontend route allow `admin` + `cto` (`roles={["admin", "cto"]}`, `permKey: "nav:platform-issues"`) — this exactly mirrors `/audit-log`'s own existing shape (nav+route open to both, API route checking `role === "admin"` only), not a new inconsistency introduced here.
+
+**Deferred to Phase 2 (once the habit sticks):** "Promote to CR" — one click drafts a `CHANGE_REQUESTS.md` entry from an issue and fills `promoted_cr`; comment thread per issue; "+1 / me too" dedupe on repeat reports; a small metrics strip (open count, median time-to-fix, issues by page); Kanban view as an alternative to the table.
+
+**Implementation:** `lib/db/src/schema/platform-issues.ts` (new table + index on `status`/`created_at`). `artifacts/api-server/src/routes/platform-issues.ts` (CRUD + status transitions; `notifyAdmins()` fans out to `role = 'admin'` on create — not `notifyRolesInProject`/CR045, which is project-scoped and platform issues aren't; reporter notified via existing `notifyUser` on status change), registered in `routes/index.ts`. `nav:platform-issues` added to `ALL_NAV_KEYS` in `roles.ts` (auto-backfilled to admin/cto by the existing "admin and cto always have every nav key" loop — no new backfill call needed). `artifacts/qm-pulse/src/components/ReportIssueTrigger.tsx` (new — floating action + Dialog form, mounted once in `Layout.tsx` alongside `GlobalQACopilot`/`GlobalSearch`, positioned `fixed bottom-24 right-6` so it stacks above the Copilot bubble at `bottom-6 right-6` rather than overlapping it). `artifacts/qm-pulse/src/pages/PlatformIssues.tsx` (new — admin table view, status filter chips, severity as a left-border stripe matching the convention already used elsewhere, inline status-change Select) + route/nav entry. `scripts/src/seed-platform-issues-from-bugmd.ts` (new, `pnpm seed:platform-issues-from-bugmd` from `scripts/`) migrates bug.md's 16 entries in as historical `status = 'fixed'` rows (severity defaults to "minor" and reporter to null throughout — bug.md never recorded either, so this doesn't guess); `bug.md` marked superseded at its top rather than deleted.
+
+**Verified:** `pnpm typecheck` clean across `lib/db`, `api-server`, `qm-pulse`, and `scripts` (all four packages). **Not yet exercised against a live database** — no `DATABASE_URL` configured in this environment, so `pnpm --filter @workspace/db push` and the bug.md backfill script have not actually been run, and the report flow has not been clicked through in a browser. Next step before this is truly done: push the schema, run the backfill once, and smoke-test the report button + admin page against a real login.
+
+**Sequencing:** no dependency on CR019–CR021 — separate table, no Redmine bridge. Mockup drafted 2026-09-15, built same day.
+
+**Addendum (2026-09-17) — Email escalation for blocking/major issues:** `notifyAdmins()` only reaches an admin who already has QM Pulse open in a tab (in-app notification + SSE ping) — nobody finds out about an urgent report until they next log in and check the bell icon. Added `sendDevAlertEmail()` in `platform-issues.ts`, fired (fire-and-forget, errors logged not thrown) on `POST /platform-issues` when `severity` is `blocking` or `major` — `minor` stays in-app-only to avoid inbox noise. Reuses the same Office 365 SMTP config as the PMO report (`verdict-report.ts`): `SMTP_HOST`/`PORT`/`SECURE`/`USER`/`PASS`, `EMAIL_FROM`. Recipients are hardcoded to `syamil.samat@bestinet.com.my` and `raimi.rosman@bestinet.com.my` (not an env var — a fixed two-person dev list, unlike `PMO_EMAIL_TO` which varies per report send). Link back to `/platform-issues` in the email body is best-effort, derived from the first entry in `CORS_ORIGIN`; omitted if unset. `pnpm --filter api-server typecheck` clean. Not exercised against a live SMTP send in this environment.
+
+---
+
+### CR080 — Defect Root Cause & Resolution
+**Status: ✅ Deployed (2026-09-18)**
+
+**Origin:** `defects` today has no field for *why* a defect happened or *how* it was fixed — `description`/`stepsToReproduce`/`expectedResult`/`actualResult` capture the QA-reported symptom, but nothing captures the dev's diagnosis once it's fixed. Verified against the schema (`defects.ts`) and `REDMINE_DEFECT_FIELD_MAPPING.md` before scoping this — neither QM Pulse nor the Redmine QA Defect Tracking Form has an equivalent field today, so this is new ground, not a gap in an existing mapping. Mockup drafted as a Design canvas artifact (interactive Defect Detail + lifecycle diagram) walking through the exact fill-in flow before this write-up.
+
+**Why this matters:** without a recorded root cause, a recurring defect (same bug, different sprint) can't be spotted as a pattern, and retrospectives have nothing but a title to go on. Industry-standard practice ties this to severity — mandatory for Critical/High (the ones worth analyzing so they don't recur), optional for Medium/Low (not worth the overhead on a typo-class fix).
+
+**Data model — new columns on `defectsTable`, no new table:**
+- `rootCause` (text, nullable) — free-text diagnosis
+- `rootCauseCategory` (text, nullable) — fixed taxonomy: `code_defect | configuration | data_issue | environment | requirement_gap | third_party`
+- `resolutionSummary` (text, nullable) — free-text fix description
+
+QM Pulse-native only, deliberately **not** pushed to Redmine — mirrors the precedent already set by `defectCategory` (CR029), which the schema comment calls out as "independent of the Redmine category... deliberately local-only." Redmine's Description concatenation (`description + expectedResult + actualResult`, per the field-mapping doc) stays as-is; folding freeform root-cause text into that write-through would corrupt it for no benefit, since the QA Defect Tracking Form has no matching field to receive it anyway.
+
+Requires `pnpm --filter @workspace/db push` — same as CR029's `defectCategory` column, `defects` has no bootstrap `CREATE TABLE`/`ALTER TABLE` SQL of its own.
+
+**Implementation deviates from the original plan below** — once in the code, the existing "Escape analysis" section (production defects, `escapeStatus`/`escapeClass`/`escapeNotes`) turned out to be the closer precedent than the `verificationTarget` dialog: it's the same shape of problem (freeform diagnostic fields on a defect row) solved with inline Select/Textarea controls that `onBlur`-save via the *generic* `PATCH /defects/:id`, no dialog, no bundling into the status-change request. Reusing that exact pattern for root cause/resolution meant the status endpoint only has to *check* the fields, not *carry* them — simpler on both ends, and one fewer state shape in `Defects.tsx`.
+
+**Backend gate (`defects.ts`, `PATCH /defects/:id/status`):** a second gate alongside the existing code-review gate (now at line ~973–1002), checked in the same place — after the code-review check, before the Redmine write-through — so both can independently block the same transition:
+- Applies only when `GATE_RESOLVED_STATES.test(statusRow.name)`, `defect.source === "qa"`, and `defect.severity` is `critical` or `high` — same QA-sourced boundary the code-review gate already draws; production/escape defects keep their separate `escapeStatus`/`escapeClass`/`escapeNotes` lifecycle (CR020) untouched (see Not Yet Scoped below). Medium/Low stays optional — the check doesn't run at all.
+- Reads `defect.rootCause`/`defect.resolutionSummary` off the row already fetched earlier in the handler (set beforehand via the PATCH below) — no new request-body fields on this endpoint. Reject with `409 { error: "Root cause and resolution are required for a High/Critical severity defect before it can be marked Fixed/Resolved." }` unless both are present and non-empty after trim; same verification-evidence cleanup on failure the code-review gate already does.
+
+**Backend fields (`defects.ts`, `PATCH /defects/:id`):** `rootCause`, `rootCauseCategory`, `resolutionSummary` added to the generic patch field allowlist alongside `escapeStatus`/`escapeClass`/`escapeNotes`. `rootCauseCategory` validated against a new `ROOT_CAUSE_CATEGORIES` const (`code_defect | configuration | data_issue | environment | requirement_gap | third_party`) — `400` on an unrecognized value, same style as the existing `defectCategory` check. No tier gate (unlike `defectCategory`, which needs Lead-tier+) — these aren't in `infoFields` either, so no reporter/qa_lead restriction: anyone who can already reach this defect can fill them in, same as `escapeNotes` today.
+
+**Frontend (`Defects.tsx`):** a new card in the expanded defect row, right after the `DefectReviewSection` code-review card, gated to `d.source === "qa"`. Category `Select` + two `Textarea`s (root cause detail, resolution/fix summary), each saving independently `onBlur` via the same `handleEscapePatch` helper the escape-analysis section already uses (a plain `PATCH /defects/:id` wrapper — reused as-is rather than renamed, since it was already fully generic). When severity is Critical/High and either field is still empty, the card gets a dashed violet border and a "Required · {severity} severity" badge so the gate reads as an in-context warning, not a rejected click. New `lib/root-cause-categories.ts` (mirrors `lib/defect-categories.ts`'s shape) for the taxonomy + label lookup.
+
+**Access:** no new role gate — whoever already has permission to change the defect's status (existing project/module access check) can fill these in at the same moment, or ahead of time. Not restricted to the assignee, since a lead sometimes closes out a defect on a dev's behalf.
+
+**Not yet scoped / open questions:**
+- **Production defects (`source === "production"`):** these already carry `escapeNotes` (CR020), which overlaps in intent with `resolutionSummary`. Whether to extend this gate to escape defects too, fold `escapeNotes` into this instead, or keep them deliberately separate (escape review is triage speed, this is a peer-reviewed fix record) is a decision for whoever picks this up — flagging it here rather than guessing.
+- **Editing after the fact:** v1 has no edit UI once the fields are set at the Fixed/Resolved transition — a dev who wants to refine wording later has no path to do so. Natural follow-up once real usage shows whether this is actually needed.
+- **Analytics:** not fed into CR026's QA analytics dashboard (recurring-root-cause reporting, category breakdowns) in v1 — the data needs to exist first before a dashboard view is worth building.
+- **Backfill:** defects already sitting in Fixed/Resolved/Closed before this ships are grandfathered with `null` values — no retroactive data entry, no historical-quality report (unlike CR079's bug.md backfill, there's no source text to backfill *from* here).
+
+**Scope:** `lib/db/src/schema/defects.ts` (3 new nullable columns). `artifacts/api-server/src/routes/defects.ts` (`ROOT_CAUSE_CATEGORIES` const, gate in `PATCH /defects/:id/status`, field allowlist + validation in `PATCH /defects/:id`). `artifacts/qm-pulse/src/lib/root-cause-categories.ts` (new). `artifacts/qm-pulse/src/pages/Defects.tsx` (`DefectRow` interface + new card).
+
+**Verified:** `pnpm run typecheck` clean across all workspace packages (`lib/db`, `api-server`, `qm-pulse`, `scripts`, `mockup-sandbox`). **Not yet exercised against a live database** — no `DATABASE_URL` configured in this environment (same gap CR079 hit), so `pnpm --filter @workspace/db push` has not been run and the card has not been clicked through in a browser. Next step before this is truly done: push the schema, then smoke-test the fill-in flow and the Fixed/Resolved gate against a real Critical/High QA defect.
+
+**Sequencing:** no dependency on CR021 (native lifecycle cutover) — this rides on the existing Redmine-backed status transition endpoint exactly as the code-review and verification-evidence gates already do, and needs no changes if/when CR021 later swaps the status source.
+
+---
+
+### CR081 — Execution & Dev Task Fixes (batch)
+**Status: ⏳ Pending (2026-09-21)**
+
+**Origin:** six user-reported items in one pass — a hard error blocking dev-task creation, two workflow gates, two execution-sheet readability gaps, and a Tasks-page visualization request — plus four more reported while the batch was open (items 7 to 10). Grouped as one CR because they ship together; each is independent and separately revertible.
+
+**1 — "+ Add Task" on an approved requirement returned an error.** `POST /tasks` validated its body against api-zod's generated `CreateTaskBody`, which comes from `openapi.yaml` and had drifted from the table: it still required a `type` column that was dropped from `tasksTable` (the schema even says `// REMOVED: type`), and carried a single `assigneeId` where the table has an `assigneeIds` array. Every dev task therefore failed with `400 "type: Required"`, and an assignee that did pass would have been stripped as an unknown key. The Dev Tasks panel only appears once FA approves, which is why this read as an approval-related bug. Both handlers now validate against `insertTaskSchema` (drizzle-zod, derived from the table), so schema and route cannot drift again; `openapi.yaml`'s `TaskInput`/`TaskUpdate` were corrected to match. Unknown keys are stripped rather than rejected, so an older deployed bundle still sending `type` keeps working and `type` never reaches the insert.
+
+**2 — Redmine Ticket ID optional when compiling.** Ad-hoc regression sweeps and internal rounds have no ticket to quote. `redmineTicketId` is still the unique key every `/execution-files/:ticketId` route resolves a file by, so a blank one now gets a generated in-house reference (`INT-0004`) instead of a `400`; the compile dialog's field is labelled optional and no longer gates the button. Concurrent creates can race on the unique index, so the insert retries with the next reference. Knock-on fix: TC labels are auto-numbered off a `TC-<digits>-<digits>` pattern that matched none of `TC-INT-0004-001`, which would have handed every new row on such a file sequence `001` — now matched on the trailing sequence instead. Only the compile dialog was made optional; the separate New Execution File dialog on the Execution page still requires a ticket, since its Redmine lookup and requirement auto-link are built on it.
+
+**3 — QA cannot execute while the requirement is still in development.** An approved test case is approved to be *run later*, not approved to be run now; recording Pass/Fail against unfinished code is an outcome against something that does not exist yet. A requirement counts as still in development on either of two signals: `devStatus` in `('assigned','in_progress')`, or it has dev tasks that are not all Done — the second closes the hole where a Dev Lead adds tasks straight from the Requirements page without going through `PATCH /requirements/:id/dev`, leaving `devStatus` null. A null `devStatus` with no dev tasks stays executable on purpose: that is a QA Pipeline milestone, which skips the dev handoff entirely and would otherwise be frozen with no way to release it. Enforced server-side in the save (reverted per row, like the CR063/CR064 blocked-requirement guard, so one frozen row never costs the rest of the sheet its edits) and surfaced per row in the sheet as an "In development" state in place of the result pills, so a tester learns it before clicking rather than from a silently reverted save.
+
+**4 — Execution trail per test case.** `execution_tc_history` already recorded every result change (from, to, who, when) but nothing read it back, and it had no field for *why*. New nullable `reason` column, plus an index on `(execution_file_id, test_case_id)` for the per-row read. Changing a result that was already recorded now asks for a reason before it applies — mandatory, since an unexplained Passed → Failed is precisely the entry the trail exists to answer; a *first* result is not interrupted, because "why" there is just "it was run". A History link on each row opens a newest-first timeline of result changes (from → to pills, name, timestamp, reason) merged with the row's acceptance lifecycle, which is read off the row itself rather than duplicated into the history table. Reading by TC label stays correct after a delete or reorder because CR078's renumbering already remaps the history rows.
+
+**5 — Numbered test steps.** Steps are one free-text block and authors number them inconsistently ("1.", "1)", "Step 1 -", or not at all). Display now strips whatever prefix is present and renumbers from real line order across every read-only view (focus detail, mobile card, spreadsheet table), so "step 4 failed" means one thing. A single-line step gets no number — that reads as a list of one. Edit mode still shows the raw textarea.
+
+**6 — Tasks page Visualization tab.** New Board/Visualization tabs. Visualization reads the same `filtered` rows the board renders, so the page's project/milestone/phase/priority filters shape both — a chart that ignored them would answer a different question from the table beside it. A KPI row (requirements, open, overdue, people carrying work, unassigned), a horizontal **Workload by member** bar per person split open vs delivered with a QA/FA/Dev filter and a data table, and **Team workload by phase** stacked per department. Colours are the validated categorical slots in fixed order with dark-mode steps selected for the dark surface, legends always present, and the table view covers the light-surface contrast relief. `TaskBoardRow` and the PIC helpers moved to `lib/task-board.ts` so the charts derive people and departments exactly as the table does.
+
+**7 — Defect creation failed with a misleading Redmine 422.** Reported as "Complexity cannot be blank; Targeted Start Date cannot be blank; Targeted Completion Date cannot be blank; Parent task is invalid" on a form where Complexity and both dates were visibly filled in. Two independent faults:
+
+- *The parent.* The execution sheet picks the defect's parent from the failing row's requirement, then the first linked requirement in the file, then — as a last resort — the execution file's own reference. That reference is a QM Pulse identifier that merely tends to look like a ticket id; here it was `55564`, which Redmine does not have (`GET /redmine/issues/55564/root` answered 404 in the same session), so Redmine rejected the whole issue with "Parent task is invalid". `POST /redmine/issues` now resolves the parent before using it and files the defect unparented if it doesn't exist, returning `parentDropped` so the toast tells the reporter to link it by hand — losing the link is much cheaper than losing the report. The sheet no longer offers a non-numeric file reference as a parent at all, which matters more now that item 2 can generate `INT-` references.
+- *The error text.* On any failure the route retried once with all custom fields stripped, and reported the **second** response. Since the tracker requires those fields, stripping them manufactured three "cannot be blank" errors that had nothing to do with the real problem and buried it in the last clause. The retry is now gated on the first response actually naming one of those fields, and the reported error is always the first attempt's — the retry deliberately sends a weaker payload, so its complaints describe what we removed, not what the reporter got wrong.
+
+The modal's "no custom field config" warning also only checked whether a config row existed, not whether the individual field ids were set — so a config with a blank Complexity id showed no warning and failed at submit. It now names the specific unmapped fields before the reporter fills the form in.
+
+**8 — Team Workload on the Tasks page was invisible to admin/CTO/PM.** The card counted every member against a single PIC column derived from the *viewer's* department, so a viewer with no single department (`seesEverything`: tier 5+, or PM) was passed `department={null}` and the card returned `null` — exactly the roles most likely to want it. Each member is now counted against their own department's PIC column instead of one fixed for the whole panel, so those viewers see all three teams with a department label per person; a department-scoped viewer still sees only their own team, unchanged.
+
+**9 — Step numbering follows the steps everywhere, not just the read-only sheet.** Item 5 numbered steps where they are displayed, which left two places reading differently: the Redmine defect filed from a failed test case carried the raw unnumbered block into **Steps to Reproduce**, and edit mode showed a bare textarea, so an author could not see the numbering their readers would get. The numbering rule moved to `lib/test-steps.ts` and is now the single source for all three consumers. The defect modal prefills its Steps to Reproduce already numbered and re-numbers on submit, so the ticket a developer opens agrees with the sheet the tester ran. Edit mode renumbers the stored text on blur rather than on every keystroke — rewriting mid-typing fights the caret — which puts the numbers in the textarea itself, so what the author edits is what everyone sees. Because every consumer strips the author's own numbering before applying its own, the operation is a fixed point and re-running it never yields "1. 1. Open statements"; `tests/test-steps.test.cjs` pins that, along with the several prefix styles authors actually type, renumbering after a deleted step, CRLF from pasted Word content, and a decimal guard that keeps a step opening "1.5x zoom" intact.
+
+**10 — Workload by member counts milestones, and shows what is overdue.** Counting requirements inflated the chart and flattened it: a single busy milestone with five requirements on one tester read as five pieces of work, so nearly everyone sat at a similar bar length and the numbers didn't reconcile with the Team Workload card directly above, which counts milestones. It now counts distinct milestones per person, with the card's own test for done (every requirement in the milestone at 100%). The bar also gained a third segment: Overdue is carved **out** of Open rather than layered over it, so the three counts still partition the total while the segment a lead actually acts on is visible in the chart instead of only in the table. Overdue wears the reserved status red, open the accent hue, delivered the de-emphasis grey; the pair that must stay distinguishable (overdue vs open) was validated in both modes. Rows sort by who is most behind. The two units on the tab are now labelled explicitly — the KPI tiles and the phase chart still count requirements, because a department's queue is only legible at the level work moves through.
+
+**Requires `pnpm --filter @workspace/db push`** — one new nullable column (`execution_tc_history.reason`) and one new index.
+
+**Scope:** `lib/db/src/schema/execution.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/tasks.ts`, `artifacts/api-server/src/routes/test-execution.ts`, `artifacts/api-server/src/routes/redmine.ts`, `artifacts/qm-pulse/src/components/DefectCreationModal.tsx`, `artifacts/api-server/tests/task-create-body.test.cjs` (new), `artifacts/qm-pulse/src/lib/execution-api.ts`, `artifacts/qm-pulse/src/lib/task-board.ts` (new), `artifacts/qm-pulse/src/lib/test-steps.ts` (new), `artifacts/api-server/tests/test-steps.test.cjs` (new), `artifacts/qm-pulse/src/components/tasks/TaskVisualization.tsx` (new), `artifacts/qm-pulse/src/components/execution/CompileToExecutionDialog.tsx`, `artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx`, `artifacts/qm-pulse/src/pages/Tasks.tsx`.
+
+**Verified:** `pnpm run typecheck` clean across the workspace; both `api-server` and `qm-pulse` build; all 48 existing Node tests pass, plus 19 new ones — 7 covering the item-1 regression directly and 12 pinning the step-numbering rule of items 5 and 9 (67 total). **Not exercised against a live database or in a browser** — no `DATABASE_URL` in this environment (same gap CR079/CR080 hit), so `pnpm --filter @workspace/db push` has not been run and no screen has been clicked through. Next step before this is truly done: push the schema, then walk items 1–10 on a real file. Item 7 especially: if the Redmine global config has no Complexity/date field ids, the create will still be rejected — but now with an error naming exactly which mapping is missing, and the form warns before submit.
+
+**Not yet scoped:**
+- The New Execution File dialog on the Execution page still requires a Redmine ticket (item 2 covered the compile path the report named). Making it optional there means deciding what its Redmine lookup and requirement auto-link do with a blank ticket.
+- The result-change reason is captured going forward only; entries written before this ships show "No reason recorded".
+- Visualization has no export of its own — the Board tab's Excel export is unchanged and still exports rows, not chart data.
+- Edit-mode renumbering (item 9) rewrites the stored steps text of the execution copy on blur. It does not touch the library test case, so a library TC keeps whatever numbering its author gave it until someone edits it there.
+- A defect filed with its parent dropped (item 7) is not re-parented automatically if the ticket appears in Redmine later; the toast asks the reporter to link it by hand.
+
+---

@@ -1,4 +1,4 @@
-import { pgTable, integer, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, integer, timestamp, primaryKey, index } from "drizzle-orm/pg-core";
 
 // CR035 — direct project (+ optional module) access assignment, replacing
 // team-based project access. assignedBy/assignedAt are the audit trail this
@@ -20,4 +20,8 @@ export const projectMembersTable = pgTable("project_members", {
   assignedAt: timestamp("assigned_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.projectId, table.userId] }),
+  // The composite PK already covers project_id-first lookups, but
+  // scopeToUserProjects() filters on user_id alone on every single request,
+  // which the PK index cannot serve.
+  index("project_members_user_idx").on(table.userId),
 ]);

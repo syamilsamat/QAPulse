@@ -8,11 +8,11 @@ import {
   usersTable,
 } from "@workspace/db";
 import { getAuthUser } from "./auth";
-import { getAuthContext } from "../middleware/access";
+import { getAuthContext, getRoleDepartment } from "../middleware/access";
 
 const router: IRouter = Router();
 
-// CR047 — every Redmine route requires an authenticated QAPulse user. Without
+// CR047 — every Redmine route requires an authenticated QM Pulse user. Without
 // this, the env-key fallback in resolveApiKey() let an anonymous caller create
 // Redmine issues and upload attachments under the server's service account.
 router.use((req, res, next) => {
@@ -57,6 +57,29 @@ async function redmineFetch(
   return fetch(`${getBaseUrl()}${path}`, { ...options, headers });
 }
 
+/** Reads from Redmine with the caller's key, retrying once with the service
+ *  key if their own is rejected.
+ *
+ *  A personal key set in Settings wins over the env default, and there is no
+ *  fallback once one exists — so a member whose key is stale, revoked or
+ *  scoped below the ticket they are syncing gets a hard "Authentication
+ *  failed", while an admin (or anyone who never saved a key, and so uses the
+ *  service key) succeeds on the same ticket. Sync is meant to work for
+ *  everyone, so a rejected personal key degrades to the service key instead
+ *  of failing the request.
+ *
+ *  Reads only. Writes keep using the caller's own key, so an issue created or
+ *  updated in Redmine is still attributed to the person who did it and is
+ *  still subject to their permissions. */
+async function redmineRead(path: string, apiKey: string): Promise<Response> {
+  const response = await redmineFetch(path, apiKey);
+  const serviceKey = getDefaultApiKey();
+  if ((response.status === 401 || response.status === 403) && serviceKey && apiKey !== serviceKey) {
+    return redmineFetch(path, serviceKey);
+  }
+  return response;
+}
+
 // ─── Existing: single issue fetch (Verdict Report + callers elsewhere) ──────
 
 router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> => {
@@ -67,7 +90,7 @@ router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> =
   }
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch(
+    const response = await redmineRead(
       `/issues/${issueId}.json?include=children,journals,attachments`,
       apiKey,
     );
@@ -81,7 +104,7 @@ router.get("/verdict-report/redmine/:issueId", async (req, res): Promise<void> =
       }
       throw new Error(`Redmine API returned status: ${response.status}`);
     }
-    const data = await response.json();
+    const data: any = await response.json();
     const apiIssue = data.issue;
     res.json({
       connected: true,
@@ -149,14 +172,14 @@ router.post("/redmine/sync-projects", async (req, res): Promise<void> => {
     const limit = 100;
 
     while (true) {
-      const response = await redmineFetch(
+      const response = await redmineRead(
         `/projects.json?limit=${limit}&offset=${offset}`,
         apiKey,
       );
       if (!response.ok) {
         throw new Error(`Redmine API returned status: ${response.status}`);
       }
-      const data = await response.json();
+      const data: any = await response.json();
       allProjects = allProjects.concat(data.projects ?? []);
       if (allProjects.length >= data.total_count || (data.projects ?? []).length < limit) break;
       offset += limit;
@@ -208,7 +231,7 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
     res.status(400).json({ error: "Invalid project ID" });
     return;
   }
-  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId } = req.body;
+  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId, sourceFieldId } = req.body;
   try {
     const [config] = await db
       .insert(redmineProjectConfigsTable)
@@ -217,6 +240,7 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
         complexityFieldId: complexityFieldId ?? null,
         targetedStartDateFieldId: targetedStartDateFieldId ?? null,
         targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+        sourceFieldId: sourceFieldId ?? null,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -225,6 +249,7 @@ router.post("/redmine/project-configs/:projectId", async (req, res): Promise<voi
           complexityFieldId: complexityFieldId ?? null,
           targetedStartDateFieldId: targetedStartDateFieldId ?? null,
           targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          sourceFieldId: sourceFieldId ?? null,
           updatedAt: new Date(),
         },
       })
@@ -247,7 +272,7 @@ router.get("/redmine/global-config", async (_req, res): Promise<void> => {
 });
 
 router.post("/redmine/global-config", async (req, res): Promise<void> => {
-  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId } = req.body;
+  const { complexityFieldId, targetedStartDateFieldId, targetedCompletionDateFieldId, sourceFieldId } = req.body;
   try {
     const [existing] = await db.select().from(redmineGlobalConfigTable);
     let config;
@@ -258,6 +283,7 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
           complexityFieldId: complexityFieldId ?? null,
           targetedStartDateFieldId: targetedStartDateFieldId ?? null,
           targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          sourceFieldId: sourceFieldId ?? null,
           updatedAt: new Date(),
         })
         .returning();
@@ -268,6 +294,7 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
           complexityFieldId: complexityFieldId ?? null,
           targetedStartDateFieldId: targetedStartDateFieldId ?? null,
           targetedCompletionDateFieldId: targetedCompletionDateFieldId ?? null,
+          sourceFieldId: sourceFieldId ?? null,
           updatedAt: new Date(),
         })
         .returning();
@@ -283,9 +310,9 @@ router.post("/redmine/global-config", async (req, res): Promise<void> => {
 router.get("/redmine/trackers", async (req, res): Promise<void> => {
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch("/trackers.json", apiKey);
+    const response = await redmineRead("/trackers.json", apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data = await response.json();
+    const data: any = await response.json();
     res.json(data.trackers ?? []);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch trackers: ${err.message}` });
@@ -298,12 +325,36 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
   const { projectId } = req.params;
   try {
     const apiKey = await resolveApiKey(req);
-    const response = await redmineFetch(`/projects/${projectId}/memberships.json?limit=100`, apiKey);
-    if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data = await response.json();
-    const members = (data.memberships ?? [])
-      .filter((m: any) => m.user)
-      .map((m: any) => ({ id: m.user.id, name: m.user.name }));
+
+    // Memberships paginate like every other Redmine collection. This used to
+    // request a single limit=100 page and ignore total_count, so any project
+    // with more than 100 members silently lost everyone past the first page —
+    // they just never appeared in the defect assignee dropdown. Same loop the
+    // /sync-projects route above already uses.
+    const memberships: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    while (true) {
+      const response = await redmineRead(
+        `/projects/${projectId}/memberships.json?limit=${limit}&offset=${offset}`,
+        apiKey,
+      );
+      if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
+      const data: any = await response.json();
+      const batch: any[] = data.memberships ?? [];
+      memberships.push(...batch);
+      if (memberships.length >= (data.total_count ?? 0) || batch.length < limit) break;
+      offset += limit;
+    }
+
+    // A membership's principal is either a user or a group; only users can be
+    // named here. Dedup by id defensively — one person can hold more than one
+    // membership row on a project.
+    const byId = new Map<number, { id: number; name: string }>();
+    for (const m of memberships) {
+      if (m.user && !byId.has(m.user.id)) byId.set(m.user.id, { id: m.user.id, name: m.user.name });
+    }
+    const members = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
     res.json(members);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch members: ${err.message}` });
@@ -311,6 +362,55 @@ router.get("/redmine/projects/:projectId/members", async (req, res): Promise<voi
 });
 
 // ─── Search: duplicate check ─────────────────────────────────────────────────
+
+// A defect's subject has to carry the top of the requirement tree, not the
+// ticket it hangs off. QA links a failing test case to the leaf User Story
+// (e.g. #40046), but that leaf can sit several levels under the ticket the
+// run is actually reported against (#40046 -> #40044 -> #40054), and a
+// subject reading "#40046 - ..." names a ticket nobody tracks the run by.
+// Walk to the root and let the caller title the defect with that.
+router.get("/redmine/issues/:issueId/root", async (req, res): Promise<void> => {
+  const issueId = parseInt(req.params.issueId);
+  if (isNaN(issueId)) {
+    res.status(400).json({ error: "Invalid issue ID" });
+    return;
+  }
+  try {
+    const apiKey = await resolveApiKey(req);
+    // Redmine cannot return an ancestor chain in one call, so this walks it a
+    // level at a time. The depth cap and seen-set are belt and braces: a
+    // corrupted parent cycle would otherwise loop until the request times out.
+    const MAX_DEPTH = 10;
+    const chain: number[] = [issueId];
+    const seen = new Set<number>([issueId]);
+    let currentId = issueId;
+    let truncated = false;
+
+    for (let depth = 0; depth < MAX_DEPTH; depth++) {
+      const response = await redmineRead(`/issues/${currentId}.json`, apiKey);
+      if (!response.ok) {
+        // An unreadable ancestor (deleted, or in a project this key cannot
+        // see) stops the walk rather than failing it — the deepest ticket we
+        // did resolve is still a better subject than the leaf.
+        if (depth === 0 && response.status === 404) {
+          res.status(404).json({ error: `Redmine issue #${issueId} not found` });
+          return;
+        }
+        break;
+      }
+      const parentId = ((await response.json()) as any)?.issue?.parent?.id;
+      if (!parentId || seen.has(parentId)) break;
+      seen.add(parentId);
+      chain.push(parentId);
+      currentId = parentId;
+      if (depth === MAX_DEPTH - 1) truncated = true;
+    }
+
+    res.json({ id: issueId, rootId: currentId, chain, truncated });
+  } catch (err: any) {
+    res.status(503).json({ error: `Failed to fetch from Redmine API: ${err.message}` });
+  }
+});
 
 router.get("/redmine/search", async (req, res): Promise<void> => {
   const { q, project_id } = req.query as { q?: string; project_id?: string };
@@ -322,9 +422,9 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
     const apiKey = await resolveApiKey(req);
     let url = `/issues.json?subject=~${encodeURIComponent(q)}&status_id=open&limit=5`;
     if (project_id) url += `&project_id=${encodeURIComponent(project_id)}`;
-    const response = await redmineFetch(url, apiKey);
+    const response = await redmineRead(url, apiKey);
     if (!response.ok) throw new Error(`Redmine API returned status: ${response.status}`);
-    const data = await response.json();
+    const data: any = await response.json();
     res.json(data.issues ?? []);
   } catch (err: any) {
     res.status(500).json({ error: `Search failed: ${err.message}` });
@@ -332,6 +432,11 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
 });
 
 // ─── Create issue ────────────────────────────────────────────────────────────
+
+// Substrings that mark a Redmine validation error as being about one of the
+// custom fields this route sends. Used to decide whether retrying without them
+// could possibly help — see the retry in POST /redmine/issues.
+const CUSTOM_FIELD_ERROR_HINTS = ["complexity", "targeted start", "targeted completion", "source"];
 
 router.post("/redmine/issues", async (req, res): Promise<void> => {
   const {
@@ -347,6 +452,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     targetedStartDate,
     targetedCompletionDateFieldId,
     targetedCompletionDate,
+    sourceFieldId,
     uploads,
   } = req.body;
 
@@ -357,6 +463,14 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
 
   try {
     const apiKey = await resolveApiKey(req);
+    // Source is always the reporter's own department (qa/dev/fa/pm) — never
+    // client-supplied, same trust boundary as defectCategory's tier gate.
+    // Redmine's Source custom field is a fixed list whose values are the
+    // uppercase department code (QA/DEV/FA/PM), not the lowercase role
+    // department string QM Pulse stores internally.
+    const ctx = getAuthContext(req);
+    const department = ctx ? await getRoleDepartment(ctx.role) : null;
+    const sourceValue = department ? department.toUpperCase() : null;
 
     // Upload attachments first if any
     const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
@@ -376,7 +490,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
           },
         );
         if (!uploadRes.ok) throw new Error(`File upload failed: ${uploadRes.status}`);
-        const uploadData = await uploadRes.json();
+        const uploadData: any = await uploadRes.json();
         uploadTokens.push({ token: uploadData.upload.token, filename, content_type: contentType });
       }
     }
@@ -392,32 +506,100 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     if (targetedCompletionDateFieldId && targetedCompletionDate) {
       customFields.push({ id: Number(targetedCompletionDateFieldId), value: targetedCompletionDate });
     }
-
-    const issuePayload: any = {
-      issue: {
-        project_id: projectId,
-        tracker_id: trackerId,
-        subject,
-        description: description ?? "",
-        ...(parentIssueId && { parent_issue_id: Number(parentIssueId) }),
-        ...(assigneeId && { assigned_to_id: Number(assigneeId) }),
-        ...(customFields.length > 0 && { custom_fields: customFields }),
-        ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
-      },
-    };
-
-    const response = await redmineFetch("/issues.json", apiKey, {
-      method: "POST",
-      body: JSON.stringify(issuePayload),
-    });
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      throw new Error(`Redmine returned ${response.status}: ${errBody}`);
+    if (sourceFieldId && sourceValue) {
+      customFields.push({ id: Number(sourceFieldId), value: sourceValue });
     }
 
-    const data = await response.json();
-    res.status(201).json({ id: data.issue.id, url: `${getBaseUrl()}/issues/${data.issue.id}` });
+    // A parent Redmine cannot resolve fails the whole create with "Parent task
+    // is invalid", and callers do not always supply a real issue id. The
+    // execution sheet falls back to the execution file's own reference when
+    // none of the file's requirements carries a Redmine ticket — and that
+    // reference is a QM Pulse identifier, not a Redmine issue. Check it first
+    // and file the defect unparented rather than losing the whole report; the
+    // response says so, so the UI can tell the reporter to link it by hand.
+    let parentDropped: string | null = null;
+    let effectiveParentId: number | null = parentIssueId ? Number(parentIssueId) : null;
+    if (effectiveParentId == null || Number.isNaN(effectiveParentId)) {
+      effectiveParentId = null;
+    } else {
+      const parentRes = await redmineRead(`/issues/${effectiveParentId}.json`, apiKey);
+      if (!parentRes.ok) {
+        parentDropped = `#${effectiveParentId} could not be used as the parent task (Redmine returned ${parentRes.status}), so the issue was created without one.`;
+        effectiveParentId = null;
+      }
+    }
+
+    const baseIssue: any = {
+      project_id: projectId,
+      tracker_id: trackerId,
+      subject,
+      description: description ?? "",
+      ...(effectiveParentId != null && { parent_issue_id: effectiveParentId }),
+      ...(assigneeId && { assigned_to_id: Number(assigneeId) }),
+      ...(uploadTokens.length > 0 && { uploads: uploadTokens }),
+    };
+
+    const postIssue = (issue: any) =>
+      redmineFetch("/issues.json", apiKey, { method: "POST", body: JSON.stringify({ issue }) });
+
+    // Redmine answers validation failures with {"errors":[...]}. Assignees come
+    // from the whole contact directory rather than the project's own members,
+    // so "Assignee is invalid" (the user is not an allowed assignee on that
+    // project) is a normal outcome a QA needs to read and act on — not a raw
+    // JSON blob in a toast.
+    const readErrors = async (r: Response): Promise<string[]> => {
+      const body = await r.text();
+      try {
+        const parsed = JSON.parse(body);
+        if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) return parsed.errors.map(String);
+      } catch { /* not JSON — fall back to the raw body */ }
+      return [body];
+    };
+
+    let response = await postIssue({
+      ...baseIssue,
+      ...(customFields.length > 0 && { custom_fields: customFields }),
+    });
+
+    let customFieldsDropped = false;
+    let firstErrors: string[] = [];
+    if (!response.ok) {
+      firstErrors = await readErrors(response);
+      // Complexity/date/source custom fields are configured globally, but not
+      // every Redmine project actually has all of them enabled — Redmine then
+      // rejects the whole issue rather than ignoring the fields it doesn't
+      // recognize. Retry without them so the defect still gets created; only
+      // the metadata that project doesn't support is lost.
+      //
+      // Gated on the errors actually naming one of those fields. Retrying blind
+      // made every unrelated failure worse: an unusable parent came back as
+      // "Complexity cannot be blank; Targeted Start Date cannot be blank;
+      // Targeted Completion Date cannot be blank; Parent task is invalid",
+      // because the retry stripped fields the tracker requires and the second
+      // response was the one reported. Only the last clause was the real cause.
+      const namesACustomField = firstErrors.some((message) =>
+        CUSTOM_FIELD_ERROR_HINTS.some((hint) => message.toLowerCase().includes(hint)),
+      );
+      if (customFields.length > 0 && namesACustomField) {
+        response = await postIssue(baseIssue);
+        customFieldsDropped = response.ok;
+      }
+    }
+
+    if (!response.ok) {
+      // Always the FIRST attempt's errors: the retry deliberately sends a
+      // weaker payload, so its complaints describe what we removed, not what
+      // the reporter got wrong.
+      throw new Error(`Redmine returned ${response.status}: ${firstErrors.join("; ")}`);
+    }
+
+    const data: any = await response.json();
+    res.status(201).json({
+      id: data.issue.id,
+      url: `${getBaseUrl()}/issues/${data.issue.id}`,
+      customFieldsDropped,
+      ...(parentDropped ? { parentDropped } : {}),
+    });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to create issue: ${err.message}` });
   }

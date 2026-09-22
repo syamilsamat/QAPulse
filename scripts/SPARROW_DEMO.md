@@ -1,6 +1,6 @@
 # SPARROW / CR-2026-014 demo data
 
-Seeds QAPulse with the exact end-to-end storyline from "QAPulse — End-to-End
+Seeds QM Pulse with the exact end-to-end storyline from "QM Pulse — End-to-End
 Delivery Workflow & Mock-Up Scenario Guide" (v1.0, 17 July 2026): one
 project (SPARROW — ePayment Gateway Revamp), 11 named users across every
 role in the lifecycle, the CR-2026-014 "FPX Online Payment Integration"
@@ -44,7 +44,7 @@ the main steps below, each independent of the others:
   and a milestone that's still just a placeholder nobody's touched.
 - `seed-sparrow-uat-signoff-bonus.ts` — uploads a real UAT sign-off document
   for CR-2026-014, showing CR056's gap between the business acceptance pack
-  landing and the FA Lead formally closing the milestone in QAPulse.
+  landing and the FA Lead formally closing the milestone in QM Pulse.
 - `seed-sparrow-data-prep-bonus.ts` — the CR070 Data Prep milestone type
   (MS-10 — CR-2026-029): auto-populated "what QA needs to prepare"
   description, multi-assignee staffing (qa_lead + qa_member), a
@@ -69,9 +69,9 @@ both are logged as "✓ blocked as expected."
 
 ## Before you run it
 
-1. Find your app's public URL (the one you open QAPulse at in a browser),
+1. Find your app's public URL (the one you open QM Pulse at in a browser),
    e.g. `https://your-repl-name.username.repl.co`.
-2. Make sure `admin@qapulse.com` is still a working admin login (override
+2. Make sure `admin@qmpulse.com` is still a working admin login (override
    via `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` if you changed it).
 
 ## Run it (3 steps, in order)
@@ -80,7 +80,7 @@ From the Replit shell:
 
 ```bash
 cd scripts
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-data.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-data.ts
 ```
 
 This makes a few hundred real API calls — takes a minute or two. It prints
@@ -103,49 +103,49 @@ That's the main storyline done — log in as any of the 11 personas below and
 present. **Presenting the Requirements page?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-requirements-bonus.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-requirements-bonus.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-requirements-bonus.ts
 ```
 
 **Presenting Test Cases / Execution / QA Analytics?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-testcases-bonus.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-testcases-bonus.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-testcases-bonus.ts
 ```
 
 **Presenting the Defects page?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-defects-bonus.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-defects-bonus.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-defects-bonus.ts
 ```
 
 **Presenting the PM Dashboard?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-pmdashboard.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-pmdashboard.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-pmdashboard.ts
 ```
 
 **Presenting the Milestones page?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-milestones-bonus.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-milestones-bonus.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-milestones-bonus.ts
 ```
 
 **Presenting UAT sign-offs?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-uat-signoff-bonus.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-uat-signoff-bonus.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-uat-signoff-bonus.ts
 ```
 
 **Presenting the Data Prep milestone type (CR070)?**
 
 ```bash
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-data-prep-bonus.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-sparrow-data-prep-bonus.ts
 DATABASE_URL=$DATABASE_URL npx tsx src/finalize-sparrow-data-prep-bonus.ts
 ```
 
@@ -173,22 +173,22 @@ so it stays readable against the document regardless of the shift.
 
 ## Logging in
 
-All 11 users share one password: `Sparrow@2026`. Emails are
-`firstname.lastname@demo.qapulse.local`.
+All 11 users share one password: `password123`. Emails are
+`firstname.lastname@demo.qmpulse.local`.
 
 | Name | Role | Email |
 |---|---|---|
-| Salmah Idris | PMO | salmah.idris@demo.qapulse.local |
-| Rizal Hamzah | Head of PM | rizal.hamzah@demo.qapulse.local |
-| Aina Zulkifli | FA (author) | aina.zulkifli@demo.qapulse.local |
-| Daniel Wong | FA Lead (approver/sign-off) | daniel.wong@demo.qapulse.local |
-| Harith Rahman | FA (peer reviewer) | harith.rahman@demo.qapulse.local |
-| Farhan Abdullah | Dev Lead | farhan.abdullah@demo.qapulse.local |
-| Wei Jun Tan | Developer | weijun.tan@demo.qapulse.local |
-| Kavitha Nair | Developer | kavitha.nair@demo.qapulse.local |
-| Melissa Lim | QA Lead | melissa.lim@demo.qapulse.local |
-| Syafiq Osman | QA Engineer (PIC) | syafiq.osman@demo.qapulse.local |
-| Nurul Huda | QA Engineer | nurul.huda@demo.qapulse.local |
+| Salmah Idris | PMO | salmah.idris@demo.qmpulse.local |
+| Rizal Hamzah | Head of PM | rizal.hamzah@demo.qmpulse.local |
+| Aina Zulkifli | FA (author) | aina.zulkifli@demo.qmpulse.local |
+| Daniel Wong | FA Lead (approver/sign-off) | daniel.wong@demo.qmpulse.local |
+| Harith Rahman | FA (peer reviewer) | harith.rahman@demo.qmpulse.local |
+| Farhan Abdullah | Dev Lead | farhan.abdullah@demo.qmpulse.local |
+| Wei Jun Tan | Developer | weijun.tan@demo.qmpulse.local |
+| Kavitha Nair | Developer | kavitha.nair@demo.qmpulse.local |
+| Melissa Lim | QA Lead | melissa.lim@demo.qmpulse.local |
+| Syafiq Osman | QA Engineer (PIC) | syafiq.osman@demo.qmpulse.local |
+| Nurul Huda | QA Engineer | nurul.huda@demo.qmpulse.local |
 
 Good pages to show the CEO, in PDF order: **Milestones** (CR-2026-014's
 phase Gantt + the ENV2→ENV4 change history) → **Requirements** (REQ-101…104
@@ -206,7 +206,7 @@ today, 2 full rework cycles, and a defect still open right now.
 
 ```bash
 cd scripts
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-sparrow-data.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-sparrow-data.ts
 ```
 
 Reads `sparrow-seed-manifest.json` (written incrementally while seeding) and

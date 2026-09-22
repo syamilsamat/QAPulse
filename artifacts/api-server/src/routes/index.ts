@@ -4,6 +4,7 @@ import authRouter from "./auth";
 import usersRouter from "./users";
 import projectsRouter from "./projects";
 import requirementsRouter from "./requirements";
+import testCaseAttachmentsRouter from "./test-case-attachments";
 import testCasesRouter from "./test-cases";
 import tasksRouter from "./tasks";
 import dashboardRouter from "./dashboard";
@@ -22,25 +23,31 @@ import uatSignoffsRouter from "./uat-signoffs";
 import dataPrepFilesRouter from "./data-prep-files";
 import auditLogRouter from "./audit-log";
 import defectsRouter from "./defects";
+import defectHistoryRouter from "./defect-history";
 import teamsRouter from "./teams";
 import milestonesRouter from "./milestones";
 import requirementCommentsRouter from "./requirement-comments";
 import risksRouter from "./risks";
 import searchRouter from "./search";
 import pipelineSettingsRouter from "./pipeline-settings";
+import myWorkRouter from "./my-work";
+import platformIssuesRouter from "./platform-issues";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+// SSE authenticates with a query token because EventSource cannot set a
+// bearer header. Mount it before routers that use header-only catch-all auth.
+router.use(notificationsRouter);
 router.use(usersRouter);
 router.use(projectsRouter);
 router.use(requirementsRouter);
 router.use(testCasesRouter);
+router.use(testCaseAttachmentsRouter);
 router.use(tasksRouter);
 router.use(dashboardRouter);
 router.use(calendarRouter);
-router.use(notificationsRouter);
 router.use(socialEventsRouter);
 router.use(aiRouter);
 router.use(verdictReportRouter);
@@ -53,6 +60,7 @@ router.use(documentRegisterRouter);
 router.use(uatSignoffsRouter);
 router.use(dataPrepFilesRouter);
 router.use(auditLogRouter);
+router.use(defectHistoryRouter);
 router.use(defectsRouter);
 router.use(teamsRouter);
 router.use(milestonesRouter);
@@ -60,5 +68,7 @@ router.use(requirementCommentsRouter);
 router.use(risksRouter);
 router.use(searchRouter);
 router.use(pipelineSettingsRouter);
+router.use(myWorkRouter);
+router.use(platformIssuesRouter);
 
 export default router;

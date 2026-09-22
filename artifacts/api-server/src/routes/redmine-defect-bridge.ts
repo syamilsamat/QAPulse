@@ -38,7 +38,7 @@ export function defectCodePrefix(route: string): string {
   return "DEF-";
 }
 
-// Redmine priority name → QAPulse severity
+// Redmine priority name → QM Pulse severity
 export function severityFromPriority(priority?: string | null): string {
   const p = (priority ?? "").toLowerCase();
   if (p.includes("immediate") || p.includes("urgent")) return "critical";
@@ -79,7 +79,7 @@ export interface PushResult {
   error?: string;
 }
 
-// Write-through push: create the Redmine issue for a QAPulse defect.
+// Write-through push: create the Redmine issue for a QM Pulse defect.
 // Idempotent — a defect that already carries a redmineId is never re-pushed.
 // CR051 — search Redmine for an issue whose description carries our unique
 // marker, so a retried push reuses it instead of creating a duplicate.
@@ -107,6 +107,7 @@ export async function pushDefectToRedmine(
     complexity?: string | null;
     targetedStartDate?: string | null;
     targetedCompletionDate?: string | null;
+    uploads?: { filename: string; contentType: string; base64: string }[];
   } = {},
 ): Promise<PushResult> {
   if (defect.redmineId) return { ok: true, redmineId: defect.redmineId };
@@ -131,9 +132,9 @@ export async function pushDefectToRedmine(
   // CR051 — retry-safe: if a previous push created the issue but the response
   // was lost (timeout/reset after Redmine committed), no redmineId was stored
   // and this would create a second issue. The description embeds a unique
-  // marker (DEF-code / "QMPulse defect #id"); search for it first and reuse
+  // marker (DEF-code / "QM Pulse defect #id"); search for it first and reuse
   // any existing issue. Best-effort — search failures fall through to create.
-  const marker = defect.defectCode ?? `QMPulse defect #${defect.id}`;
+  const marker = defect.defectCode ?? `QM Pulse defect #${defect.id}`;
   const existingRemoteId = await findRedmineIssueByMarker(marker, apiKey);
   if (existingRemoteId) return { ok: true, redmineId: existingRemoteId };
 
@@ -142,10 +143,29 @@ export async function pushDefectToRedmine(
     defect.stepsToReproduce ? `*Steps to reproduce:*\n${defect.stepsToReproduce}` : null,
     defect.expectedResult ? `*Expected:*\n${defect.expectedResult}` : null,
     defect.actualResult ? `*Actual:*\n${defect.actualResult}` : null,
-    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${marker} (created via QMPulse)_`,
+    `_Severity: ${defect.severity} · Found in: ${defect.foundIn} · ${marker} (created via QM Pulse)_`,
   ].filter(Boolean);
 
   try {
+    const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
+    for (const file of opts.uploads ?? []) {
+      const uploadRes = await fetch(`${getBaseUrl()}/uploads.json?filename=${encodeURIComponent(file.filename)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          ...(apiKey ? { "X-Redmine-API-Key": apiKey } : {}),
+        },
+        body: Buffer.from(file.base64, "base64"),
+      });
+      if (!uploadRes.ok) {
+        const body = await uploadRes.text().catch(() => "");
+        return { ok: false, error: `Redmine attachment upload ${uploadRes.status}: ${body.slice(0, 200)}` };
+      }
+      const uploadData: any = await uploadRes.json();
+      if (uploadData?.upload?.token) {
+        uploadTokens.push({ token: uploadData.upload.token, filename: file.filename, content_type: file.contentType });
+      }
+    }
     const res = await redmineFetch(`/issues.json`, apiKey, {
       method: "POST",
       body: JSON.stringify({
@@ -156,6 +176,7 @@ export async function pushDefectToRedmine(
           description: descriptionParts.join("\n\n"),
           ...(opts.assigneeId ? { assigned_to_id: opts.assigneeId } : {}),
           ...(customFields.length ? { custom_fields: customFields } : {}),
+          ...(uploadTokens.length ? { uploads: uploadTokens } : {}),
         },
       }),
     });
@@ -172,7 +193,7 @@ export async function pushDefectToRedmine(
   }
 }
 
-// Sync the full Redmine status list (/issue_statuses.json) into QAPulse so
+// Sync the full Redmine status list (/issue_statuses.json) into QM Pulse so
 // the Defects page can offer the real status options for editing.
 export async function syncIssueStatuses(apiKey: string): Promise<{ synced: number; error?: string }> {
   try {
@@ -195,7 +216,7 @@ export async function syncIssueStatuses(apiKey: string): Promise<{ synced: numbe
   }
 }
 
-// Status write-through: push a status change made in QAPulse to Redmine.
+// Status write-through: push a status change made in QM Pulse to Redmine.
 // The caller only updates the local cache when this succeeds — Redmine stays
 // the system of record until CR021.
 export async function pushStatusToRedmine(
@@ -218,8 +239,95 @@ export async function pushStatusToRedmine(
   }
 }
 
+// CR075 — QA verification write-through. A verification is three things in
+// Redmine, and they have to travel in one PUT so the issue never shows a
+// status change with no explanation next to it: the status move, a journal
+// note saying who retested it and when, and the retest evidence as a real
+// attachment rather than a file that only exists inside QM Pulse.
+//
+// Note and attachment description are written here rather than by the caller,
+// so every verification reads the same way in Redmine no matter where in
+// QM Pulse it was triggered from.
+export async function pushVerificationToRedmine(
+  redmineIssueId: string,
+  statusRedmineId: number,
+  apiKey: string,
+  opts: {
+    verifierName: string;
+    fromStatus: string;
+    toStatus: string;
+    attachment?: { filename: string; contentType: string; base64: string };
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const verifiedOn = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+  // Textile — the same markup pushDefectToRedmine already writes.
+  const notes = [
+    "*QA Verification — Passed*",
+    "",
+    "This defect has been retested by QA and confirmed resolved.",
+    opts.attachment ? "The retest evidence is attached to this issue." : null,
+    "",
+    `Verified by: ${opts.verifierName}`,
+    `Verified on: ${verifiedOn}`,
+    `Status: ${opts.fromStatus} → ${opts.toStatus}`,
+    "",
+    "_Recorded via QM Pulse._",
+  ].filter((line) => line !== null).join("\n");
+
+  const attachmentDescription = `Verified by QA — retest evidence (${verifiedOn})`;
+
+  try {
+    const uploads: { token: string; filename: string; content_type: string; description: string }[] = [];
+    if (opts.attachment) {
+      const uploadRes = await fetch(
+        `${getBaseUrl()}/uploads.json?filename=${encodeURIComponent(opts.attachment.filename)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            ...(apiKey ? { "X-Redmine-API-Key": apiKey } : {}),
+          },
+          body: Buffer.from(opts.attachment.base64, "base64"),
+        },
+      );
+      if (!uploadRes.ok) {
+        const body = await uploadRes.text().catch(() => "");
+        return { ok: false, error: `Redmine attachment upload ${uploadRes.status}: ${body.slice(0, 200)}` };
+      }
+      const uploadData: any = await uploadRes.json();
+      if (uploadData?.upload?.token) {
+        uploads.push({
+          token: uploadData.upload.token,
+          filename: opts.attachment.filename,
+          content_type: opts.attachment.contentType,
+          description: attachmentDescription,
+        });
+      }
+    }
+
+    const res = await redmineFetch(`/issues/${encodeURIComponent(redmineIssueId)}.json`, apiKey, {
+      method: "PUT",
+      body: JSON.stringify({
+        issue: {
+          status_id: statusRedmineId,
+          notes,
+          ...(uploads.length > 0 ? { uploads } : {}),
+        },
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Redmine ${res.status}: ${body.slice(0, 300) || "verification rejected (check workflow permissions)"}` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Redmine unreachable" };
+  }
+}
+
 // CR061 — edit write-through: push corrected title/description/tracker made
-// in QAPulse (by the reporter or a qa_lead+) to Redmine. Same fail-closed
+// in QM Pulse (by the reporter or a qa_lead+) to Redmine. Same fail-closed
 // pattern as pushStatusToRedmine — the caller only updates the local row once
 // this succeeds. Tracker is resolved by name through the same trackersTable
 // cache pushDefectToRedmine already uses for creation.
@@ -252,7 +360,7 @@ export async function pushDefectFieldsToRedmine(
   }
 }
 
-// CR030 — QAPulse doesn't store a Redmine user id for its own accounts, so
+// CR030 — QM Pulse doesn't store a Redmine user id for its own accounts, so
 // pushing a native assignment out requires a best-effort name search against
 // Redmine's own user list. Silent miss (no match / Redmine down) just means
 // the push doesn't happen this cycle — the native assignment still stands
@@ -275,16 +383,16 @@ async function resolveRedmineUserIdByName(name: string, apiKey: string): Promise
   }
 }
 
-// Push a native (QAPulse) defect assignee to Redmine. Non-fatal on failure —
+// Push a native (QM Pulse) defect assignee to Redmine. Non-fatal on failure —
 // callers treat this as best-effort, same as pushDefectToRedmine's philosophy
-// of never blocking a QAPulse-side action on Redmine being reachable.
+// of never blocking a QM Pulse-side action on Redmine being reachable.
 export async function pushAssigneeToRedmine(
   redmineIssueId: string,
-  qaPulseUserId: number,
+  qmPulseUserId: number,
   apiKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, qaPulseUserId));
+    const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, qmPulseUserId));
     if (!user?.name) return { ok: false, error: "Assignee not found" };
     const redmineUserId = await resolveRedmineUserIdByName(user.name, apiKey);
     if (!redmineUserId) return { ok: false, error: `No matching Redmine user for "${user.name}"` };
@@ -307,9 +415,9 @@ export async function pushAssigneeToRedmine(
 // the record until CR021). Assignee is reconciled both ways (CR030): whichever
 // side changed more recently wins — Redmine's issue.updated_on vs our own
 // assigneeAssignedAt — since native in-app assignment is now a first-class
-// QAPulse action, not just a Redmine-side fact QAPulse mirrors.
-export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed: number }> {
-  const rows = await db
+// QM Pulse action, not just a Redmine-side fact QM Pulse mirrors.
+export async function refreshDefectStatuses(apiKey: string, allowedIds?: number[], record?: (defect: { id: number; redmineId: string | null }, unavailable: boolean) => Promise<void>): Promise<{ refreshed: number; failed: number; unavailable: number; error?: string }> {
+  const candidates = await db
     .select({
       id: defectsTable.id,
       redmineId: defectsTable.redmineId,
@@ -318,19 +426,40 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
     })
     .from(defectsTable)
     .where(isNotNull(defectsTable.redmineId));
-  if (rows.length === 0) return { refreshed: 0 };
+  const rows = allowedIds ? candidates.filter(row => allowedIds.includes(row.id)) : candidates;
+  if (rows.length === 0) return { refreshed: 0, failed: 0, unavailable: 0 };
 
   let refreshed = 0;
+  let unavailable = 0;
+  const errors = new Set<string>();
   for (let i = 0; i < rows.length; i += 90) {
     const chunk = rows.slice(i, i + 90);
     const ids = chunk.map((r: any) => r.redmineId).join(",");
     try {
-      const res = await redmineFetch(`/issues.json?issue_id=${ids}&status_id=*&limit=100`, apiKey);
-      if (!res.ok) continue;
+      const res = await redmineFetch(`/issues.json?issue_id=${ids}&status_id=*&limit=100`, apiKey, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        errors.add(res.status === 401 || res.status === 403
+          ? "Redmine rejected access. Check your Redmine credentials and permissions."
+          : `Redmine returned an error (HTTP ${res.status}). Please retry.`);
+        continue;
+      }
       const data: any = await res.json();
-      for (const issue of data?.issues ?? []) {
-        const local = chunk.find((r: any) => r.redmineId === String(issue.id));
-        if (!local) continue;
+      // A malformed or incomplete list must never be interpreted as deletion.
+      if (!Array.isArray(data?.issues) || data.issues.some((issue: any) => !Number.isInteger(issue?.id)) ||
+          (data.total_count != null && data.total_count > data.issues.length)) {
+        throw new Error("Incomplete Redmine response");
+      }
+      for (const local of chunk) {
+        if (!data.issues.some((issue: any) => String(issue.id) === local.redmineId)) {
+          await record?.(local, true);
+          unavailable++;
+        }
+      }
+      for (const local of chunk) {
+        const issue = data.issues.find((issue: any) => local.redmineId === String(issue.id));
+        if (!issue) continue;
 
         const update: Record<string, any> = {
           status: issue.status?.name ?? "Unknown",
@@ -363,20 +492,29 @@ export async function refreshDefectStatuses(apiKey: string): Promise<{ refreshed
         }
 
         await db.update(defectsTable).set(update).where(eq(defectsTable.id, local.id));
+        await record?.(local, false);
         refreshed++;
       }
     } catch {
-      // best-effort: stale cache is acceptable, next refresh catches up
+      errors.add("Could not complete the refresh from Redmine. Please try again.");
     }
   }
-  return { refreshed };
+  const failed = rows.length - refreshed - unavailable;
+  return {
+    refreshed,
+    failed,
+    unavailable,
+    ...(failed > 0 ? { error: errors.size
+      ? [...errors].join(" ")
+      : "Some linked issues were not returned by Redmine. They may be deleted or inaccessible." } : {}),
+  };
 }
 
 // Sync-from-Redmine dialog: walk the WHOLE subtree under a parent ticket
 // (children, grandchildren, …) breadth-first, so parents always come before
 // their children in the returned list. Read-only. Caps: depth 5, ~300 issues.
 // Fetch a single issue by id. Used when syncing from a typed-in parent Redmine
-// id, where the root ticket may not be in QAPulse yet — fetchIssueTree below
+// id, where the root ticket may not be in QM Pulse yet — fetchIssueTree below
 // only walks *descendants* and never returns the root itself.
 export async function fetchSingleIssue(
   apiKey: string,
@@ -433,7 +571,7 @@ export async function fetchIssueTree(
 
 // "Pull now": import the 100 most recently updated issues of the chosen
 // tracker, each routed by its tracker (QA/Prod/Others tabs, User Story →
-// requirement). INSERT-ONLY: issues already in QAPulse are ignored untouched
+// requirement). INSERT-ONLY: issues already in QM Pulse are ignored untouched
 // ("Refresh status" is the update mechanism).
 export interface PullResultCounts {
   imported: number;

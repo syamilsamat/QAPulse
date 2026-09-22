@@ -1,0 +1,5312 @@
+import { readVerdictDrilldown, matchesExecutionResult } from "@/lib/verdict-drilldown";
+import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
+import { useRoute, useLocation, useSearch } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  ArrowLeft,
+  Plus,
+  Save,
+  Download,
+  Upload,
+  Trash2,
+  FileSpreadsheet,
+  Loader2,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Sparkles,
+  Search,
+  X,
+  Filter,
+  BarChart,
+  PieChart,
+  Users,
+  ExternalLink,
+  Library,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  GripVertical,
+  Tag,
+  ArrowDownToLine,
+  CalendarClock,
+  Paperclip,
+  Eye,
+  FileText,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { useToast } from "@/hooks/use-toast";
+import { useReviewEligibility } from "@/hooks/use-review-eligibility";
+import { useAuth } from "@/contexts/AuthContext";
+import * as XLSX from "xlsx-js-style";
+import { format } from "date-fns";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  fetchTestCases,
+  saveTestCases,
+  fetchModules,
+  fetchProjectModules,
+  fetchUsers,
+  fetchTrackers,
+  fetchRequirements,
+  resolveRequirementByRedmine,
+  type ExecutionTestCase,
+  type ExecutionModule,
+  type ExecutionUser,
+  type TrackerOption,
+  type RequirementOption,
+  type PhaseTimelineEntry,
+  uploadExecutionEvidence,
+  deleteExecutionEvidence,
+  executionEvidenceUrl,
+  reviewExecutionTestCase,
+  fetchTestCaseTrail,
+  type ReturnedExecutionTestCase,
+  type ExecutionTcTrail,
+} from "@/lib/execution-api";
+import { getAllDescendants } from "@/lib/utils";
+import { splitTestSteps, numberTestSteps, isAlreadyNumbered } from "@/lib/test-steps";
+import DefectCreationModal, { type DefectCreationResult } from "@/components/DefectCreationModal";
+
+const RESULT_OPTIONS = [
+  "Passed",
+  "Failed",
+  "Blocked",
+  "In Progress",
+  "Not Executed",
+  "",
+];
+
+// CR075 — matches RequirementDetail.tsx / Tasks.tsx's phase-timeline date formatting
+function fmtPhaseDate(iso: string | null): string {
+  return iso ? format(new Date(iso), "dd MMM yyyy") : "—";
+}
+
+// Normalizes any casing/wording drift in a stored result value (e.g. a
+// lowercase "pass" written by a data-fixup script) back to the canonical
+// title-case label — display should never depend on every write path
+// storing the exact same casing.
+function normalizeResultValue(val: string | null | undefined): string {
+  if (!val) return "";
+  const clean = val.toLowerCase().trim();
+  if (clean.includes("pass")) return "Passed";
+  if (clean.includes("fail")) return "Failed";
+  if (clean.includes("block")) return "Blocked";
+  if (clean.includes("prog")) return "In Progress";
+  if (clean.includes("exec") || clean.includes("res") || clean.includes("not")) return "Not Executed";
+  return val.trim();
+}
+
+const RESULT_PILL_ACTIVE: Record<string, string> = {
+  Passed: "bg-green-100 text-green-700 border-green-300",
+  Failed: "bg-red-100 text-red-700 border-red-300",
+  Blocked: "bg-orange-100 text-orange-700 border-orange-300",
+  "In Progress": "bg-blue-100 text-blue-700 border-blue-300",
+  "Not Executed": "bg-slate-100 text-slate-600 border-slate-300",
+};
+
+const RESULT_DOT_COLOR: Record<string, string> = {
+  Passed: "bg-green-500",
+  Failed: "bg-red-500",
+  Blocked: "bg-orange-400",
+  "In Progress": "bg-blue-400",
+  "Not Executed": "bg-slate-300",
+};
+
+export type AppExecutionTestCase = ExecutionTestCase & {
+  tracker?: string;
+};
+
+// A row added to an already-approved file was never part of what the reviewer
+// signed off on, so it stays frozen until a peer accepts it individually.
+// Execution eligibility is therefore the file gate AND this row gate.
+const isRowAccepted = (row: AppExecutionTestCase) => (row.reviewState ?? "accepted") === "accepted";
+
+// The requirement this case covers is still being built. Reviewing and
+// approving a test case says the case itself is sound — it does not say the
+// feature is finished, so the Result control stays locked until dev hands the
+// requirement over. Enforced server-side too; this is what stops a tester
+// discovering it only from a silently reverted save.
+const isRowInDevelopment = (row: AppExecutionTestCase) => row.requirementInDevelopment === true;
+
+// ── Test steps ───────────────────────────────────────────────────────────────
+// splitTestSteps / numberTestSteps live in lib/test-steps.ts — the execution
+// sheet, the edit-mode normaliser and the Redmine defect description all have
+// to number steps identically, or "step 4 failed" means a different step
+// depending on where you read it.
+
+/** Read-only test steps, renumbered from line order. */
+function NumberedSteps({ value, className = "" }: { value: string | null | undefined; className?: string }) {
+  const steps = splitTestSteps(value);
+  if (steps.length === 0) {
+    return <span className="text-xs italic opacity-40">—</span>;
+  }
+  // A single step needs no "1." in front of it — that reads as a list of one.
+  if (steps.length === 1) {
+    return <span className={`text-xs text-foreground whitespace-pre-wrap ${className}`}>{steps[0]}</span>;
+  }
+  return (
+    <ol className={`text-xs text-foreground space-y-1 ${className}`}>
+      {steps.map((step, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="shrink-0 tabular-nums font-semibold text-muted-foreground select-none">{i + 1}.</span>
+          <span className="min-w-0 whitespace-pre-wrap break-words">{step}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// Fields compared to detect drift between an execution copy and its linked library
+// test case. Execution-only concerns (QA PIC, Result, Defect Number, QA Notes) are
+// deliberately excluded — they always differ and shouldn't trigger a sync prompt.
+const LIBRARY_COMPARE_FIELDS: { execField: keyof AppExecutionTestCase; libField: string }[] = [
+  { execField: "caseName", libField: "title" },
+  { execField: "scenario", libField: "scenario" },
+  { execField: "preCondition", libField: "preconditions" },
+  { execField: "testData", libField: "testData" },
+  { execField: "testSteps", libField: "testSteps" },
+  { execField: "expectedResult", libField: "expectedResult" },
+  { execField: "moduleName", libField: "module" },
+  { execField: "userStory", libField: "redmineUserStory" },
+  { execField: "tracker", libField: "tracker" },
+];
+
+function getLibraryDrift(row: AppExecutionTestCase, lib: any | undefined | null): boolean {
+  if (!lib) return false;
+  return LIBRARY_COMPARE_FIELDS.some(
+    ({ execField, libField }) => ((row[execField] as string) || "").trim() !== ((lib[libField] as string) || "").trim(),
+  );
+}
+
+type ModuleProgress = { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number };
+
+function getModuleProgress(rows: AppExecutionTestCase[]): ModuleProgress {
+  const p: ModuleProgress = { total: rows.length, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
+  for (const r of rows) {
+    const res = (r.result || "").toLowerCase();
+    if (res === "passed") p.passed++;
+    else if (res === "failed") p.failed++;
+    else if (res === "blocked") p.blocked++;
+    else if (res === "in progress") p.inProgress++;
+    else p.notExecuted++;
+  }
+  return p;
+}
+
+function groupByModule(rows: AppExecutionTestCase[]) {
+  const map = new Map<string, AppExecutionTestCase[]>();
+  for (const row of rows) {
+    const key = row.moduleName?.trim() || "(No Module)";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(row);
+  }
+  return Array.from(map.entries()).map(([name, rows]) => ({ name, rows }));
+}
+
+// Reorders the rows whose (stringified) ids are in `scopeIds` — moving `activeId` to
+// `overId`'s position — while leaving every row outside the scope exactly where it was
+// in `base`. Used for both the flat spreadsheet-view list and a single module's rows in
+// tree view, so a drag never affects rows outside its own scope.
+function reorderWithinScope(
+  base: AppExecutionTestCase[],
+  scopeIds: string[],
+  activeId: string,
+  overId: string,
+): AppExecutionTestCase[] {
+  const oldIndex = scopeIds.indexOf(activeId);
+  const newIndex = scopeIds.indexOf(overId);
+  if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return base;
+
+  const reordered = arrayMove(scopeIds, oldIndex, newIndex);
+  const rowByStringId = new Map(base.map((r) => [String(r.id), r]));
+  const scopeSet = new Set(scopeIds);
+  let cursor = 0;
+  return base.map((row) =>
+    scopeSet.has(String(row.id)) ? rowByStringId.get(reordered[cursor++])! : row,
+  );
+}
+
+function MiniProgressBar({ data }: { data: ModuleProgress }) {
+  if (!data || data.total === 0) return <span className="text-xs text-muted-foreground italic">No cases</span>;
+  const pct = (n: number) => `${Math.round((n / data.total) * 100)}%`;
+  return (
+    <div className="flex items-center gap-2 flex-1">
+      <div className="flex h-2 rounded-full overflow-hidden flex-1 bg-muted min-w-[80px]">
+        {data.passed > 0 && <div className="bg-green-500" style={{ width: pct(data.passed) }} />}
+        {data.failed > 0 && <div className="bg-red-500" style={{ width: pct(data.failed) }} />}
+        {data.blocked > 0 && <div className="bg-orange-400" style={{ width: pct(data.blocked) }} />}
+        {data.inProgress > 0 && <div className="bg-blue-400" style={{ width: pct(data.inProgress) }} />}
+        {data.notExecuted > 0 && <div className="bg-muted-foreground/20" style={{ width: pct(data.notExecuted) }} />}
+      </div>
+      <div className="flex gap-1.5 text-[10px] whitespace-nowrap">
+        {data.passed > 0 && <span className="text-green-700 font-medium">{data.passed}P</span>}
+        {data.failed > 0 && <span className="text-red-700 font-medium">{data.failed}F</span>}
+        {data.blocked > 0 && <span className="text-orange-600 font-medium">{data.blocked}B</span>}
+        {data.inProgress > 0 && <span className="text-blue-600 font-medium">{data.inProgress}IP</span>}
+        {data.notExecuted > 0 && <span className="text-muted-foreground">{data.notExecuted}NE</span>}
+      </div>
+    </div>
+  );
+}
+
+function FilterDropdown({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0">
+          {label}
+          {selected.length > 0 && (
+            <Badge variant="secondary" className="h-4 px-1.5 text-[10px] font-semibold">
+              {selected.length}
+            </Badge>
+          )}
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2" align="start">
+        <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+          {options.length === 0 ? (
+            <span className="text-xs text-muted-foreground italic px-2 py-1">No options available</span>
+          ) : (
+            options.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-muted/60 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  className="w-3.5 h-3.5 rounded border-gray-300"
+                  checked={selected.includes(opt.value)}
+                  onChange={() => onToggle(opt.value)}
+                />
+                {opt.label}
+              </label>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DetailItem({ label, value, isCode, highlight }: { label: string; value?: string | null; isCode?: boolean; highlight?: boolean }) {
+  if (!value) return (
+    <div>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">{label}</p>
+      <p className="text-xs text-muted-foreground italic">—</p>
+    </div>
+  );
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">{label}</p>
+      {isCode ? (
+        <pre className="text-xs bg-muted/50 rounded p-2 whitespace-pre-wrap font-mono leading-relaxed">{value}</pre>
+      ) : highlight ? (
+        <p className="text-xs bg-primary/5 border border-primary/20 rounded p-2 leading-relaxed">{value}</p>
+      ) : (
+        <p className="text-xs text-foreground leading-relaxed">{value}</p>
+      )}
+    </div>
+  );
+}
+
+const COLUMN_MAPPINGS: Record<string, string[]> = {
+  testCaseId: ["case id", "test case id", "tc id", "id"],
+  userStory: [
+    "redmine ticket id",
+    "redmine user story",
+    "user story",
+    "story",
+    "requirement",
+    "requirement id",
+  ],
+  tracker: ["tracker"],
+  scenario: ["scenario", "tracker scenario"],
+  preCondition: [
+    "pre condition",
+    "preconditions",
+    "pre-conditions",
+    "precondition",
+  ],
+  caseName: ["case", "case name", "title"],
+  testSteps: ["steps", "test steps", "testing steps"],
+  testData: ["test data", "data"],
+  expectedResult: ["expected result", "expected outcome", "expected results"],
+  result: ["result", "status", "test result"],
+  defectNumber: [
+    "redmine defect ticket id",
+    "redmine defect",
+    "defect #",
+    "defect id",
+    "bug id",
+    "redmine id",
+    "redmine defect number",
+  ],
+  qaPic: ["qa pic", "qa owner", "tester", "assigned qa"],
+  comments: [
+    "additional/comments/issues",
+    "additional / comments / issues",
+    "comments",
+    "additional",
+    "issues",
+    "remarks",
+  ],
+  moduleName: ["module name", "module", "feature"],
+};
+
+const getResultColorClass = (result?: string) => {
+  switch (result?.toLowerCase()) {
+    case "passed":
+      return "bg-green-100 text-green-800 border-green-200";
+    case "failed":
+      return "bg-red-100 text-red-800 border-red-200";
+    case "blocked":
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    case "in progress":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "not executed":
+    default:
+      return "bg-muted/30 text-muted-foreground border-transparent";
+  }
+};
+
+const tableInputClass =
+  "h-full w-full text-xs md:text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 min-h-[80px] resize-none block";
+
+const parseDefectIds = (value: string): string[] =>
+  value.split(/[\s,;]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s));
+const tableSelectClass =
+  "w-full h-full min-h-[80px] px-2 text-xs font-sans bg-transparent border-0 outline-none focus:ring-1 focus:ring-primary focus:z-10 relative block";
+
+interface ImportSummary {
+  status: "Success" | "Partial Success" | "Failed";
+  totalWorksheetsScanned: number;
+  totalWorksheetsImported: number;
+  totalRowsImported: number;
+  totalRowsSkipped: number;
+  missingColumns: string[];
+  duplicateCaseIds: string[];
+}
+
+const CopilotTextarea = ({
+  value: rawValue,
+  onChange,
+  // Called once on blur with the final text. Separate from onChange because
+  // rewriting the text on every keystroke would fight the caret — the test
+  // steps field uses it to renumber the lines once the author has stopped.
+  onCommit,
+  fieldName,
+  className,
+  minHeight = "80px",
+}: any) => {
+  const value = rawValue ?? "";
+  const [suggestion, setSuggestion] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const divRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const handler = setTimeout(async () => {
+      if (value && isTyping) {
+        try {
+          const res = await fetch("/api/ai/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: `You are an inline AI autocomplete assistant for a QA tester writing a test case. Current field: ${fieldName}. Current text written so far: "${value}". Provide ONLY the next logical 3-10 words to continue or complete the thought. Do NOT repeat the existing text. Do NOT wrap in quotes. If the sentence is fully complete, return an empty string.`,
+            }),
+          });
+          const data = await res.json();
+          if (data.reply) {
+            let rawReply = data.reply.replace(/^["']|["']$/g, "").trim();
+            if (rawReply) {
+              setSuggestion(
+                (value.endsWith(" ") || value.endsWith("\n") ? "" : " ") +
+                  rawReply,
+              );
+            }
+          }
+        } catch (e) {
+          console.error("AI Auto-complete failed", e);
+        }
+      }
+      setIsTyping(false);
+    }, 600);
+
+    return () => clearTimeout(handler);
+  }, [value, isTyping, fieldName]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab" && suggestion) {
+      e.preventDefault();
+      onChange(value + suggestion);
+      setSuggestion("");
+    } else if (e.key === "Escape") {
+      setSuggestion("");
+    } else if (e.key !== "Shift" && e.key !== "Control" && e.key !== "Alt") {
+      setIsTyping(true);
+      setSuggestion("");
+    }
+  };
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    e.target.style.height = "auto";
+    e.target.style.height = `${e.target.scrollHeight}px`;
+    if (divRef.current) {
+      divRef.current.style.height = "auto";
+      divRef.current.style.height = `${e.target.scrollHeight}px`;
+    }
+    onChange(e.target.value);
+  };
+
+  const handleBlur = () => {
+    setSuggestion("");
+    setIsTyping(false);
+    onCommit?.(value);
+  };
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      if (divRef.current) {
+        divRef.current.style.height = "auto";
+        divRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      }
+    }
+  }, []);
+
+  return (
+    <div className="relative w-full h-full group" style={{ minHeight }}>
+      {isTyping && (
+        <Sparkles className="absolute right-2 top-2 w-3 h-3 text-primary animate-pulse z-20 opacity-50" />
+      )}
+
+      <div
+        ref={divRef}
+        className={`absolute inset-0 pointer-events-none whitespace-pre-wrap break-words ${className}`}
+        style={{ color: "transparent", zIndex: 1, minHeight }}
+      >
+        {value}
+        <span className="text-muted-foreground/40 font-semibold select-none">
+          {suggestion}
+        </span>
+      </div>
+
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={handleInput}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+        className={`relative z-10 bg-transparent w-full resize-none overflow-hidden ${className} outline-none border-none`}
+        rows={1}
+        style={{ minHeight }}
+      />
+    </div>
+  );
+};
+
+// Auto-expanding textarea for table cells — matches font + size of CopilotTextarea
+const TableAutoTextarea = ({
+  value,
+  onChange,
+  className,
+  ...props
+}: React.ComponentProps<typeof Textarea>) => {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <Textarea
+      ref={ref}
+      value={value}
+      className={className}
+      onChange={(e) => {
+        e.target.style.height = "auto";
+        e.target.style.height = `${e.target.scrollHeight}px`;
+        onChange?.(e);
+      }}
+      {...props}
+    />
+  );
+};
+
+// --- RESULT PILLS ---
+const RESULT_PILLS = [
+  { value: "Passed",       bg: "#E1F5EE", border: "#9FE1CB", color: "#085041" },
+  { value: "Failed",       bg: "#FCEBEB", border: "#F7C1C1", color: "#791F1F" },
+  { value: "Blocked",      bg: "#FAEEDA", border: "#FAC775", color: "#633806" },
+  { value: "In Progress",  bg: "#E6F1FB", border: "#B5D4F4", color: "#0C447C" },
+  { value: "Not Executed", bg: "transparent", border: "#B4B2A9", color: "#5F5E5A" },
+];
+
+function ResultPills({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <div className="flex flex-wrap gap-1 p-1">
+      {RESULT_PILLS.map(p => (
+        <button
+          key={p.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange(p.value)}
+          style={{
+            background: value === p.value ? p.bg : "transparent",
+            border: `1.5px solid ${value === p.value ? p.border : "hsl(var(--border))"}`,
+            color: value === p.value ? p.color : "hsl(var(--muted-foreground))",
+            borderRadius: 20, padding: "2px 10px",
+            fontSize: 11, fontWeight: value === p.value ? 500 : 400,
+            cursor: disabled ? "default" : "pointer",
+            opacity: disabled ? 0.6 : 1,
+          }}
+        >
+          {p.value}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// --- MEMOIZED ROW COMPONENTS FOR PERFORMANCE ---
+interface RowProps {
+  row: AppExecutionTestCase;
+  index: number;
+  isSelected: boolean;
+  onToggleSelect: (id: string | number, checked: boolean) => void;
+  onUpdate: (
+    id: string | number,
+    field: keyof AppExecutionTestCase,
+    value: string,
+  ) => void;
+  onDelete: (id: string | number) => void;
+  onPromote: (row: AppExecutionTestCase) => void;
+  onUpdateLibrary: (row: AppExecutionTestCase) => void;
+  onPullLatest: (row: AppExecutionTestCase) => void;
+  libraryDrift: boolean;
+  onBlurRow: (id: string | number) => void;
+  onAcknowledgeRevision: (id: string | number) => void;
+  onOpenTrail: (row: AppExecutionTestCase) => void;
+  availableModules: ExecutionModule[];
+  availableTrackers: TrackerOption[];
+  qaUsers: ExecutionUser[];
+  hiddenCols: Set<string>;
+  currentUser: { id: number; name: string; role: string } | null;
+  currentFileReviewStatus: string | null;
+  mode: "execute" | "edit";
+  isDirty: boolean;
+  dragDisabled?: boolean;
+}
+
+const DesktopTableRow = React.memo(
+  ({
+    row,
+    index,
+    isSelected,
+    onToggleSelect,
+    onUpdate,
+    onDelete,
+    onPromote,
+    onUpdateLibrary,
+    onPullLatest,
+    libraryDrift,
+    onBlurRow,
+    onAcknowledgeRevision,
+    onOpenTrail,
+    availableModules,
+    availableTrackers,
+    qaUsers,
+    hiddenCols,
+    currentUser,
+    currentFileReviewStatus,
+    mode,
+    isDirty,
+    dragDisabled,
+  }: RowProps) => {
+    const hide = (col: string) => hiddenCols.has(col);
+    const defectIds = parseDefectIds(row.defectNumber || "");
+    const readOnly = mode === "execute";
+
+    const { setNodeRef, attributes, listeners, transform, transition } = useSortable({
+      id: String(row.id),
+      disabled: dragDisabled,
+    });
+
+    const roCell = (value: string | undefined) => (
+      <span className="text-xs text-foreground whitespace-pre-wrap">{value || <span className="italic opacity-40">—</span>}</span>
+    );
+
+    const isQaMember = currentUser?.role === "qa_member";
+    const isAssignedToMe = row.qaPic === currentUser?.name;
+    const isUnassigned = !row.qaPic;
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+
+    if (row.rowType === "group") {
+      return (
+        <tr
+          ref={setNodeRef}
+          className="group bg-accent/30"
+          style={{ transform: CSS.Transform.toString(transform), transition }}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              onBlurRow(row.id as string | number);
+            }
+          }}
+        >
+          <td colSpan={20} className="border border-border px-3 py-2">
+            <div className="flex items-center gap-2">
+              {!readOnly && !dragDisabled && (
+                <button
+                  type="button"
+                  {...attributes}
+                  {...listeners}
+                  className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none shrink-0"
+                  aria-label="Drag to reorder"
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              {readOnly ? (
+                <span className="text-sm font-medium">{row.caseName || "Untitled group"}</span>
+              ) : (
+                <input
+                  className="flex-1 bg-transparent text-sm font-medium outline-none border-b border-dashed border-border focus:border-primary px-1"
+                  value={row.caseName || ""}
+                  placeholder="Group tag label"
+                  onChange={(e) => onUpdate(row.id as string | number, "caseName", e.target.value)}
+                />
+              )}
+              {!readOnly && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                  onClick={() => onDelete(row.id as string | number)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          </td>
+        </tr>
+      );
+    }
+
+    return (
+      <tr
+        ref={setNodeRef}
+        className={`hover:bg-muted/10 group align-top ${isQaMember && !canEdit ? "opacity-60" : ""}`}
+        style={{
+          borderLeft: isDirty ? "3px solid #378ADD" : "3px solid transparent",
+          transform: CSS.Transform.toString(transform),
+          transition,
+        }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            onBlurRow(row.id as string | number);
+          }
+        }}
+      >
+        {!readOnly && (
+          <td className="border border-border text-center text-xs font-sans text-muted-foreground bg-card py-2 sticky left-0 z-20">
+            <div className="flex items-center justify-center gap-1">
+              {!dragDisabled && (
+                <button
+                  type="button"
+                  {...attributes}
+                  {...listeners}
+                  className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+                  aria-label="Drag to reorder"
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                checked={isSelected} onChange={(e) => onToggleSelect(row.id as string | number, e.target.checked)} />
+            </div>
+          </td>
+        )}
+        {!readOnly && (
+          <td className="border border-border p-0 align-top sticky left-10 z-20 bg-card">
+            <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
+              <option value="">Select...</option>
+              {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </td>
+        )}
+        {!hide("testCaseId") && (
+          <td
+            className="border border-border px-2 py-2 align-top sticky bg-card z-20"
+            style={{ left: readOnly ? 0 : "14.5rem" }}
+          >
+            <span className="text-xs text-muted-foreground font-mono select-all">{row.caseId || row.testCaseId || "—"}</span>
+            <CompiledLibraryAttachments testCaseId={row.libraryTcId} />
+          </td>
+        )}
+        {!hide("userStory") && (
+          <td className="border border-border p-0 relative align-top">
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.userStory)}</div>
+              : <TableAutoTextarea className={tableInputClass} value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            }
+          </td>
+        )}
+        {!hide("tracker") && (
+          <td className="border border-border p-0 relative align-top">
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.tracker)}</div>
+              : <select className={tableSelectClass} value={row.tracker || ""} onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}>
+                  <option value="">Select...</option>
+                  {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                    <option value={row.tracker}>{row.tracker}</option>
+                  )}
+                </select>
+            }
+          </td>
+        )}
+        {!hide("scenario") && (
+          <td className="border border-border p-0 relative align-top">
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.scenario)}</div>
+              : <CopilotTextarea className={tableInputClass} value={row.scenario || ""} fieldName="Scenario" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+            }
+          </td>
+        )}
+        {!hide("preCondition") && (
+          <td className="border border-border p-0 relative align-top">
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.preCondition)}</div>
+              : <TableAutoTextarea className={tableInputClass} value={row.preCondition || ""} onChange={(e) => onUpdate(row.id as string, "preCondition", e.target.value)} />
+            }
+          </td>
+        )}
+        <td className="border border-border p-0 relative align-top">
+          {readOnly
+            ? <div className="px-2 py-2">{roCell(row.caseName)}</div>
+            : <CopilotTextarea className={tableInputClass} value={row.caseName || ""} fieldName="Case Name" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
+          }
+        </td>
+        <td className="border border-border p-0 relative align-top">
+          {readOnly
+            ? <div className="px-2 py-2"><NumberedSteps value={row.testSteps} /></div>
+            : <CopilotTextarea className={tableInputClass} value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) onUpdate(row.id as string, "testSteps", numberTestSteps(val)); }} />
+          }
+        </td>
+        {!hide("testData") && (
+          <td className="border border-border p-0 relative align-top">
+            {readOnly
+              ? <div className="px-2 py-2">{roCell(row.testData)}</div>
+              : <TableAutoTextarea className={tableInputClass} value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            }
+          </td>
+        )}
+        <td className="border border-border p-0 relative align-top">
+          {readOnly
+            ? <div className="px-2 py-2">{roCell(row.expectedResult)}</div>
+            : <CopilotTextarea className={tableInputClass} value={row.expectedResult || ""} fieldName="Expected Results" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
+          }
+        </td>
+        <td className={`border border-border p-0 relative align-top transition-colors ${getResultColorClass(row.result)}`}>
+          {canEdit ? (
+            <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
+          ) : (
+            <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
+          )}
+          {row.alertRevised && (
+            <button
+              onClick={() => onAcknowledgeRevision(row.id as string | number)}
+              className="mx-2 mb-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors flex items-center gap-1 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+              title="The linked requirement was revised since this was last executed — click to reset for retest"
+            >
+              <AlertTriangle className="w-2.5 h-2.5" /> Revised
+            </button>
+          )}
+          {!isRowAccepted(row) && (
+            <span
+              className="mx-2 mb-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+              title="Added after this file was approved — a peer must accept it before it can be executed"
+            >
+              <Clock className="w-2.5 h-2.5" /> Pending acceptance
+            </span>
+          )}
+          {isRowInDevelopment(row) && (
+            <span
+              className="mx-2 mb-1.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1 w-fit dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+              title="The linked requirement is still in development — the test case is approved, but there is nothing finished to run it against yet"
+            >
+              <Clock className="w-2.5 h-2.5" /> In development
+            </span>
+          )}
+          {typeof row.id === "number" && (
+            <button
+              type="button"
+              onClick={() => onOpenTrail(row)}
+              className="mx-2 mb-1.5 text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
+              title="Who changed this result, when, and why"
+            >
+              <Clock className="w-2.5 h-2.5" /> History
+            </button>
+          )}
+        </td>
+        {!hide("executedAt") && !isQaMember && (
+          <td className="border border-border px-2 py-2 align-top text-xs text-muted-foreground whitespace-nowrap min-w-[120px]">
+            {row.executedAt ? format(new Date(row.executedAt), "dd MMM HH:mm") : "—"}
+          </td>
+        )}
+        <td className="border border-border p-0 relative align-top">
+          {defectIds.length > 0 && (
+            <div className="px-2 pt-2 flex flex-wrap gap-x-2 gap-y-1">
+              {defectIds.map(id => (
+                <a key={id} href={`https://redmine.bestinet.my/issues/${id}`} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                  onClick={(e) => e.stopPropagation()}>
+                  <ExternalLink className="w-3 h-3" />#{id}
+                </a>
+              ))}
+            </div>
+          )}
+          {canEdit ? (
+            <TableAutoTextarea
+              className={`h-full w-full text-xs md:text-xs font-sans rounded-none border-0 focus-visible:ring-1 focus-visible:ring-primary focus:z-10 bg-transparent shadow-none text-left px-2 py-2 resize-none block ${defectIds.length > 0 ? "min-h-[36px]" : "min-h-[80px]"}`}
+              value={row.defectNumber || ""}
+              onChange={(e) => onUpdate(row.id as string, "defectNumber", e.target.value)}
+              placeholder={defectIds.length > 0 ? "" : "e.g. 38032, 38033"}
+            />
+          ) : (
+            <span className="px-2 py-2 text-xs block min-h-[36px]">{row.defectNumber || "—"}</span>
+          )}
+        </td>
+        {!hide("comments") && (
+          <td className="border border-border p-0 relative align-top">
+            {canEdit ? (
+              <TableAutoTextarea className={tableInputClass} value={row.comments || ""} onChange={(e) => onUpdate(row.id as string, "comments", e.target.value)} />
+            ) : (
+              <span className="px-2 py-2 text-xs block">{row.comments || "—"}</span>
+            )}
+          </td>
+        )}
+        <td className="border border-border p-0 relative align-top">
+          {isQaMember ? (
+            isAssignedToMe ? (
+              <div className="flex items-center gap-1 px-2 py-2">
+                <span className="text-xs font-medium truncate">{currentUser?.name}</span>
+                <button
+                  className="text-[10px] text-muted-foreground underline hover:text-destructive whitespace-nowrap"
+                  onClick={() => onUpdate(row.id as string, "qaPic", "")}
+                >
+                  Unassign
+                </button>
+              </div>
+            ) : isUnassigned ? (
+              <div className="px-2 py-2">
+                <button
+                  className="text-xs px-2 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition whitespace-nowrap"
+                  onClick={() => onUpdate(row.id as string, "qaPic", currentUser?.name || "")}
+                >
+                  + Assign to me
+                </button>
+              </div>
+            ) : (
+              <span className="px-2 py-2 text-xs text-muted-foreground block">{row.qaPic}</span>
+            )
+          ) : (
+            <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
+              <option value="">Select QA PIC...</option>
+              {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+            </select>
+          )}
+        </td>
+        {!readOnly && (
+          <td className="border border-border p-0 text-center align-top pt-2">
+            <div className="flex flex-col items-center gap-1">
+              {!row.libraryTcId ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Promote to Library"
+                  className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                  onClick={() => onPromote(row)}
+                >
+                  <Library className="w-4 h-4" />
+                </Button>
+              ) : libraryDrift ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Update library test case with these changes"
+                    className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                    onClick={() => onUpdateLibrary(row)}
+                  >
+                    <Library className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Pull latest from library"
+                    className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
+                    onClick={() => onPullLatest(row)}
+                  >
+                    <ArrowDownToLine className="w-4 h-4" />
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                onClick={() => onDelete(row.id as string | number)}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </td>
+        )}
+      </tr>
+    );
+  },
+);
+
+const MobileCardRow = React.memo(
+  ({
+    row,
+    index,
+    isSelected,
+    onToggleSelect,
+    onUpdate,
+    onDelete,
+    onBlurRow,
+    onAcknowledgeRevision,
+    onOpenTrail,
+    availableModules,
+    availableTrackers,
+    qaUsers,
+    hiddenCols,
+    currentUser,
+    currentFileReviewStatus,
+    mode,
+    isDirty,
+  }: RowProps) => {
+    const readOnly = mode === "execute";
+    const isQaMember = currentUser?.role === "qa_member";
+    const isAssignedToMe = row.qaPic === currentUser?.name;
+    const isUnassigned = !row.qaPic;
+    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+
+    return (
+      <Card
+        className={`p-3 space-y-3 shadow-sm relative transition-colors ${isSelected ? "bg-primary/5 border-primary/30" : ""}`}
+        style={{ borderLeft: isDirty ? "3px solid #378ADD" : undefined }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            onBlurRow(row.id as string | number);
+          }
+        }}
+      >
+        {!readOnly && (
+          <div className="absolute top-2 right-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive h-8 w-8"
+              onClick={() => onDelete(row.id as string | number)}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mb-1">
+          <input
+            type="checkbox"
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer text-primary focus:ring-primary"
+            checked={isSelected}
+            onChange={(e) =>
+              onToggleSelect(row.id as string | number, e.target.checked)
+            }
+          />
+          <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs font-bold">
+            #{index + 1}
+          </span>
+          <span className="font-semibold text-sm">Test Case</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Module
+            </Label>
+            <select
+              className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+              value={row.moduleName || ""}
+              onChange={(e) =>
+                onUpdate(row.id as string, "moduleName", e.target.value)
+              }
+            >
+              <option value="">Select...</option>
+              {availableModules.map((m) => (
+                <option key={m.id} value={m.name}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Result
+            </Label>
+            {canEdit ? (
+              <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
+            ) : (
+              <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
+                {row.result || "—"}
+              </div>
+            )}
+            {row.alertRevised && (
+              <button
+                onClick={() => onAcknowledgeRevision(row.id as string | number)}
+                className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors flex items-center gap-1 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+                title="The linked requirement was revised since this was last executed — click to reset for retest"
+              >
+                <AlertTriangle className="w-2.5 h-2.5" /> Revised
+              </button>
+            )}
+            {!isRowAccepted(row) && (
+              <span
+                className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800"
+                title="Added after this file was approved — a peer must accept it before it can be executed"
+              >
+                <Clock className="w-2.5 h-2.5" /> Pending acceptance
+              </span>
+            )}
+            {isRowInDevelopment(row) && (
+              <span
+                className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1 w-fit dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+                title="The linked requirement is still in development — the test case is approved, but there is nothing finished to run it against yet"
+              >
+                <Clock className="w-2.5 h-2.5" /> In development
+              </span>
+            )}
+            {typeof row.id === "number" && (
+              <button
+                type="button"
+                onClick={() => onOpenTrail(row)}
+                className="mt-1 text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1 w-fit"
+                title="Who changed this result, when, and why"
+              >
+                <Clock className="w-2.5 h-2.5" /> History
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Test Case ID
+            </Label>
+            <div className="min-h-[40px] flex items-center px-2 py-1 text-xs font-mono text-muted-foreground border border-input rounded-md bg-muted/20">
+              {row.caseId || row.testCaseId || "—"}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Redmine Ticket ID
+            </Label>
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.userStory || "—"}</p>
+              : <TableAutoTextarea className="min-h-[60px] text-xs md:text-xs p-2" value={row.userStory || ""} onChange={(e) => onUpdate(row.id as string, "userStory", e.target.value)} />
+            }
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Tracker
+            </Label>
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.tracker || "—"}</p>
+              : <select
+                  className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                  value={row.tracker || ""}
+                  onChange={(e) => onUpdate(row.id as string, "tracker", e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {availableTrackers.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  {row.tracker && !availableTrackers.some(t => t.name === row.tracker) && (
+                    <option value={row.tracker}>{row.tracker}</option>
+                  )}
+                </select>
+            }
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Test Data
+            </Label>
+            {readOnly
+              ? <p className="text-xs px-2 py-1 text-muted-foreground">{row.testData || "—"}</p>
+              : <TableAutoTextarea className="min-h-[40px] text-xs md:text-xs p-2" value={row.testData || ""} onChange={(e) => onUpdate(row.id as string, "testData", e.target.value)} />
+            }
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Scenario {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
+          </Label>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.scenario || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.scenario} fieldName="Scenario" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "scenario", val)} />
+              </div>
+          }
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Case {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
+          </Label>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.caseName || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.caseName} fieldName="Case Name" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "caseName", val)} />
+              </div>
+          }
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Steps {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
+          </Label>
+          {readOnly
+            ? <div className="px-2 py-1"><NumberedSteps value={row.testSteps} /></div>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.testSteps} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => onUpdate(row.id as string, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) onUpdate(row.id as string, "testSteps", numberTestSteps(val)); }} />
+              </div>
+          }
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            Expected Result {!readOnly && <Sparkles className="w-3 h-3 text-primary" />}
+          </Label>
+          {readOnly
+            ? <p className="text-xs px-2 py-1 text-muted-foreground whitespace-pre-wrap">{row.expectedResult || "—"}</p>
+            : <div className="border border-input rounded-md focus-within:ring-1">
+                <CopilotTextarea className="text-xs p-2 bg-transparent" value={row.expectedResult} fieldName="Expected Result" minHeight="60px" onChange={(val: string) => onUpdate(row.id as string, "expectedResult", val)} />
+              </div>
+          }
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t mt-2">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              Redmine Defect Ticket ID
+            </Label>
+            {parseDefectIds(row.defectNumber || "").length > 0 && (
+              <div className="flex flex-wrap gap-x-2 gap-y-1">
+                {parseDefectIds(row.defectNumber || "").map(id => (
+                  <a key={id} href={`https://redmine.bestinet.my/issues/${id}`} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                    onClick={(e) => e.stopPropagation()}>
+                    <ExternalLink className="w-3 h-3" />#{id}
+                  </a>
+                ))}
+              </div>
+            )}
+            {canEdit ? (
+              <TableAutoTextarea
+                className="min-h-[40px] text-xs md:text-xs p-2"
+                value={row.defectNumber || ""}
+                placeholder="e.g. 38032, 38033"
+                onChange={(e) =>
+                  onUpdate(row.id as string, "defectNumber", e.target.value)
+                }
+              />
+            ) : (
+              <div className="min-h-[40px] flex items-center px-2 text-xs text-muted-foreground border border-input rounded-md bg-muted/10">
+                {row.defectNumber || "—"}
+              </div>
+            )}
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold">
+              QA PIC
+            </Label>
+            {isQaMember ? (
+              isAssignedToMe ? (
+                <div className="flex min-h-[40px] items-center gap-2 px-2 border border-input rounded-md">
+                  <span className="text-xs font-medium">{currentUser?.name}</span>
+                  <button
+                    className="text-[10px] text-muted-foreground underline hover:text-destructive"
+                    onClick={() => onUpdate(row.id as string, "qaPic", "")}
+                  >
+                    Unassign
+                  </button>
+                </div>
+              ) : isUnassigned ? (
+                <button
+                  className="flex min-h-[40px] w-full items-center justify-center rounded-md border border-primary text-primary text-xs hover:bg-primary/10 transition"
+                  onClick={() => onUpdate(row.id as string, "qaPic", currentUser?.name || "")}
+                >
+                  + Assign to me
+                </button>
+              ) : (
+                <div className="flex min-h-[40px] items-center px-2 border border-input rounded-md bg-muted/10">
+                  <span className="text-xs text-muted-foreground">{row.qaPic}</span>
+                </div>
+              )
+            ) : (
+              <select
+                className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                value={row.qaPic || ""}
+                onChange={(e) =>
+                  onUpdate(row.id as string, "qaPic", e.target.value)
+                }
+              >
+                <option value="">Select QA PIC...</option>
+                {qaUsers.map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-1 pt-1">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+            QA Notes
+          </Label>
+          {canEdit ? (
+            <TableAutoTextarea
+              className="min-h-[40px] text-xs md:text-xs p-2"
+              value={row.comments || ""}
+              onChange={(e) =>
+                onUpdate(row.id as string, "comments", e.target.value)
+              }
+            />
+          ) : (
+            <div className="min-h-[40px] flex items-center px-2 text-xs text-muted-foreground border border-input rounded-md bg-muted/10">
+              {row.comments || "—"}
+            </div>
+          )}
+        </div>
+      </Card>
+    );
+  },
+);
+
+export default function TestCasesExecutionProgressPage() {
+  const [, params] = useRoute("/test-cases/execution/:id");
+  const [, setLocation] = useLocation();
+  const ticketId = params?.id || "Unknown";
+  const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [availableModules, setAvailableModules] = useState<ExecutionModule[]>([]);
+  const [availableTrackers, setAvailableTrackers] = useState<TrackerOption[]>([]);
+  const [requirementsList, setRequirementsList] = useState<RequirementOption[]>([]);
+  const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
+  const [data, setData] = useState<AppExecutionTestCase[]>([]);
+  // This file's own milestone, so an Excel import that auto-creates a
+  // requirement (via resolveRequirementByRedmine) can inherit it instead of
+  // leaving the new requirement milestone-less.
+  const [currentFileMilestoneId, setCurrentFileMilestoneId] = useState<number | null>(null);
+  const [currentFileId, setCurrentFileId] = useState<number | null>(null);
+  const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
+  const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
+  const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
+  const [currentFileReviewStatus, setCurrentFileReviewStatus] = useState<string | null>(null);
+  const [currentFileRejectionReason, setCurrentFileRejectionReason] = useState<string | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [currentFileQaPicSetBy, setCurrentFileQaPicSetBy] = useState<number | null>(null);
+  const [currentFileQaPic, setCurrentFileQaPic] = useState<string | null>(null);
+  // Per-row peer acceptance for cases added after the file was approved.
+  // `returnedRows` are the ones a reviewer sent back for rework — they are
+  // held off the sheet entirely, so they live here rather than in `data`.
+  const [returnedRows, setReturnedRows] = useState<ReturnedExecutionTestCase[]>([]);
+  const [returnRowTarget, setReturnRowTarget] = useState<AppExecutionTestCase | null>(null);
+  const [returnRowComment, setReturnRowComment] = useState("");
+  const [rowReviewBusy, setRowReviewBusy] = useState(false);
+  // CR075 — rolled-up phase timeline (planned dates from the milestone,
+  // actual dates rolled up across every requirement this file's test cases
+  // link to). Collapsed by default, same convention as RequirementDetail's
+  // History (CR074).
+  const [currentFilePhaseTimeline, setCurrentFilePhaseTimeline] = useState<PhaseTimelineEntry[] | null>(null);
+  const [currentFileLinkedReqCount, setCurrentFileLinkedReqCount] = useState(0);
+  const [phaseTimelineExpanded, setPhaseTimelineExpanded] = useState(false);
+  // A file with no milestone can't record results — see the same guard on
+  // the backend. Lets a user link one right here instead of hitting a save
+  // error the first time they try to record a result.
+  const [milestoneOptions, setMilestoneOptions] = useState<{ id: number; name: string }[]>([]);
+  const [selectedMilestoneToLink, setSelectedMilestoneToLink] = useState<string>("");
+  const [linkingMilestone, setLinkingMilestone] = useState(false);
+
+  // Dirty tracking — only changed rows go out on auto-save
+  const [dirtyRowIds, setDirtyRowIds] = useState<Set<any>>(new Set());
+  const [deletedDbIds, setDeletedDbIds] = useState<Set<number>>(new Set());
+  const dirtyRowIdsRef = useRef<Set<any>>(new Set());
+  const deletedDbIdsRef = useRef<Set<number>>(new Set());
+
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(
+    null,
+  );
+
+  // Pull from Test Cases library
+  const [pullDialogOpen, setPullDialogOpen] = useState(false);
+  const [libraryTestCases, setLibraryTestCases] = useState<any[]>([]);
+  const libraryTcById = useMemo(
+    () => new Map(libraryTestCases.map((tc) => [tc.id, tc])),
+    [libraryTestCases],
+  );
+  const [libraryProjects, setLibraryProjects] = useState<any[]>([]);
+  const [pullFilter, setPullFilter] = useState<{ projectId?: number; module?: string; requirementId?: number; authorId?: number }>({});
+  const [selectedPullIds, setSelectedPullIds] = useState<Set<number>>(new Set());
+
+  // The picker belongs to one execution file, so only offer library cases
+  // from that file's milestone requirements and hide cases already pulled.
+  // Previously it offered the entire project library (358 cases for #40826),
+  // making "Select All" both unsafe and duplicate-prone.
+  const eligibleLibraryTestCases = useMemo(() => {
+    const existingLibraryIds = new Set(
+      data.map((row) => row.libraryTcId).filter((id): id is number => typeof id === "number"),
+    );
+    const milestoneRequirementIds = currentFileMilestoneId == null
+      ? null
+      : new Set(
+          requirementsList
+            .filter((requirement) => requirement.milestoneId === currentFileMilestoneId)
+            .map((requirement) => requirement.id),
+        );
+    return libraryTestCases.filter((tc: any) =>
+      !existingLibraryIds.has(tc.id) &&
+      (milestoneRequirementIds == null || milestoneRequirementIds.has(tc.requirementId)),
+    );
+  }, [libraryTestCases, data, requirementsList, currentFileMilestoneId]);
+
+  // Selecting a requirement in the picker should also surface TCs linked to
+  // any of its descendants (child/grandchild requirements) — matching the
+  // Test Case Library page's own requirement filter (TestCases.tsx). Without
+  // this, picking a parent requirement here only found TCs attached directly
+  // to it, silently hiding everything under its children.
+  const pullRequirementFilterIds = useMemo(() => {
+    if (!pullFilter.requirementId) return null;
+    const descendants = getAllDescendants(pullFilter.requirementId, requirementsList as any[]);
+    return new Set([pullFilter.requirementId, ...descendants.map((d) => d.id)]);
+  }, [pullFilter.requirementId, requirementsList]);
+
+  const filteredEligibleLibraryTestCases = useMemo(() =>
+    eligibleLibraryTestCases.filter((tc: any) => {
+      if (pullFilter.projectId && tc.projectId !== pullFilter.projectId) return false;
+      if (pullFilter.module && tc.module !== pullFilter.module) return false;
+      if (pullRequirementFilterIds && !pullRequirementFilterIds.has(tc.requirementId)) return false;
+      if (pullFilter.authorId && tc.authorId !== pullFilter.authorId) return false;
+      return true;
+    }),
+  [eligibleLibraryTestCases, pullFilter, pullRequirementFilterIds]);
+
+  // Options for the Requirement / Author filters, scoped to what's actually
+  // pullable right now rather than the full library.
+  const pullRequirementOptions = useMemo(() => {
+    const directIds = new Set(
+      eligibleLibraryTestCases
+        .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+        .map((tc: any) => tc.requirementId)
+        .filter((id: any): id is number => typeof id === "number"),
+    );
+    // A parent requirement stays selectable even once its own directly
+    // attached cases are exhausted, as long as any descendant still has an
+    // eligible one — selecting it pulls from the whole subtree (see
+    // pullRequirementFilterIds above). Without this, a parent whose direct
+    // cases were all already pulled would silently drop out of the dropdown,
+    // hiding the still-eligible cases sitting on its children.
+    const reqById = new Map(requirementsList.map((r) => [r.id, r]));
+    const ids = new Set(directIds);
+    for (const id of directIds) {
+      let cur = reqById.get(id);
+      while (cur?.parentId != null && !ids.has(cur.parentId)) {
+        ids.add(cur.parentId);
+        cur = reqById.get(cur.parentId);
+      }
+    }
+    return requirementsList
+      .filter((r) => ids.has(r.id))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [eligibleLibraryTestCases, pullFilter.projectId, requirementsList]);
+
+  const pullAuthorOptions = useMemo(() => {
+    const byId = new Map<number, string>();
+    eligibleLibraryTestCases
+      .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+      .forEach((tc: any) => {
+        if (typeof tc.authorId === "number") byId.set(tc.authorId, tc.authorName || "Unknown");
+      });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [eligibleLibraryTestCases, pullFilter.projectId]);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isPullLoading, setIsPullLoading] = useState(false);
+
+  const [pendingImportData, setPendingImportData] = useState<
+    AppExecutionTestCase[] | null
+  >(null);
+  const [pendingImportSummary, setPendingImportSummary] =
+    useState<ImportSummary | null>(null);
+  const [showModuleSelectDialog, setShowModuleSelectDialog] = useState(false);
+  const [selectedImportModule, setSelectedImportModule] = useState<string>("");
+
+  const [selectedRows, setSelectedRows] = useState<(string | number)[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [rowsToDelete, setRowsToDelete] = useState<(string | number)[]>([]);
+
+  // Promote to Library state
+  const [promoteRow, setPromoteRow] = useState<AppExecutionTestCase | null>(null);
+  const [promoteForm, setPromoteForm] = useState({ requirementId: "", projectId: "", module: "" });
+  const [promoteRequirements, setPromoteRequirements] = useState<any[]>([]);
+  const [isPromoting, setIsPromoting] = useState(false);
+
+  // Tree mode state
+  const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
+  const [expandedTcId, setExpandedTcId] = useState<string | number | null>(null);
+
+  const toggleModule = (name: string) =>
+    setExpandedModules(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s; });
+
+  const toggleTc = (id: string | number) =>
+    setExpandedTcId(prev => (prev === id ? null : id));
+
+  // Search & Filtering State
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [moduleFilters, setModuleFilters] = useState<string[]>([]);
+  const [resultFilters, setResultFilters] = useState<string[]>([]);
+  const [qaFilters, setQaFilters] = useState<string[]>([]);
+  const hasSetDefaultQaFilter = useRef(false);
+
+  // ?tc=<caseId> deep link (e.g. from the TC Library "In N runs" dialog):
+  // pre-fill the search with the case ID and expand its module in tree view
+  const searchString = useSearch();
+  const verdictDrilldown = useMemo(() => readVerdictDrilldown(searchString), [searchString]);
+  useEffect(() => {
+    if (!verdictDrilldown) return;
+    setGlobalSearch("");
+    setResultFilters([verdictDrilldown.result]);
+    setModuleFilters(verdictDrilldown.module === null ? [] : [verdictDrilldown.module]);
+    setQaFilters([]);
+    hasSetDefaultQaFilter.current = true;
+  }, [verdictDrilldown]);
+  const tcParam = useMemo(
+    () => new URLSearchParams(searchString).get("tc") ?? "",
+    [searchString],
+  );
+  const hasAppliedTcParam = useRef(false);
+  useEffect(() => {
+    if (!tcParam || hasAppliedTcParam.current || data.length === 0) return;
+    hasAppliedTcParam.current = true;
+    setGlobalSearch(tcParam);
+    const tcLower = tcParam.toLowerCase();
+    setExpandedModules((prev) => {
+      const next = new Set(prev);
+      for (const row of data) {
+        if (!row.moduleName) continue;
+        const values = Object.values(row).map((v) => String(v).toLowerCase());
+        if (values.some((v) => v.includes(tcLower))) next.add(row.moduleName);
+      }
+      return next;
+    });
+  }, [tcParam, data]);
+
+  // Defect creation modal
+  const [defectModalOpen, setDefectModalOpen] = useState(false);
+  const [pendingFailRowId, setPendingFailRowId] = useState<string | number | null>(null);
+  const pendingFailRowIdRef = useRef<string | number | null>(null);
+
+  // Passed-result evidence is optional. The same dialog is reused when a user
+  // adds evidence later to a row already marked Passed.
+  const [passEvidenceDialogOpen, setPassEvidenceDialogOpen] = useState(false);
+  const [pendingPassRowId, setPendingPassRowId] = useState<string | number | null>(null);
+  const [passEvidenceMode, setPassEvidenceMode] = useState<"pass" | "attach">("pass");
+  const [passEvidenceFile, setPassEvidenceFile] = useState<File | null>(null);
+  const [isUploadingPassEvidence, setIsUploadingPassEvidence] = useState(false);
+
+  // Overwriting a result that was already recorded is the case the trail exists
+  // to explain, so the reason is collected at the moment of the change rather
+  // than reconstructed later. A first result needs no reason — "why" is just
+  // "it was run" — so this only interrupts a genuine change.
+  const [resultChangePrompt, setResultChangePrompt] = useState<
+    { id: string | number; from: string; to: string } | null
+  >(null);
+  const [resultChangeReason, setResultChangeReason] = useState("");
+
+  // Per-test-case execution trail (result changes + acceptance lifecycle).
+  const [trailRow, setTrailRow] = useState<AppExecutionTestCase | null>(null);
+  const [trailData, setTrailData] = useState<ExecutionTcTrail | null>(null);
+  const [trailLoading, setTrailLoading] = useState(false);
+
+  // Dismissible warning banners
+  const [editWarningDismissed, setEditWarningDismissed] = useState(false);
+
+  // Execute / Edit mode — always defaults to "execute" on file open
+  const [mode, setMode] = useState<"execute" | "edit">("execute");
+
+  // Focus is the only view now (Tree removed, Spreadsheet hidden) — kept as
+  // this union type (not narrowed to the literal "focus") so the existing
+  // viewLayout === "spreadsheet" gates elsewhere stay valid comparisons that
+  // simply never match, rather than needing every one of them touched.
+  const [viewLayout] = useState<"tree" | "spreadsheet" | "focus">("focus");
+
+  // Focus view — master-detail layout (TestLink-style): tree on the left,
+  // single test case detail on the right
+  const [focusRowId, setFocusRowId] = useState<string | number | null>(null);
+  // Modules default open in focus view — this tracks explicit user collapses only
+  const [focusCollapsedModules, setFocusCollapsedModules] = useState<Set<string>>(new Set());
+
+  // Column visibility — persisted per user in localStorage
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
+    const userId = currentUser?.id;
+    if (userId) {
+      const saved = localStorage.getItem(`qa_pulse_hidden_cols_${userId}`);
+      if (saved) try { return new Set(JSON.parse(saved)); } catch {}
+    }
+    // tracker + userStory are exported columns (Tracker / Redmine User Story in
+    // the template). Hiding them by default meant nobody ever filled them and
+    // they exported blank, so only preCondition stays hidden out of the box.
+    return new Set(["preCondition"]);
+  });
+  const [showColPicker, setShowColPicker] = useState(false);
+
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (userId) localStorage.setItem(`qa_pulse_hidden_cols_${userId}`, JSON.stringify([...hiddenCols]));
+  }, [hiddenCols, currentUser?.id]);
+
+  // CAPA Intelligence
+  const [capaOpen, setCapaOpen] = useState(false);
+  const [capaLoading, setCapaLoading] = useState(false);
+  const [capaResult, setCapaResult] = useState<{ summary: string; items: any[] } | null>(null);
+
+  const handleCapaAnalysis = async () => {
+    setCapaOpen(true);
+    setCapaLoading(true);
+    setCapaResult(null);
+    try {
+      const res = await fetch("/api/ai/capa-analysis", {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          ticketId,
+          testCases: data.map(tc => ({
+            testCaseId: tc.testCaseId,
+            caseName: tc.caseName,
+            moduleName: tc.moduleName,
+            result: tc.result,
+            defectNumber: tc.defectNumber,
+            actualResult: tc.actualResult,
+            comments: tc.comments,
+          })),
+        }),
+      });
+      if (res.ok) setCapaResult(await res.json());
+    } catch {}
+    finally { setCapaLoading(false); }
+  };
+
+  const getHeaders = () => {
+    // Token lives in sessionStorage unless "Remember Me" was checked — see AuthContext.
+    const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+    return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Load only the data required to paint the page first. Large reference
+    // lists used by editor dialogs are fetched after the spreadsheet is shown.
+    fetchTestCases(ticketId)
+      .then((result) => {
+        if (cancelled) return;
+        const testCases = result?.testCases || [];
+        const file = result?.file;
+        setCurrentFileMilestoneId(file?.milestoneId ?? null);
+        setCurrentFileId(file?.id ?? null);
+        setCurrentFileProjectId(file?.projectId ?? null);
+        setCurrentFileTitle(file?.title ?? null);
+        setCurrentFileTracker(file?.tracker ?? null);
+        setCurrentFileReviewStatus(file?.reviewStatus ?? null);
+        setCurrentFileRejectionReason(file?.rejectionReason ?? null);
+        setCurrentFileQaPicSetBy(file?.qaPicSetBy ?? null);
+        setCurrentFileQaPic(file?.qaPic ?? null);
+        setReturnedRows(result?.returnedTestCases ?? []);
+        const selectedModuleIds: number[] = Array.isArray(file?.selectedModuleIds) ? file.selectedModuleIds : [];
+        const selectedModuleNames = file?.selectedModules
+          ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
+          : [];
+
+        if (testCases.length === 0) {
+          const firstRow = createEmptyRow();
+          if (selectedModuleNames.length === 1) firstRow.moduleName = selectedModuleNames[0];
+          setData([firstRow]);
+        } else {
+          // Auto-fill empty module names when only one module is tied to the file
+          const filled = selectedModuleNames.length === 1
+            ? testCases.map((tc: any) => ({ ...tc, moduleName: tc.moduleName || selectedModuleNames[0] }))
+            : testCases;
+          setData(filled);
+        }
+
+        // These lists support pickers and dialogs, but must not delay the
+        // initial page render. Each request is isolated so one optional
+        // service failure does not blank the execution page.
+        //
+        // Module source is project-scoped (project_modules) when the file
+        // has a project, falling back to the full catalog otherwise — same
+        // convention as ModuleSelect. Previously this always fetched the
+        // *global* catalog and matched it against selectedModules by name;
+        // a project whose module names didn't happen to exist verbatim in
+        // that shared catalog got an empty list ("No modules available"),
+        // reproducing the "only eQuota populates" symptom. The name filter
+        // below now only narrows a non-empty result — it never produces
+        // fewer options than the project actually has.
+        //
+        // selectedModuleIds (set by every write path since the ID migration)
+        // is matched first when present — exact, no name drift possible. The
+        // name-based filter only runs for files saved before that migration.
+        Promise.allSettled([
+          file?.projectId ? fetchProjectModules(file.projectId) : fetchModules(),
+          fetchUsers(),
+          fetchTrackers(),
+          fetchRequirements(),
+        ]).then(([modulesResult, usersResult, trackersResult, requirementsResult]) => {
+          if (cancelled) return;
+          if (modulesResult.status === "fulfilled") {
+            const projectModules = modulesResult.value;
+            const filteredModules = selectedModuleIds.length > 0
+              ? projectModules.filter((m) => selectedModuleIds.includes(m.id))
+              : selectedModuleNames.length > 0
+              ? projectModules.filter((m) => selectedModuleNames.map(n => n.toLowerCase()).includes(m.name.trim().toLowerCase()))
+              : projectModules;
+            // A stored module name that doesn't match anything in this
+            // project's catalog (stale rename, typo, legacy data) used to
+            // leave the tester with zero options. Falling back to the full
+            // project catalog keeps the page usable instead of blocking them.
+            setAvailableModules(filteredModules.length > 0 ? filteredModules : projectModules);
+          }
+          if (usersResult.status === "fulfilled") setQaUsers(usersResult.value);
+          if (trackersResult.status === "fulfilled") setAvailableTrackers(trackersResult.value || []);
+          if (requirementsResult.status === "fulfilled") setRequirementsList(requirementsResult.value || []);
+        });
+      })
+      .catch(() =>
+        toast({
+          variant: "destructive",
+          title: "Failed to load spreadsheet data",
+        }),
+      )
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ticketId, toast]);
+
+  // Only needed to populate the "link a milestone" picker for a file that
+  // doesn't have one yet — no point fetching this once it's already set.
+  useEffect(() => {
+    if (currentFileMilestoneId != null || !currentFileProjectId) return;
+    fetch(`/api/milestones?projectId=${currentFileProjectId}`, { headers: getHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((ms) => setMilestoneOptions(Array.isArray(ms) ? ms.map((m: any) => ({ id: m.id, name: m.name })) : []))
+      .catch(() => setMilestoneOptions([]));
+  }, [currentFileMilestoneId, currentFileProjectId]);
+
+  const { canReviewQa: canReview, canApproveExecutionFile } = useReviewEligibility();
+
+  const handleReviewAction = async (action: "approve" | "reject", comment?: string) => {
+    if (!currentFileId) return;
+    try {
+      const t = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const res = await fetch(`/api/execution-files/${currentFileId}/review`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(t ? { Authorization: `Bearer ${t}` } : {}),
+        },
+        body: JSON.stringify({ action, comment }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to perform review action");
+      }
+      toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
+      setCurrentFileReviewStatus(action === "approve" ? "approved" : "rejected");
+      if (action === "reject") setCurrentFileRejectionReason(comment ?? null);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
+    }
+  };
+
+  // Saved rows still waiting on acceptance. Unsaved UI rows carry a string id
+  // and no review state, so they never appear here.
+  const pendingRows = useMemo(
+    () => data.filter((r) => typeof r.id === "number" && r.reviewState === "pending"),
+    [data],
+  );
+
+  // Accept / return one pending row, or resubmit one that was returned to you.
+  // Only the row changes — the rest of the run keeps executing either way.
+  const handleRowReview = async (
+    rowId: number,
+    action: "accept" | "return" | "resubmit",
+    comment?: string,
+  ) => {
+    setRowReviewBusy(true);
+    try {
+      await reviewExecutionTestCase(rowId, action, comment);
+      if (action === "accept") {
+        setData((prev) => prev.map((r) =>
+          r.id === rowId ? { ...r, reviewState: "accepted" as const } : r,
+        ));
+        toast({ title: "Test case accepted", description: "It can now be executed." });
+      } else if (action === "return") {
+        // Comes off the sheet and moves into the returned list for its author.
+        const row = data.find((r) => r.id === rowId);
+        setData((prev) => prev.filter((r) => r.id !== rowId));
+        if (row) {
+          setReturnedRows((prev) => [...prev, {
+            id: rowId,
+            testCaseId: row.testCaseId ?? null,
+            caseName: row.caseName ?? null,
+            moduleName: row.moduleName ?? null,
+            libraryTcId: row.libraryTcId ?? null,
+            addedBy: row.addedBy ?? null,
+            addedByName: row.addedByName ?? null,
+            returnedByName: currentUser?.name ?? null,
+            returnedAt: new Date().toISOString(),
+            reviewComment: comment ?? null,
+          }]);
+        }
+        toast({ title: "Returned to author", description: "They've been notified with your comment." });
+      } else {
+        setReturnedRows((prev) => prev.filter((r) => r.id !== rowId));
+        toast({ title: "Resubmitted", description: "Waiting on a peer to accept it." });
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Action failed", description: String(err?.message ?? err) });
+    } finally {
+      setRowReviewBusy(false);
+    }
+  };
+
+  // Accept every pending row this user is allowed to act on in one go.
+  // Rows the current user added are skipped — they still need a different peer.
+  const handleAcceptAll = async () => {
+    const targets = pendingRows.filter(
+      (row) => !(row.addedBy != null && row.addedBy === currentUser?.id),
+    );
+    if (targets.length === 0) return;
+    setRowReviewBusy(true);
+    try {
+      const results = await Promise.allSettled(
+        targets.map((row) => reviewExecutionTestCase(Number(row.id), "accept")),
+      );
+      const acceptedIds = new Set<number>();
+      let failed = 0;
+      results.forEach((result, i) => {
+        if (result.status === "fulfilled") acceptedIds.add(Number(targets[i].id));
+        else failed += 1;
+      });
+      if (acceptedIds.size > 0) {
+        setData((prev) => prev.map((r) =>
+          typeof r.id === "number" && acceptedIds.has(r.id) ? { ...r, reviewState: "accepted" as const } : r,
+        ));
+      }
+      if (failed === 0) {
+        toast({ title: "All test cases accepted", description: `${acceptedIds.size} case${acceptedIds.size !== 1 ? "s" : ""} can now be executed.` });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Some test cases failed to accept",
+          description: `${acceptedIds.size} accepted, ${failed} failed.`,
+        });
+      }
+    } finally {
+      setRowReviewBusy(false);
+    }
+  };
+
+  const linkMilestone = async () => {
+    if (!currentFileId || !selectedMilestoneToLink) return;
+    setLinkingMilestone(true);
+    try {
+      const res = await fetch(`/api/execution-files/${currentFileId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify({ milestoneId: Number(selectedMilestoneToLink) }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setCurrentFileMilestoneId(updated.milestoneId ?? Number(selectedMilestoneToLink));
+        toast({ title: "Milestone linked", description: "Test results can now be recorded on this execution file." });
+      } else {
+        const body = await res.json().catch(() => ({}));
+        toast({ variant: "destructive", title: "Failed to link milestone", description: body.error });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Failed to link milestone" });
+    } finally {
+      setLinkingMilestone(false);
+    }
+  };
+
+  const createEmptyRow = (): AppExecutionTestCase => ({
+    id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+    moduleName: "",
+    testCaseId: "",
+    libraryTcId: null,
+    userStory: "",
+    tracker: "",
+    scenario: "",
+    preCondition: "",
+    caseName: "",
+    testSteps: "",
+    testData: "",
+    expectedResult: "",
+    result: "",
+    defectNumber: "",
+    comments: "",
+    qaPic: "",
+    rowType: "testcase",
+  });
+
+  const handleAddRow = () => {
+    const row = createEmptyRow();
+    if (availableModules.length === 1) row.moduleName = availableModules[0].name;
+    setData((prev) => [...prev, row]);
+    setDirtyRowIds((prev) => new Set([...prev, row.id as string]));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleAddGroupRow = () => {
+    const row = { ...createEmptyRow(), rowType: "group" as const };
+    if (availableModules.length === 1) row.moduleName = availableModules[0].name;
+    setData((prev) => [...prev, row]);
+    setDirtyRowIds((prev) => new Set([...prev, row.id as string]));
+    setHasUnsavedChanges(true);
+  };
+
+  // The result change itself, once any reason has been collected. Kept separate
+  // from updateCell so the reason prompt can run first and then resume exactly
+  // this flow (including the Pass-evidence and Fail-defect dialogs it opens).
+  const applyResultChange = useCallback((id: string | number, value: string) => {
+    if (value === "Passed") {
+      // Do not change the result until the optional-evidence choice is
+      // explicit. Cancel therefore preserves the previous result.
+      setPendingPassRowId(id);
+      setPassEvidenceMode("pass");
+      setPassEvidenceFile(null);
+      setPassEvidenceDialogOpen(true);
+      return;
+    }
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    const executedAt = value && value !== "Not Executed" ? new Date().toISOString() : undefined;
+    setData((prev) => {
+      const updated = prev.map((row) => row.id === id ? { ...row, result: value, ...(executedAt ? { executedAt } : {}) } : row);
+      dataRef.current = updated;
+      return updated;
+    });
+    setHasUnsavedChanges(true);
+    if (value === "Failed") {
+      pendingFailRowIdRef.current = id;
+      setPendingFailRowId(id);
+      setDefectModalOpen(true);
+    }
+  }, []);
+
+  const updateCell = useCallback(
+    (id: string | number, field: keyof AppExecutionTestCase, value: string) => {
+      // Update ref immediately so blur-save and polling see it without waiting for useEffect
+      if (field === "result") {
+        const current = dataRef.current.find((r) => r.id === id);
+        const previous = normalizeResultValue(current?.result);
+        const next = normalizeResultValue(value);
+        // Only a genuine overwrite of a recorded outcome needs explaining.
+        // First results, and re-picking the value already stored, go straight
+        // through — an interruption there would be noise, not an audit trail.
+        const isOverwrite =
+          !!previous && previous !== "Not Executed" && next !== previous;
+        if (isOverwrite) {
+          setResultChangeReason("");
+          setResultChangePrompt({ id, from: previous, to: next || "(cleared)" });
+          return;
+        }
+        applyResultChange(id, value);
+        return;
+      }
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
+      setDirtyRowIds(dirtyRowIdsRef.current);
+      setData((prev) => {
+        const updated = prev.map((row) => (row.id === id ? { ...row, [field]: value } : row));
+        dataRef.current = updated;
+        return updated;
+      });
+      setHasUnsavedChanges(true);
+    },
+    [applyResultChange],
+  );
+
+  /** Stamps the reason onto the row (it rides along on the next save, where
+   *  the server writes it into the history entry) and resumes the change. */
+  const confirmResultChange = useCallback(() => {
+    const prompt = resultChangePrompt;
+    const reason = resultChangeReason.trim();
+    if (!prompt || !reason) return;
+    setData((prev) => {
+      const updated = prev.map((row) =>
+        row.id === prompt.id ? { ...row, resultChangeReason: reason } : row,
+      );
+      dataRef.current = updated;
+      return updated;
+    });
+    setResultChangePrompt(null);
+    setResultChangeReason("");
+    // "(cleared)" is the label shown in the prompt, never a stored value.
+    applyResultChange(prompt.id, prompt.to === "(cleared)" ? "" : prompt.to);
+  }, [resultChangePrompt, resultChangeReason, applyResultChange]);
+
+  /** Opens the execution trail for one saved row. */
+  const openTrail = useCallback(async (row: AppExecutionTestCase) => {
+    if (typeof row.id !== "number") return;
+    setTrailRow(row);
+    setTrailData(null);
+    setTrailLoading(true);
+    try {
+      setTrailData(await fetchTestCaseTrail(ticketId, row.id));
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Couldn't load history", description: String(err?.message ?? err) });
+      setTrailRow(null);
+    } finally {
+      setTrailLoading(false);
+    }
+  }, [ticketId, toast]);
+
+  const handleDefectCreated = useCallback((result: DefectCreationResult) => {
+    const rowId = pendingFailRowIdRef.current;
+    if (!rowId) return;
+    setData((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              defectNumber: (() => {
+                const existing = parseDefectIds(row.defectNumber || "");
+                if (!existing.includes(result.redmineIssueId)) existing.push(result.redmineIssueId);
+                return existing.join(", ");
+              })(),
+              actualResult: result.actualResult,
+              comments: result.actualResult
+                ? [row.comments, `Actual Result(#${result.redmineIssueId}): ${result.actualResult}`].filter(Boolean).join("\n\n")
+                : row.comments,
+              defectScreenshots: result.screenshots,
+            }
+          : row,
+      ),
+    );
+    setDirtyRowIds((prev) => new Set([...prev, rowId]));
+    setHasUnsavedChanges(true);
+    pendingFailRowIdRef.current = null;
+    setPendingFailRowId(null);
+  }, []);
+
+  const handleSelectRow = useCallback(
+    (id: string | number, checked: boolean) => {
+      if (checked) {
+        setSelectedRows((prev) => [...prev, id]);
+      } else {
+        setSelectedRows((prev) => prev.filter((rowId) => rowId !== id));
+      }
+    },
+    [],
+  );
+
+  const requestSingleDelete = useCallback((id: string | number) => {
+    setRowsToDelete([id]);
+    setDeleteConfirmOpen(true);
+  }, []);
+
+  const dataRef = useRef(data);
+  const unsavedRef = useRef(hasUnsavedChanges);
+
+  useEffect(() => { dataRef.current = data; }, [data]);
+  useEffect(() => { unsavedRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
+  useEffect(() => { dirtyRowIdsRef.current = dirtyRowIds; }, [dirtyRowIds]);
+  useEffect(() => { deletedDbIdsRef.current = deletedDbIds; }, [deletedDbIds]);
+
+  // Saves all currently-dirty rows immediately (used by the periodic autosave below,
+  // and by row-reorder so a drag persists right away instead of waiting up to 10s).
+  const flushDirtyRows = useCallback(async () => {
+    const dirty = dirtyRowIdsRef.current;
+    const deleted = deletedDbIdsRef.current;
+    if (dirty.size === 0 && deleted.size === 0) return;
+
+    setSaveStatus("saving");
+    try {
+      const currentData = dataRef.current;
+      const rowsToSave = currentData
+        .filter((r) => dirty.has(r.id))
+        .map((r) => ({
+          ...r,
+          _tempId: typeof r.id === "string" ? r.id : undefined,
+          rowOrder: currentData.indexOf(r),
+        }));
+      const result = await saveTestCases(ticketId, rowsToSave as any, Array.from(deleted));
+      if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
+      clearSavedResultReasons();
+      warnAboutRevertedResults(result);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      setHasUnsavedChanges(false);
+      dirtyRowIdsRef.current = new Set();
+      setDirtyRowIds(new Set());
+      deletedDbIdsRef.current = new Set();
+      setDeletedDbIds(new Set());
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [ticketId]);
+
+  useEffect(() => {
+    const interval = setInterval(() => { flushDirtyRows(); }, 10000);
+    return () => clearInterval(interval);
+  }, [flushDirtyRows]);
+
+  // Reorders the rows whose ids are in `scopeIds` (either the whole visible list for the
+  // spreadsheet view, or one module's rows for the tree view) and returns a dnd-kit
+  // onDragEnd handler bound to that scope. Rows outside the scope keep their position.
+  const applyRowReorder = useCallback((scopeIds: string[], activeId: string, overId: string) => {
+    setData((prev) => {
+      const newData = reorderWithinScope(prev, scopeIds, activeId, overId);
+      if (newData === prev) return prev;
+      const changed: (string | number)[] = [];
+      newData.forEach((row, idx) => {
+        if (prev[idx]?.id !== row.id) changed.push(row.id as string | number);
+      });
+      if (changed.length > 0) {
+        dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, ...changed]);
+        setDirtyRowIds(dirtyRowIdsRef.current);
+        setHasUnsavedChanges(true);
+      }
+      dataRef.current = newData;
+      return newData;
+    });
+    flushDirtyRows();
+  }, [flushDirtyRows]);
+
+  // Spreadsheet view: one fixed scope (the whole visible list).
+  const handleDragEndForScope = useCallback((scopeIds: string[]) => (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (!scopeIds.includes(activeId) || !scopeIds.includes(overId)) return;
+    applyRowReorder(scopeIds, activeId, overId);
+  }, [applyRowReorder]);
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+
+  // Default QA filter: only for qa_member — show own rows + unassigned; other roles see everything
+  useEffect(() => {
+    if (!verdictDrilldown && !hasSetDefaultQaFilter.current && currentUser?.name) {
+      hasSetDefaultQaFilter.current = true;
+      if (currentUser.role === "qa_member") {
+        setQaFilters([currentUser.name, ""]);
+      }
+    }
+  }, [currentUser, verdictDrilldown]);
+
+  // Merge server rows into local state — skips dirty rows so unsaved changes aren't overwritten
+  const mergeServerData = useCallback((serverRows: AppExecutionTestCase[]) => {
+    setData((prev) => {
+      const serverMap = new Map<number, AppExecutionTestCase>();
+      for (const r of serverRows) {
+        if (typeof r.id === "number") serverMap.set(r.id, r);
+      }
+      const dirty = dirtyRowIdsRef.current;
+      const localNumericIds = new Set(
+        prev.filter((r) => typeof r.id === "number").map((r) => r.id as number)
+      );
+
+      const merged: AppExecutionTestCase[] = [];
+      for (const row of prev) {
+        if (typeof row.id === "string") {
+          merged.push(row); // unsaved local row — keep
+        } else if (dirty.has(row.id)) {
+          merged.push(row); // dirty — keep local version
+        } else {
+          const serverRow = serverMap.get(row.id as number);
+          // A row waiting on the Pass-evidence dialog is not dirty yet but is
+          // already carrying the reason the tester typed. The server has no
+          // such field to send back, so carry it across the merge or the
+          // pending change would land in the trail unexplained.
+          if (serverRow) merged.push(
+            row.resultChangeReason
+              ? { ...serverRow, resultChangeReason: row.resultChangeReason }
+              : serverRow,
+          ); // clean — use server version; omit if server deleted it
+        }
+      }
+      // Add new rows from server that don't exist locally
+      for (const serverRow of serverRows) {
+        if (typeof serverRow.id === "number" && !localNumericIds.has(serverRow.id)) {
+          merged.push(serverRow);
+        }
+      }
+      // Sort by rowOrder
+      merged.sort((a, b) => {
+        const aO = typeof (a as any).rowOrder === "number" ? (a as any).rowOrder : Infinity;
+        const bO = typeof (b as any).rowOrder === "number" ? (b as any).rowOrder : Infinity;
+        return aO - bO;
+      });
+
+      dataRef.current = merged;
+      return merged;
+    });
+  }, []);
+
+  // Refresh collaborative changes without continuously loading the full
+  // spreadsheet while the tab is hidden or the user has unsaved edits.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (document.visibilityState !== "visible" || dirtyRowIdsRef.current.size > 0) return;
+      try {
+        const result = await fetchTestCases(ticketId);
+        if (result?.testCases) mergeServerData(result.testCases as AppExecutionTestCase[]);
+      } catch {
+        // silent — don't interrupt user on background poll failure
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [ticketId, mergeServerData]);
+
+  // Save a single row immediately when the user leaves it (blur)
+  const saveBlurRow = useCallback(async (id: string | number) => {
+    if (!dirtyRowIdsRef.current.has(id)) return;
+    setSaveStatus("saving");
+    try {
+      const currentData = dataRef.current;
+      const row = currentData.find((r) => r.id === id);
+      if (!row) return;
+      const rowToSave = {
+        ...row,
+        _tempId: typeof row.id === "string" ? row.id : undefined,
+        rowOrder: currentData.indexOf(row),
+      };
+      const result = await saveTestCases(ticketId, [rowToSave as any], []);
+      if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((x) => x !== id));
+      setDirtyRowIds(dirtyRowIdsRef.current);
+      if (dirtyRowIdsRef.current.size === 0 && deletedDbIdsRef.current.size === 0) {
+        setHasUnsavedChanges(false);
+      }
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [ticketId]);
+
+  // CR023p4 — "Revised" action: resets result to Not Executed through the
+  // existing save path (so it still logs to executionTcHistoryTable) and acks
+  // this execution instance's requirement-revision alert.
+  const acknowledgeRevision = useCallback(async (id: string | number) => {
+    const now = new Date().toISOString();
+    setData((prev) => {
+      const updated = prev.map((row) =>
+        row.id === id
+          ? { ...row, result: "Not Executed", reviewAcknowledgedAt: now, alertRevised: false }
+          : row,
+      );
+      dataRef.current = updated;
+      return updated;
+    });
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, id as string | number]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    setSaveStatus("saving");
+    try {
+      const currentData = dataRef.current;
+      const row = currentData.find((r) => r.id === id);
+      if (!row) return;
+      const rowToSave = {
+        ...row,
+        _tempId: typeof row.id === "string" ? row.id : undefined,
+        rowOrder: currentData.indexOf(row),
+      };
+      const result = await saveTestCases(ticketId, [rowToSave as any], []);
+      if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((x) => x !== id));
+      setDirtyRowIds(dirtyRowIdsRef.current);
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [ticketId]);
+
+  const openPullDialog = async () => {
+    setPullDialogOpen(true);
+    setPullFilter({});
+    setSelectedPullIds(new Set());
+    setIsPullLoading(true);
+    try {
+      const [tcRes, projRes] = await Promise.all([
+        fetch("/api/test-cases", { headers: getHeaders() }),
+        fetch("/api/projects", { headers: getHeaders() }),
+      ]);
+      setLibraryTestCases(tcRes.ok ? await tcRes.json() : []);
+      setLibraryProjects(projRes.ok ? await projRes.json() : []);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to load test case library" });
+    } finally {
+      setIsPullLoading(false);
+    }
+  };
+
+  const handleConfirmPull = () => {
+    setIsPulling(true);
+    const toPull = eligibleLibraryTestCases.filter((tc: any) => selectedPullIds.has(tc.id));
+    const newRows: AppExecutionTestCase[] = toPull.map((tc: any) => ({
+      ...createEmptyRow(),
+      moduleName: tc.module || "",
+      caseName: tc.title || "",
+      testSteps: tc.testSteps || "",
+      expectedResult: tc.expectedResult || "",
+      preCondition: tc.preconditions || "",
+      libraryTcId: tc.id,
+      requirementId: tc.requirementId ?? null,
+    }));
+    setData(prev => [...prev, ...newRows]);
+    setDirtyRowIds(prev => new Set([...prev, ...newRows.map(r => r.id)]));
+    setHasUnsavedChanges(true);
+    toast({ title: `${newRows.length} test case${newRows.length !== 1 ? "s" : ""} pulled from library` });
+    setPullDialogOpen(false);
+    setSelectedPullIds(new Set());
+    setIsPulling(false);
+  };
+
+  // The reason is a one-shot payload: once the server has written it into the
+  // history entry, leaving it on the row would re-attach it to whatever the
+  // next result change happens to be.
+  const clearSavedResultReasons = () => {
+    setData((prev) => {
+      if (!prev.some((row) => row.resultChangeReason)) return prev;
+      const next = prev.map((row) =>
+        row.resultChangeReason ? { ...row, resultChangeReason: undefined } : row,
+      );
+      dataRef.current = next;
+      return next;
+    });
+  };
+
+  // The server reverts a result it won't accept rather than failing the whole
+  // save, so the only way the tester learns is if we say so. Each list names
+  // the rows and the reason they were held.
+  const warnAboutRevertedResults = (result: any) => {
+    const reverted: string[] = [];
+    if (result?.blockedResultRows?.length) {
+      reverted.push(`Linked requirement is blocked: ${result.blockedResultRows.join(", ")}`);
+    }
+    if (result?.inDevelopmentResultRows?.length) {
+      reverted.push(`Linked requirement is still in development: ${result.inDevelopmentResultRows.join(", ")}`);
+    }
+    if (result?.unacceptedResultRows?.length) {
+      reverted.push(`Still awaiting peer acceptance: ${result.unacceptedResultRows.join(", ")}`);
+    }
+    if (reverted.length === 0) return;
+    toast({
+      variant: "destructive",
+      title: "Some results weren't saved",
+      description: reverted.join(" · "),
+    });
+  };
+
+  const applyReturnedRows = (savedRows: any[]) => {
+    if (!savedRows || savedRows.length === 0) return;
+    // Server only returns newly inserted rows, keyed by _tempId (the client's temp string ID)
+    const tempIdMap = new Map<string, any>(
+      savedRows.filter((r) => r._tempId).map((r) => [r._tempId, r]),
+    );
+    if (tempIdMap.size === 0) return;
+
+    // If the pending-fail row had a temp ID, update the ref to the real DB ID
+    if (pendingFailRowIdRef.current !== null && typeof pendingFailRowIdRef.current === "string") {
+      const mapped = tempIdMap.get(pendingFailRowIdRef.current);
+      if (mapped) {
+        pendingFailRowIdRef.current = mapped.id;
+        setPendingFailRowId(mapped.id);
+      }
+    }
+
+    setData((prev) =>
+      prev.map((row) => {
+        if (typeof row.id !== "string") return row;
+        const mapped = tempIdMap.get(row.id);
+        if (!mapped) return row;
+        return {
+          ...row,
+          id: mapped.id,
+          testCaseId: mapped.testCaseId ?? row.testCaseId,
+          libraryTcId: mapped.libraryTcId ?? row.libraryTcId,
+        };
+      }),
+    );
+  };
+
+  // CR078 — the server re-derives every TC label from row position on save, so
+  // a delete closes the numbering gap (deleting 017 of 020 leaves 015..019,
+  // not 015, 016, 018, 019, 020). It returns only the rows whose label moved;
+  // these are existing rows keyed by real DB id, so this is separate from
+  // applyReturnedRows' temp-id mapping for freshly inserted rows.
+  const applyRenumbered = (rows: { id: number; testCaseId: string }[] | undefined) => {
+    if (!rows || rows.length === 0) return;
+    const labelById = new Map(rows.map((r) => [r.id, r.testCaseId]));
+    setData((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        if (typeof row.id !== "number") return row;
+        const label = labelById.get(row.id);
+        if (!label || label === row.testCaseId) return row;
+        changed = true;
+        return { ...row, testCaseId: label };
+      });
+      if (!changed) return prev;
+      dataRef.current = next;
+      return next;
+    });
+  };
+
+  const markPassedLocally = (rowId: string | number) => {
+    const executedAt = new Date().toISOString();
+    setData((prev) => {
+      const updated = prev.map((row) => row.id === rowId ? { ...row, result: "Passed", executedAt } : row);
+      dataRef.current = updated;
+      return updated;
+    });
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, rowId]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    setHasUnsavedChanges(true);
+  };
+
+  const handlePassWithoutEvidence = () => {
+    if (pendingPassRowId == null) return;
+    markPassedLocally(pendingPassRowId);
+    setPassEvidenceDialogOpen(false);
+    setPendingPassRowId(null);
+    toast({ title: "Test case marked Passed", description: "No attachment was added. You can attach evidence later." });
+  };
+
+  const openAddPassEvidence = (rowId: string | number) => {
+    setPendingPassRowId(rowId);
+    setPassEvidenceMode("attach");
+    setPassEvidenceFile(null);
+    setPassEvidenceDialogOpen(true);
+  };
+
+  const handleSavePassEvidence = async () => {
+    if (pendingPassRowId == null || !passEvidenceFile) return;
+    if (passEvidenceFile.size > 10 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
+      return;
+    }
+    const originalId = pendingPassRowId;
+    setIsUploadingPassEvidence(true);
+    try {
+      const currentData = dataRef.current;
+      const row = currentData.find((item) => item.id === originalId);
+      if (!row) throw new Error("Test case row was not found");
+      const passedRow = {
+        ...row,
+        result: "Passed",
+        executedAt: normalizeResultValue(row.result) === "Passed" ? row.executedAt : new Date().toISOString(),
+        _tempId: typeof row.id === "string" ? row.id : undefined,
+        rowOrder: currentData.indexOf(row),
+      };
+      const saved = await saveTestCases(ticketId, [passedRow as any], []);
+      const inserted = typeof originalId === "string"
+        ? saved?.testCases?.find((item: any) => item._tempId === originalId)
+        : null;
+      const dbRowId = typeof originalId === "number" ? originalId : inserted?.id;
+      if (typeof dbRowId !== "number") throw new Error("Test case must be saved before evidence can be attached");
+      if (saved?.testCases) applyReturnedRows(saved.testCases);
+      const evidence = await uploadExecutionEvidence(dbRowId, passEvidenceFile);
+      setData((prev) => {
+        const updated = prev.map((item) =>
+          item.id === originalId || item.id === dbRowId
+            ? { ...item, id: dbRowId, result: "Passed", executedAt: passedRow.executedAt, passEvidence: [...(item.passEvidence ?? []), evidence] }
+            : item,
+        );
+        dataRef.current = updated;
+        return updated;
+      });
+      dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current].filter((id) => id !== originalId && id !== dbRowId));
+      setDirtyRowIds(dirtyRowIdsRef.current);
+      setHasUnsavedChanges(dirtyRowIdsRef.current.size > 0 || deletedDbIdsRef.current.size > 0);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      setPassEvidenceDialogOpen(false);
+      setPendingPassRowId(null);
+      setPassEvidenceFile(null);
+      toast({ title: "Evidence attached", description: passEvidenceFile.name });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Failed to attach evidence", description: error?.message });
+    } finally {
+      setIsUploadingPassEvidence(false);
+    }
+  };
+
+  const viewPassEvidence = async (rowId: number, evidenceId: number, fileName: string, inline = true) => {
+    const previewWindow = inline ? window.open("", "_blank") : null;
+    try {
+      const res = await fetch(executionEvidenceUrl(rowId, evidenceId, inline), { headers: getHeaders() });
+      if (!res.ok) throw new Error("Unable to open attachment");
+      const url = URL.createObjectURL(await res.blob());
+      if (inline) {
+        if (!previewWindow) throw new Error("Preview was blocked by the browser");
+        previewWindow.opener = null;
+        previewWindow.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error: any) {
+      previewWindow?.close();
+      toast({ variant: "destructive", title: "Attachment unavailable", description: error?.message });
+    }
+  };
+
+  const removePassEvidence = async (rowId: number, evidenceId: number) => {
+    if (!window.confirm("Delete this evidence attachment? This cannot be undone.")) return;
+    try {
+      await deleteExecutionEvidence(rowId, evidenceId);
+      setData((prev) => {
+        const updated = prev.map((row) => row.id === rowId
+          ? { ...row, passEvidence: (row.passEvidence ?? []).filter((item) => item.id !== evidenceId) }
+          : row);
+        dataRef.current = updated;
+        return updated;
+      });
+      toast({ title: "Evidence removed" });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Failed to remove evidence", description: error?.message });
+    }
+  };
+
+  const renderPassEvidence = (row: AppExecutionTestCase, canEditEvidence: boolean, compact = false) => {
+    if (normalizeResultValue(row.result) !== "Passed") return null;
+    // Evidence from an older pass attempt stays in the audit record but must
+    // not make a newly-passed result look evidenced. Only files uploaded for
+    // the current execution timestamp count in the active UI.
+    const executedAtMs = row.executedAt ? new Date(row.executedAt).getTime() : 0;
+    const files = (row.passEvidence ?? []).filter((file) =>
+      !executedAtMs || new Date(file.createdAt).getTime() >= executedAtMs - 2_000,
+    );
+    const textSize = compact ? "text-[10px]" : "text-xs";
+    if (files.length === 0) {
+      return (
+        <div className={`mt-2 flex flex-wrap items-center gap-2 ${textSize}`}>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-1 font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            <AlertTriangle className="w-3 h-3" /> Passed · No attachment
+          </span>
+          {canEditEvidence && (
+            <button className="inline-flex items-center gap-1 font-medium text-primary hover:underline" onClick={() => openAddPassEvidence(row.id as string | number)}>
+              <Paperclip className="w-3 h-3" /> Add attachment
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className={`mt-2 space-y-1.5 ${textSize}`}>
+        {files.map((file) => (
+          <div key={file.id} className="flex min-w-0 items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2 py-1.5 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+            <FileText className="w-3.5 h-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate" title={`${file.originalFileName ?? file.fileName}\nSaved as: ${file.fileName}`}>
+              {file.originalFileName ?? file.fileName}
+            </span>
+            <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
+            <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
+            {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
+              <button className="hover:text-destructive" title="Delete attachment" onClick={() => removePassEvidence(row.id as number, file.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+            )}
+          </div>
+        ))}
+        {canEditEvidence && (
+          <button className="inline-flex items-center gap-1 font-medium text-primary hover:underline" onClick={() => openAddPassEvidence(row.id as string | number)}>
+            <Paperclip className="w-3 h-3" /> Add another attachment
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveStatus("saving");
+    try {
+      // Full sync: send all rows with isFullSync so orphaned DB rows are cleaned up
+      const allRows = data.map((r, idx) => ({
+        ...r,
+        _tempId: typeof r.id === "string" ? r.id : undefined,
+        rowOrder: idx,
+      }));
+      const result = await saveTestCases(ticketId, allRows as any, Array.from(deletedDbIds), true);
+      if (result?.testCases) applyReturnedRows(result.testCases);
+      applyRenumbered((result as any)?.renumbered);
+      clearSavedResultReasons();
+      warnAboutRevertedResults(result);
+      toast({ title: `Database saved for Redmine Ticket ID #${ticketId}` });
+      setHasUnsavedChanges(false);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      setDirtyRowIds(new Set());
+      setDeletedDbIds(new Set());
+    } catch {
+      toast({ variant: "destructive", title: "Failed to save to database" });
+      setSaveStatus("error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Search & Filter Logic
+  const toggleFilter = (type: "module" | "result" | "qa", value: string) => {
+    if (type === "module") {
+      setModuleFilters((prev) =>
+        prev.includes(value)
+          ? prev.filter((v) => v !== value)
+          : [...prev, value],
+      );
+    } else if (type === "result") {
+      setResultFilters((prev) =>
+        prev.includes(value)
+          ? prev.filter((v) => v !== value)
+          : [...prev, value],
+      );
+    } else if (type === "qa") {
+      setQaFilters((prev) =>
+        prev.includes(value)
+          ? prev.filter((v) => v !== value)
+          : [...prev, value],
+      );
+    }
+  };
+
+  const filteredData = useMemo(() => {
+    return data
+      .filter((row) => {
+        if (globalSearch.trim()) {
+          const searchLower = globalSearch.toLowerCase();
+          const rowValues = Object.values(row).map((v) => String(v).toLowerCase());
+          
+          if (row.requirementId) {
+            const linkedReq = requirementsList.find((r) => r.id === Number(row.requirementId));
+            if (linkedReq) {
+              if (linkedReq.title) rowValues.push(String(linkedReq.title).toLowerCase());
+              if (linkedReq.redmineTicketId) rowValues.push(String(linkedReq.redmineTicketId).toLowerCase());
+            }
+          }
+
+          if (!rowValues.some((v) => v.includes(searchLower))) return false;
+        }
+        if (moduleFilters.length > 0) {
+          if (!moduleFilters.includes(row.moduleName || "")) return false;
+        }
+        if (resultFilters.length > 0) {
+          if (!matchesExecutionResult(row.result, resultFilters)) return false;
+        }
+        if (qaFilters.length > 0) {
+          if (!qaFilters.includes(row.qaPic || "")) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aO = typeof (a as any).rowOrder === "number" ? (a as any).rowOrder : Infinity;
+        const bO = typeof (b as any).rowOrder === "number" ? (b as any).rowOrder : Infinity;
+        return aO - bO;
+      });
+  }, [data, globalSearch, moduleFilters, resultFilters, qaFilters, requirementsList]);
+
+  // Focus view: keep the selection valid as filters/data change, defaulting to the first row
+  useEffect(() => {
+    if (viewLayout !== "focus") return;
+    if (focusRowId !== null && filteredData.some((r) => r.id === focusRowId)) return;
+    setFocusRowId(filteredData.length > 0 ? filteredData[0].id ?? null : null);
+  }, [viewLayout, filteredData, focusRowId]);
+
+  const focusRow = focusRowId !== null ? filteredData.find((r) => r.id === focusRowId) ?? null : null;
+  const focusIndex = focusRow ? filteredData.findIndex((r) => r.id === focusRow.id) : -1;
+
+  const goToFocusOffset = (offset: number) => {
+    if (focusIndex === -1 || filteredData.length === 0) return;
+    const next = filteredData[Math.min(Math.max(focusIndex + offset, 0), filteredData.length - 1)];
+    if (next) setFocusRowId(next.id ?? null);
+  };
+
+  // Summary Statistics
+  const summaryStats = useMemo(() => {
+    let totalExecuted = 0;
+    let totalUnexecuted = 0;
+    const resultsCount: Record<string, number> = {};
+    const qaCount: Record<string, number> = {};
+
+    filteredData.forEach((row) => {
+      if (
+        !row.result ||
+        row.result === "Not Executed" ||
+        row.result === "Pending" ||
+        row.result === "In Progress"
+      ) {
+        totalUnexecuted++;
+      } else {
+        totalExecuted++;
+      }
+
+      const resKey = row.result || "Pending";
+      resultsCount[resKey] = (resultsCount[resKey] || 0) + 1;
+
+      const qaKey = row.qaPic || "Unassigned";
+      qaCount[qaKey] = (qaCount[qaKey] || 0) + 1;
+    });
+
+    return { totalExecuted, totalUnexecuted, resultsCount, qaCount };
+  }, [filteredData]);
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedRows(filteredData.map((row) => row.id as string | number));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+
+  const confirmDeleteMulti = (ids: (string | number)[]) => {
+    setRowsToDelete(ids);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = () => {
+    // Collect DB IDs of rows being deleted so the server removes them
+    const numericIds = rowsToDelete.filter((id) => typeof id === "number") as number[];
+    if (numericIds.length > 0) {
+      setDeletedDbIds((prev) => new Set([...prev, ...numericIds]));
+    }
+    // Remove deleted rows from dirty tracking
+    setDirtyRowIds((prev) => {
+      const next = new Set(prev);
+      rowsToDelete.forEach((id) => next.delete(id));
+      return next;
+    });
+    setData((prev) =>
+      prev.filter((row) => !rowsToDelete.includes(row.id as string | number)),
+    );
+    setSelectedRows((prev) => prev.filter((id) => !rowsToDelete.includes(id)));
+    setDeleteConfirmOpen(false);
+    setRowsToDelete([]);
+    setHasUnsavedChanges(true);
+  };
+
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadExcel = async () => {
+    if (!ticketId || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams();
+      if (currentFileTitle) params.set("issueSubject", currentFileTitle);
+      if (currentFileTracker) params.set("issueType", currentFileTracker);
+      if (currentUser?.name) params.set("senderName", currentUser.name);
+
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+
+      // Document register match (Ref No.) is keyed on project name, so
+      // resolve it the same way Send Verdict does instead of leaving the
+      // server to fall back to the QA-<ticketId> placeholder.
+      if (currentFileProjectId) {
+        try {
+          const projRes = await fetch(`/api/projects/${currentFileProjectId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (projRes.ok) {
+            const proj = await projRes.json();
+            if (proj?.name) params.set("projectName", proj.name);
+          }
+        } catch {
+          // Non-fatal — download still works, just without the register lookup.
+        }
+      }
+
+      const res = await fetch(
+        `/api/execution-files/${ticketId}/download-excel?${params.toString()}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Download failed" }));
+        toast({ variant: "destructive", title: err.error ?? "Download failed" });
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      a.href = url;
+      const isZip = (res.headers.get("Content-Type") ?? "").includes("zip");
+      a.download = filenameMatch?.[1] ?? `TC_${ticketId}.${isZip ? "zip" : "xlsx"}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (isZip) {
+        toast({
+          title: "Downloaded with attachments",
+          description: "Extract the ZIP, then the Evidence column in the sheet opens each screenshot directly.",
+        });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Download failed" });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // ─── Promote to Library ────────────────────────────────────────────────────
+  const openPromoteDialog = async (row: AppExecutionTestCase) => {
+    setPromoteRow(row);
+    setPromoteForm({
+      requirementId: "",
+      projectId: "",
+      module: row.moduleName || "",
+    });
+    // Lazy-load requirements and projects if not yet loaded
+    if (promoteRequirements.length === 0) {
+      const [reqRes, projRes] = await Promise.all([
+        fetch("/api/requirements", { headers: getHeaders() }),
+        fetch("/api/projects", { headers: getHeaders() }),
+      ]);
+      if (reqRes.ok) setPromoteRequirements(await reqRes.json());
+      if (projRes.ok && libraryProjects.length === 0) setLibraryProjects(await projRes.json());
+    } else if (libraryProjects.length === 0) {
+      const projRes = await fetch("/api/projects", { headers: getHeaders() });
+      if (projRes.ok) setLibraryProjects(await projRes.json());
+    }
+  };
+
+  const handlePromote = async () => {
+    if (!promoteRow || !promoteForm.projectId || !promoteForm.module) return;
+    setIsPromoting(true);
+    try {
+      const token = localStorage.getItem("qa_pulse_token") ?? sessionStorage.getItem("qa_pulse_token");
+      const headers = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const body: Record<string, any> = {
+        title: promoteRow.caseName || promoteRow.scenario || "Untitled",
+        testSteps: promoteRow.testSteps || undefined,
+        expectedResult: promoteRow.expectedResult || undefined,
+        preconditions: promoteRow.preCondition || undefined,
+        scenario: promoteRow.scenario || undefined,
+        testData: promoteRow.testData || undefined,
+        tracker: promoteRow.tracker || undefined,
+        redmineUserStory: promoteRow.userStory || undefined,
+        comments: promoteRow.comments || undefined,
+        qaPic: promoteRow.qaPic || undefined,
+        module: promoteForm.module,
+        projectId: Number(promoteForm.projectId),
+        requirementId: promoteForm.requirementId ? Number(promoteForm.requirementId) : undefined,
+        authorId: currentUser?.id,
+      };
+      const res = await fetch("/api/test-cases", { method: "POST", headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("Failed to create library test case");
+      const created = await res.json();
+
+      // Link execution row to the new library TC
+      setData(prev =>
+        prev.map(r => r.id === promoteRow.id ? { ...r, libraryTcId: created.id } : r)
+      );
+      setDirtyRowIds(prev => new Set([...prev, promoteRow.id]));
+      setHasUnsavedChanges(true);
+      setPromoteRow(null);
+      toast({ title: `Promoted to library successfully` });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to promote test case to library" });
+    } finally {
+      setIsPromoting(false);
+    }
+  };
+
+  // Push this execution copy's definitional fields up to the already-linked library
+  // test case (the "there's drift" counterpart to the create-new promote flow above).
+  const handleUpdateLibraryFromExecution = async (row: AppExecutionTestCase) => {
+    if (!row.libraryTcId) return;
+    try {
+      const body = {
+        title: row.caseName || row.scenario || "Untitled",
+        scenario: row.scenario || undefined,
+        preconditions: row.preCondition || undefined,
+        testData: row.testData || undefined,
+        testSteps: row.testSteps || undefined,
+        expectedResult: row.expectedResult || undefined,
+        module: row.moduleName || undefined,
+        redmineUserStory: row.userStory || undefined,
+        tracker: row.tracker || undefined,
+      };
+      const res = await fetch(`/api/test-cases/${row.libraryTcId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to update library test case");
+      const updated = await res.json();
+      setLibraryTestCases((prev) => prev.map((tc) => (tc.id === updated.id ? updated : tc)));
+      toast({ title: "Library test case updated" });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to update library test case" });
+    }
+  };
+
+  // Overwrite this execution copy's definitional fields from the linked library test
+  // case's current content — the reverse direction of the update-library flow above.
+  const handlePullLatestFromLibrary = (row: AppExecutionTestCase) => {
+    const lib = row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null;
+    if (!lib) return;
+    setData((prev) =>
+      prev.map((r) =>
+        r.id === row.id
+          ? {
+              ...r,
+              caseName: lib.title || "",
+              scenario: lib.scenario || "",
+              preCondition: lib.preconditions || "",
+              testData: lib.testData || "",
+              testSteps: lib.testSteps || "",
+              expectedResult: lib.expectedResult || "",
+              moduleName: lib.module || r.moduleName,
+              userStory: lib.redmineUserStory || "",
+              tracker: lib.tracker || "",
+            }
+          : r,
+      ),
+    );
+    dirtyRowIdsRef.current = new Set([...dirtyRowIdsRef.current, row.id as string | number]);
+    setDirtyRowIds(dirtyRowIdsRef.current);
+    setHasUnsavedChanges(true);
+    toast({ title: "Pulled latest from library — remember to Save" });
+  };
+
+  const normalizeHeader = (val: any) => {
+    if (typeof val !== "string") return "";
+    return val
+      .toLowerCase()
+      .replace(/[\n\r\t]/g, " ")
+      .trim();
+  };
+
+
+  // --- NEW: Robust Case-Insensitive QA Matching ---
+  const normalizeQAValue = (val: string) => {
+    if (!val) return "";
+    const clean = val.toLowerCase().trim();
+
+    // 1. Hardcoded aliases (keys MUST be strictly lowercase to match `clean`)
+    const map: Record<string, string> = {
+      qinah: "Qinah",
+      qina: "Qinah",
+      syasya: "Syasya",
+      sya2: "Syasya",
+      raimi: "Raimi Rosman",
+      rai: "Raihan",
+    };
+
+    if (map[clean]) return map[clean];
+
+    // 2. Dynamic, case-insensitive match against the actual db list of users
+    const existingUser = qaUsers.find((u) => u.name.toLowerCase() === clean);
+    if (existingUser) return existingUser.name;
+
+    // 3. Fallback to original
+    return val.trim();
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const wb = XLSX.read(arrayBuffer, { type: "array" });
+
+      let totalRowsImported = 0;
+      let totalRowsSkipped = 0;
+      let totalWorksheetsImported = 0;
+      const missingColumnsSet = new Set<string>();
+      const duplicateCaseIdsSet = new Set<string>();
+      const seenCaseIds = new Set<string>();
+      const consolidatedData: AppExecutionTestCase[] = [];
+
+      const allRequiredKeys = Object.keys(COLUMN_MAPPINGS).filter(
+        (k) => k !== "moduleName",
+      );
+      const MIN_REQUIRED_COLUMNS = 7;
+
+      for (const sheetName of wb.SheetNames) {
+        const sheet = wb.Sheets[sheetName];
+
+        if (sheet["!merges"]) {
+          sheet["!merges"].forEach((merge: any) => {
+            const startCell = XLSX.utils.encode_cell({
+              c: merge.s.c,
+              r: merge.s.r,
+            });
+            const val = sheet[startCell] ? sheet[startCell].v : undefined;
+            if (val !== undefined) {
+              for (let R = merge.s.r; R <= merge.e.r; ++R) {
+                for (let C = merge.s.c; C <= merge.e.c; ++C) {
+                  const cellRef = XLSX.utils.encode_cell({ c: C, r: R });
+                  if (!sheet[cellRef]) {
+                    sheet[cellRef] = { t: "s", v: val };
+                  } else {
+                    sheet[cellRef].v = val;
+                  }
+                }
+              }
+            }
+          });
+        }
+
+        const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
+          header: 1,
+          blankrows: false,
+          raw: false,
+        });
+
+        if (rawData.length === 0) continue;
+
+        let headerRowIndex = -1;
+        let bestMatchCount = 0;
+        let columnMapIndex: Record<string, number> = {};
+
+        for (let r = 0; r < Math.min(rawData.length, 30); r++) {
+          const row = rawData[r];
+          if (!Array.isArray(row)) continue;
+
+          let currentMatchCount = 0;
+          let currentMap: Record<string, number> = {};
+
+          row.forEach((cellValue, colIndex) => {
+            const normalizedCell = normalizeHeader(cellValue);
+            if (!normalizedCell) return;
+
+            for (const [key, synonyms] of Object.entries(COLUMN_MAPPINGS)) {
+              if (synonyms.includes(normalizedCell)) {
+                currentMap[key] = colIndex;
+                currentMatchCount++;
+                break;
+              }
+            }
+          });
+
+          const hasCoreTestColumns =
+            currentMap["testCaseId"] !== undefined &&
+            currentMap["testSteps"] !== undefined &&
+            currentMap["expectedResult"] !== undefined;
+
+          if (currentMatchCount >= MIN_REQUIRED_COLUMNS && hasCoreTestColumns) {
+            if (currentMatchCount > bestMatchCount) {
+              bestMatchCount = currentMatchCount;
+              columnMapIndex = currentMap;
+              headerRowIndex = r;
+            }
+          }
+        }
+
+        if (headerRowIndex === -1) continue;
+
+        totalWorksheetsImported++;
+
+        allRequiredKeys.forEach((k) => {
+          if (columnMapIndex[k] === undefined) missingColumnsSet.add(k);
+        });
+
+        for (let r = headerRowIndex + 1; r < rawData.length; r++) {
+          const row = rawData[r];
+
+          if (!row || row.length === 0) {
+            totalRowsSkipped++;
+            continue;
+          }
+
+          const extracted: Record<string, string> = {};
+          let hasMeaningfulData = false;
+
+          for (const [key, colIdx] of Object.entries(columnMapIndex)) {
+            const val = row[colIdx];
+            if (
+              val !== undefined &&
+              val !== null &&
+              String(val).trim() !== ""
+            ) {
+              extracted[key] = String(val).trim();
+              hasMeaningfulData = true;
+            } else {
+              extracted[key] = "";
+            }
+          }
+
+          const extractedValues = Object.values(extracted).filter(
+            (v) => v !== "",
+          );
+
+          // If every mapped column extracted the same non-empty value, this is a merged
+          // banner/section-divider row (e.g. "Complete Profile Registration") — import it
+          // as a Group Tag row rather than folding it into Module.
+          if (
+            extractedValues.length > 1 &&
+            extractedValues.every((val) => val === extractedValues[0])
+          ) {
+            consolidatedData.push({
+              id: Date.now().toString() + Math.random().toString(36).substring(2, 8),
+              rowType: "group",
+              moduleName: extracted.moduleName || "",
+              testCaseId: "",
+              userStory: "",
+              tracker: "",
+              scenario: "",
+              preCondition: "",
+              caseName: extractedValues[0],
+              testSteps: "",
+              testData: "",
+              expectedResult: "",
+              result: "",
+              defectNumber: "",
+              comments: "",
+              qaPic: "",
+            });
+            totalRowsImported++;
+            continue;
+          }
+
+          if (!hasMeaningfulData) {
+            totalRowsSkipped++;
+            continue;
+          }
+
+          const cid = extracted.testCaseId;
+          if (cid) {
+            if (seenCaseIds.has(cid)) {
+              duplicateCaseIdsSet.add(cid);
+            } else {
+              seenCaseIds.add(cid);
+            }
+          }
+
+          consolidatedData.push({
+            id:
+              Date.now().toString() +
+              Math.random().toString(36).substring(2, 8),
+            rowType: "testcase",
+            moduleName: extracted.moduleName || "",
+            testCaseId: extracted.testCaseId || "",
+            userStory: extracted.userStory || "",
+            tracker: extracted.tracker || "",
+            scenario: extracted.scenario || "",
+            preCondition: extracted.preCondition || "",
+            caseName: extracted.caseName || "",
+            testSteps: extracted.testSteps || "",
+            testData: extracted.testData || "",
+            expectedResult: extracted.expectedResult || "",
+            result: normalizeResultValue(extracted.result || ""),
+            defectNumber: extracted.defectNumber || "",
+            comments: extracted.comments || "",
+            qaPic: normalizeQAValue(extracted.qaPic || ""),
+          });
+
+          totalRowsImported++;
+        }
+      }
+
+      const summaryObj: ImportSummary = {
+        status:
+          totalRowsImported > 0
+            ? missingColumnsSet.size > 0 || duplicateCaseIdsSet.size > 0
+              ? "Partial Success"
+              : "Success"
+            : "Failed",
+        totalWorksheetsScanned: wb.SheetNames.length,
+        totalWorksheetsImported,
+        totalRowsImported,
+        totalRowsSkipped,
+        missingColumns: Array.from(missingColumnsSet),
+        duplicateCaseIds: Array.from(duplicateCaseIdsSet),
+      };
+
+      if (consolidatedData.length > 0) {
+        // Resolve each unique Redmine ticket ID (userStory column) to a requirement —
+        // reuse an existing link, else fetch-and-create from Redmine — deduped so a
+        // shared ticket across many rows only triggers one lookup.
+        const uniqueTicketIds = Array.from(
+          new Set(
+            consolidatedData
+              .map((r) => r.userStory?.trim())
+              .filter((v): v is string => !!v),
+          ),
+        );
+        if (uniqueTicketIds.length > 0) {
+          const resolved = await Promise.all(
+            uniqueTicketIds.map((tid) =>
+              resolveRequirementByRedmine(tid, currentFileMilestoneId)
+                .catch(() => null)
+                .then((req) => [tid, req] as const),
+            ),
+          );
+          const requirementByTicket = new Map(resolved);
+          for (const row of consolidatedData) {
+            const tid = row.userStory?.trim();
+            const req = tid ? requirementByTicket.get(tid) : null;
+            if (req) row.requirementId = req.id;
+          }
+          const newlyResolved = resolved
+            .map(([, req]) => req)
+            .filter((r): r is RequirementOption => !!r);
+          if (newlyResolved.length > 0) {
+            setRequirementsList((prev) => {
+              const byId = new Map(prev.map((r) => [r.id, r]));
+              for (const r of newlyResolved) byId.set(r.id, r);
+              return Array.from(byId.values());
+            });
+          }
+        }
+
+        // Mark existing DB rows for deletion and all imported rows as dirty
+        const oldDbIds = dataRef.current
+          .filter((r) => typeof r.id === "number")
+          .map((r) => r.id as number);
+        if (oldDbIds.length > 0) {
+          setDeletedDbIds((prev) => new Set([...prev, ...oldDbIds]));
+        }
+        const applyImport = (rows: AppExecutionTestCase[]) => {
+          setData(rows);
+          setDirtyRowIds(new Set(rows.map((r) => r.id)));
+          setHasUnsavedChanges(true);
+        };
+
+        if (availableModules.length === 1) {
+          consolidatedData.forEach((r) => {
+            if (!r.moduleName) r.moduleName = availableModules[0].name;
+          });
+          applyImport(consolidatedData);
+          setImportSummary(summaryObj);
+        } else if (availableModules.length > 1) {
+          const hasMissingModules = consolidatedData.some((r) => !r.moduleName);
+          if (hasMissingModules) {
+            setPendingImportData(consolidatedData);
+            setPendingImportSummary(summaryObj);
+            setShowModuleSelectDialog(true);
+          } else {
+            applyImport(consolidatedData);
+            setImportSummary(summaryObj);
+          }
+        } else {
+          applyImport(consolidatedData);
+          setImportSummary(summaryObj);
+        }
+      } else {
+        setImportSummary(summaryObj);
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Import failed",
+        description: "Invalid Excel structure or corrupted file.",
+      });
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleConfirmImportModule = () => {
+    if (pendingImportData) {
+      const finalizedData = pendingImportData.map((r) => ({
+        ...r,
+        moduleName: r.moduleName || selectedImportModule,
+      }));
+      setData(finalizedData);
+      setDirtyRowIds(new Set(finalizedData.map((r) => r.id)));
+      setHasUnsavedChanges(true);
+    }
+    if (pendingImportSummary) setImportSummary(pendingImportSummary);
+
+    setShowModuleSelectDialog(false);
+    setPendingImportData(null);
+    setSelectedImportModule("");
+  };
+
+  if (isLoading)
+    return (
+      <div className="flex justify-center items-center h-full min-h-[50vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+
+  const uniqueModules = Array.from(
+    new Set(data.map((r) => r.moduleName || "")),
+  ).filter(Boolean);
+  const uniqueQA = Array.from(new Set(data.map((r) => r.qaPic || ""))).filter(
+    Boolean,
+  );
+  const totalActiveFilters =
+    moduleFilters.length + resultFilters.length + qaFilters.length;
+
+  const defectRow = pendingFailRowId
+    ? data.find((r) => r.id === pendingFailRowId)
+    : null;
+
+  // The defect must be created under the Redmine ticket that's actually
+  // linked to the failing test case — not blindly this file's own ticketId,
+  // which may cover several requirements (and therefore several distinct
+  // Redmine tickets) bundled into one execution file. Prefer the row's own
+  // requirement's linked ticket; if the row has no requirement (e.g. a
+  // manually added row), fall back to the first linked ticket among this
+  // file's own requirements, then to the file's own ticketId.
+  //
+  // That last fallback only holds when the file's reference IS a Redmine issue
+  // number. An execution file's reference is a QM Pulse identifier that merely
+  // tends to be a ticket id — a file created without one carries a generated
+  // "INT-0004" instead, and even an all-digits reference may name no issue at
+  // all. Sending one Redmine can't resolve used to fail the whole defect with
+  // "Parent task is invalid", so a non-numeric reference is not offered as a
+  // parent, and the server drops any id that doesn't resolve rather than
+  // losing the report.
+  const defectParentIssueId = (() => {
+    const ownReq = defectRow?.requirementId
+      ? requirementsList.find((r) => r.id === Number(defectRow.requirementId))
+      : null;
+    if (ownReq?.redmineTicketId) return ownReq.redmineTicketId;
+    const fileScoped = requirementsList.filter(
+      (r) => currentFileMilestoneId == null || r.milestoneId === currentFileMilestoneId,
+    );
+    const firstLinked = fileScoped.find((r) => r.redmineTicketId)?.redmineTicketId;
+    if (firstLinked) return firstLinked;
+    return /^\d+$/.test(ticketId ?? "") ? ticketId : null;
+  })();
+
+  return (
+    <div className="space-y-3 flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100vh-6rem)] relative">
+      <DefectCreationModal
+        open={defectModalOpen}
+        onClose={() => {
+          setDefectModalOpen(false);
+          pendingFailRowIdRef.current = null;
+          setPendingFailRowId(null);
+        }}
+        onDefectCreated={handleDefectCreated}
+        testCaseName={defectRow?.caseName ?? defectRow?.scenario ?? ""}
+        testSteps={defectRow?.testSteps ?? undefined}
+        moduleName={defectRow?.moduleName ?? undefined}
+        projectId={currentFileProjectId}
+        testCaseId={defectRow?.testCaseId ?? undefined}
+        expectedResult={defectRow?.expectedResult ?? undefined}
+        parentIssueId={defectParentIssueId}
+        executionTcId={typeof defectRow?.id === "number" ? defectRow.id : null}
+        onSkip={() => {
+          setDefectModalOpen(false);
+          pendingFailRowIdRef.current = null;
+          setPendingFailRowId(null);
+          // Result stays "Failed" — user will log defect later
+        }}
+      />
+
+      {/* CAPA Intelligence Dialog */}
+      <Dialog open={passEvidenceDialogOpen} onOpenChange={(open) => {
+        if (!isUploadingPassEvidence) {
+          setPassEvidenceDialogOpen(open);
+          if (!open) { setPendingPassRowId(null); setPassEvidenceFile(null); }
+        }
+      }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Paperclip className="w-5 h-5 text-primary" />
+              {passEvidenceMode === "pass" ? "Add pass evidence" : "Attach evidence"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              {passEvidenceMode === "pass"
+                ? "Supporting evidence is optional. You can pass this test now and attach a document later."
+                : "Add supporting evidence without changing or rerunning this Passed result."}
+            </p>
+            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/60 hover:bg-muted/30">
+              <Upload className="w-6 h-6 text-muted-foreground" />
+              <span className="text-sm font-medium max-w-full break-words px-2">{passEvidenceFile ? passEvidenceFile.name : "Choose screenshot or document"}</span>
+              <span className="text-xs text-muted-foreground">Images, PDF, Word or Excel · maximum 10 MB</span>
+              <input
+                type="file"
+                className="hidden"
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                onChange={(event) => setPassEvidenceFile(event.target.files?.[0] ?? null)}
+                disabled={isUploadingPassEvidence}
+              />
+            </label>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={() => setPassEvidenceDialogOpen(false)} disabled={isUploadingPassEvidence}>Cancel</Button>
+            <div className="flex gap-2">
+              {passEvidenceMode === "pass" && (
+                <Button variant="secondary" onClick={handlePassWithoutEvidence} disabled={isUploadingPassEvidence}>Pass without attachment</Button>
+              )}
+              <Button onClick={handleSavePassEvidence} disabled={!passEvidenceFile || isUploadingPassEvidence} className="gap-2">
+                {isUploadingPassEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {passEvidenceMode === "pass" ? "Save as Passed" : "Upload attachment"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reason for overwriting an already-recorded result. Mandatory: an
+          unexplained Passed -> Failed is exactly the entry the trail exists to
+          answer, so the change doesn't proceed without one. */}
+      <Dialog
+        open={resultChangePrompt !== null}
+        onOpenChange={(open) => { if (!open) { setResultChangePrompt(null); setResultChangeReason(""); } }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" /> Why is this result changing?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {resultChangePrompt && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`px-2 py-0.5 rounded-full border text-xs font-medium ${RESULT_PILL_ACTIVE[resultChangePrompt.from] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                  {resultChangePrompt.from}
+                </span>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className={`px-2 py-0.5 rounded-full border text-xs font-medium ${RESULT_PILL_ACTIVE[resultChangePrompt.to] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                  {resultChangePrompt.to}
+                </span>
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground">
+              This is recorded against the test case with your name and the time, and shown in its History.
+            </p>
+            <Textarea
+              autoFocus
+              value={resultChangeReason}
+              onChange={(e) => setResultChangeReason(e.target.value)}
+              placeholder="e.g. Retested after fix #38120 — the defect is still reproducible on Env 3"
+              className="min-h-[90px] text-sm"
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setResultChangePrompt(null); setResultChangeReason(""); }}>
+              Cancel
+            </Button>
+            <Button onClick={confirmResultChange} disabled={!resultChangeReason.trim()}>
+              Save reason &amp; change result
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Execution trail for one test case. */}
+      <Dialog open={trailRow !== null} onOpenChange={(open) => { if (!open) { setTrailRow(null); setTrailData(null); } }}>
+        <DialogContent className="sm:max-w-[620px] max-h-[85vh] flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-primary" /> Execution history
+            </DialogTitle>
+            {trailRow && (
+              <p className="text-sm text-muted-foreground pt-1">
+                <span className="font-mono text-xs text-primary">{trailRow.caseId || trailRow.testCaseId}</span>
+                {trailRow.caseName ? ` · ${trailRow.caseName}` : ""}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto py-2">
+            {trailLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+            ) : !trailData || trailData.entries.length === 0 ? (
+              <div className="text-center py-10 space-y-1">
+                <p className="text-sm text-muted-foreground">No result has been recorded yet.</p>
+                {trailData?.addedByName && (
+                  <p className="text-xs text-muted-foreground">Added by {trailData.addedByName}</p>
+                )}
+              </div>
+            ) : (
+              <ol className="relative border-l border-border ml-3 space-y-5 py-1">
+                {trailData.entries.map((entry, i) => (
+                  <li key={i} className="ml-5">
+                    <span
+                      className={`absolute -left-[5px] mt-1.5 w-2.5 h-2.5 rounded-full ring-4 ring-background ${
+                        entry.kind === "result"
+                          ? RESULT_DOT_COLOR[normalizeResultValue(entry.toStatus)] ?? "bg-slate-400"
+                          : "bg-slate-400"
+                      }`}
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {entry.kind === "result" ? (
+                        <>
+                          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${RESULT_PILL_ACTIVE[normalizeResultValue(entry.fromStatus)] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                            {normalizeResultValue(entry.fromStatus) || "Not Executed"}
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${RESULT_PILL_ACTIVE[normalizeResultValue(entry.toStatus)] ?? "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                            {normalizeResultValue(entry.toStatus) || "Not Executed"}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-medium">{entry.label}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {entry.actorName ?? "Unknown user"} · {format(new Date(entry.at), "dd MMM yyyy, HH:mm")}
+                    </p>
+                    {entry.reason ? (
+                      <p className="text-xs mt-1.5 rounded-md border bg-muted/40 px-2.5 py-1.5 whitespace-pre-wrap break-words">
+                        {entry.reason}
+                      </p>
+                    ) : entry.kind === "result" ? (
+                      <p className="text-xs mt-1.5 italic text-muted-foreground/70">No reason recorded</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          <DialogFooter className="shrink-0 border-t pt-3">
+            <Button variant="outline" onClick={() => { setTrailRow(null); setTrailData(null); }}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={capaOpen} onOpenChange={setCapaOpen}>
+        <DialogContent className="max-w-3xl w-[96vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-500" /> CAPA Intelligence
+            </DialogTitle>
+          </DialogHeader>
+          {capaLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+              <p className="text-sm text-muted-foreground">Analysing failure patterns...</p>
+            </div>
+          ) : capaResult ? (
+            <div className="space-y-4">
+              {capaResult.items.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">{capaResult.summary || "No failed or blocked test cases found."}</p>
+              ) : (
+                <>
+                  {capaResult.summary && (
+                    <div className="rounded-lg bg-purple-50 border border-purple-200 p-3 text-sm text-purple-800">
+                      <span className="font-semibold">Summary: </span>{capaResult.summary}
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {capaResult.items.map((item: any, i: number) => (
+                      <div key={i} className="border rounded-lg p-4 space-y-2 text-sm">
+                        <div className="flex items-center gap-2 font-semibold text-base">
+                          <span className="bg-purple-100 text-purple-700 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0">{item.sl ?? i + 1}</span>
+                          {item.analysisPoint}
+                          {item.module && <span className="ml-auto text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{item.module}</span>}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-red-600 uppercase">Root Cause</p>
+                            <p className="text-xs text-muted-foreground">{item.rootCause}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-amber-600 uppercase">Corrective Action</p>
+                            <p className="text-xs text-muted-foreground">{item.correctiveAction}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-green-600 uppercase">Preventive Action</p>
+                            <p className="text-xs text-muted-foreground">{item.preventiveAction}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter className="gap-2 mt-2">
+            {capaResult && capaResult.items.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => {
+                const text = capaResult.items.map((item: any, i: number) =>
+                  `${i + 1}. ${item.analysisPoint}\n   Root Cause: ${item.rootCause}\n   Corrective: ${item.correctiveAction}\n   Preventive: ${item.preventiveAction}`
+                ).join("\n\n");
+                navigator.clipboard.writeText(`Summary: ${capaResult.summary}\n\n${text}`);
+              }}>
+                Copy All
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setCapaOpen(false)}>Close</Button>
+            {capaResult && <Button size="sm" onClick={handleCapaAnalysis} variant="secondary" className="gap-2"><Sparkles className="w-3.5 h-3.5" /> Re-analyse</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Row Removal
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to remove{" "}
+              {rowsToDelete.length > 1
+                ? `these ${rowsToDelete.length} rows`
+                : "this row"}
+              ?
+              <br />
+              <br />
+              <strong>Note:</strong> You will still need to click "Save" to
+              apply this change to the database.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirmOpen(false)}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={executeDelete}
+              className="w-full sm:w-auto"
+            >
+              Remove Row(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showModuleSelectDialog}
+        onOpenChange={setShowModuleSelectDialog}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Map Missing Modules</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Some imported rows do not have a defined module. Would you like to
+              map them to an existing module?
+            </p>
+            <div className="space-y-1">
+              <Label>Default Module for Unassigned Rows</Label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={selectedImportModule}
+                onChange={(e) => setSelectedImportModule(e.target.value)}
+              >
+                <option value="">Leave unassigned</option>
+                {availableModules.map((m) => (
+                  <option key={m.id} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleConfirmImportModule}>Continue Import</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {importSummary && !showModuleSelectDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <Card className="max-w-md w-full bg-background shadow-2xl overflow-hidden border-border">
+            <div
+              className={`p-4 border-b flex items-center gap-2 text-white ${importSummary.status === "Success" ? "bg-green-600" : importSummary.status === "Failed" ? "bg-red-600" : "bg-amber-500"}`}
+            >
+              {importSummary.status === "Success" && (
+                <CheckCircle className="w-5 h-5" />
+              )}
+              {importSummary.status === "Failed" && (
+                <XCircle className="w-5 h-5" />
+              )}
+              {importSummary.status === "Partial Success" && (
+                <AlertTriangle className="w-5 h-5" />
+              )}
+              <h2 className="text-lg font-bold">
+                Import Summary: {importSummary.status}
+              </h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">Sheets Scanned</p>
+                  <p className="text-2xl font-semibold">
+                    {importSummary.totalWorksheetsScanned}
+                  </p>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">
+                    Valid Sheets Imported
+                  </p>
+                  <p className="text-2xl font-semibold text-primary">
+                    {importSummary.totalWorksheetsImported}
+                  </p>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">Rows Imported</p>
+                  <p className="text-2xl font-semibold">
+                    {importSummary.totalRowsImported}
+                  </p>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-muted-foreground mb-1">
+                    Empty Rows Skipped
+                  </p>
+                  <p className="text-2xl font-semibold">
+                    {importSummary.totalRowsSkipped}
+                  </p>
+                </div>
+              </div>
+
+              {importSummary.missingColumns.length > 0 && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md">
+                  <p className="text-sm font-semibold text-amber-600 flex items-center gap-2 mb-1">
+                    <AlertTriangle className="w-4 h-4" /> Missing Columns
+                    Detected
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {importSummary.missingColumns.join(", ")}
+                  </p>
+                </div>
+              )}
+
+              {importSummary.duplicateCaseIds.length > 0 && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+                  <p className="text-sm font-semibold text-red-600 flex items-center gap-2 mb-1">
+                    <XCircle className="w-4 h-4" /> Duplicate Case IDs Found
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {importSummary.duplicateCaseIds.join(", ")}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2">
+                <Button onClick={() => setImportSummary(null)}>
+                  Acknowledge & Continue
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* No milestone linked yet — test cases can still be added/edited, but
+          Execute mode (recording a real result) is disabled until one is set. */}
+      {currentFileMilestoneId == null && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/10 shrink-0">
+          <p className="text-sm text-amber-700 dark:text-amber-400 flex-1">
+            No milestone linked — you can add and edit test cases, but results can't be recorded until one is set.
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="w-56">
+              <SearchableSelect
+                value={selectedMilestoneToLink}
+                onValueChange={setSelectedMilestoneToLink}
+                options={milestoneOptions.map((m) => ({ value: String(m.id), label: m.name }))}
+                placeholder="Select milestone..."
+                searchPlaceholder="Search milestones..."
+              />
+            </div>
+            <Button size="sm" onClick={linkMilestone} disabled={!selectedMilestoneToLink || linkingMilestone}>
+              {linkingMilestone ? <Loader2 className="w-4 h-4 animate-spin" /> : "Link"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {(currentFileReviewStatus || '') && (currentFileReviewStatus || '') !== "approved" && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-sm">Execution is Locked</p>
+              <p className="text-xs text-amber-700 mt-1">
+                This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status.
+                You cannot execute test cases (Pass/Fail/Block) until it is approved. Sign-off is reserved for a
+                QA Lead, QA Manager, or HOD QA other than the person who submitted it.
+              </p>
+              {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
+                <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
+                  <strong>Rejection Reason:</strong> <br/>
+                  <span className="whitespace-pre-wrap">{currentFileRejectionReason}</span>
+                </div>
+              )}
+            </div>
+          </div>
+          {(currentFileReviewStatus || '') === "in_review" && canApproveExecutionFile && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
+                <XCircle className="w-4 h-4 mr-2" /> Reject
+              </Button>
+              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleReviewAction("approve")}>
+                <CheckCircle className="w-4 h-4 mr-2" /> Approve
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Per-row acceptance. Test cases added after this file was approved were
+          never part of that sign-off, so they sit frozen here until a peer
+          accepts them — the already-approved rows above keep executing. */}
+      {pendingRows.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3 space-y-2">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
+                {pendingRows.length} test case{pendingRows.length !== 1 ? "s" : ""} awaiting peer acceptance
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                Added after this file was approved, so they weren't covered by that review.
+                They can't be executed until a QA colleague other than the person who added them accepts each one.
+              </p>
+            </div>
+            {canReview && pendingRows.some((row) => !(row.addedBy != null && row.addedBy === currentUser?.id)) && (
+              <Button
+                size="sm"
+                className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white shrink-0"
+                disabled={rowReviewBusy}
+                onClick={handleAcceptAll}
+              >
+                Accept All
+              </Button>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {pendingRows.map((row) => {
+              const mine = row.addedBy != null && row.addedBy === currentUser?.id;
+              const canActOnRow = canReview && !mine;
+              return (
+                <div
+                  key={String(row.id)}
+                  className="flex flex-wrap items-center gap-2 bg-white dark:bg-background rounded px-2.5 py-2 border border-amber-100 dark:border-amber-900"
+                >
+                  <span className="text-xs font-mono text-muted-foreground shrink-0">{row.testCaseId || "—"}</span>
+                  <span className="text-sm truncate min-w-0 flex-1" title={row.caseName}>{row.caseName || "Untitled"}</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">
+                    added by {row.addedByName || "unknown"}
+                  </span>
+                  {canActOnRow ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
+                        disabled={rowReviewBusy}
+                        onClick={() => { setReturnRowTarget(row); setReturnRowComment(""); }}
+                      >
+                        Return
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                        disabled={rowReviewBusy}
+                        onClick={() => handleRowReview(Number(row.id), "accept")}
+                      >
+                        Accept
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground italic shrink-0">
+                      {mine ? "waiting on a peer" : "no review rights"}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Rows a reviewer sent back. They are off the execution sheet until the
+          person who added them fixes the case and resubmits it. */}
+      {returnedRows.length > 0 && (
+        <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg p-3 space-y-2">
+          <div className="flex items-start gap-3">
+            <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-red-800 dark:text-red-300">
+                {returnedRows.length} test case{returnedRows.length !== 1 ? "s" : ""} returned for rework
+              </p>
+              <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                Held off the execution sheet. Fix the test case, then resubmit it for acceptance —
+                everything else in this file carries on executing meanwhile.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {returnedRows.map((row) => (
+              <div
+                key={row.id}
+                className="bg-white dark:bg-background rounded px-2.5 py-2 border border-red-100 dark:border-red-900 space-y-1.5"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-mono text-muted-foreground shrink-0">{row.testCaseId || "—"}</span>
+                  <span className="text-sm truncate min-w-0 flex-1" title={row.caseName ?? undefined}>
+                    {row.caseName || "Untitled"}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">
+                    returned by {row.returnedByName || "a reviewer"}
+                  </span>
+                  {row.addedBy != null && row.addedBy === currentUser?.id && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs shrink-0"
+                      disabled={rowReviewBusy}
+                      onClick={() => handleRowReview(row.id, "resubmit")}
+                    >
+                      Resubmit
+                    </Button>
+                  )}
+                </div>
+                {row.reviewComment && (
+                  <p className="text-xs text-red-800 dark:text-red-300 whitespace-pre-wrap bg-red-50 dark:bg-red-950/50 rounded px-2 py-1.5">
+                    <strong>What to fix:</strong> {row.reviewComment}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* HEADER & ACTION BUTTONS */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setLocation("/test-cases/execution")}
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-xl font-bold flex items-center gap-2 flex-wrap">
+              <FileSpreadsheet className="w-5 h-5 text-primary shrink-0" /> Ticket #{ticketId}
+              {currentFileTitle && (
+                <span className="text-muted-foreground font-normal">— {currentFileTitle}</span>
+              )}
+            </h1>
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              Test Case Execution Progress{" "}
+              <Sparkles className="w-3 h-3 ml-1 text-primary" /> AI Copilot
+              Active (Press Tab)
+            </p>
+            {/* --- AUTO-SAVE INDICATOR --- */}
+            <div className="text-xs flex items-center gap-1 mt-0.5 font-medium">
+              {saveStatus === "saving" && (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-blue-500" />{" "}
+                  <span className="text-blue-500">Saving...</span>
+                </>
+              )}
+              {saveStatus === "error" && (
+                <>
+                  <AlertTriangle className="w-3 h-3 text-red-500" />{" "}
+                  <span className="text-red-500">Save Failed!</span>
+                </>
+              )}
+              {saveStatus === "saved" && (
+                <>
+                  <CheckCircle className="w-3 h-3 text-green-600" />{" "}
+                  <span className="text-green-600">Saved</span>
+                </>
+              )}
+              {lastSavedAt && (
+                <span className="text-muted-foreground ml-1">
+                  Last saved at {format(lastSavedAt, "HH:mm:ss")}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          {mode === "edit" && selectedRows.length > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => confirmDeleteMulti(selectedRows)}
+              className="flex-1 lg:flex-none gap-2"
+            >
+              <Trash2 className="w-4 h-4" /> Delete Selected ({selectedRows.length})
+            </Button>
+          )}
+
+          {/* Mode toggle — Execute is disabled until a milestone is linked,
+              since that's the only mode that can record a result. */}
+          <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium">
+            <button
+              onClick={() => currentFileMilestoneId != null && setMode("execute")}
+              disabled={currentFileMilestoneId == null}
+              title={currentFileMilestoneId == null ? "Link a milestone to this execution file before you can record results" : undefined}
+              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"} ${currentFileMilestoneId == null ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              Execute
+            </button>
+            <button
+              onClick={() => setMode("edit")}
+              className={`px-3 py-1.5 transition-colors ${mode === "edit" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"}`}
+            >
+              Edit test cases
+            </button>
+          </div>
+
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleImportExcel}
+          />
+
+          {/* Utilities — execute mode only */}
+          {mode === "execute" && (
+            <div className="flex gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImporting}
+                className="gap-2"
+              >
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadExcel}
+                disabled={isDownloading}
+                className="gap-2"
+              >
+                {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isDownloading ? "Downloading..." : "Download"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCapaAnalysis}
+                className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+              >
+                <Sparkles className="w-4 h-4" /> CAPA AI
+              </Button>
+            </div>
+          )}
+
+          <div className="w-px h-6 bg-border hidden lg:block" />
+
+          {/* Mode-gated + primary */}
+          <div className="flex gap-1.5">
+            {mode === "edit" && (
+              <Button variant="outline" size="sm" onClick={openPullDialog} className="gap-2">
+                <FileSpreadsheet className="w-4 h-4" /> Pull from Library
+              </Button>
+            )}
+            {mode === "edit" && (
+              <Button variant="secondary" size="sm" onClick={handleAddRow} className="gap-2">
+                <Plus className="w-4 h-4" /> Add Row
+              </Button>
+            )}
+            {mode === "edit" && (
+              <Button variant="outline" size="sm" onClick={handleAddGroupRow} className="gap-2">
+                <Tag className="w-4 h-4" /> Add Group Tag
+              </Button>
+            )}
+            <Button onClick={handleSave} disabled={isSaving} size="sm" className="gap-2">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Phase Timeline — CR075: rolled up across every requirement this
+          file's test cases link to (planned dates come from the milestone,
+          same for all of them). Collapsed by default; click to expand. */}
+      {currentFilePhaseTimeline && (
+        <div className="shrink-0 bg-card border border-border rounded-lg px-3 py-2">
+          <button
+            onClick={() => setPhaseTimelineExpanded((v) => !v)}
+            className="w-full flex items-center justify-between text-left text-sm font-medium"
+          >
+            <span className="flex items-center gap-2">
+              <CalendarClock className="w-4 h-4 text-muted-foreground" /> Phase Timeline
+            </span>
+            <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+              {phaseTimelineExpanded ? "Collapse" : "Expand"}
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${phaseTimelineExpanded ? "rotate-180" : ""}`} />
+            </span>
+          </button>
+          {phaseTimelineExpanded && (
+            <div className="mt-2">
+              {currentFileLinkedReqCount > 1 && (
+                <p className="text-xs text-muted-foreground mb-2">
+                  Actual dates rolled up across {currentFileLinkedReqCount} linked requirements
+                </p>
+              )}
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="h-8">Phase</TableHead>
+                    <TableHead className="h-8">Planned Start</TableHead>
+                    <TableHead className="h-8">Planned End</TableHead>
+                    <TableHead className="h-8">Actual Start</TableHead>
+                    <TableHead className="h-8">Actual End</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentFilePhaseTimeline.map((p) => (
+                    <TableRow key={p.key} className="hover:bg-transparent">
+                      <TableCell className="py-1.5 font-medium">{p.label}</TableCell>
+                      <TableCell className="py-1.5">{fmtPhaseDate(p.plannedStart)}</TableCell>
+                      <TableCell className="py-1.5">{fmtPhaseDate(p.plannedEnd)}</TableCell>
+                      <TableCell className="py-1.5">{fmtPhaseDate(p.actualStart)}</TableCell>
+                      <TableCell className="py-1.5">
+                        {p.actualStart && !p.actualEnd ? (
+                          <span className="text-muted-foreground text-xs">In progress</span>
+                        ) : (
+                          fmtPhaseDate(p.actualEnd)
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* STICKY SUMMARY STATS */}
+      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 bg-card border border-border rounded-lg px-3 py-2">
+        {[
+          { label: "Total", value: filteredData.length, color: "text-foreground" },
+          { label: "Passed", value: summaryStats.resultsCount["Passed"] ?? 0, color: "text-green-600" },
+          { label: "Failed", value: summaryStats.resultsCount["Failed"] ?? 0, color: "text-red-600" },
+          { label: "Blocked", value: summaryStats.resultsCount["Blocked"] ?? 0, color: "text-orange-600" },
+          { label: "In Progress", value: summaryStats.resultsCount["In Progress"] ?? 0, color: "text-blue-600" },
+          { label: "Not Executed", value: summaryStats.totalUnexecuted, color: "text-muted-foreground" },
+          { label: "Executed %", value: `${filteredData.length > 0 ? Math.round((summaryStats.totalExecuted / filteredData.length) * 100) : 0}%`, color: "text-primary" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="text-center">
+            <div className={`text-lg font-bold ${color}`}>{value}</div>
+            <div className="text-[10px] text-muted-foreground">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* EDIT MODE WARNING BANNER */}
+      {mode === "edit" && !editWarningDismissed && (
+        <div className="shrink-0 flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-3 py-2 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span className="flex-1">You're editing the execution copy. Changes won't update the library TC.</span>
+          <button
+            type="button"
+            onClick={() => setEditWarningDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 text-blue-600 hover:text-blue-900"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* GLOBAL SEARCH & FILTER BAR */}
+      <div className="flex flex-col gap-2 bg-muted/30 border border-border p-2 rounded-lg shrink-0">
+        <div className="flex flex-col lg:flex-row gap-2 items-start lg:items-center flex-wrap">
+          <div className="relative w-full lg:w-72 shrink-0">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search across all columns..."
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              className="pl-9 pr-9 bg-background h-8 text-xs"
+            />
+            {globalSearch && (
+              <button
+                onClick={() => setGlobalSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <FilterDropdown
+            label="Module"
+            options={uniqueModules.map((m) => ({ value: m, label: m }))}
+            selected={moduleFilters}
+            onToggle={(v) => toggleFilter("module", v)}
+          />
+          <FilterDropdown
+            label="Result"
+            options={[
+              ...RESULT_OPTIONS.filter(Boolean).map((r) => ({ value: r, label: r })),
+              { value: "", label: "Pending/Empty" },
+            ]}
+            selected={resultFilters}
+            onToggle={(v) => toggleFilter("result", v)}
+          />
+          <FilterDropdown
+            label="QA PIC"
+            options={[
+              ...uniqueQA.map((qa) => ({ value: qa, label: qa })),
+              { value: "", label: "No QA Assigned" },
+            ]}
+            selected={qaFilters}
+            onToggle={(v) => toggleFilter("qa", v)}
+          />
+
+          <div className="flex items-center gap-2 text-xs text-muted-foreground w-full lg:w-auto lg:ml-auto justify-end flex-wrap">
+            <Filter className="w-3.5 h-3.5" />
+            <span>{filteredData.length} records{totalActiveFilters > 0 ? ` (${totalActiveFilters} filters)` : ""}</span>
+            {totalActiveFilters > 0 && (
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2"
+                onClick={() => { setModuleFilters([]); setResultFilters([]); setQaFilters([]); }}>
+                Clear Filters
+              </Button>
+            )}
+            {viewLayout === "spreadsheet" && (
+              <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
+                onClick={() => setShowColPicker(v => !v)}>
+                <span>Columns</span>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Column visibility picker — spreadsheet view only */}
+        {viewLayout === "spreadsheet" && showColPicker && (
+          <div className="border-t mt-2 pt-2 flex flex-wrap gap-x-4 gap-y-1">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase w-full">Show / Hide Columns</Label>
+            {[
+              { key: "testCaseId", label: "Test Case ID" },
+              { key: "userStory", label: "Redmine Ticket ID" },
+              { key: "tracker", label: "Tracker" },
+              { key: "scenario", label: "Scenario" },
+              { key: "preCondition", label: "Pre Condition" },
+              { key: "testData", label: "Test Data" },
+              { key: "executedAt", label: "Executed At" },
+              { key: "comments", label: "QA Notes" },
+            ].map(col => (
+              <label key={col.key} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                <input type="checkbox" className="rounded border-gray-300 w-3 h-3"
+                  checked={!hiddenCols.has(col.key)}
+                  onChange={e => {
+                    setHiddenCols(prev => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.delete(col.key); else next.add(col.key);
+                      return next;
+                    });
+                  }} />
+                {col.label}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* DESKTOP TREE VIEW */}
+      {viewLayout === "spreadsheet" && (
+        <Card className="hidden lg:flex flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]">
+          {filteredData.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8">
+              <Search className="w-10 h-10 mb-4 opacity-20" />
+              <p>No test cases match your current filters.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto bg-card">
+              <table className="w-full text-sm border-collapse min-w-[2840px]">
+                <thead className="sticky top-0 z-30 bg-muted shadow-sm">
+                  <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {mode === "edit" && (
+                      <th className="border border-border w-10 p-2 text-center sticky left-0 z-40 bg-muted">
+                        <input type="checkbox" className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                          checked={filteredData.length > 0 && selectedRows.length === filteredData.length}
+                          onChange={(e) => handleSelectAll(e.target.checked)} />
+                      </th>
+                    )}
+                    {mode === "edit" && <th className="border border-border w-48 p-2 text-left sticky left-10 z-40 bg-muted">Module</th>}
+                    {!hiddenCols.has("testCaseId") && (
+                      <th className="border border-border w-48 p-2 text-left sticky bg-muted z-30" style={{ left: mode === "edit" ? "14.5rem" : 0 }}>
+                        Test Case ID
+                      </th>
+                    )}
+                    {!hiddenCols.has("userStory") && <th className="border border-border w-48 p-2 text-left">Redmine Ticket ID</th>}
+                    {!hiddenCols.has("tracker") && <th className="border border-border w-48 p-2 text-left">Tracker</th>}
+                    {!hiddenCols.has("scenario") && <th className="border border-border w-64 p-2 text-left">Scenario <Sparkles className="w-3 h-3 inline text-primary" /></th>}
+                    {!hiddenCols.has("preCondition") && <th className="border border-border w-48 p-2 text-left">Pre Condition</th>}
+                    <th className="border border-border w-64 p-2 text-left">Case <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    <th className="border border-border w-64 p-2 text-left">Steps <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    {!hiddenCols.has("testData") && <th className="border border-border w-48 p-2 text-left">Test Data</th>}
+                    <th className="border border-border w-64 p-2 text-left">Expected Result <Sparkles className="w-3 h-3 inline text-primary" /></th>
+                    <th className="border border-border w-48 p-2 text-left text-primary">Result</th>
+                    {!hiddenCols.has("executedAt") && currentUser?.role !== "qa_member" && <th className="border border-border w-36 p-2 text-left">Executed At</th>}
+                    <th className="border border-border w-48 p-2 text-left">Redmine Defect ID</th>
+                    {!hiddenCols.has("comments") && <th className="border border-border w-64 p-2 text-left">QA Notes</th>}
+                    <th className="border border-border w-48 p-2 text-left">QA PIC</th>
+                    {mode === "edit" && <th className="border border-border w-10 p-2"></th>}
+                  </tr>
+                </thead>
+                <DndContext
+                  sensors={dndSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndForScope(filteredData.map((r) => String(r.id)))}
+                >
+                  <SortableContext items={filteredData.map((r) => String(r.id))} strategy={verticalListSortingStrategy}>
+                    <tbody>
+                      {filteredData.map((row, index) => (
+                        <DesktopTableRow
+                          key={row.id as string}
+                          row={row}
+                          index={index}
+                          isSelected={selectedRows.includes(row.id as string | number)}
+                          onToggleSelect={handleSelectRow}
+                          isDirty={dirtyRowIds.has(row.id as string | number)}
+                          onUpdate={updateCell}
+                          onBlurRow={saveBlurRow}
+                          onAcknowledgeRevision={acknowledgeRevision}
+                          onOpenTrail={openTrail}
+                          onDelete={requestSingleDelete}
+                          onPromote={openPromoteDialog}
+                          onUpdateLibrary={handleUpdateLibraryFromExecution}
+                          onPullLatest={handlePullLatestFromLibrary}
+                          libraryDrift={getLibraryDrift(row, row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null)}
+                          availableModules={availableModules}
+                          availableTrackers={availableTrackers}
+                          qaUsers={qaUsers}
+                          mode={mode}
+                          hiddenCols={hiddenCols}
+                          currentUser={currentUser}
+                          currentFileReviewStatus={currentFileReviewStatus}
+                          dragDisabled={mode !== "edit"}
+                        />
+                      ))}
+                    </tbody>
+                  </SortableContext>
+                </DndContext>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* FOCUS VIEW — TestLink-style master-detail: tree on the left, single TC on the right */}
+      <Card className={`${viewLayout === "focus" ? "hidden lg:flex" : "hidden"} flex-1 overflow-hidden border rounded-md shadow-sm min-h-[450px]`}>
+        {filteredData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-muted-foreground p-8 w-full">
+            <Search className="w-10 h-10 mb-4 opacity-20" />
+            <p>No test cases match your current filters and search criteria.</p>
+            <Button variant="link" onClick={() => { setGlobalSearch(""); setModuleFilters([]); setResultFilters([]); setQaFilters([]); }}>
+              Clear all filters
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Left: module tree */}
+            <div className="w-72 shrink-0 border-r border-border overflow-y-auto">
+              {groupByModule(filteredData).map(({ name: moduleName, rows: moduleRows }) => {
+                const isCollapsed = focusCollapsedModules.has(moduleName);
+                // Bulk-select support (reuses the same selectedRows/handleSelectRow/
+                // confirmDeleteMulti already wired to the toolbar's "Delete Selected"
+                // button — this tree view is the only thing that never fed it rows).
+                const moduleIds = moduleRows.map(row => row.id as string | number);
+                const selectedInModule = moduleIds.filter(id => selectedRows.includes(id)).length;
+                const moduleAllSelected = moduleIds.length > 0 && selectedInModule === moduleIds.length;
+                const moduleSomeSelected = selectedInModule > 0 && !moduleAllSelected;
+                return (
+                  <div key={moduleName}>
+                    <div
+                      /* Opaque, not tinted: this header is `sticky`, so the
+                         test case rows scroll underneath it. At bg-muted/50
+                         they showed straight through the module name. The
+                         hover tone has to be opaque for the same reason —
+                         --border reads as darker in light mode and lighter in
+                         dark, so it works as an affordance either way, whereas
+                         --accent/--secondary are both identical to --muted. */
+                      className="flex items-center gap-2 px-3 py-2 bg-muted border-b border-border cursor-pointer select-none hover:bg-border transition-colors sticky top-0 z-10"
+                      onClick={() => setFocusCollapsedModules(prev => {
+                        const s = new Set(prev);
+                        s.has(moduleName) ? s.delete(moduleName) : s.add(moduleName);
+                        return s;
+                      })}
+                    >
+                      {mode === "edit" && (
+                        <input
+                          type="checkbox"
+                          className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer shrink-0"
+                          checked={moduleAllSelected}
+                          ref={(el) => { if (el) el.indeterminate = moduleSomeSelected; }}
+                          title={`Select all in ${moduleName}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            setSelectedRows(prev => {
+                              const withoutModule = prev.filter(id => !moduleIds.includes(id));
+                              return e.target.checked ? [...withoutModule, ...moduleIds] : withoutModule;
+                            });
+                          }}
+                        />
+                      )}
+                      {isCollapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />}
+                      <span className="font-semibold text-xs flex-1 truncate" title={moduleName}>{moduleName}</span>
+                      <Badge variant="secondary" className="text-[10px] shrink-0">{moduleRows.length}</Badge>
+                    </div>
+                    {!isCollapsed && (
+                      <div className="divide-y divide-border/50">
+                        {moduleRows.map(row => {
+                          const isActive = focusRow?.id === row.id;
+                          const isRowSelected = selectedRows.includes(row.id as string | number);
+                          return (
+                            <div
+                              key={row.id as string}
+                              onClick={() => setFocusRowId(row.id ?? null)}
+                              className={`flex items-center gap-2 pl-6 pr-3 py-2 text-xs cursor-pointer border-l-2 transition-colors ${isActive ? "bg-primary/10 border-primary" : "border-transparent hover:bg-muted/40"} ${isRowSelected ? "bg-destructive/5" : ""}`}
+                            >
+                              {mode === "edit" && (
+                                <input
+                                  type="checkbox"
+                                  className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer shrink-0"
+                                  checked={isRowSelected}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleSelectRow(row.id as string | number, e.target.checked)}
+                                />
+                              )}
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${RESULT_DOT_COLOR[row.result || ""] || "bg-slate-300"}`} />
+                              <div className="min-w-0 flex-1">
+                                <div className={`font-mono text-[10px] ${isActive ? "text-primary" : "text-muted-foreground"}`}>{row.caseId || row.testCaseId || "—"}</div>
+                                <div className="break-words line-clamp-2" title={row.caseName || "Untitled"}>
+                                  {row.caseName || "Untitled"}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Right: single test case detail */}
+            {focusRow ? (() => {
+              const row = focusRow;
+              const isQaMember = currentUser?.role === "qa_member";
+              const isAssignedToMe = row.qaPic === currentUser?.name;
+              const isUnassigned = !row.qaPic;
+              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+              const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
+              const steps = splitTestSteps(row.testSteps);
+              const expectations = parseLines(row.expectedResult);
+              const getExpected = (i: number) => {
+                if (expectations.length === 0) return "";
+                if (expectations.length === 1) return i === Math.max(0, steps.length - 1) ? expectations[0] : "";
+                return expectations[i] || "";
+              };
+              const displaySteps = steps.length > 0 ? steps : [""];
+              const cellCls = "p-3 text-sm text-foreground whitespace-pre-wrap";
+              const headCls = "p-2 text-[10px] font-bold uppercase text-muted-foreground bg-muted/50";
+              const dividerX = "divide-x divide-border";
+              const borderB = "border-b border-border";
+              return (
+                <div className="flex-1 flex flex-col min-w-0">
+                  {/* Header */}
+                  <div className="px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0">
+                    <span className="font-mono text-xs text-primary font-medium shrink-0">{row.caseId || row.testCaseId || "—"}</span>
+                    {mode === "edit" ? (
+                      <Input
+                        className="h-7 text-sm flex-1 min-w-0"
+                        value={row.caseName || ""}
+                        placeholder="Case name"
+                        onChange={(e) => updateCell(row.id as string | number, "caseName", e.target.value)}
+                      />
+                    ) : (
+                      <span
+                        className="text-sm font-medium flex-1 min-w-0 break-words line-clamp-2"
+                        title={row.caseName || "Untitled"}
+                      >
+                        {row.caseName || "Untitled"}
+                      </span>
+                    )}
+                    <span className="ml-auto text-xs text-muted-foreground shrink-0">QA PIC: {row.qaPic || "Unassigned"}</span>
+                    {mode === "edit" && (
+                      <>
+                        {!row.libraryTcId ? (
+                          <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs shrink-0" onClick={() => openPromoteDialog(row)}>
+                            <Library className="w-3.5 h-3.5" /> Promote to Library
+                          </Button>
+                        ) : getLibraryDrift(row, libraryTcById.get(row.libraryTcId)) ? (
+                          <>
+                            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs shrink-0" onClick={() => handleUpdateLibraryFromExecution(row)}>
+                              <Library className="w-3.5 h-3.5" /> Update Library
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs shrink-0" onClick={() => handlePullLatestFromLibrary(row)}>
+                              <ArrowDownToLine className="w-3.5 h-3.5" /> Pull Latest
+                            </Button>
+                          </>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                          title="Delete test case"
+                          onClick={() => requestSingleDelete(row.id as string | number)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Body */}
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="text-sm space-y-4">
+                      <div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1 flex items-center gap-2">
+                          Requirement
+                          {row.requirementId ? (
+                            <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">linked</span>
+                          ) : (
+                            <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">not linked</span>
+                          )}
+                          {(() => {
+                            const linked = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                            return linked?.isBlocked ? (
+                              <span className="text-[9px] normal-case font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={linked.blockedReason ?? undefined}>
+                                requirement blocked
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
+                        {mode === "edit" ? (
+                          <SearchableSelect
+                            value={row.requirementId != null ? String(row.requirementId) : ""}
+                            onValueChange={(v) => updateCell(row.id as string | number, "requirementId", v)}
+                            options={requirementsList.map((r) => ({
+                              value: String(r.id),
+                              label: r.redmineTicketId ? `#${r.redmineTicketId} — ${r.title}` : r.title,
+                            }))}
+                            placeholder="Search requirement by Redmine ID or title..."
+                            searchPlaceholder="Search requirements..."
+                            emptyText="No requirements found."
+                          />
+                        ) : (() => {
+                          const linked = row.requirementId
+                            ? requirementsList.find((r) => r.id === Number(row.requirementId))
+                            : null;
+                          return (
+                            <p className="text-sm">
+                              {linked ? (linked.redmineTicketId ? `#${linked.redmineTicketId} — ${linked.title}` : linked.title) : "—"}
+                            </p>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          {mode === "edit"
+                            ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.scenario || ""} fieldName="Scenario" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "scenario", val)} />
+                            : <p className="text-sm whitespace-pre-wrap">{row.scenario || "—"}</p>
+                          }
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div>
+                          {mode === "edit"
+                            ? <select className="flex h-8 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
+                                <option value="">Select...</option>
+                                {availableModules.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                              </select>
+                            : <p className="text-sm">{row.moduleName || "—"}</p>
+                          }
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          {mode === "edit"
+                            ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.preCondition || ""} fieldName="Pre-Condition" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "preCondition", val)} />
+                            : <p className="text-sm whitespace-pre-wrap">{row.preCondition || "—"}</p>
+                          }
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          {mode === "edit"
+                            ? <CopilotTextarea className="min-h-[40px] text-sm" value={row.testData || ""} fieldName="Test Data" minHeight="40px" onChange={(val: string) => updateCell(row.id as string | number, "testData", val)} />
+                            : <p className="text-sm whitespace-pre-wrap">{row.testData || "—"}</p>
+                          }
+                        </div>
+                      </div>
+
+                      <div className="border border-border rounded-md overflow-hidden">
+                        <div className={`grid grid-cols-2 ${dividerX} ${borderB}`}>
+                          <div className={headCls}>Test Step {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                          <div className={headCls}>Expected Result {mode === "edit" && <Sparkles className="w-3 h-3 inline text-primary" />}</div>
+                        </div>
+                        {mode === "edit" ? (
+                          <div className={`grid grid-cols-2 ${dividerX}`}>
+                            <div className="p-3">
+                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.testSteps || ""} fieldName="Test Steps" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "testSteps", val)} onCommit={(val: string) => { if (!isAlreadyNumbered(val)) updateCell(row.id as string | number, "testSteps", numberTestSteps(val)); }} />
+                            </div>
+                            <div className="p-3">
+                              <CopilotTextarea className="min-h-[80px] text-sm" value={row.expectedResult || ""} fieldName="Expected Result" minHeight="80px" onChange={(val: string) => updateCell(row.id as string | number, "expectedResult", val)} />
+                            </div>
+                          </div>
+                        ) : (
+                          displaySteps.map((step, i) => (
+                            <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                              <div className={`${cellCls} flex gap-2`}>
+                                <span className="shrink-0 tabular-nums font-semibold text-muted-foreground select-none">{i + 1}.</span>
+                                <span className="min-w-0 break-words">{step || "—"}</span>
+                              </div>
+                              <div className={cellCls}>{getExpected(i) || ""}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2 flex items-center gap-2">
+                            Result
+                            {typeof row.id === "number" && (
+                              <button
+                                type="button"
+                                onClick={() => openTrail(row)}
+                                className="normal-case font-medium text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
+                                title="Who changed this result, when, and why"
+                              >
+                                <Clock className="w-3 h-3" /> History
+                              </button>
+                            )}
+                          </div>
+                          {(() => {
+                            const linkedReq = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                            if (linkedReq?.isBlocked) {
+                              return (
+                                <div className="space-y-1 max-w-[220px]">
+                                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-700 border-red-200">
+                                    <AlertTriangle className="w-3 h-3" /> Requirement blocked
+                                  </span>
+                                  <p className="text-[11px] text-muted-foreground">Cannot execute — {linkedReq.blockedReason}</p>
+                                </div>
+                              );
+                            }
+                            // Approved test case, unfinished feature. Say so where
+                            // the pills would have been, rather than leaving a
+                            // read-only badge the tester can't explain.
+                            if (isRowInDevelopment(row)) {
+                              return (
+                                <div className="space-y-1 max-w-[240px]">
+                                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                    <Clock className="w-3 h-3" /> In development
+                                  </span>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Cannot execute yet — the linked requirement is still being built. It opens for execution once dev marks it Ready for QA.
+                                  </p>
+                                  <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                    {normalizeResultValue(row.result) || "Not Executed"}
+                                  </span>
+                                </div>
+                              );
+                            }
+                            return canEdit ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                  <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                    {status}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                {normalizeResultValue(row.result) || "Not Executed"}
+                              </span>
+                            );
+                          })()}
+                          {renderPassEvidence(row, canEdit)}
+                          <CompiledLibraryAttachments testCaseId={row.libraryTcId} className="mt-3" />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA PIC</div>
+                          {isQaMember ? (
+                            isAssignedToMe ? (
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-medium">{currentUser?.name}</span>
+                                <button className="text-xs text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                              </div>
+                            ) : isUnassigned ? (
+                              <button className="text-xs px-3 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>
+                                + Assign to me
+                              </button>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">{row.qaPic}</span>
+                            )
+                          ) : (
+                            <select className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                              <option value="">Select QA PIC...</option>
+                              {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Redmine Defect ID</div>
+                          {canEdit ? (
+                            <Textarea className="min-h-[60px] text-sm" value={row.defectNumber || ""} placeholder="e.g. 38032, 38033" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} />
+                          ) : (
+                            <p className="text-sm text-muted-foreground">{row.defectNumber || "—"}</p>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase mb-2">QA Notes</div>
+                          {canEdit ? (
+                            <Textarea className="min-h-[60px] text-sm" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} />
+                          ) : (
+                            <p className="text-sm text-muted-foreground">{row.comments || "—"}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer: prev/next */}
+                  <div className="px-4 py-2.5 border-t border-border flex items-center justify-between shrink-0">
+                    <span className="text-xs text-muted-foreground">{focusIndex + 1} of {filteredData.length}</span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => goToFocusOffset(-1)} disabled={focusIndex <= 0} className="gap-1">
+                        <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => goToFocusOffset(1)} disabled={focusIndex === -1 || focusIndex >= filteredData.length - 1} className="gap-1">
+                        Next <ChevronRight className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Select a test case from the tree.</div>
+            )}
+          </>
+        )}
+      </Card>
+
+      {/* MOBILE VIEW (always card-based) */}
+      <div className="lg:hidden flex-1 flex flex-col overflow-y-auto min-h-[450px] pb-4">
+        {filteredData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-muted-foreground p-8 border border-dashed rounded-lg">
+            <Search className="w-8 h-8 mb-4 opacity-20" />
+            <p className="text-center text-sm">No test cases match filters.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {groupByModule(filteredData).map(({ name: moduleName, rows: moduleRows }) => {
+              const isModuleOpen = expandedModules.has(moduleName);
+              const prog = getModuleProgress(moduleRows);
+              return (
+                <div key={moduleName} className="border rounded-lg overflow-hidden">
+                  {/* Module header */}
+                  <div
+                    className="flex items-center gap-2 px-4 py-3 bg-muted/50 cursor-pointer select-none"
+                    onClick={() => toggleModule(moduleName)}
+                  >
+                    {isModuleOpen ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
+                    <span className="font-semibold text-sm flex-1 truncate" title={moduleName}>📁 {moduleName}</span>
+                    <Badge variant="secondary" className="text-xs shrink-0">{moduleRows.length} case{moduleRows.length !== 1 ? "s" : ""}</Badge>
+                  </div>
+                  {isModuleOpen && <div className="px-4 pb-2 bg-muted/30"><MiniProgressBar data={prog} /></div>}
+
+                  {/* TC list */}
+                  {isModuleOpen && (
+                    <div className="divide-y divide-border/50">
+                      {moduleRows.map(row => {
+                        const isTcOpen = expandedTcId === row.id;
+                        const isQaMember = currentUser?.role === "qa_member";
+                        const isAssignedToMe = row.qaPic === currentUser?.name;
+                        const isUnassigned = !row.qaPic;
+                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+                        if (row.rowType === "group") {
+                          return (
+                            <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">
+                              <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-sm font-medium break-words line-clamp-2" title={row.caseName || "Untitled group"}>
+                                {row.caseName || "Untitled group"}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <React.Fragment key={row.id as string}>
+                            {/* TC summary row */}
+                            <div
+                              className={`flex items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${isTcOpen ? "bg-muted/20 border-l-2 border-primary" : "border-l-2 border-transparent hover:bg-muted/10"} ${isQaMember && !canEdit ? "opacity-60" : ""}`}
+                              onClick={() => toggleTc(row.id as string | number)}
+                            >
+                              {isTcOpen ? <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />}
+                              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                <span className="font-mono text-xs text-primary font-medium truncate">{row.caseId || row.testCaseId || "—"}</span>
+                                <span className="text-sm break-words line-clamp-3" title={row.caseName || "Untitled"}>
+                                  {row.caseName || "Untitled"}
+                                </span>
+                              </div>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium border shrink-0 ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                {normalizeResultValue(row.result) || "Not Executed"}
+                              </span>
+                            </div>
+
+                            {/* Expanded detail panel — document style (mobile) */}
+                            {isTcOpen && (() => {
+                              const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
+                              const steps = splitTestSteps(row.testSteps);
+                              const expectations = parseLines(row.expectedResult);
+                              const getExpected = (i: number) => {
+                                if (expectations.length === 0) return "";
+                                if (expectations.length === 1) return i === Math.max(0, steps.length - 1) ? expectations[0] : "";
+                                return expectations[i] || "";
+                              };
+                              const displaySteps = steps.length > 0 ? steps : [""];
+                              const dividerX = "divide-x divide-border";
+                              const borderB = "border-b border-border";
+                              return (
+                                <div className="px-3 py-3 bg-muted/5 border-t border-muted">
+                                  <div className="text-sm space-y-3">
+                                    {/* Case */}
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Case</div>
+                                      <p className="text-xs">{row.caseName || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Requirement</div>
+                                      <p className="text-xs">
+                                        {(() => {
+                                          const linked = row.requirementId
+                                            ? requirementsList.find((r) => r.id === Number(row.requirementId))
+                                            : null;
+                                          return linked ? (linked.redmineTicketId ? `#${linked.redmineTicketId} — ${linked.title}` : linked.title) : "—";
+                                        })()}
+                                      </p>
+                                      {(() => {
+                                        const linked = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                                        return linked?.isBlocked ? (
+                                          <span className="inline-block mt-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={linked.blockedReason ?? undefined}>
+                                            requirement blocked
+                                          </span>
+                                        ) : null;
+                                      })()}
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Module</div><p className="text-xs">{row.moduleName || "—"}</p></div>
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Scenario</div><p className="text-xs whitespace-pre-wrap">{row.scenario || "—"}</p></div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pre-Condition</div><p className="text-xs whitespace-pre-wrap">{row.preCondition || "—"}</p></div>
+                                      <div><div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Test Data</div><p className="text-xs whitespace-pre-wrap">{row.testData || "—"}</p></div>
+                                    </div>
+                                    {/* Steps table — bordered only here */}
+                                    <div className="border border-border rounded-md overflow-hidden">
+                                      <div className={`grid grid-cols-2 ${dividerX} ${borderB} bg-muted/50`}>
+                                        <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Test Step</div>
+                                        <div className="p-2 text-[10px] font-bold uppercase text-muted-foreground">Expected Result</div>
+                                      </div>
+                                      {displaySteps.map((step, i) => (
+                                        <div key={i} className={`grid grid-cols-2 ${dividerX} ${i < displaySteps.length - 1 ? borderB : ""}`}>
+                                          <div className="p-2 text-xs whitespace-pre-wrap flex gap-2">
+                                            <span className="shrink-0 tabular-nums font-semibold text-muted-foreground select-none">{i + 1}.</span>
+                                            <span className="min-w-0 break-words">{step || "—"}</span>
+                                          </div>
+                                          <div className="p-2 text-xs whitespace-pre-wrap">{getExpected(i) || ""}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1 flex items-center gap-2">
+                                          Result
+                                          {typeof row.id === "number" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => openTrail(row)}
+                                              className="normal-case font-medium text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
+                                              title="Who changed this result, when, and why"
+                                            >
+                                              <Clock className="w-3 h-3" /> History
+                                            </button>
+                                          )}
+                                        </div>
+                                        {(() => {
+                                          const linkedReq = row.requirementId ? requirementsList.find((r) => r.id === Number(row.requirementId)) : null;
+                                          if (linkedReq?.isBlocked) {
+                                            return (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-red-50 text-red-700 border-red-200">
+                                                <AlertTriangle className="w-2.5 h-2.5" /> Blocked
+                                              </span>
+                                            );
+                                          }
+                                          if (isRowInDevelopment(row)) {
+                                            return (
+                                              <div className="space-y-1">
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                                  <Clock className="w-2.5 h-2.5" /> In development
+                                                </span>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                  Cannot execute yet — the linked requirement is still being built.
+                                                </p>
+                                              </div>
+                                            );
+                                          }
+                                          return canEdit ? (
+                                            <div className="flex flex-wrap gap-1">
+                                              {(["Passed", "Failed", "Blocked", "In Progress", "Not Executed"] as const).map(status => (
+                                                <button key={status} onClick={() => updateCell(row.id as string | number, "result", status)}
+                                                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all ${row.result === status ? RESULT_PILL_ACTIVE[status] : "bg-muted/40 border-border text-muted-foreground hover:bg-muted"}`}>
+                                                  {status}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                              {normalizeResultValue(row.result) || "Not Executed"}
+                                            </span>
+                                          );
+                                        })()}
+                                        {renderPassEvidence(row, canEdit, true)}
+                                        <CompiledLibraryAttachments testCaseId={row.libraryTcId} />
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA PIC</div>
+                                        {isQaMember ? (
+                                          isAssignedToMe ? (
+                                            <div className="flex items-center gap-1 text-xs">
+                                              <span className="font-medium">{currentUser?.name}</span>
+                                              <button className="text-[10px] text-muted-foreground underline hover:text-destructive" onClick={() => updateCell(row.id as string | number, "qaPic", "")}>Unassign</button>
+                                            </div>
+                                          ) : isUnassigned ? (
+                                            <button className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition" onClick={() => updateCell(row.id as string | number, "qaPic", currentUser?.name || "")}>+ Assign to me</button>
+                                          ) : (
+                                            <span className="text-xs text-muted-foreground">{row.qaPic}</span>
+                                          )
+                                        ) : (
+                                          <select className="flex h-7 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                            <option value="">Select QA PIC...</option>
+                                            {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                          </select>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Redmine Defect ID</div>
+                                        {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.defectNumber || ""} placeholder="e.g. 38032" onChange={e => updateCell(row.id as string | number, "defectNumber", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.defectNumber || "—"}</p>}
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1">QA Notes</div>
+                                        {canEdit ? <Textarea className="min-h-[50px] text-xs" value={row.comments || ""} onChange={e => updateCell(row.id as string | number, "comments", e.target.value)} /> : <p className="text-xs text-muted-foreground">{row.comments || "—"}</p>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* PULL FROM TEST CASES LIBRARY DIALOG */}
+      <Dialog open={pullDialogOpen} onOpenChange={o => { if (!o) { setPullDialogOpen(false); setSelectedPullIds(new Set()); } }}>
+        <DialogContent className="sm:max-w-[600px] w-[95vw] flex flex-col max-h-[85vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-primary" /> Pull from Test Case Library
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-3 py-2">
+            {isPullLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+            ) : (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  {/* Native <select> popups are drawn by the OS, not our CSS — Windows
+                      in particular ignores color-scheme for them (unlike macOS), so
+                      these 4 filters use the app's own themed SearchableSelect instead,
+                      same as everywhere else, rather than relying on browser chrome. */}
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.projectId != null ? String(pullFilter.projectId) : ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, projectId: v ? Number(v) : undefined, module: undefined }))}
+                    options={[
+                      { value: "", label: "All Projects" },
+                      ...libraryProjects.map((p: any) => ({ value: String(p.id), label: p.name })),
+                    ]}
+                    placeholder="All Projects"
+                    searchPlaceholder="Search project..."
+                  />
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.module ?? ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, module: v || undefined }))}
+                    options={[
+                      { value: "", label: "All Modules" },
+                      ...Array.from(new Set(eligibleLibraryTestCases
+                        .filter((tc: any) => !pullFilter.projectId || tc.projectId === pullFilter.projectId)
+                        .map((tc: any) => tc.module).filter(Boolean)
+                      )).map((m) => ({ value: m as string, label: m as string })),
+                    ]}
+                    placeholder="All Modules"
+                    searchPlaceholder="Search module..."
+                  />
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.requirementId != null ? String(pullFilter.requirementId) : ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, requirementId: v ? Number(v) : undefined }))}
+                    options={[
+                      { value: "", label: "All Requirements" },
+                      ...pullRequirementOptions.map((r) => ({ value: String(r.id), label: r.title })),
+                    ]}
+                    placeholder="All Requirements"
+                    searchPlaceholder="Search requirement..."
+                  />
+                  <SearchableSelect
+                    className="flex-1 min-w-[140px] h-8"
+                    value={pullFilter.authorId != null ? String(pullFilter.authorId) : ""}
+                    onValueChange={v => setPullFilter(f => ({ ...f, authorId: v ? Number(v) : undefined }))}
+                    options={[
+                      { value: "", label: "All Authors" },
+                      ...pullAuthorOptions.map((a) => ({ value: String(a.id), label: a.name })),
+                    ]}
+                    placeholder="All Authors"
+                    searchPlaceholder="Search author..."
+                  />
+                  <span className="text-xs text-muted-foreground self-center">{selectedPullIds.size} selected</span>
+                </div>
+                <div className="border rounded-md divide-y divide-border overflow-y-auto max-h-[340px]">
+                  {filteredEligibleLibraryTestCases.map((tc: any) => (
+                    <label key={tc.id} className="flex items-start gap-3 px-3 py-2 hover:bg-muted/40 cursor-pointer">
+                      <input type="checkbox" className="mt-0.5 w-4 h-4 rounded border-gray-300 shrink-0"
+                        checked={selectedPullIds.has(tc.id)}
+                        onChange={e => setSelectedPullIds(prev => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(tc.id); else next.delete(tc.id);
+                          return next;
+                        })} />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium break-words line-clamp-2" title={tc.title}>{tc.title}</div>
+                        <div className="text-xs text-muted-foreground">{tc.module || "—"}{tc.projectName ? ` · ${tc.projectName}` : ""}</div>
+                      </div>
+                    </label>
+                  ))}
+                  {filteredEligibleLibraryTestCases.length === 0 && (
+                    <div className="py-8 text-center text-sm text-muted-foreground">No missing test cases match your filters.</div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter className="shrink-0 border-t pt-4 flex-row justify-between gap-2">
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => {
+                setSelectedPullIds(new Set(filteredEligibleLibraryTestCases.map((tc: any) => tc.id)));
+              }}>Select All</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedPullIds(new Set())}>Unselect All</Button>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setPullDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleConfirmPull} disabled={selectedPullIds.size === 0 || isPulling} className="gap-2">
+                {isPulling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Pull {selectedPullIds.size > 0 ? selectedPullIds.size : ""} Cases
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Promote to Library Dialog */}
+      <Dialog open={!!promoteRow} onOpenChange={(open) => { if (!open) setPromoteRow(null); }}>
+        <DialogContent className="w-[95vw] sm:max-w-[460px] flex flex-col max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Library className="w-5 h-5 text-primary" />
+              Promote to Library
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
+            <p className="text-sm text-muted-foreground">
+              Saves <span className="font-medium text-foreground">"{promoteRow?.caseName || promoteRow?.scenario || "this row"}"</span> as a reusable test case in the library.
+            </p>
+
+            {/* Requirement (optional) */}
+            <div className="space-y-1.5">
+              <Label>Requirement <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <SearchableSelect
+                value={promoteForm.requirementId}
+                onValueChange={(v) => {
+                  const req = promoteRequirements.find((r: any) => String(r.id) === v);
+                  setPromoteForm(f => ({
+                    ...f,
+                    requirementId: v,
+                    projectId: req?.projectId ? String(req.projectId) : f.projectId,
+                    module: req?.module || f.module,
+                  }));
+                }}
+                options={[
+                  { value: "", label: "None" },
+                  ...promoteRequirements.map((r: any) => ({ value: String(r.id), label: r.title })),
+                ]}
+                placeholder="Search requirement..."
+                searchPlaceholder="Search requirement..."
+              />
+            </div>
+
+            {/* Project (mandatory) */}
+            <div className="space-y-1.5">
+              <Label>Project <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={promoteForm.projectId}
+                onValueChange={(v) => setPromoteForm(f => ({ ...f, projectId: v }))}
+                options={[
+                  { value: "", label: "Select project..." },
+                  ...libraryProjects.map((p: any) => ({ value: String(p.id), label: p.name })),
+                ]}
+                placeholder="Select project..."
+                searchPlaceholder="Search project..."
+              />
+            </div>
+
+            {/* Module (mandatory) */}
+            <div className="space-y-1.5">
+              <Label>Module <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={promoteForm.module}
+                onValueChange={(v) => setPromoteForm(f => ({ ...f, module: v }))}
+                options={[
+                  { value: "", label: "Select module..." },
+                  ...availableModules.map((m) => ({ value: m.name, label: m.name })),
+                ]}
+                placeholder="Select module..."
+                searchPlaceholder="Search module..."
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2 border-t">
+            <Button variant="outline" onClick={() => setPromoteRow(null)} disabled={isPromoting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handlePromote}
+              disabled={!promoteForm.projectId || !promoteForm.module || isPromoting}
+              className="gap-2"
+            >
+              {isPromoting
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Promoting...</>
+                : <><Library className="w-4 h-4" /> Promote to Library</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Reason Dialog */}
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+        setRejectDialogOpen(open);
+        if (!open) setRejectReason("");
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <X className="w-5 h-5 text-red-500" />
+              Reject Execution File
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reject-reason" className="mb-2 block text-sm font-medium">
+              Reason for rejection <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="reject-reason"
+              placeholder="Please provide a reason so the creator knows what to fix..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="min-h-[100px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              disabled={!rejectReason.trim()}
+              onClick={() => {
+                handleReviewAction("reject", rejectReason.trim());
+                setRejectDialogOpen(false);
+                setRejectReason("");
+              }}
+            >
+              Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return one pending row to whoever added it. The comment is the whole
+          point — it tells them what to fix before it can go back on the sheet. */}
+      <Dialog open={returnRowTarget !== null} onOpenChange={(open) => {
+        if (!open) { setReturnRowTarget(null); setReturnRowComment(""); }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <X className="w-5 h-5 text-red-500" />
+              Return test case
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono text-xs">{returnRowTarget?.testCaseId}</span>{" "}
+              {returnRowTarget?.caseName} will be taken off the execution sheet and sent back to{" "}
+              <strong>{returnRowTarget?.addedByName || "its author"}</strong>. The rest of this file keeps executing.
+            </p>
+            <div>
+              <Label htmlFor="return-row-comment" className="mb-2 block text-sm font-medium">
+                What needs to be fixed? <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id="return-row-comment"
+                placeholder="e.g. Expected result doesn't cover the quota history column — add the assertion before resubmitting."
+                value={returnRowComment}
+                onChange={(e) => setReturnRowComment(e.target.value)}
+                className="min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturnRowTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!returnRowComment.trim() || rowReviewBusy}
+              onClick={() => {
+                const target = returnRowTarget;
+                setReturnRowTarget(null);
+                if (target) handleRowReview(Number(target.id), "return", returnRowComment.trim());
+                setReturnRowComment("");
+              }}
+            >
+              Return to author
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

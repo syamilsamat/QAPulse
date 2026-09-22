@@ -8,7 +8,7 @@
  * Column mapping is honest about a real shape mismatch: the template
  * expects one row per discrete lesson, individually classified by Phase
  * (a fixed PM-phase list) and Type (What went wrong / What went right /
- * Best Practice). QMPulse captures lessons learned as a single free-text
+ * Best Practice). QM Pulse captures lessons learned as a single free-text
  * field per milestone at Closing (CR033p1) — one blob that can genuinely
  * mix all three types in one paragraph (see the source template's own
  * sample data, which did exactly this). Type now writes the PM's own
@@ -16,7 +16,7 @@
  * when they picked one; ships blank otherwise, with the column's dropdown
  * validation still intact so it can be classified by hand later. Phase is
  * filled honestly as "Project Closure": that's literally always when
- * QMPulse captures this field, never invented per-row detail. Comments
+ * QM Pulse captures this field, never invented per-row detail. Comments
  * carries the milestone name, since one export can span several
  * milestones and the reader needs to know which is which.
  */

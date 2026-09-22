@@ -23,6 +23,7 @@ import {
   requirementAiSuggestionsTable,
 } from "@workspace/db";
 import { GoogleGenAI } from "@google/genai";
+import * as XLSX from "xlsx";
 import { logActivity } from "./_audit";
 import { actorFromReq } from "./auth";
 import { getAuthContext, canAccessProject, scopeToUserProjects } from "../middleware/access";
@@ -136,7 +137,7 @@ async function runOpenRouterCascade(
       );
 
       if (response.ok) {
-        const data = await response.json();
+        const data: any = await response.json();
         if (
           data.choices &&
           data.choices.length > 0 &&
@@ -374,6 +375,7 @@ router.patch("/ai/requirement-suggestions/:id", async (req, res): Promise<void> 
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid suggestion ID" }); return; }
   const { status } = req.body;
   if (!SUGGESTION_STATUSES.includes(status)) {
     res.status(400).json({ error: `status must be one of ${SUGGESTION_STATUSES.join(", ")}` });
@@ -581,10 +583,18 @@ router.post("/ai/weekly-summary", async (req, res): Promise<void> => {
 // ==========================================
 router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
   try {
-    const { requirementId, projectId } = req.body;
+    const ctx = getAuthContext(req);
+    if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const { requirementId, projectId, attachment } = req.body;
 
     let requirements = await db.select().from(requirementsTable);
     let testCases = await db.select().from(testCasesTable);
+
+    const accessibleProjects = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (accessibleProjects !== null) {
+      requirements = requirements.filter((r) => r.projectId != null && accessibleProjects.includes(r.projectId));
+      testCases = testCases.filter((tc) => tc.projectId != null && accessibleProjects.includes(tc.projectId));
+    }
 
     if (requirementId) {
       requirements = requirements.filter((r) => r.id === Number(requirementId));
@@ -637,7 +647,45 @@ router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
       .map((r) => r.title)
       .join(", ")}\n\nAnalyze gaps and return ONLY JSON.`;
 
-    const content = await executeAiTask(systemPrompt, userPrompt);
+    let documentText = "";
+    let pdfAttachment: { mimeType: string; dataBase64: string } | null = null;
+    if (attachment != null) {
+      const fileName = typeof attachment.fileName === "string" ? attachment.fileName.slice(0, 255) : "";
+      const mimeType = typeof attachment.mimeType === "string" ? attachment.mimeType : "application/octet-stream";
+      const dataBase64 = typeof attachment.dataBase64 === "string" ? attachment.dataBase64 : "";
+      const buffer = Buffer.from(dataBase64, "base64");
+      if (!fileName || buffer.length === 0 || buffer.length > 8 * 1024 * 1024) {
+        res.status(400).json({ error: "Coverage document must be between 1 byte and 8 MB" }); return;
+      }
+      if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+        pdfAttachment = { mimeType: "application/pdf", dataBase64 };
+      } else if (/\.(xlsx|xls)$/i.test(fileName)) {
+        const workbook = XLSX.read(buffer, { type: "buffer" });
+        documentText = workbook.SheetNames.map((name) =>
+          `Sheet: ${name}\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`,
+        ).join("\n\n").slice(0, 40_000);
+      } else {
+        res.status(400).json({ error: "Coverage document must be PDF, XLSX, or XLS" }); return;
+      }
+    }
+
+    const promptWithDocument = documentText
+      ? `${userPrompt}\n\nUploaded specification contents:\n${documentText}`
+      : userPrompt;
+    let content: string;
+    if (pdfAttachment) {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [
+          { text: promptWithDocument },
+          { inlineData: { mimeType: pdfAttachment.mimeType, data: pdfAttachment.dataBase64 } },
+        ] }],
+        config: { systemInstruction: systemPrompt, maxOutputTokens: 8192, responseMimeType: "application/json" },
+      });
+      content = response.text ?? "";
+    } else {
+      content = await executeAiTask(systemPrompt, promptWithDocument);
+    }
     const parsedData = safeParseJSON(content, fallback);
     res.json({ ...parsedData, stats: fallback.stats });
   } catch (error) {
@@ -1017,7 +1065,7 @@ router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
     ]);
 
     const taskSummary = tasks
-      .map((t) => `TASK|${t.id}|${t.name}|${t.status}|${t.type}`)
+      .map((t) => `TASK|${t.id}|${t.name}|${t.status}|${(t as any).type}`)
       .join("\n");
     const tcSummary = testCases
       .map((tc) => `TC|${tc.id}|${tc.title}|${tc.type}|${tc.priority}`)
@@ -1873,6 +1921,7 @@ router.get("/ai/requirement-chat/conversations/:id/messages", async (req, res): 
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const convoId = Number(req.params.id);
+  if (!Number.isInteger(convoId) || convoId <= 0) { res.status(400).json({ error: "Invalid conversation ID" }); return; }
   const [convo] = await db.select().from(conversations).where(eq(conversations.id, convoId));
   if (!convo || convo.userId !== ctx.userId) { res.status(404).json({ error: "Conversation not found" }); return; }
 
@@ -1899,7 +1948,7 @@ router.post("/ai/analyze-milestone-requirements", async (req, res): Promise<void
     
     for (const r of reqs) {
       await db.update(requirementsTable)
-        .set({ aiAnalysisStatus: "completed" }) // assuming aiAnalysisStatus exists or we just mock success
+        .set({ aiAnalysisStatus: "completed" } as any) // assuming aiAnalysisStatus exists or we just mock success
         .where(eq(requirementsTable.id, r.id));
     }
     
@@ -1969,7 +2018,8 @@ router.post("/ai/generate-bdd-test-cases", async (req, res): Promise<void> => {
   if (!milestoneId || !gherkin) { res.status(400).json({ error: "Missing milestoneId or gherkin text" }); return; }
 
   try {
-    const prompt = `You are a QA automation expert. Convert this BDD Gherkin snippet into formal test cases. 
+    const prompt = `You are a QA automation expert. Convert this BDD Gherkin snippet into formal test cases.
+"expectedResult" must be short and direct: one imperative sentence (or a tight list of outcomes) stating the outcome — no explanation, no narrative, no filler words.
 Format output as JSON: { "testCases": [ { "title": "...", "preCondition": "...", "steps": "...", "expectedResult": "..." } ] }
 Gherkin:
 ${gherkin}`;

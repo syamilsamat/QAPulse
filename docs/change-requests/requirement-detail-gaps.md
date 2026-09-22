@@ -73,7 +73,7 @@ This is a full port of Part 7 from `pm-ba-onboarding.md` — nothing here has ch
 - Reject own requirement as its author → confirm 403 (currently succeeds — this is the bug from 1.1)
 - Reject a requirement → confirm author, assignee, and the milestone's PM/creator all get notified (currently only author does)
 - As a third FA-track user (not author/assignee) → attempt to edit a `rejected` requirement → confirm 403; author or assignee can still edit successfully
-- Import a Redmine ticket → confirm `createdBy` resolves to a name-matched QAPulse user (or the importer as fallback), never `null`
+- Import a Redmine ticket → confirm `createdBy` resolves to a name-matched QM Pulse user (or the importer as fallback), never `null`
 - Open a requirement's detail page → confirm breadcrumb shows real ancestor IDs (not generic text), confirm Child Requirements section lists actual children, confirm History shows creation + review entries, confirm "Analyze with AI" works inline and logs to History
 - On the list view, click a requirement's title → confirm it navigates to `/requirements/:id`, not the edit modal
 - Edit a requirement's description with linked test cases and tasks → confirm both show the re-review alert, confirm "Revised" resets result and logs to `executionTcHistoryTable`, confirm Task alert clears via Acknowledge without changing task status

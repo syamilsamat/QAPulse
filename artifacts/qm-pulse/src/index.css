@@ -1,0 +1,233 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  /* Tells the browser which palette to use for chrome it draws itself —
+     native <select> dropdown popups, checkboxes, scrollbars — since those
+     aren't styleable via our CSS variables above. Without this, Windows
+     Chrome renders native <select> popups in its light default regardless
+     of .dark being active (macOS happens to follow the OS-level appearance
+     for these even without the hint, which is why this only showed up on
+     Windows: the raw <select> filters in the "Pull from Library" modal). */
+  color-scheme: light;
+
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+
+  --opaque-button-border-intensity: -8;
+
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 240 5.9% 10%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --card-border: 240 5.9% 90%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --popover-border: 240 5.9% 90%;
+
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+
+  --chart-1: 173 58% 39%;
+  --chart-2: 12 76% 61%;
+  --chart-3: 197 37% 24%;
+  --chart-4: 43 74% 66%;
+  --chart-5: 27 87% 67%;
+
+  --sidebar: 240 5% 96%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+
+  --app-font-sans: 'Geist', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: 'Geist Mono', monospace;
+  
+  --radius: 0.5rem;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+
+  --opaque-button-border-intensity: 9;
+
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  /* Near-black indigo-navy background */
+  --background: 240 21% 7%;
+  --foreground: 210 20% 98%;
+
+  --border: 240 15% 18%;
+  --input: 240 15% 18%;
+  /* Violet accent */
+  --ring: 250 84% 65%;
+
+  /* Cards sit slightly lighter than the page background */
+  --card: 240 20% 10%;
+  --card-foreground: 210 20% 98%;
+  --card-border: 240 15% 18%;
+
+  --popover: 240 20% 10%;
+  --popover-foreground: 210 20% 98%;
+  --popover-border: 240 15% 18%;
+
+  --primary: 250 84% 65%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 15% 16%;
+  --secondary-foreground: 210 20% 98%;
+
+  --muted: 240 15% 16%;
+  --muted-foreground: 240 10% 65%;
+
+  --accent: 240 15% 16%;
+  --accent-foreground: 210 20% 98%;
+
+  --destructive: 0 72% 58%;
+  --destructive-foreground: 0 0% 100%;
+
+  --chart-1: 250 84% 65%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 330 75% 60%;
+  --chart-4: 43 90% 55%;
+  --chart-5: 210 80% 60%;
+
+  --sidebar: 240 22% 6%;
+  --sidebar-foreground: 210 20% 98%;
+  --sidebar-border: 240 15% 18%;
+  --sidebar-primary: 250 84% 65%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 15% 14%;
+  --sidebar-accent-foreground: 210 20% 98%;
+  --sidebar-ring: 250 84% 65%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  /* Native <select> popups, part two.
+     `color-scheme: dark` above only works while the browser is left to pick
+     the control's colours itself. The moment an author background is set —
+     and shadcn's field recipe sets `bg-transparent`, which several selects
+     were copied from — Chrome paints the popup from the control instead of
+     from the colour scheme. A transparent control gave a light popup whose
+     option text still inherited the dark theme's light foreground, so the
+     names were rendered light-on-light and effectively invisible.
+
+     Giving the options their own themed surface fixes every native select
+     at once, including the in-cell ones that intentionally stay transparent
+     so they blend into the table row. macOS draws these popups as real OS
+     menus and ignores option styling, but it already followed the system
+     appearance correctly, so this is inert there rather than conflicting. */
+  select option,
+  select optgroup {
+    @apply bg-popover text-popover-foreground;
+  }
+
+  /* Any select that doesn't set its own background gets the themed one.
+     Utilities still win, so a deliberate `bg-transparent` is unaffected. */
+  select {
+    background-color: hsl(var(--popover));
+  }
+}

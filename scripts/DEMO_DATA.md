@@ -1,6 +1,6 @@
 # Client-demo data
 
-Populates QAPulse with a realistic, fully-linked dataset for demoing to a
+Populates QM Pulse with a realistic, fully-linked dataset for demoing to a
 client, and cleanly removes it again afterward. Everything is created
 through the real API — not raw SQL inserts — so validation, the FA review
 workflow, defect codes, and audit logging all fire exactly as they would for
@@ -43,10 +43,10 @@ show something real instead of empty states.
 
 ## Before you run it
 
-1. **Find your app's public URL** — the same one you use to open QAPulse in
+1. **Find your app's public URL** — the same one you use to open QM Pulse in
    your browser (e.g. `https://your-repl-name.username.repl.co`). The
    script appends `/api` itself, exactly like the frontend does.
-2. Make sure `admin@qapulse.com` / `admin123` is still the working admin
+2. Make sure `admin@qmpulse.com` / `admin123` is still the working admin
    login (or override via `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`).
 
 ## Run it
@@ -55,7 +55,7 @@ From the Replit shell:
 
 ```bash
 cd scripts
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-data.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/seed-demo-data.ts
 ```
 
 Takes a minute or two — it's making several hundred real API calls, the same
@@ -73,16 +73,16 @@ It rewrites requirement/activity/execution timestamps (and completed
 milestones' `completedAt`) to the per-milestone anchors defined at the top
 of that script.
 
-All demo users share one password: `Demo@2026` (see `demo-data.ts`'s
+All demo users share one password: `password123` (see `demo-data.ts`'s
 `DEMO_PASSWORD` if you change it). Their emails are all
-`firstname.lastname@demo.qapulse.local`, so they're easy to spot in the
+`firstname.lastname@demo.qmpulse.local`, so they're easy to spot in the
 Team/Roles pages and won't collide with anyone real.
 
 ## Clear it before/after a demo
 
 ```bash
 cd scripts
-QAPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-demo-data.ts
+QMPULSE_API_URL=https://your-repl-name.username.repl.co npx tsx src/clear-demo-data.ts
 ```
 
 This reads `demo-seed-manifest.json` (written automatically while seeding —

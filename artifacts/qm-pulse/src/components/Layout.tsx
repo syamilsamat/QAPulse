@@ -1,0 +1,1246 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Link, useLocation } from "wouter";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLogout, listNotifications } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { Columns3Cog, Shield, ShieldAlert, GitMerge, ScrollText, Bug, LayoutDashboard, Users2, FileCheck2, Wrench } from 'lucide-react';
+import { NotificationDropdown } from "@/components/NotificationDropdown";
+import { GlobalSearch } from "@/components/GlobalSearch";
+import { ReportIssueTrigger } from "@/components/ReportIssueTrigger";
+
+import {
+  HoverPulse,
+  HoverDashboard,
+  HoverUsers,
+  HoverDocument,
+  HoverFlask,
+  HoverCheckSquare,
+  HoverSearch,
+  HoverSettings,
+  HoverAccount,
+  HoverLogOut,
+  HoverMenu,
+  HoverCoffee,
+  HoverBell,
+  HoverSparkles,
+  HoverChart,
+  HoverBarChart,
+  HoverList,
+  HoverPlay,
+  HoverHistory,
+} from "@/components/icons/animated";
+import { PulseLogo } from "@/components/PulseLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+// 1. Replaced MessageSquare with Bot
+import { Brain, Bot, Send, Loader2, Plus, X, ChevronLeft, ChevronRight, Sun, Moon, FileSearch, Rocket, ListChecks } from "lucide-react";
+import { useTheme } from "next-themes";
+
+const API_BASE = () => getApiUrl();
+async function callAiEndpoint(
+  token: string | null,
+  endpoint: string,
+  body: object,
+) {
+  const res = await fetch(`${API_BASE()}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Lightweight, dependency-free markdown for chat replies. The model returns
+// **bold**, *italic*, `code`, and -/*/numbered lists; without this the raw
+// markers ("* **Bold:**") leak to the user. Renders to React nodes (never
+// dangerouslySetInnerHTML) so reply text can never inject markup.
+function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*)/g;
+  let last = 0;
+  let i = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      nodes.push(<strong key={`${keyPrefix}-b${i}`}>{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith("`")) {
+      nodes.push(<code key={`${keyPrefix}-c${i}`} className="px-1 py-0.5 rounded bg-foreground/10 font-mono text-[0.85em]">{tok.slice(1, -1)}</code>);
+    } else {
+      nodes.push(<em key={`${keyPrefix}-i${i}`}>{tok.slice(1, -1)}</em>);
+    }
+    last = m.index + tok.length;
+    i++;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function ChatMarkdown({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  let para: string[] = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    const key = `p${blocks.length}`;
+    const buffered = para;
+    blocks.push(
+      <p key={key}>
+        {buffered.map((ln, j) => (
+          <span key={j}>
+            {j > 0 && <br />}
+            {renderInline(ln, `${key}-${j}`)}
+          </span>
+        ))}
+      </p>,
+    );
+    para = [];
+  };
+
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i];
+    const heading = line.match(/^\s*#{1,3}\s+(.*)$/);
+    if (/^\s*[-*•]\s+/.test(line)) {
+      flushPara();
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*•]\s+/, ""));
+        i++;
+      }
+      const key = `ul${blocks.length}`;
+      blocks.push(
+        <ul key={key} className="list-disc pl-5 space-y-1">
+          {items.map((it, j) => <li key={j}>{renderInline(it, `${key}-${j}`)}</li>)}
+        </ul>,
+      );
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      flushPara();
+      const items: string[] = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
+        i++;
+      }
+      const key = `ol${blocks.length}`;
+      blocks.push(
+        <ol key={key} className="list-decimal pl-5 space-y-1">
+          {items.map((it, j) => <li key={j}>{renderInline(it, `${key}-${j}`)}</li>)}
+        </ol>,
+      );
+      continue;
+    }
+    if (heading) {
+      flushPara();
+      blocks.push(<div key={`h${blocks.length}`} className="font-semibold">{renderInline(heading[1], `h${blocks.length}`)}</div>);
+      i++;
+      continue;
+    }
+    if (line.trim() === "") { flushPara(); i++; continue; }
+    para.push(line);
+    i++;
+  }
+  flushPara();
+
+  return <div className="space-y-2 leading-relaxed">{blocks}</div>;
+}
+
+// --- Global QA Copilot Component ---
+function GlobalQACopilot() {
+  const { user, token } = useAuth();
+  const { toast } = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ role: "user" | "assistant"; content: string }>
+  >([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // CR039 follow-up — Requirement mode, alongside the existing General mode.
+  // Separate state/thread so switching modes never loses either conversation.
+  // No history-list browsing here (kept minimal for the widget's size) — use
+  // the AI Hub's Requirement Chat tab for that.
+  const [chatMode, setChatMode] = useState<"general" | "requirement">("general");
+  const [reqChatConversationId, setReqChatConversationId] = useState<number | null>(null);
+  const [reqChatMessages, setReqChatMessages] = useState<
+    Array<{
+      role: "user" | "assistant";
+      content: string;
+      matchedRequirement?: { id: number; title: string; projectName: string | null };
+      candidates?: Array<{ id: number; title: string; projectName: string | null }>;
+    }>
+  >([]);
+  const [reqChatInput, setReqChatInput] = useState("");
+  const [reqChatLoading, setReqChatLoading] = useState(false);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [reqChatMessages, reqChatLoading]);
+
+  const sendReqChat = async () => {
+    if (!reqChatInput.trim()) return;
+    const userMsg = reqChatInput.trim();
+    setReqChatInput("");
+    setReqChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setReqChatLoading(true);
+    try {
+      const res = await callAiEndpoint(token, "/ai/requirement-chat", {
+        message: userMsg,
+        conversationId: reqChatConversationId ?? undefined,
+      });
+      setReqChatConversationId(res.conversationId);
+      setReqChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, matchedRequirement: res.matchedRequirement, candidates: res.candidates },
+      ]);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Chat Error", description: err.message });
+    } finally {
+      setReqChatLoading(false);
+    }
+  };
+
+  const resolveReqChatCandidate = async (candidate: { id: number; title: string; projectName: string | null }) => {
+    if (!reqChatConversationId) return;
+    setReqChatLoading(true);
+    try {
+      const res = await callAiEndpoint(token, "/ai/requirement-chat", {
+        conversationId: reqChatConversationId,
+        resolvedRequirementId: candidate.id,
+      });
+      setReqChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, matchedRequirement: res.matchedRequirement },
+      ]);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Chat Error", description: err.message });
+    } finally {
+      setReqChatLoading(false);
+    }
+  };
+
+  const startNewReqChat = () => {
+    setReqChatConversationId(null);
+    setReqChatMessages([]);
+    setReqChatInput("");
+  };
+
+  useEffect(() => {
+    if (user?.id && typeof window !== "undefined") {
+      const saved = localStorage.getItem(`qa-copilot-history-${user.id}`);
+      if (saved) {
+        try {
+          setChatMessages(JSON.parse(saved));
+        } catch (e) {
+          console.error("Failed to parse chat history");
+        }
+      } else {
+        setChatMessages([]);
+      }
+      setHistoryLoaded(true);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (historyLoaded && user?.id && typeof window !== "undefined") {
+      if (chatMessages.length > 0) {
+        localStorage.setItem(
+          `qa-copilot-history-${user.id}`,
+          JSON.stringify(chatMessages),
+        );
+      } else {
+        localStorage.removeItem(`qa-copilot-history-${user.id}`);
+      }
+    }
+    if (scrollRef.current) {
+      scrollRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages, historyLoaded, user?.id]);
+
+  const startNewChat = () => {
+    setChatMessages([]);
+    if (user?.id) {
+      localStorage.removeItem(`qa-copilot-history-${user.id}`);
+    }
+  };
+
+  const sendChat = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setChatLoading(true);
+    try {
+      const res = await callAiEndpoint(token, "/ai/chat", {
+        message: userMsg,
+        conversationHistory: chatMessages.slice(-10),
+      });
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply },
+      ]);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Chat Error",
+        description: err.message,
+      });
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+      {isOpen ? (
+        <Card className="w-[350px] sm:w-[400px] h-[550px] flex flex-col shadow-2xl border-primary/20 mb-4 animate-in slide-in-from-bottom-5">
+          <CardHeader className="p-3 border-b flex flex-row items-center justify-between bg-muted/40 shrink-0">
+            <div className="flex items-center gap-2">
+              {/* 2. Updated header avatar icon and background color */}
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ backgroundColor: "#274AB3" }}
+              >
+                <Bot className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <CardTitle className="text-sm font-semibold">
+                  QA Copilot
+                </CardTitle>
+                <p className="text-[10px] text-muted-foreground">
+                  Always here to help
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {(chatMode === "general" ? chatMessages.length > 0 : reqChatMessages.length > 0) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={chatMode === "general" ? startNewChat : startNewReqChat}
+                  title="New Chat"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setIsOpen(false)}
+                aria-label="Close QA Copilot"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <div className="flex border-b shrink-0 text-xs">
+            <button
+              onClick={() => setChatMode("general")}
+              className={`flex-1 py-1.5 text-center transition-colors ${
+                chatMode === "general" ? "font-medium border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              General
+            </button>
+            <button
+              onClick={() => setChatMode("requirement")}
+              className={`flex-1 py-1.5 text-center transition-colors ${
+                chatMode === "requirement" ? "font-medium border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Requirement
+            </button>
+          </div>
+          {chatMode === "general" ? (
+          <CardContent className="flex-1 flex flex-col gap-3 min-h-0 p-3">
+            <ScrollArea className="flex-1 pr-3 -mr-3">
+              {chatMessages.length === 0 && (
+                <div className="text-center py-10 text-muted-foreground space-y-3">
+                  <Bot className="w-10 h-10 mx-auto opacity-30" />
+                  <p className="text-sm">
+                    Start a conversation with your QA Copilot
+                  </p>
+                  <div className="flex flex-col gap-2 justify-center text-xs mt-4">
+                    {[
+                      "Generate regression checklist",
+                      "Find missing test coverage",
+                      "Summarize blocked tasks",
+                    ].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setChatInput(s)}
+                        className="px-3 py-2 rounded-lg border hover:bg-muted transition-colors text-left"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="space-y-4">
+                {chatMessages.map((m, i) => (
+                  <div
+                    key={i}
+                    className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    {m.role === "assistant" && (
+                      <div
+                        className="w-6 h-6 mt-1 rounded-full flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: "#274AB3" }}
+                      >
+                        <Bot className="w-3.5 h-3.5 text-white" />
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                    >
+                      {m.role === "assistant" ? <ChatMarkdown content={m.content} /> : m.content}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="flex gap-3">
+                    <div
+                      className="w-6 h-6 mt-1 rounded-full flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: "#274AB3" }}
+                    >
+                      <Bot className="w-3.5 h-3.5 text-white" />
+                    </div>
+                    <div className="bg-muted rounded-xl px-4 py-3">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    </div>
+                  </div>
+                )}
+                <div ref={scrollRef} />
+              </div>
+            </ScrollArea>
+            <div className="flex gap-2 shrink-0 pt-2 border-t">
+              <Input
+                placeholder="Ask about your QA data..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && !e.shiftKey && sendChat()
+                }
+                disabled={chatLoading}
+                className="text-sm"
+              />
+              <Button
+                onClick={sendChat}
+                disabled={chatLoading || !chatInput.trim()}
+                size="icon"
+                className="shrink-0"
+                aria-label="Send QA Copilot message"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardContent>
+          ) : (
+          <CardContent className="flex-1 flex flex-col gap-3 min-h-0 p-3">
+            <ScrollArea className="flex-1 pr-3 -mr-3">
+              {reqChatMessages.length === 0 && (
+                <div className="text-center py-10 text-muted-foreground space-y-3">
+                  <FileSearch className="w-10 h-10 mx-auto opacity-30" />
+                  <p className="text-sm">
+                    Ask about any requirement — I'll find it automatically.
+                  </p>
+                </div>
+              )}
+              <div className="space-y-4">
+                {reqChatMessages.map((m, i) => (
+                  <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                    {m.role === "assistant" && m.matchedRequirement && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                        <FileSearch className="w-2.5 h-2.5" />
+                        {m.matchedRequirement.title}
+                        {m.matchedRequirement.projectName ? ` · ${m.matchedRequirement.projectName}` : ""}
+                      </span>
+                    )}
+                    <div
+                      className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                        m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
+                      }`}
+                    >
+                      {m.role === "assistant" ? <ChatMarkdown content={m.content} /> : m.content}
+                    </div>
+                    {m.role === "assistant" && m.candidates && m.candidates.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {m.candidates.map((c) => (
+                          <button
+                            key={c.id}
+                            disabled={reqChatLoading}
+                            onClick={() => resolveReqChatCandidate(c)}
+                            className="text-[11px] px-2.5 py-1 rounded-full border hover:bg-muted transition-colors disabled:opacity-50"
+                          >
+                            {c.title}
+                            {c.projectName ? ` · ${c.projectName}` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {reqChatLoading && (
+                  <div className="bg-muted rounded-xl px-4 py-3 w-fit">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                <div ref={scrollRef} />
+              </div>
+            </ScrollArea>
+            <div className="flex gap-2 shrink-0 pt-2 border-t">
+              <Input
+                placeholder="Ask about any requirement..."
+                value={reqChatInput}
+                onChange={(e) => setReqChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendReqChat()}
+                disabled={reqChatLoading}
+                className="text-sm"
+              />
+              <Button
+                onClick={sendReqChat}
+                disabled={reqChatLoading || !reqChatInput.trim()}
+                size="icon"
+                className="shrink-0"
+                aria-label="Send requirement question"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardContent>
+          )}
+        </Card>
+      ) : (
+        /* 3. Updated main trigger button with specific hex code and text-white */
+        <Button
+          onClick={() => setIsOpen(true)}
+          className="rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all hover:-translate-y-1 text-white border-none hover:opacity-90"
+          style={{ backgroundColor: "#274AB3" }}
+          aria-label="Open QA Copilot"
+        >
+          <Bot className="w-6 h-6" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  roles: string[];
+  activeColor?: string;
+  subItems?: { href: string; label: string; icon: React.ElementType; activeColor?: string }[];
+  showBadge?: boolean;
+  permKey?: string;      // nav permission key — if present, checked against dynamic permissions
+  alwaysVisible?: boolean; // Dashboard and Account skip the permission check
+  section?: string;      // section header rendered above this item when it differs from the previous item's
+}
+
+const NAV_ITEMS: NavItem[] = [
+  {
+    href: "/my-work",
+    label: "My Work Today",
+    icon: ListChecks,
+    activeColor: "text-blue-500",
+    roles: [],
+    alwaysVisible: true,
+    section: "My Workspace",
+  },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: HoverDashboard,
+    activeColor: "text-blue-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    alwaysVisible: true,
+    section: "Delivery Flow",
+  },
+  {
+    href: "/qa-pipeline",
+    label: "QA Pipeline",
+    icon: Rocket,
+    activeColor: "text-blue-600",
+    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
+    permKey: "nav:qa-pipeline",
+    section: "Delivery Flow",
+    // @ts-ignore
+isPipelineFlow: true,
+  },
+  {
+    href: "/milestones",
+    label: "Milestones",
+    icon: ScrollText,
+    activeColor: "text-violet-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:milestones",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/requirements",
+    label: "Requirements",
+    icon: HoverDocument,
+    activeColor: "text-orange-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:requirements",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/test-cases",
+    label: "Test Cases",
+    icon: HoverFlask,
+    activeColor: "text-teal-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:test-cases",
+    subItems: [
+      { href: "/test-cases/execution", label: "Execution Dashboard", icon: HoverPlay, activeColor: "text-lime-500" },
+    ],
+    section: "Delivery Flow",
+  },
+  {
+    href: "/defects",
+    label: "Defects",
+    icon: Bug,
+    activeColor: "text-red-500",
+    // CR030 — permKey added so the dev department (assignees on native defect
+    // assignment) can see it too; static roles kept as the pre-permKey fallback.
+    // CR042 — FA added: requirement defects (CR031) route to FA authors.
+    roles: ["qa_member", "qa_lead", "qa_manager", "hod_qa", "dev_member", "dev_lead", "hod_dev", "fa_lead", "fa_member", "admin", "cto"],
+    permKey: "nav:defects",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/tasks",
+    label: "Tasks",
+    icon: HoverCheckSquare,
+    activeColor: "text-emerald-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:tasks",
+    subItems: [
+      { href: "/history-trail", label: "History Trail", icon: HoverHistory, activeColor: "text-purple-500" },
+    ],
+    section: "Delivery Flow",
+  },
+  {
+    href: "/traceability",
+    label: "Traceability",
+    icon: GitMerge,
+    activeColor: "text-cyan-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:traceability",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/risk-register",
+    label: "Risk Register",
+    icon: ShieldAlert,
+    activeColor: "text-amber-500",
+    roles: ["hod_pm", "pm_lead", "qa_lead", "fa_lead", "admin", "cto"],
+    permKey: "nav:risk-register",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/qa-analytics",
+    label: "QA Analytics",
+    icon: HoverBarChart,
+    activeColor: "text-indigo-500",
+    roles: ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"],
+    permKey: "nav:qa-analytics",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/verdict-report",
+    label: "Verdict Report",
+    icon: HoverChart,
+    activeColor: "text-pink-500",
+    roles: ["qa_member", "pm_member", "qa_lead", "admin"],
+    permKey: "nav:report",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/uat-signoffs",
+    label: "UAT Sign-offs",
+    icon: FileCheck2,
+    activeColor: "text-teal-500",
+    roles: ["hod_pm", "pm_lead", "pm_member", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],
+    permKey: "nav:uat-signoffs",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/pm-dashboard",
+    label: "PM Dashboard",
+    icon: LayoutDashboard,
+    activeColor: "text-blue-600",
+    roles: ["hod_pm", "pm_lead", "admin", "cto"],
+    permKey: "nav:pm-dashboard",
+    section: "Delivery Flow",
+  },
+  {
+    href: "/ai-features",
+    label: "AI Hub",
+    icon: HoverSparkles,
+    activeColor: "text-fuchsia-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:ai-hub",
+    section: "AI",
+  },
+  {
+    href: "/inbox",
+    label: "Inbox",
+    icon: HoverBell,
+    activeColor: "text-yellow-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:inbox",
+    showBadge: true,
+    section: "Communication",
+  },
+  {
+    href: "/team-hangouts",
+    label: "Team Hangouts",
+    icon: HoverCoffee,
+    activeColor: "text-amber-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    permKey: "nav:team-hangouts",
+    showBadge: false,
+    section: "Communication",
+  },
+  {
+    href: "/team",
+    label: "Team",
+    icon: HoverUsers,
+    activeColor: "text-indigo-500",
+    roles: ["qa_lead", "admin"],
+    permKey: "nav:team",
+    section: "People & Resources",
+  },
+  {
+    href: "/resources",
+    label: "Resources",
+    icon: Users2,
+    activeColor: "text-teal-500",
+    roles: ["qa_lead", "qa_manager", "hod_qa", "fa_lead", "hod_fa", "dev_lead", "hod_dev", "pm_lead", "hod_pm", "admin", "cto"],
+    permKey: "nav:resources",
+    section: "People & Resources",
+  },
+  {
+    href: "/admin/search",
+    label: "Admin Search",
+    icon: HoverSearch,
+    activeColor: "text-violet-500",
+    roles: ["admin"],
+    permKey: "nav:admin-search",
+    section: "Administration",
+  },
+  {
+    href: "/configurations",
+    label: "Configuration",
+    icon: Columns3Cog,
+    activeColor: "text-slate-500",
+    roles: ["qa_lead", "admin"],
+    permKey: "nav:configurations",
+    section: "Administration",
+  },
+  {
+    href: "/roles",
+    label: "Roles",
+    icon: Shield,
+    activeColor: "text-slate-400",
+    roles: ["admin"],
+    section: "Administration",
+  },
+  {
+    href: "/audit-log",
+    label: "Audit Log",
+    icon: ScrollText,
+    activeColor: "text-slate-500",
+    roles: ["admin"],
+    permKey: "nav:audit-log",
+    section: "Administration",
+  },
+  {
+    // CR079 — bugs/ideas/questions about QM Pulse itself, distinct from the
+    // client-project "Defects" item above. Admin-only, same shape as Audit Log.
+    href: "/platform-issues",
+    label: "Platform Issues",
+    icon: Wrench,
+    activeColor: "text-slate-500",
+    roles: ["admin", "cto"],
+    permKey: "nav:platform-issues",
+    section: "Administration",
+  },
+  {
+    href: "/settings",
+    label: "Account",
+    icon: HoverAccount,
+    activeColor: "text-blue-500",
+    roles: ["qa_member", "qa_lead", "admin"],
+    alwaysVisible: true,
+  },
+];
+
+export function Layout({ children }: { children: React.ReactNode }) {
+  const { user, token, logout: localLogout } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const [location, setLocation] = useLocation();
+  const logoutMutation = useLogout();
+  const qc = useQueryClient();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar_collapsed") === "true"; } catch { return false; }
+  });
+  const [flyout, setFlyout] = useState<{ href: string; top: number } | null>(null);
+  const flyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Preserve sidebar scroll position across navigation. SidebarContent is
+  // defined inside Layout, so each navigation re-creates it and React remounts
+  // the <nav>, resetting scrollTop to 0. We remember the last offset and
+  // restore it when the fresh <nav> mounts — the ref callback fires during
+  // commit (before paint), so there's no visible scroll jump.
+  const navScrollTop = useRef(0);
+  const attachNav = useCallback((el: HTMLElement | null) => {
+    if (el) el.scrollTop = navScrollTop.current;
+  }, []);
+  const rememberNavScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
+    navScrollTop.current = e.currentTarget.scrollTop;
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem("sidebar_collapsed", String(collapsed)); } catch {}
+    setFlyout(null);
+  }, [collapsed]);
+
+  useEffect(() => { setFlyout(null); }, [location]);
+
+  useEffect(() => {
+    return () => { if (flyoutTimer.current) clearTimeout(flyoutTimer.current); };
+  }, []);
+
+  const { data: unreadNotifs = [] } = useQuery({
+    queryKey: ["notifications-unread", user?.id],
+    queryFn: () =>
+      listNotifications({ userId: user?.id ?? 0, unreadOnly: true }),
+    enabled: !!user?.id,
+    refetchInterval: 30000,
+  });
+
+  const unreadCount = unreadNotifs.filter((n) => !n.read).length;
+
+  // SSE real-time ping — invalidates notification queries when the server
+  // writes a new notification for this user. The 30s poll above stays as a
+  // correctness fallback in case the SSE stream silently stalls.
+  useEffect(() => {
+    if (!user?.id || !token) return;
+    // Token rides as a query param — EventSource can't set an Authorization
+    // header (CR047). The server binds the stream to the token's own user.
+    const es = new EventSource(`${getApiUrl()}/notifications/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = () => {
+      qc.invalidateQueries({ queryKey: ["notifications-unread", user.id] });
+    };
+    return () => es.close();
+  }, [user?.id, user?.role, token, qc]);
+
+  const handleLogout = () => {
+    setLogoutOpen(false);
+    logoutMutation.mutate(undefined, {
+      onSuccess: () => {
+        localLogout();
+        setLocation("/");
+      },
+      onError: () => {
+        localLogout();
+        setLocation("/");
+      },
+    });
+  };
+
+  const { data: navPermissions } = useQuery<string[]>({
+    queryKey: ["my-nav-permissions"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/my-nav-permissions`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return null as unknown as string[];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
+  const { data: pipelineSettings } = useQuery<{ qaFlowEnabled: boolean }>({
+    queryKey: ["pipeline-settings"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/pipeline-settings`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return { qaFlowEnabled: false };
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (!user) return false;
+    
+    // Hide QA Pipeline if toggle is off
+    if ((item as any).isPipelineFlow && !pipelineSettings?.qaFlowEnabled) {
+      return false;
+    }
+
+    if (item.alwaysVisible) return true;
+    // Use dynamic permissions when available, fall back to static roles
+    if (navPermissions && item.permKey) return navPermissions.includes(item.permKey);
+    return (item.roles as readonly string[]).includes(user.role);
+  });
+
+  const SidebarContent = ({ forMobile = false }: { forMobile?: boolean }) => {
+    const show = collapsed && !forMobile;
+    return (
+      <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
+        {/* Logo */}
+        <div className={show ? "py-5 flex justify-center" : "px-6 py-6 pb-4"}>
+          {show ? (
+            <PulseLogo size="sm" showWord={false} />
+          ) : (
+            <h1 className="text-xl font-bold text-sidebar-foreground tracking-tight flex items-center gap-3">
+              <PulseLogo size="sm" showWord={false} />
+              QM Pulse
+            </h1>
+          )}
+        </div>
+
+        {/* Nav */}
+        <nav
+          ref={attachNav}
+          onScroll={rememberNavScroll}
+          className={`flex-1 ${show ? "px-2" : "px-3"} space-y-1 overflow-y-auto`}
+        >
+          {visibleNavItems.map((item, idx) => {
+            const Icon = item.icon as any;
+            const badge = item.showBadge ? unreadCount : 0;
+            const isParentActive =
+              location === item.href ||
+              item.subItems?.some((sub) => location === sub.href);
+
+            const sectionHeader = item.section && item.section !== visibleNavItems[idx - 1]?.section ? (
+              show ? (
+                <div key={`${item.section}-divider`} className="my-2 border-t border-sidebar-border" />
+              ) : (
+                <div key={`${item.section}-label`} className="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                  {item.section}
+                </div>
+              )
+            ) : null;
+
+            // Inbox is replaced by the bell dropdown popover (CR027)
+            if (item.href === "/inbox") {
+              return (
+                <div key={item.href} className="flex flex-col">
+                  {sectionHeader}
+                  <NotificationDropdown collapsed={show} unreadCount={unreadCount} />
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={item.href}
+                className="contents"
+              >
+              {sectionHeader}
+              <div
+                className="flex flex-col"
+                onMouseEnter={show && item.subItems?.length ? (e) => {
+                  if (flyoutTimer.current) clearTimeout(flyoutTimer.current);
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setFlyout({ href: item.href, top: rect.top });
+                } : undefined}
+                onMouseLeave={show && item.subItems?.length ? () => {
+                  flyoutTimer.current = setTimeout(() => setFlyout(null), 120);
+                } : undefined}
+              >
+                <Link href={item.href}>
+                  <div
+                    title={show ? item.label : undefined}
+                    className={`flex items-center gap-3 py-2 rounded-md cursor-pointer transition-colors text-sm group ${
+                      location === item.href
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                        : isParentActive
+                        ? "bg-sidebar-accent/40 text-sidebar-foreground font-medium hover:bg-sidebar-accent/60"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    } ${show ? "justify-center px-2" : "px-3"}`}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <div className="relative shrink-0">
+                      <Icon
+                        className={`${show ? "w-5 h-5" : "w-4 h-4"} transition-transform ${isParentActive && item.activeColor ? item.activeColor : ""}`}
+                      />
+                      {show && badge > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-destructive" />
+                      )}
+                    </div>
+                    {!show && <span className="flex-1">{item.label}</span>}
+                    {!show && badge > 0 && (
+                      <Badge variant="destructive" className="h-5 min-w-5 px-1 text-[10px] font-bold">
+                        {badge}
+                      </Badge>
+                    )}
+                  </div>
+                </Link>
+                {item.subItems && !show && (
+                  <div className="ml-5 mt-1 flex flex-col space-y-0.5 border-l-2 border-muted/30 pl-2">
+                    {item.subItems.map((sub) => {
+                      const SubIcon = sub.icon as any;
+                      return (
+                        <Link key={sub.href} href={sub.href}>
+                          <div
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs group ${
+                              location === sub.href
+                                ? "bg-sidebar-accent font-medium"
+                                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
+                            }`}
+                            onClick={() => setIsMobileMenuOpen(false)}
+                          >
+                            <SubIcon
+                              className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110 ${location === sub.href ? (sub.activeColor ?? "text-primary") : "text-muted-foreground"}`}
+                            />
+                            <span className={location === sub.href ? (sub.activeColor ?? "text-primary") : ""}>
+                              {sub.label}
+                            </span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              </div>
+            );
+          })}
+        </nav>
+
+        {/* Theme toggle + collapse/expand — hidden in mobile sheet */}
+        {!forMobile && (
+          <div className={`px-3 py-2 flex items-center gap-1 ${show ? "flex-col justify-center" : "justify-between"}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setCollapsed((v) => !v)}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {show ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </Button>
+          </div>
+        )}
+
+        {/* User profile */}
+        <div className="p-3 border-t border-sidebar-border">
+          {show ? (
+            <div className="flex flex-col items-center gap-2 py-1">
+              <Avatar className="w-9 h-9 border border-border shrink-0" title={user?.name ?? undefined}>
+                <AvatarImage src={user?.avatarUrl ?? undefined} />
+                <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                  {user?.name?.substring(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground group"
+                onClick={() => setLogoutOpen(true)}
+                title="Sign out"
+              >
+                <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 px-2 py-2 mb-1">
+                <Avatar className="w-9 h-9 border border-border shrink-0">
+                  <AvatarImage src={user?.avatarUrl ?? undefined} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                    {user?.name?.substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize truncate">
+                    {user?.role?.replace(/_/g, " ")}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-muted-foreground hover:text-foreground gap-2 text-sm group"
+                onClick={() => setLogoutOpen(true)}
+              >
+                <HoverLogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
+                Sign out
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="flex h-screen bg-background overflow-hidden relative">
+        <div className={`hidden md:flex shrink-0 flex-col transition-all duration-200 ${collapsed ? "w-16" : "w-64"}`}>
+          <SidebarContent />
+        </div>
+
+        {/* Sub-item flyout — rendered here (outside sidebar DOM) so it never blocks sidebar clicks */}
+        {collapsed && flyout && (() => {
+          const activeItem = visibleNavItems.find((i) => i.href === flyout.href);
+          if (!activeItem?.subItems?.length) return null;
+          return (
+            <div
+              className="fixed z-50 bg-sidebar border border-sidebar-border rounded-md shadow-lg py-1 min-w-[190px]"
+              style={{ left: "4.25rem", top: flyout.top }}
+              onMouseEnter={() => { if (flyoutTimer.current) clearTimeout(flyoutTimer.current); }}
+              onMouseLeave={() => { flyoutTimer.current = setTimeout(() => setFlyout(null), 120); }}
+            >
+              <Link href={activeItem.href} onClick={() => setFlyout(null)}>
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-sidebar-border/50 mb-1 hover:text-sidebar-foreground cursor-pointer transition-colors">
+                  {activeItem.label}
+                </div>
+              </Link>
+              {activeItem.subItems.map((sub) => {
+                const SubIcon = sub.icon as any;
+                const isActive = location === sub.href;
+                return (
+                  <Link key={sub.href} href={sub.href}>
+                    <div
+                      className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer transition-colors group ${
+                        isActive
+                          ? "bg-sidebar-accent/60 font-medium"
+                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      }`}
+                      onClick={() => setFlyout(null)}
+                    >
+                      <SubIcon
+                        className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${isActive ? (sub.activeColor ?? "text-primary") : "text-muted-foreground"}`}
+                      />
+                      <span className={isActive ? (sub.activeColor ?? "text-primary") : ""}>
+                        {sub.label}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <header className="h-14 flex items-center px-4 md:hidden border-b bg-card shrink-0">
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="group">
+                  <HoverMenu className="w-5 h-5 transition-transform group-hover:scale-110" />
+                </Button>
+              </SheetTrigger>
+              <h1 className="ml-4 text-lg font-bold flex items-center gap-2">
+                <PulseLogo size="sm" showWord={false} />
+                QM Pulse
+              </h1>
+              <div className="ml-auto flex items-center gap-1">
+                {unreadCount > 0 && (
+                  <Link href="/inbox">
+                    <Badge variant="destructive" className="cursor-pointer">
+                      {unreadCount}
+                    </Badge>
+                  </Link>
+                )}
+                <ThemeToggle />
+              </div>
+            </header>
+
+            <main className="flex-1 overflow-auto p-4 md:p-8">
+              <div className="max-w-7xl mx-auto">{children}</div>
+            </main>
+          </div>
+
+          <SheetContent side="left" className="p-0 w-64">
+            <SidebarContent forMobile />
+          </SheetContent>
+        </Sheet>
+
+        {/* Inject the global Copilot here */}
+        <GlobalQACopilot />
+        {/* Global Search Component */}
+        <GlobalSearch />
+        {/* CR079 — global "Report an issue" trigger, present on every page */}
+        <ReportIssueTrigger />
+      </div>
+
+      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out of QM Pulse?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You'll be redirected to the login page. Any unsaved changes will
+              be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+            <AlertDialogAction onClick={handleLogout}>
+              Sign out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}

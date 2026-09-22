@@ -1,15 +1,15 @@
-# QAPulse — Project Overview
+# QM Pulse — Project Overview
 
-QAPulse is a QA management platform built for software testing teams. It centralises test case authoring, task tracking, execution progress, defect creation, and PMO reporting — with deep Redmine integration throughout.
+QM Pulse is a QA management platform built for software testing teams. It centralises test case authoring, task tracking, execution progress, defect creation, and PMO reporting — with deep Redmine integration throughout.
 
 ---
 
 ## Architecture
 
 ```
-QAPulse/                        ← pnpm workspace root
+QMPulse/                        ← pnpm workspace root
 ├── artifacts/
-│   ├── qa-pulse/               ← React frontend (Vite + TypeScript)
+│   ├── qm-pulse/               ← React frontend (Vite + TypeScript)
 │   ├── api-server/             ← Express REST API (TypeScript)
 │   └── mockup-sandbox/         ← Design playground
 ├── lib/
@@ -83,7 +83,7 @@ Authentication is JWT Bearer token. The server reads the user from the token on 
 | Table | Purpose |
 |-------|---------|
 | `users` | Accounts with role, team, avatar, Redmine API key |
-| `projects` | QAPulse projects |
+| `projects` | QM Pulse projects |
 | `requirements` | Requirements linked to Redmine tickets and projects |
 | `test_cases` | Test case library (steps, expected result, module, AI-assisted flag) |
 | `tasks` | Tasks linked to Redmine IDs with multi-assignee, dates, hours |
@@ -199,7 +199,7 @@ Authentication is JWT Bearer token. The server reads the user from the token on 
 pnpm install
 
 # Run frontend
-cd artifacts/qa-pulse && pnpm dev
+cd artifacts/qm-pulse && pnpm dev
 
 # Run API server
 cd artifacts/api-server && pnpm dev
