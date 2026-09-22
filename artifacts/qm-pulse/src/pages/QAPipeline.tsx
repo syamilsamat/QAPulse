@@ -486,10 +486,12 @@ export default function QAPipeline() {
                 <Label className="text-xs">QA done by</Label>
                 <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">UAT done by</Label>
-                <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
-              </div>
+              {editForm.requiresUat && (
+                <div className="space-y-1">
+                  <Label className="text-xs">UAT target date</Label>
+                  <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
+                </div>
+              )}
               <div className="space-y-1">
                 <Label className="text-xs">Go-Live</Label>
                 <Input type="date" value={editForm.goLiveDate} onChange={(e) => setEditForm({ ...editForm, goLiveDate: e.target.value })} />
@@ -504,7 +506,7 @@ export default function QAPipeline() {
             <Checkbox
               id="editUatToggle"
               checked={editForm.requiresUat}
-              onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked })}
+              onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked, uatTargetDate: checked ? editForm.uatTargetDate : "" })}
             />
             <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
           </div>

@@ -189,6 +189,7 @@ export default function Requirements() {
   const [reqFormModules, setReqFormModules] = useState<string[]>([]);
   const [redmineSelectedModules, setRedmineSelectedModules] = useState<string[]>([]);
   const [redmineSelectedTracker, setRedmineSelectedTracker] = useState<string>("");
+  const [redmineIncludeParent, setRedmineIncludeParent] = useState(true);
   const [redmineLoading, setRedmineLoading] = useState(false);
 
   const [selectedReqs, setSelectedReqs] = useState<number[]>([]);
@@ -778,7 +779,32 @@ parentId: finalParentId,
     );
   };
 
-  const processRedmineSync = async (ticketIdToSync: string, targetModule: string, targetProjectId?: number, parentId?: number, trackerFilter?: string, milestoneId?: number, isRoot: boolean = true) => {
+  // Shown on a requirement whose real Redmine parent was excluded from
+  // import ("Include parent ticket" off) — there's no parent row to nest
+  // under, so this is the only surviving pointer back to it.
+  const parentRedmineBadge = (parentRedmineId?: string | null, parentRedmineTitle?: string | null) => {
+    if (!parentRedmineId) return null;
+    return (
+      <span
+        className="text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap bg-muted text-muted-foreground border-border/60 max-w-[220px] truncate inline-block align-bottom"
+        title={`Part of #${parentRedmineId}${parentRedmineTitle ? ` — ${parentRedmineTitle}` : ""}`}
+      >
+        Part of #{parentRedmineId}{parentRedmineTitle ? ` — ${parentRedmineTitle}` : ""}
+      </span>
+    );
+  };
+
+  const processRedmineSync = async (
+    ticketIdToSync: string,
+    targetModule: string,
+    targetProjectId?: number,
+    parentId?: number,
+    trackerFilter?: string,
+    milestoneId?: number,
+    isRoot: boolean = true,
+    includeParent: boolean = true,
+    inheritedParent?: { id: string; title: string },
+  ) => {
     const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -792,11 +818,14 @@ parentId: finalParentId,
       // Siblings are independent (each only needs the parent id, already
       // resolved), so they run concurrently instead of one Redmine round-trip
       // after another — bounded, so a wide ticket doesn't burst requests.
-      const syncChildren = async (parentForChildren?: number) => {
+      // nextInheritedParent is always passed explicitly by the caller below —
+      // no fallback here, since "explicitly clear it" and "pass it through
+      // unchanged" are both real cases callers need (see call sites).
+      const syncChildren = async (parentForChildren?: number, nextInheritedParent?: { id: string; title: string }) => {
         const children = data.issue.children;
         if (!Array.isArray(children) || children.length === 0) return;
         await mapWithConcurrency(children, SYNC_CONCURRENCY, (child: any) =>
-          processRedmineSync(String(child.id), targetModule, targetProjectId, parentForChildren, trackerFilter, milestoneId, false),
+          processRedmineSync(String(child.id), targetModule, targetProjectId, parentForChildren, trackerFilter, milestoneId, false, true, nextInheritedParent),
         );
       };
 
@@ -809,12 +838,24 @@ parentId: finalParentId,
       // actually imported so the hierarchy closes over the gap.
       if (EXCLUDED_STATUSES.includes(data.issue.status?.name)) {
         if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has status "${data.issue.status?.name}"`);
-        await syncChildren(parentId);
+        await syncChildren(parentId, inheritedParent);
         return;
       }
       if (trackerFilter && data.issue.tracker?.name && data.issue.tracker?.name !== trackerFilter) {
         if (isRoot) throw new Error(`NO_RESULT:Ticket #${ticketIdToSync} has tracker "${data.issue.tracker?.name}", expected "${trackerFilter}"`);
-        await syncChildren(parentId);
+        await syncChildren(parentId, inheritedParent);
+        return;
+      }
+
+      // "Include parent ticket" off: the ticket the user actually typed
+      // becomes no requirement at all. Its direct children carry a
+      // denormalized "part of #ticket" pointer instead (parentRedmineBadge
+      // renders it) so the link survives without a placeholder row that
+      // every count/approval/report elsewhere would need to know to skip.
+      // Deeper descendants get a real parentId once their own immediate
+      // parent is imported, so the pointer never cascades past one level.
+      if (isRoot && !includeParent) {
+        await syncChildren(undefined, { id: fetchedTicketId, title: data.issue.subject });
         return;
       }
 
@@ -858,6 +899,10 @@ tracker: data.issue.tracker?.name ?? "Task",
         projectId: targetProjectId,
         // @ts-ignore
 parentId: parentId,
+        // @ts-ignore — only set when there's no real parent row to point at instead.
+parentRedmineId: parentId == null ? (inheritedParent?.id ?? null) : null,
+        // @ts-ignore
+parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
       };
       // Only touch milestoneId when explicitly provided — a resync of an
       // already-imported ticket (handleSingleSync) passes undefined so it
@@ -894,8 +939,9 @@ parentId: parentId,
         }).catch(() => {});
       }
 
-      // This ticket was imported, so its children hang off it.
-      await syncChildren(savedReqId);
+      // This ticket was imported, so its children hang off it — and, having
+      // a real parent row now, they carry no inherited "part of" pointer.
+      await syncChildren(savedReqId, undefined);
     } else {
       throw new Error(`Could not fetch Redmine issue #${ticketIdToSync}`);
     }
@@ -908,16 +954,20 @@ parentId: parentId,
     setRedmineLoading(true);
     syncingRef.current = true;
     try {
-      await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone));
+      await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone), true, redmineIncludeParent);
       syncingRef.current = false;
       queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
-      toast({ title: "Import Successful", description: "Successfully imported ticket and subtasks." });
+      toast({
+        title: "Import Successful",
+        description: redmineIncludeParent ? "Successfully imported ticket and subtasks." : "Successfully imported subtasks (parent ticket excluded).",
+      });
       setRedmineDialogOpen(false);
       setRedmineInput("");
       setRedmineSelectedModules([]);
       setRedmineSelectedProject("");
       setRedmineSelectedTracker("");
       setRedmineSelectedMilestone("");
+      setRedmineIncludeParent(true);
     } catch (err: any) {
       const msg: string = err?.message ?? "";
       if (msg.startsWith("NO_RESULT:")) {
@@ -1247,6 +1297,7 @@ parentId: parentId,
                                 {devStatusBadge(r.devStatus)}
                                 {blockedBadge(r.isBlocked, r.blockedReason)}
                                 {reqDefectBadge(r.id)}
+                                {parentRedmineBadge(r.parentRedmineId, r.parentRedmineTitle)}
                                 {(r.tcCount ?? 0) > 0 && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
@@ -1282,6 +1333,7 @@ parentId: parentId,
                                 {devStatusBadge(r.devStatus)}
                                 {blockedBadge(r.isBlocked, r.blockedReason)}
                                 {reqDefectBadge(r.id)}
+                                {parentRedmineBadge(r.parentRedmineId, r.parentRedmineTitle)}
                                   {(r.tcCount ?? 0) > 0 && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); navigate(`/test-cases?requirementId=${r.id}`); }}
@@ -1656,7 +1708,7 @@ tracker: v })}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); setRedmineSelectedMilestone(""); } }}>
+      <Dialog open={redmineDialogOpen} onOpenChange={(open) => { setRedmineDialogOpen(open); if (!open) { setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); setRedmineSelectedMilestone(""); setRedmineIncludeParent(true); } }}>
         <DialogContent className="w-[95vw] sm:w-full max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1670,6 +1722,20 @@ tracker: v })}
             <div className="space-y-1.5">
               <Label>Redmine Ticket ID or URL <span className="text-destructive">*</span></Label>
               <Input placeholder="e.g. 34555" value={redmineInput} onChange={(e) => setRedmineInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleImportFromRedmine()} autoFocus />
+            </div>
+            <div className="flex items-start gap-2 rounded-md border p-2.5">
+              <Checkbox
+                id="redmine-include-parent"
+                checked={redmineIncludeParent}
+                onCheckedChange={(checked) => setRedmineIncludeParent(!!checked)}
+                className="mt-0.5"
+              />
+              <label htmlFor="redmine-include-parent" className="text-sm leading-snug cursor-pointer">
+                <span className="font-medium">Include parent ticket</span>
+                <span className="block text-xs text-muted-foreground">
+                  On: the ticket above becomes its own requirement too. Off: only its subtasks are imported, each showing a "Part of #{redmineInput.trim() || "…"}" badge instead.
+                </span>
+              </label>
             </div>
             <div className="space-y-1.5">
               <Label>Project <span className="text-destructive">*</span></Label>
@@ -1723,7 +1789,7 @@ tracker: v })}
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
-            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); setRedmineSelectedMilestone(""); }} className="w-full sm:w-auto">Cancel</Button>
+            <Button variant="outline" onClick={() => { setRedmineDialogOpen(false); setRedmineInput(""); setRedmineSelectedModules([]); setRedmineSelectedProject(""); setRedmineSelectedTracker(""); setRedmineSelectedMilestone(""); setRedmineIncludeParent(true); }} className="w-full sm:w-auto">Cancel</Button>
             <Button onClick={handleImportFromRedmine} disabled={redmineLoading || !redmineInput.trim() || redmineSelectedModules.length === 0 || !redmineSelectedProject || !redmineSelectedMilestone} className="w-full sm:w-auto">
               {redmineLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Fetching…</> : "Import"}
             </Button>

@@ -76,6 +76,8 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     module: req.module,
     tracker: req.tracker,
     parentId: req.parentId,
+    parentRedmineId: (req as any).parentRedmineId ?? null,
+    parentRedmineTitle: (req as any).parentRedmineTitle ?? null,
     projectId: req.projectId,
     projectName,
     priority: req.priority,
@@ -88,6 +90,7 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     milestoneId: req.milestoneId ?? null,
     // CR023p3.1 — list view's Milestone column
     milestoneName,
+    source: (req as any).source ?? null,
     // CR022p1
     acceptanceCriteria: req.acceptanceCriteria ? JSON.parse(req.acceptanceCriteria) : [],
     // CR014p4
@@ -248,10 +251,18 @@ router.post("/requirements", async (req, res): Promise<void> => {
     if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
 
-  const [requirement] = await db.insert(requirementsTable).values({
-    ...parsed.data,
-    createdBy: ctx.userId,
-  } as any).returning();
+  const values: any = { ...parsed.data, createdBy: ctx.userId };
+  // QA-pipeline-sourced requirements skip the CR014p4 FA review workflow —
+  // the pipeline's own Step 2 already scopes what gets pulled in (status/
+  // tracker filters), so gating dev handoff on a second, separate FA
+  // approval added no signal there and just blocked qa_member from working
+  // the requirement further. approvedBy stays null: this is a deliberate
+  // bypass, not a person's sign-off.
+  if (values.source === "qa_pipeline") {
+    values.reviewStatus = "approved";
+    values.approvedAt = new Date();
+  }
+  const [requirement] = await db.insert(requirementsTable).values(values).returning();
 
   await logActivity({
     type: "requirement_created",
@@ -548,6 +559,16 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     const isOwner = !!ctx && (ctx.userId === (before as any).createdBy || ctx.userId === before.assigneeId);
     const isFaOnRedmineSourced = !!ctx && !!before.redmineTicketId && (await canReview("fa", ctx.role));
 
+    // QA Pipeline requirements skip FA review entirely (auto-approved on
+    // creation — see POST /requirements), so the FA-tier exemption above
+    // never applies to them. Without its own exemption, a qa_member who
+    // wasn't the one who ran the sync (so isn't createdBy/assigneeId) had no
+    // way to edit a requirement their own pipeline pulled in. Scoped to
+    // source === "qa_pipeline" specifically, not qa_member edit rights in
+    // general, so this doesn't loosen anything on Redmine-manual or
+    // hand-authored requirements.
+    const isQaMemberOnPipelineSourced = !!ctx && ctx.role === "qa_member" && (before as any).source === "qa_pipeline";
+
     // Pulling the latest version of a Redmine-sourced requirement is not an
     // authored edit — every field it writes is copied from the Redmine ticket,
     // so "who owns this requirement" is the wrong question to gate it on.
@@ -557,7 +578,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     // got a bare "Sync Failed" with no explanation.
     const isRedmineSync = !!ctx && req.body?.redmineSync === true && !!before.redmineTicketId;
 
-    if (!ctx || (!privileged && !isOwner && !isFaOnRedmineSourced && !isRedmineSync)) {
+    if (!ctx || (!privileged && !isOwner && !isFaOnRedmineSourced && !isRedmineSync && !isQaMemberOnPipelineSourced)) {
       res.status(403).json({ error: "Only the author/assignee may edit this requirement" });
       return;
     }
@@ -569,7 +590,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     if (isRedmineSync && !privileged && !isOwner && !isFaOnRedmineSourced) {
       const REDMINE_SYNC_FIELDS = new Set([
         "title", "description", "priority", "tracker", "redmineTicketId",
-        "parentId", "module", "projectId", "milestoneId",
+        "parentId", "parentRedmineId", "parentRedmineTitle", "module", "projectId", "milestoneId",
       ]);
       for (const key of Object.keys(parsed.data)) {
         if (!REDMINE_SYNC_FIELDS.has(key)) delete (parsed.data as any)[key];

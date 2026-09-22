@@ -69,6 +69,7 @@ import {
   fetchTestCases,
   saveTestCases,
   fetchModules,
+  fetchProjectModules,
   fetchUsers,
   fetchTrackers,
   fetchRequirements,
@@ -1692,6 +1693,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileQaPicSetBy(file?.qaPicSetBy ?? null);
         setCurrentFileQaPic(file?.qaPic ?? null);
         setReturnedRows(result?.returnedTestCases ?? []);
+        const selectedModuleIds: number[] = Array.isArray(file?.selectedModuleIds) ? file.selectedModuleIds : [];
         const selectedModuleNames = file?.selectedModules
           ? file.selectedModules.split(",").map((m) => m.trim()).filter(Boolean)
           : [];
@@ -1711,19 +1713,39 @@ export default function TestCasesExecutionProgressPage() {
         // These lists support pickers and dialogs, but must not delay the
         // initial page render. Each request is isolated so one optional
         // service failure does not blank the execution page.
+        //
+        // Module source is project-scoped (project_modules) when the file
+        // has a project, falling back to the full catalog otherwise — same
+        // convention as ModuleSelect. Previously this always fetched the
+        // *global* catalog and matched it against selectedModules by name;
+        // a project whose module names didn't happen to exist verbatim in
+        // that shared catalog got an empty list ("No modules available"),
+        // reproducing the "only eQuota populates" symptom. The name filter
+        // below now only narrows a non-empty result — it never produces
+        // fewer options than the project actually has.
+        //
+        // selectedModuleIds (set by every write path since the ID migration)
+        // is matched first when present — exact, no name drift possible. The
+        // name-based filter only runs for files saved before that migration.
         Promise.allSettled([
-          fetchModules(),
+          file?.projectId ? fetchProjectModules(file.projectId) : fetchModules(),
           fetchUsers(),
           fetchTrackers(),
           fetchRequirements(),
         ]).then(([modulesResult, usersResult, trackersResult, requirementsResult]) => {
           if (cancelled) return;
           if (modulesResult.status === "fulfilled") {
-            const selectedModuleLower = selectedModuleNames.map(n => n.toLowerCase());
-            const filteredModules = selectedModuleLower.length > 0
-              ? modulesResult.value.filter((m) => selectedModuleLower.includes(m.name.trim().toLowerCase()))
-              : modulesResult.value;
-            setAvailableModules(filteredModules);
+            const projectModules = modulesResult.value;
+            const filteredModules = selectedModuleIds.length > 0
+              ? projectModules.filter((m) => selectedModuleIds.includes(m.id))
+              : selectedModuleNames.length > 0
+              ? projectModules.filter((m) => selectedModuleNames.map(n => n.toLowerCase()).includes(m.name.trim().toLowerCase()))
+              : projectModules;
+            // A stored module name that doesn't match anything in this
+            // project's catalog (stale rename, typo, legacy data) used to
+            // leave the tester with zero options. Falling back to the full
+            // project catalog keeps the page usable instead of blocking them.
+            setAvailableModules(filteredModules.length > 0 ? filteredModules : projectModules);
           }
           if (usersResult.status === "fulfilled") setQaUsers(usersResult.value);
           if (trackersResult.status === "fulfilled") setAvailableTrackers(trackersResult.value || []);

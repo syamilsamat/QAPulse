@@ -462,9 +462,17 @@ export default function TestCasesExecution() {
   useEffect(() => {
     if (!editFileOpen) { editModulesInitRef.current = false; return; }
     if (editModulesInitRef.current || modules.length === 0 || !editingFile) return;
+    // Prefer selectedModuleIds directly — exact, no name drift possible.
+    // Falls back to matching the legacy name string against the catalog for
+    // a file saved before this migration (this was the original bug: a
+    // stored name that didn't exactly match a catalog row left every
+    // checkbox unchecked when reopening Edit).
+    const storedIds = Array.isArray((editingFile as any).selectedModuleIds) ? (editingFile as any).selectedModuleIds as number[] : [];
     const storedNames = (editingFile.selectedModules || "")
       .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-    const ids = modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
+    const ids = storedIds.length > 0
+      ? storedIds
+      : modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
     setEditFileForm(prev => ({ ...prev, selectedModules: ids }));
     editModulesInitRef.current = true;
   }, [editFileOpen, modules, editingFile]);
@@ -492,6 +500,7 @@ export default function TestCasesExecution() {
           requirementId: editFileForm.requirementId ? Number(editFileForm.requirementId) : null,
           milestoneId: editFileForm.milestoneId ? Number(editFileForm.milestoneId) : null,
           selectedModules: selectedModuleNames || null,
+          selectedModuleIds: editFileForm.selectedModules.length ? editFileForm.selectedModules : null,
           tracker: editFileForm.tracker || null,
         }),
       });
@@ -941,6 +950,7 @@ export default function TestCasesExecution() {
         title: fileForm.title || undefined,
         remarks: fileForm.remarks || undefined,
         selectedModules: selectedModuleNames || undefined,
+        selectedModuleIds: fileForm.selectedModules.length ? fileForm.selectedModules : undefined,
         tracker: fileForm.tracker || undefined,
         projectId: fileForm.projectId ? Number(fileForm.projectId) : undefined,
         requirementId: resolvedRequirementId,

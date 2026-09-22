@@ -91,7 +91,19 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   const { roleLabel } = useRoleLabels();
 
   const [redmineId, setRedmineId] = useState("");
+  const [includeParentTicket, setIncludeParentTicket] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
+  const [syncModules, setSyncModules] = useState<string[]>([]);
+
+  const { data: executionModules = [] } = useQuery({
+    queryKey: ["executionModules"],
+    queryFn: async () => {
+      const res = await api("/modules", token);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0 });
   const [piiModalOpen, setPiiModalOpen] = useState(false);
@@ -236,6 +248,9 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     parentId: number | undefined,
     isRoot: boolean,
     added: { id: number; title: string; redmineTicketId: string; isNew: boolean }[],
+    targetModule: string,
+    includeParent: boolean = true,
+    inheritedParent?: { id: string; title: string },
   ): Promise<number | undefined> => {
     const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -250,6 +265,22 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
 
     if (EXCLUDED_STATUSES.includes(issue.status?.name)) {
       if (isRoot) throw new Error(`Ticket #${ticketIdToSync} has status "${issue.status?.name}"`);
+      return undefined;
+    }
+
+    // "Include parent ticket" off: the literally-entered root gets no
+    // requirement row. Its direct children carry a denormalized "part of
+    // #ticket" pointer instead — see parentRedmineBadge below — so the link
+    // survives without a placeholder row needing to be filtered out of
+    // counts/approvals elsewhere. Deeper descendants get a real parentId as
+    // soon as their own immediate parent is imported, so this never cascades
+    // past one level.
+    if (isRoot && !includeParent) {
+      if (Array.isArray(issue.children)) {
+        for (const child of issue.children) {
+          await processRedmineSync(String(child.id), undefined, false, added, targetModule, true, { id: fetchedTicketId, title: issue.subject });
+        }
+      }
       return undefined;
     }
 
@@ -275,6 +306,10 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
             projectId,
             milestoneId,
             parentId,
+            module: targetModule,
+            source: "qa_pipeline",
+            parentRedmineId: parentId == null ? (inheritedParent?.id ?? null) : null,
+            parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
             status: "draft",
           }),
         });
@@ -288,27 +323,46 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
 
     if (Array.isArray(issue.children)) {
       for (const child of issue.children) {
-        await processRedmineSync(String(child.id), savedId ?? parentId, false, added);
+        // A real row exists now (savedId), so its children get a proper
+        // parentId and no longer need the inherited pointer. Without one
+        // (tracker-excluded, or the create above failed), the pointer keeps
+        // riding down to whichever descendant next gets an actual row.
+        await processRedmineSync(String(child.id), savedId ?? parentId, false, added, targetModule, true, savedId ? undefined : inheritedParent);
       }
     }
     return savedId;
   };
 
-  const handleSyncRequirements = async () => {
+  // "Sync Requirements" no longer syncs directly — module is required per
+  // Q4b, so this just validates the ticket ID and opens the module picker.
+  // handleSyncRequirements (below) runs the actual sync once a module is
+  // chosen there.
+  const openSyncModuleDialog = () => {
     if (!redmineId.trim()) {
       toast({ variant: "destructive", title: "Parent Redmine ID is required" });
+      return;
+    }
+    setModuleDialogOpen(true);
+  };
+
+  const handleSyncRequirements = async () => {
+    if (syncModules.length === 0) {
+      toast({ variant: "destructive", title: "Select at least one module" });
       return;
     }
     setSyncing(true);
     const added: { id: number; title: string; redmineTicketId: string; isNew: boolean }[] = [];
     try {
-      await processRedmineSync(redmineId.trim(), undefined, true, added);
+      await processRedmineSync(redmineId.trim(), undefined, true, added, syncModules.join(","), includeParentTicket);
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
       // Keeps the pipeline rail's per-step icons in step with the work.
       queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
       setSyncSummary(added);
       setSyncSummaryOpen(true);
+      setModuleDialogOpen(false);
       setRedmineId("");
+      setIncludeParentTicket(true);
+      setSyncModules([]);
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
@@ -461,10 +515,25 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
               disabled={locked}
             />
           </div>
-          <Button className="w-full sm:w-auto shrink-0" onClick={handleSyncRequirements} disabled={syncing || locked}>
+          <Button className="w-full sm:w-auto shrink-0" onClick={openSyncModuleDialog} disabled={syncing || locked}>
             {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
             Sync Requirements
           </Button>
+        </div>
+        <div className="flex items-start gap-2 rounded-md border p-2.5">
+          <Checkbox
+            id="include-parent-ticket"
+            checked={includeParentTicket}
+            onCheckedChange={(checked) => setIncludeParentTicket(!!checked)}
+            disabled={locked}
+            className="mt-0.5"
+          />
+          <label htmlFor="include-parent-ticket" className="text-xs sm:text-sm leading-snug cursor-pointer">
+            <span className="font-medium">Include parent ticket</span>
+            <span className="block text-xs text-muted-foreground">
+              On: the ticket above becomes its own requirement too. Off: only its subtasks are imported, each showing a "Part of #{redmineId.trim() || "…"}" badge instead.
+            </span>
+          </label>
         </div>
         <p className="text-xs sm:text-sm text-muted-foreground">
           {locked
@@ -539,6 +608,14 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm sm:text-base break-words">{req.title}</div>
                             <div className="text-xs text-muted-foreground mt-0.5">Redmine #{req.redmineTicketId ?? "—"}</div>
+                            {req.parentRedmineId && (
+                              <span
+                                className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap bg-muted text-muted-foreground border-border/60 max-w-full truncate align-bottom"
+                                title={`Part of #${req.parentRedmineId}${req.parentRedmineTitle ? ` — ${req.parentRedmineTitle}` : ""}`}
+                              >
+                                Part of #{req.parentRedmineId}{req.parentRedmineTitle ? ` — ${req.parentRedmineTitle}` : ""}
+                              </span>
+                            )}
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
                               {(["FA", "Dev", "QA"] as const).map((dept) => {
                                 const names: string[] = (dept === "FA" ? req.pipelineFaNames
@@ -725,6 +802,40 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
             <Button variant="outline" onClick={() => setPiiModalOpen(false)}>Cancel</Button>
             <Button onClick={confirmAIAnalyze} disabled={!piiChecked}>
               <Wand2 className="w-4 h-4 mr-2" /> Start Analysis
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Module select — required before a sync can run (Q4b) */}
+      <Dialog open={moduleDialogOpen} onOpenChange={(open) => { setModuleDialogOpen(open); if (!open) setSyncModules([]); }}>
+        <DialogContent className="w-[95vw] sm:w-full max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5 text-primary" /> Select Module
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Applied to ticket #{redmineId.trim()} and every subtask being synced.
+            </p>
+            <div className="border rounded-md p-2 max-h-52 overflow-y-auto space-y-0.5">
+              {(executionModules as any[]).map((m: any) => (
+                <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                  <Checkbox
+                    checked={syncModules.includes(m.name)}
+                    onCheckedChange={(checked) => setSyncModules((prev) => checked ? [...prev, m.name] : prev.filter((n) => n !== m.name))}
+                  />
+                  <span className="text-sm">{m.name}</span>
+                </label>
+              ))}
+            </div>
+            {syncModules.length > 0 && <p className="text-xs text-muted-foreground">{syncModules.length} selected</p>}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setModuleDialogOpen(false); setSyncModules([]); }} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={handleSyncRequirements} disabled={syncing || syncModules.length === 0} className="w-full sm:w-auto">
+              {syncing ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Syncing…</> : "Sync Requirements"}
             </Button>
           </DialogFooter>
         </DialogContent>

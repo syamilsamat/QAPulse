@@ -429,6 +429,7 @@ router.get("/execution-files", async (req, res): Promise<void> => {
           qaPic: f.qaPic,
           remarks: f.remarks,
           selectedModules: f.selectedModules,
+          selectedModuleIds: (f as any).selectedModuleIds ?? null,
           tracker: f.tracker,
           projectId: f.projectId,
           requirementId: f.requirementId,
@@ -562,7 +563,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineTicketId, title, qaPic, remarks, selectedModules, tracker, projectId, requirementId, milestoneId, fileType } = req.body;
+    const { redmineTicketId, title, qaPic, remarks, selectedModules, selectedModuleIds, tracker, projectId, requirementId, milestoneId, fileType } = req.body;
     if (!milestoneId) {
       res.status(400).json({ error: "Milestone is required" });
       return;
@@ -581,6 +582,9 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       qaPic: qaPic || null,
       remarks: remarks || null,
       selectedModules: selectedModules || null,
+      selectedModuleIds: Array.isArray(selectedModuleIds) && selectedModuleIds.length > 0
+        ? selectedModuleIds.map(Number)
+        : null,
       tracker: tracker || null,
       projectId: projectId ? Number(projectId) : null,
       requirementId: requirementId ? Number(requirementId) : null,
@@ -657,6 +661,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       qaPic: file.qaPic,
       remarks: file.remarks,
       selectedModules: file.selectedModules,
+      selectedModuleIds: (file as any).selectedModuleIds ?? null,
       tracker: file.tracker,
       projectId: file.projectId,
       requirementId: file.requirementId,
@@ -705,7 +710,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" });
       return;
     }
-    const { selectedModules, title, redmineTicketId, remarks, tracker, projectId, requirementId, qaPic, milestoneId } = req.body;
+    const { selectedModules, selectedModuleIds, title, redmineTicketId, remarks, tracker, projectId, requirementId, qaPic, milestoneId } = req.body;
     // Moving the file to another project also requires access to the target
     if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
       res.status(403).json({ error: "Access denied to the target project" });
@@ -713,6 +718,11 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
     }
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (selectedModules !== undefined) patch.selectedModules = selectedModules || null;
+    if (selectedModuleIds !== undefined) {
+      patch.selectedModuleIds = Array.isArray(selectedModuleIds) && selectedModuleIds.length > 0
+        ? selectedModuleIds.map(Number)
+        : null;
+    }
     if (title !== undefined) patch.title = title || null;
     if (redmineTicketId !== undefined) patch.redmineTicketId = String(redmineTicketId).trim();
     if (remarks !== undefined) patch.remarks = remarks || null;
@@ -821,6 +831,7 @@ router.patch("/execution-files/:id", async (req, res): Promise<void> => {
       qaPic: updated.qaPic,
       remarks: updated.remarks,
       selectedModules: updated.selectedModules,
+      selectedModuleIds: (updated as any).selectedModuleIds ?? null,
       tracker: updated.tracker,
       projectId: updated.projectId,
       requirementId: updated.requirementId,
@@ -927,6 +938,7 @@ router.get("/execution-files/:id", async (req, res): Promise<void> => {
       qaPic: file.qaPic,
       remarks: file.remarks,
       selectedModules: file.selectedModules,
+      selectedModuleIds: (file as any).selectedModuleIds ?? null,
       projectId: file.projectId,
       requirementId: file.requirementId,
       milestoneId: (file as any).milestoneId ?? null,
@@ -1552,6 +1564,7 @@ router.get(
           qaPic: file.qaPic,
           remarks: file.remarks,
           selectedModules: file.selectedModules,
+          selectedModuleIds: (file as any).selectedModuleIds ?? null,
           tracker: file.tracker,
           projectId: file.projectId,
           requirementId: file.requirementId,

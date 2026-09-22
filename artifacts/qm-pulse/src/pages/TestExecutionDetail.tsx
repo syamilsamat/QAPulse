@@ -86,6 +86,7 @@ export default function TestExecutionSummary() {
     projectId: number | null;
     requirementId: number | null;
     selectedModules: string | null;
+    selectedModuleIds: number[] | null;
   } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const editModulesInitRef = useRef(false);
@@ -180,6 +181,7 @@ export default function TestExecutionSummary() {
           projectId: matched.projectId ?? null,
           requirementId: matched.requirementId ?? null,
           selectedModules: matched.selectedModules ?? null,
+          selectedModuleIds: Array.isArray(matched.selectedModuleIds) ? matched.selectedModuleIds : null,
         });
       }
     } catch {
@@ -211,6 +213,7 @@ export default function TestExecutionSummary() {
           projectId: editForm.projectId ? Number(editForm.projectId) : null,
           requirementId: editForm.requirementId ? Number(editForm.requirementId) : null,
           selectedModules: selectedModuleNames || null,
+          selectedModuleIds: editForm.selectedModules.length ? editForm.selectedModules : null,
         }),
       });
       if (!res.ok) {
@@ -249,9 +252,15 @@ export default function TestExecutionSummary() {
   useEffect(() => {
     if (!editOpen) { editModulesInitRef.current = false; return; }
     if (editModulesInitRef.current || modules.length === 0 || !fileInfo) return;
+    // Prefer selectedModuleIds directly (exact) over matching the legacy name
+    // string against the catalog — that name match was the original bug: a
+    // stored name not found verbatim in the catalog left every checkbox
+    // unchecked when reopening Edit.
     const storedNames = (fileInfo.selectedModules || "")
       .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-    const ids = modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
+    const ids = fileInfo.selectedModuleIds && fileInfo.selectedModuleIds.length > 0
+      ? fileInfo.selectedModuleIds
+      : modules.filter(m => storedNames.includes(m.name.trim().toLowerCase())).map(m => m.id);
     setEditForm(prev => ({ ...prev, selectedModules: ids }));
     editModulesInitRef.current = true;
   }, [editOpen, modules, fileInfo]);

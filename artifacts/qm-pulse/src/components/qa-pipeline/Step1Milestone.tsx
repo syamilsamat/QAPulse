@@ -237,10 +237,12 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
               <Label className="text-xs">QA done by</Label>
               <Input type="date" value={form.qaTargetDate} onChange={e => setForm({ ...form, qaTargetDate: e.target.value })} />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">UAT done by</Label>
-              <Input type="date" value={form.uatTargetDate} onChange={e => setForm({ ...form, uatTargetDate: e.target.value })} />
-            </div>
+            {form.requiresUat && (
+              <div className="space-y-1">
+                <Label className="text-xs">UAT target date</Label>
+                <Input type="date" value={form.uatTargetDate} onChange={e => setForm({ ...form, uatTargetDate: e.target.value })} />
+              </div>
+            )}
             <div className="space-y-1">
               <Label className="text-xs">Go-Live</Label>
               <Input type="date" value={form.goLiveDate} onChange={e => setForm({ ...form, goLiveDate: e.target.value })} />
@@ -260,7 +262,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
           <Checkbox 
             id="uatToggle"
             checked={form.requiresUat}
-            onCheckedChange={(checked) => setForm({ ...form, requiresUat: !!checked })}
+            onCheckedChange={(checked) => setForm({ ...form, requiresUat: !!checked, uatTargetDate: checked ? form.uatTargetDate : "" })}
           />
           <div className="space-y-1 leading-none">
             <Label htmlFor="uatToggle">Requires UAT Sign-off?</Label>

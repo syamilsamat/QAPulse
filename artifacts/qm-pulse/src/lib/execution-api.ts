@@ -31,6 +31,7 @@ export interface ExecutionFile {
   qaPic?: string;
   remarks?: string;
   selectedModules?: string;
+  selectedModuleIds?: number[] | null;
   tracker?: string | null;
   projectId?: number | null;
   requirementId?: number | null;
@@ -433,6 +434,16 @@ export const deleteProject = async (id: number): Promise<void> => {
 export const fetchModules = async (): Promise<ExecutionModule[]> => {
   const res = await fetch("/api/modules", { headers: getHeaders() });
   if (!res.ok) throw new Error("Failed to fetch modules");
+  return res.json();
+};
+
+// Modules mapped to one project (project_modules), same association layer
+// ModuleSelect uses for the defect dialogs. Narrower and more correct than
+// the full catalog above wherever the caller already knows which project
+// it's working in.
+export const fetchProjectModules = async (projectId: number): Promise<ExecutionModule[]> => {
+  const res = await fetch(`/api/projects/${projectId}/modules`, { headers: getHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch project modules");
   return res.json();
 };
 

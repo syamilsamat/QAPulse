@@ -15,7 +15,17 @@ export const executionFilesTable = pgTable("execution_files", {
   qaPic: text("qa_pic"),
   qaPicSetBy: integer("qa_pic_set_by"),
   remarks: text("remarks"),
+  // selectedModules stays the human-readable, comma-joined name string —
+  // document-reference resolution and verdict reports key off it and only
+  // ever need a display string, not a catalog row. selectedModuleIds is the
+  // new source of truth for anything that has to match a specific
+  // execution_modules row (the per-file module dropdown in the execution
+  // grid): matching by id can't drift the way matching by name did when a
+  // file's stored names didn't exactly match the catalog's. Every write path
+  // sets both together; a file written before this migration has ids null
+  // and falls back to the old name-matching behavior.
   selectedModules: text("selected_modules"),
+  selectedModuleIds: integer("selected_module_ids").array(),
   tracker: text("tracker"),
   projectId: integer("project_id"),
   requirementId: integer("requirement_id"),

@@ -15,9 +15,25 @@ export const requirementsTable = pgTable("requirements", {
   status: text("status").notNull().default("open"),
   tracker: varchar("tracker", { length: 255 }),
   parentId: integer("parent_id"),
+  // Parent-exclude sync: set only when this requirement's real Redmine parent
+  // was deliberately left out of the import (the "Include parent ticket"
+  // toggle was off), so there's no parentId row to point at. Denormalized
+  // instead of a synthetic parent requirement, so nothing else in the app
+  // (counts, approvals, reports) needs to know to filter out a placeholder
+  // row. Null whenever parentId is set — never both at once.
+  parentRedmineId: text("parent_redmine_id"),
+  parentRedmineTitle: text("parent_redmine_title"),
   redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }),
   // CR014p2 — milestone scoping
   milestoneId: integer("milestone_id"),
+  // Where this requirement was created from — currently only ever set to
+  // "qa_pipeline" (by QA Pipeline Step 2's sync); everything else (manual
+  // creation, the Requirements page's own Redmine import, the Excel-import
+  // resolve-redmine path) leaves this null. Two things key off it: pipeline-
+  // sourced requirements are auto-approved on creation instead of going
+  // through FA review (see reviewStatus below), and qa_member gets edit
+  // rights on them that they don't have on requirements in general.
+  source: text("source"), // 'qa_pipeline' | null
   // CR022p1 — structured acceptance criteria (JSON array of strings)
   acceptanceCriteria: text("acceptance_criteria"),
   // CR014p4 — FA review workflow

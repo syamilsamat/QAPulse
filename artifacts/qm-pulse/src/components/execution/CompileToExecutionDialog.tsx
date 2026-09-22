@@ -161,6 +161,7 @@ export function CompileToExecutionDialog({
             title: form.title || undefined,
             remarks: form.remarks || undefined,
             selectedModules: selectedModuleNames.length ? selectedModuleNames.join(",") : undefined,
+            selectedModuleIds: form.selectedModules.length ? form.selectedModules : undefined,
             tracker: form.tracker || undefined,
             projectId: form.projectId ? Number(form.projectId) : undefined,
             requirementId: form.requirementId ? Number(form.requirementId) : undefined,
@@ -194,11 +195,20 @@ export function CompileToExecutionDialog({
             if (existingFile) {
               const existingModules = (existingFile.selectedModules || "").split(",").map((s: string) => s.trim()).filter(Boolean);
               const merged = [...new Set([...existingModules, ...newModuleNames])];
-              if (merged.length !== existingModules.length) {
+              // Keep selectedModuleIds in sync with the name string — a new
+              // module name with no matching row in `modules` (a genuine typo,
+              // or one not yet in the catalog) just doesn't get an id added;
+              // the name still merges in as before.
+              const existingModuleIds: number[] = Array.isArray(existingFile.selectedModuleIds) ? existingFile.selectedModuleIds : [];
+              const newModuleIds = newModuleNames
+                .map((name) => modules.find((m: any) => m.name === name)?.id)
+                .filter((id): id is number => typeof id === "number");
+              const mergedIds = [...new Set([...existingModuleIds, ...newModuleIds])];
+              if (merged.length !== existingModules.length || mergedIds.length !== existingModuleIds.length) {
                 await fetch(`${getApiUrl()}/execution-files/${existingFile.id}`, {
                   method: "PATCH",
                   headers,
-                  body: JSON.stringify({ selectedModules: merged.join(",") }),
+                  body: JSON.stringify({ selectedModules: merged.join(","), selectedModuleIds: mergedIds }),
                 }).catch(() => {});
               }
             }
