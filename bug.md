@@ -1,4 +1,6 @@
-# Bug Tracker
+# Bug Tracker (superseded)
+
+> **Superseded by CR079 — Platform Issues.** These 16 entries have been migrated into the `platform_issues` table (`pnpm seed:platform-issues-from-bugmd`, from `scripts/`) and are visible on the in-app **Platform Issues** page (admin nav). Report new bugs/ideas/questions about QM Pulse itself there — via the report button present on every page — instead of editing this file.
 
 | No. | Details | Status |
 |-----|---------|--------|

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
 import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
@@ -8,8 +9,8 @@ import {
   usersTable,
   projectsTable,
   requirementsTable,
-  activityTable,
   executionTestCasesTable,
+  executionFilesTable,
 } from "@workspace/db";
 import {
   CreateTestCaseBody,
@@ -22,12 +23,21 @@ import {
   GenerateTestCasesWithAIBody,
 } from "@workspace/api-zod";
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
-import { verifyToken } from "./auth";
+import { verifyToken, actorFromReq } from "./auth";
+import { logActivity, diffChanges } from "./_audit";
+import pLimit from "p-limit";
 
-// Initialize primary Gemini client
 const ai = new GoogleGenAI({});
 
 const router: IRouter = Router();
+
+// Test designs and execution linkage are internal project records. Enforce
+// authentication once for the complete route surface, including detail and
+// export handlers that do not need to repeat the same guard.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 function safeParseJSON(content: string, fallback: any) {
   let cleaned = content
@@ -56,6 +66,33 @@ function safeParseJSON(content: string, fallback: any) {
     }
     return fallback;
   }
+}
+
+// Every AI-authored field on a test case maps to a plain text column, but a
+// model will return an object or a nested array where a string was asked for —
+// testData as {"username":"a","password":"b"} is the common one, and the
+// OpenRouter fallbacks run with no responseSchema at all. Flatten to readable
+// text so the row survives CreateTestCaseBody validation when it is saved.
+// Returns undefined, never null, because zod .optional() rejects null.
+function toText(value: unknown, depth = 0): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth > 4) return undefined; // guard against deep nesting / cycles
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => toText(v, depth + 1)).filter((v): v is string => !!v);
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  if (typeof value === "object") {
+    const parts = Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => {
+        const t = toText(v, depth + 1);
+        return t ? `${k}: ${t}` : undefined;
+      })
+      .filter((v): v is string => !!v);
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  return undefined;
 }
 
 async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise<string> {
@@ -106,7 +143,7 @@ async function callFallbackAI(systemPrompt: string, userPrompt: string): Promise
       clearTimeout(timeoutId); // Clear timeout if response is received
 
       if (response.ok) {
-        const data = await response.json();
+        const data: any = await response.json() as any;
         if (data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
           console.log(`✅ Success with Fallback Node: ${model}`);
           return data.choices[0].message.content;
@@ -150,6 +187,9 @@ async function formatTestCase(tc: any) {
   return {
     id: tc.id,
     title: tc.title,
+    objective: tc.objective,
+    type: tc.type,
+    priority: tc.priority,
     redmineUserStory: tc.redmineUserStory,
     tracker: tc.tracker,
     scenario: tc.scenario,
@@ -166,13 +206,140 @@ async function formatTestCase(tc: any) {
     requirementTitle,
     projectId: tc.projectId,
     projectName,
+    linkedBug: tc.linkedBug,
     authorId: tc.authorId,
     authorName,
     aiAssisted: tc.aiAssisted,
     status: tc.status,
+    // The library test case carries no review state of its own: peer review
+    // happens once, on the compiled execution file (PATCH
+    // /execution-files/:id/review). The review_status / approved_by /
+    // rejected_by columns are left in place for the historical audit trail
+    // but are no longer read or written.
+    // CR023p4 — informational badge only here; the actionable "Revised"
+    // control lives on the execution file page (per-instance ack)
+    requirementRevisedAt: tc.requirementRevisedAt ? new Date(tc.requirementRevisedAt).toISOString() : null,
     createdAt: tc.createdAt?.toISOString() || new Date().toISOString(),
     updatedAt: tc.updatedAt?.toISOString() || new Date().toISOString(),
   };
+}
+
+const tcGenResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    testCases: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          tracker: { type: Type.STRING },
+          scenario: { type: Type.STRING },
+          preconditions: { type: Type.STRING },
+          testSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+          testData: { type: Type.STRING },
+          expectedResult: { type: Type.STRING },
+          tags: { type: Type.STRING },
+          type: { type: Type.STRING },
+          priority: { type: Type.STRING },
+        },
+        required: ["title", "scenario", "testSteps", "expectedResult"],
+      },
+    },
+  },
+  required: ["testCases"],
+};
+
+// The AI-authored fields CreateTestCaseBody types as optional strings.
+const AI_TEXT_FIELDS = [
+  "title", "tracker", "scenario", "preconditions", "testSteps", "testData",
+  "expectedResult", "tags", "type", "priority",
+] as const;
+
+async function generateForRequirement(
+  req: { id: number; title: string; description?: string },
+  opts: {
+    caseTypes: string[];
+    featureModule?: string;
+    selectedTracker?: string;
+    additionalNotes?: string;
+    useTemplateOnly?: boolean;
+  },
+): Promise<{ testCases: any[]; error?: string }> {
+  const [reqRow] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, req.id));
+  const actualRedmineTicketId = reqRow?.redmineTicketId ?? null;
+
+  let existingContext = "";
+  try {
+    const existingCases = await db.select().from(testCasesTable).where(eq(testCasesTable.requirementId, req.id)).limit(30);
+    if (existingCases.length > 0) {
+      existingContext =
+        "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
+        existingCases.map((tc: any) => `- Title: ${tc.title} | Scenario: ${tc.scenario || "N/A"}`).join("\n");
+    }
+  } catch {
+    // non-fatal
+  }
+
+  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 to 10 highly detailed test cases for the single requirement provided.
+    CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
+    If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
+    "expectedResult" must be short and direct: state the outcome as one imperative sentence (or a tight list of outcomes), no explanation, no narrative, no filler words.
+    Return ONLY a valid JSON object with a "testCases" array.`;
+
+  const userPrompt = `Requirement: [#${req.id}] ${req.title}\nDescription: ${req.description || "No description provided"}\n\nModule: ${opts.featureModule || "N/A"}\nTracker: ${opts.selectedTracker || "N/A"}\nFocus Scenarios: ${opts.caseTypes.join(", ")}\nNotes: ${opts.additionalNotes || "None"}${existingContext}`;
+
+  let finalRawText = "";
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: tcGenResponseSchema,
+      },
+    });
+    finalRawText = response.text ?? '{"testCases": []}';
+  } catch (error: any) {
+    console.error(`❌ Gemini failed for req ${req.id}:`, error.message || error);
+    try {
+      finalRawText = await callFallbackAI(systemInstruction, userPrompt);
+    } catch {
+      return { testCases: [], error: "All generative AI streams exhausted." };
+    }
+  }
+
+  const parsed = safeParseJSON(finalRawText, { testCases: [] });
+  const testCases = (parsed.testCases ?? []).map((tc: any, i: number) => {
+    // An array arrived one step per line already; only a run-together string needs re-breaking below.
+    const stepsWereList = Array.isArray(tc.testSteps);
+    // Flatten every text field first, so nothing downstream sees an object.
+    for (const f of AI_TEXT_FIELDS) tc[f] = toText(tc[f]);
+    // "title" is the one field CreateTestCaseBody requires (not `.optional()`),
+    // so a missing/blank one 400s the entire bulk save — and the whole batch
+    // is inserted atomically, so one bad row blocks every sibling in it too.
+    // Gemini's responseSchema marks title "required", but that's a hint, not
+    // an enforced guarantee, and the OpenRouter fallback models (used when
+    // Gemini errors) have no schema enforcement at all — either can still
+    // hand back a case with no title. Derive one rather than losing the row.
+    if (!tc.title) tc.title = tc.scenario ? tc.scenario.slice(0, 120) : `${req.title} — case ${i + 1}`;
+    // Tags read better inline than one per line.
+    if (tc.tags) tc.tags = tc.tags.split("\n").join(", ");
+    // Re-break run-together numbered steps ("1. a 2. b") onto their own lines.
+    if (tc.testSteps && !stepsWereList) tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
+    // The AI has no way to know the real Redmine ticket — it was only ever
+    // given this requirement's internal DB id, and would otherwise invent a
+    // number. Always use the requirement's actual redmineTicketId instead —
+    // but drop the key when the requirement has none, because
+    // CreateTestCaseBody types it as an optional string and zod's .optional()
+    // accepts undefined while rejecting null, which would 400 the save.
+    if (actualRedmineTicketId != null) tc.redmineUserStory = actualRedmineTicketId;
+    else delete tc.redmineUserStory;
+    return tc;
+  });
+  return { testCases };
 }
 
 router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
@@ -183,12 +350,9 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
   }
 
   const {
-    requirementTitle,
-    requirementDescription,
+    requirements,
     module: featureModule,
-    tags,
     additionalNotes,
-    requirementId,
     generatePositive,
     generateNegative,
     generateEdgeCases,
@@ -196,135 +360,66 @@ router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
     tracker: selectedTracker,
   } = parsed.data;
 
-  let existingContext = "";
-  let similarCount = 0;
-  try {
-    let query: any = db.select().from(testCasesTable);
-    if (requirementId) query = query.where(eq(testCasesTable.requirementId, requirementId));
-
-    const existingCases = await query.limit(30);
-    similarCount = existingCases.length;
-
-    if (existingCases.length > 0) {
-      existingContext = "\n\nCRITICAL ANTI-DUPLICATION RULE: The following test cases ALREADY EXIST for this requirement. Focus entirely on completely NEW perspectives, edge cases, and paths not listed below:\n" +
-        existingCases.map((tc: any) => `- Title: ${tc.title} | Scenario: ${tc.scenario || "N/A"}`).join("\n");
-    }
-  } catch (dbErr) {
-    console.warn("Could not read historical test cases.", dbErr);
-  }
-
-  const caseTypes = [];
+  const caseTypes: string[] = [];
   if (generatePositive !== false) caseTypes.push("positive path");
   if (generateNegative) caseTypes.push("negative validation");
   if (generateEdgeCases) caseTypes.push("extreme boundary condition");
 
-  // Count how many distinct requirements were passed based on the delimiter from the frontend
-  const reqCount = requirementDescription ? requirementDescription.split("\n\n---\n\n").length : 1;
-  let countInstruction = "Generate a focused batch of 8 to 12 highly detailed test cases based on the requirements.";
+  const limit = pLimit(3);
+  const settled = await Promise.allSettled(
+    requirements.map((r) =>
+      limit(() => generateForRequirement(r, { caseTypes, featureModule, selectedTracker, additionalNotes, useTemplateOnly })),
+    ),
+  );
 
-  if (reqCount > 1) {
-    const minTarget = reqCount * 5;
-    countInstruction = `Generate a comprehensive batch of test cases. Since there are ${reqCount} distinct requirements provided in the scope, you MUST generate at least ${minTarget} test cases in total (aiming for roughly 5 test cases per requirement). Do not artificially limit your output.`;
-  }
-
-  const systemInstruction = `You are an expert QA engine. ${countInstruction}
-    CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
-    If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
-    Return ONLY a valid JSON object matching this structure:
-    {
-      "testCases": [{
-        "title": "string (The Case Name)",
-        "redmineUserStory": "string (Extract from context if available)",
-        "tracker": "string",
-        "scenario": "string (Detailed scenario description)",
-        "preconditions": "string",
-        "testSteps": ["1. First step", "2. Second step"],
-        "testData": "string",
-        "expectedResult": "string",
-        "tags": "string",
-        "type": "string (manual or automation_candidate)",
-        "priority": "string (low, medium, high, or critical)"
-      }]
-    }`;
-
-  const userPrompt = `Requirement Hierarchy & Descriptions:\n${requirementDescription || "N/A"}\n\nModule: ${featureModule || "N/A"}\nTracker: ${selectedTracker || "N/A"}\nFocus Scenarios: ${caseTypes.join(", ")}\nNotes: ${additionalNotes || "None"} ${existingContext}`;
-
-  const fallbackObject = { testCases: [] };
-  let finalRawText = "";
-
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      testCases: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            redmineUserStory: { type: Type.STRING },
-            tracker: { type: Type.STRING },
-            scenario: { type: Type.STRING },
-            preconditions: { type: Type.STRING },
-            testSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
-            testData: { type: Type.STRING },
-            expectedResult: { type: Type.STRING },
-            tags: { type: Type.STRING },
-            type: { type: Type.STRING },
-            priority: { type: Type.STRING },
-          },
-          required: ["title", "scenario", "testSteps", "expectedResult"],
-        },
-      },
-    },
-    required: ["testCases"],
-  };
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: userPrompt,
-      config: {
-        systemInstruction,
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
-    });
-    finalRawText = response.text ?? '{"testCases": []}';
-  } catch (error: any) {
-    // FIX: Properly log the exact error so you know why Gemini failed
-    console.error("❌ Primary Gemini API failed:", error.message || error);
-    console.warn("🔄 Attempting fallback routing...");
-    try {
-      finalRawText = await callFallbackAI(systemInstruction, userPrompt);
-    } catch (fallbackError) {
-      res.status(500).json({ error: "All generative AI streams exhausted." });
-      return;
+  const results = requirements.map((r, i) => {
+    const outcome = settled[i];
+    if (outcome.status === "fulfilled") {
+      return { requirementId: r.id, requirementTitle: r.title, testCases: outcome.value.testCases, error: outcome.value.error };
     }
-  }
-
-  const parsedPayload = safeParseJSON(finalRawText, fallbackObject);
-  const formattedTestCases = (parsedPayload.testCases ?? []).map((tc: any) => {
-    if (Array.isArray(tc.testSteps)) tc.testSteps = tc.testSteps.join("\n");
-    else if (typeof tc.testSteps === "string") tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
-    return tc;
+    return { requirementId: r.id, requirementTitle: r.title, testCases: [], error: String((outcome as any).reason) };
   });
 
-  res.json({ testCases: formattedTestCases, similarTestCasesUsed: similarCount, templateUsed: useTemplateOnly ? "standard_template" : "hybrid" });
+  const totalSimilar = results.reduce((sum, r) => sum + r.testCases.length, 0);
+  res.json({ results, similarTestCasesUsed: totalSimilar, templateUsed: useTemplateOnly ? "standard_template" : "hybrid" });
 });
 
 router.get("/test-cases", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
   const parsed = ListTestCasesQueryParams.safeParse(req.query);
   let tcs = await db.select().from(testCasesTable).orderBy(testCasesTable.createdAt);
 
   if (parsed.success) {
     const { projectId, requirementId, authorId, aiAssisted, search } = parsed.data;
-    if (projectId) tcs = tcs.filter((t) => t.projectId === projectId);
+    if (projectId) {
+      const ok = accessible === null || accessible.includes(projectId);
+      if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+      tcs = tcs.filter((t) => t.projectId === projectId);
+    } else if (accessible !== null) {
+      tcs = tcs.filter((t) => t.projectId !== null && accessible.includes(t.projectId));
+    }
     if (requirementId) tcs = tcs.filter((t) => t.requirementId === requirementId);
     if (authorId) tcs = tcs.filter((t) => t.authorId === authorId);
     if (aiAssisted !== undefined) tcs = tcs.filter((t) => t.aiAssisted === aiAssisted);
     if (search) tcs = tcs.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()));
+  } else if (accessible !== null) {
+    tcs = tcs.filter((t) => t.projectId !== null && accessible.includes(t.projectId));
   }
+
+  // CR035 — module-scope: a project-level grant with no module restriction
+  // is untouched (checked once per distinct project, not per row).
+  const tcProjectIds = [...new Set(tcs.map((t) => t.projectId).filter((id): id is number => id != null))];
+  const moduleScopes = new Map(await Promise.all(tcProjectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const)));
+  tcs = tcs.filter((t) => {
+    const scope = t.projectId != null ? moduleScopes.get(t.projectId) : undefined;
+    if (!scope || !scope.restricted) return true;
+    return t.module != null && scope.moduleNames.includes(t.module);
+  });
+
   const formatted = await Promise.all(tcs.map(formatTestCase));
 
   const tcIds = tcs.map((t) => t.id);
@@ -343,24 +438,27 @@ router.get("/test-cases", async (req, res): Promise<void> => {
   res.json(formatted.map((tc) => ({ ...tc, executionCount: execCountMap[tc.id] ?? 0 })));
 });
 
+
+
 router.post("/test-cases", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = CreateTestCaseBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const payload: any = { ...parsed.data };
-  if (!payload.authorId) {
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith("Bearer ")) {
-      try {
-        const jwt = verifyToken(authHeader.slice(7));
-        payload.authorId = jwt.id;
-      } catch {}
-    }
+  if (!payload.authorId) payload.authorId = ctx.userId;
+
+  if (payload.projectId) {
+    const ok = await canAccessProject(ctx.userId, ctx.role, payload.projectId);
+    if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
+
   const [tc] = await db.insert(testCasesTable).values(payload).returning();
-  await db.insert(activityTable).values({
+  await logActivity({
     type: "test_case_created",
     description: `Test case "${tc.title}" was created${tc.aiAssisted ? " (AI-assisted)" : ""}`,
     userId: tc.authorId,
@@ -368,6 +466,106 @@ router.post("/test-cases", async (req, res): Promise<void> => {
     entityType: "test_case",
   });
   res.status(201).json(await formatTestCase(tc));
+});
+
+// Save an AI-generated preview as one database statement. The previous UI
+// issued one request per row, so a 30+ case generation could partially save
+// when any individual request failed. This endpoint validates every row first
+// and then inserts the complete set atomically.
+router.post("/test-cases/bulk", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const input = req.body?.testCases;
+  if (!Array.isArray(input) || input.length === 0) {
+    res.status(400).json({ error: "testCases must be a non-empty array" });
+    return;
+  }
+  if (input.length > 200) {
+    res.status(400).json({ error: "A maximum of 200 test cases can be saved at once" });
+    return;
+  }
+
+  const payloads: any[] = [];
+  for (let index = 0; index < input.length; index++) {
+    const parsed = CreateTestCaseBody.safeParse(input[index]);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `Test case ${index + 1} is invalid: ${parsed.error.issues[0]?.message ?? "validation failed"}`,
+        rowIndex: index,
+      });
+      return;
+    }
+    const payload: any = { ...parsed.data };
+    if (!payload.authorId) payload.authorId = ctx.userId;
+    payloads.push(payload);
+  }
+
+  const projectIds = [...new Set(payloads.map((payload) => payload.projectId).filter((id): id is number => Number.isInteger(id)))];
+  for (const projectId of projectIds) {
+    if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) {
+      res.status(403).json({ error: `Access denied to project ${projectId}` });
+      return;
+    }
+  }
+
+  const created = await db.insert(testCasesTable).values(payloads).returning();
+  await Promise.all(created.map((tc) => logActivity({
+    type: "test_case_created",
+    description: `Test case "${tc.title}" was created${tc.aiAssisted ? " (AI-assisted)" : ""}`,
+    userId: tc.authorId,
+    entityId: tc.id,
+    entityType: "test_case",
+  })));
+
+  res.status(201).json({ saved: created.length, ids: created.map((tc) => tc.id) });
+});
+
+// Execution files that contain this library TC (one entry per file, newest
+// row wins when the TC appears in a file more than once).
+router.get("/test-cases/:id/executions", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid test case id" });
+    return;
+  }
+  const rows = await db
+    .select({
+      executionFileId: executionTestCasesTable.executionFileId,
+      caseId: executionTestCasesTable.caseId,
+      testCaseId: executionTestCasesTable.testCaseId,
+      result: executionTestCasesTable.result,
+      executedAt: executionTestCasesTable.executedAt,
+      defectNumber: executionTestCasesTable.defectNumber,
+      redmineTicketId: executionFilesTable.redmineTicketId,
+      fileTitle: executionFilesTable.title,
+      tracker: executionFilesTable.tracker,
+    })
+    .from(executionTestCasesTable)
+    .innerJoin(
+      executionFilesTable,
+      eq(executionFilesTable.id, executionTestCasesTable.executionFileId)
+    )
+    .where(eq(executionTestCasesTable.libraryTcId, id))
+    .orderBy(desc(executionTestCasesTable.id));
+
+  const byFile = new Map<number, (typeof rows)[number]>();
+  for (const row of rows) {
+    if (!byFile.has(row.executionFileId)) byFile.set(row.executionFileId, row);
+  }
+
+  res.json(
+    Array.from(byFile.values()).map((r) => ({
+      executionFileId: r.executionFileId,
+      redmineTicketId: r.redmineTicketId,
+      fileTitle: r.fileTitle,
+      tracker: r.tracker,
+      displayCaseId: r.testCaseId ?? r.caseId ?? null,
+      result: r.result,
+      defectNumber: r.defectNumber,
+      executedAt: r.executedAt,
+    }))
+  );
 });
 
 router.get("/test-cases/:id", async (req, res): Promise<void> => {
@@ -380,14 +578,31 @@ router.get("/test-cases/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/test-cases/:id", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const params = UpdateTestCaseParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
 
   const parsed = UpdateTestCaseBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.message }) as any;
 
+  const [before] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
   const [tc] = await db.update(testCasesTable).set(parsed.data).where(eq(testCasesTable.id, params.data.id)).returning();
   if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
+
+  const diff = before ? diffChanges(before, parsed.data) : null;
+  if (diff) {
+    await logActivity({
+      type: "test_case_updated",
+      description: `Test case "${tc.title}" was updated`,
+      userId: actorFromReq(req),
+      entityId: tc.id,
+      entityType: "test_case",
+      ...diff,
+    });
+  }
+
   res.json(await formatTestCase(tc));
 });
 
@@ -397,6 +612,22 @@ router.delete("/test-cases/:id", async (req, res): Promise<void> => {
 
   const [tc] = await db.delete(testCasesTable).where(eq(testCasesTable.id, params.data.id)).returning();
   if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
+
+  await logActivity({
+    type: "test_case_deleted",
+    description: `Test case "${tc.title}" was deleted`,
+    userId: actorFromReq(req),
+    entityId: tc.id,
+    entityType: "test_case",
+    oldValue: {
+      title: tc.title,
+      caseId: tc.caseId,
+      module: tc.module,
+      projectId: tc.projectId,
+      requirementId: tc.requirementId,
+    },
+  });
+
   res.sendStatus(204);
 });
 
@@ -422,6 +653,15 @@ router.post("/test-cases/:id/clone", express.json(), async (req, res): Promise<v
   }
 
   const [cloned] = await db.insert(testCasesTable).values({ ...rest, ...overrides, title: `${original.title} (Copy)`, aiAssisted: false }).returning();
+
+  await logActivity({
+    type: "test_case_created",
+    description: `Test case "${cloned.title}" was cloned from "${original.title}"`,
+    userId: cloned.authorId,
+    entityId: cloned.id,
+    entityType: "test_case",
+  });
+
   res.status(201).json(await formatTestCase(cloned));
 });
 

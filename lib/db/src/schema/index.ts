@@ -13,3 +13,26 @@ export * from "./execution";
 export * from "./redmine";
 export * from "./contacts";
 export * from "./refresh-tokens";
+export * from "./defects";
+export * from "./teams";
+export * from "./user-teams";
+export * from "./project-teams";
+export * from "./project-members";
+export * from "./project-modules";
+export * from "./milestones";
+export * from "./requirement-comments";
+export * from "./requirement-attachments";
+export * from "./risks";
+export * from "./milestone-risk-assessments";
+export * from "./execution-risk-assessments";
+export * from "./conversations";
+export * from "./messages";
+export * from "./pipeline-settings";
+export * from "./requirement-ai-suggestions";
+export * from "./code-reviews";
+export * from "./platform-issues";
+
+export * from "./test-case-attachments";
+export * from "./defect-history";
+
+export * from "./defect-availability";

@@ -5,6 +5,7 @@ import {
   timestamp,
   integer,
   boolean,
+  index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -13,6 +14,8 @@ export const testCasesTable = pgTable("test_cases", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   objective: text("objective"),
+  type: text("type"),
+  priority: text("priority"), // Risk-Based Testing priority: Critical | High | Medium | Low
   preconditions: text("preconditions"),
   testSteps: text("test_steps"),
   expectedResult: text("expected_result"),
@@ -23,6 +26,11 @@ export const testCasesTable = pgTable("test_cases", {
   authorId: integer("author_id"),
   aiAssisted: boolean("ai_assisted").notNull().default(false),
   status: text("status").notNull().default("active"),
+  reviewStatus: text("review_status").notNull().default("draft"), // 'draft' | 'in_review' | 'approved' | 'rejected'
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectedBy: integer("rejected_by"),
+  rejectedAt: timestamp("rejected_at", { withTimezone: true }),
 
   // --- NEW FIELDS ADDED TO FIX SAVING ---
   redmineUserStory: text("redmine_user_story"),
@@ -36,6 +44,9 @@ export const testCasesTable = pgTable("test_cases", {
   caseId: text("case_id"),
   // --------------------------------------
 
+  // CR023p4 — requirement-change re-review flow
+  requirementRevisedAt: timestamp("requirement_revised_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -43,7 +54,12 @@ export const testCasesTable = pgTable("test_cases", {
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
-});
+}, (t) => [
+  // Traceability + the requirements list both fan out from requirement_id.
+  index("test_cases_requirement_idx").on(t.requirementId),
+  index("test_cases_project_idx").on(t.projectId),
+  index("test_cases_author_idx").on(t.authorId),
+]);
 
 export const insertTestCaseSchema = createInsertSchema(testCasesTable).omit({
   id: true,

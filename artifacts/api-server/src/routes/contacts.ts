@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { eq, and } from "drizzle-orm";
 import { db, contactsTable } from "@workspace/db";
+import { getAuthContext } from "../middleware/access";
 
 let mysql2: any = null;
 try {
@@ -9,6 +10,12 @@ try {
 } catch {}
 
 const router: IRouter = Router();
+
+// CR049 — contacts (verdict-email recipients) require auth on every route.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 router.get("/contacts", async (_req, res) => {
   try {
@@ -145,23 +152,40 @@ async function syncFromRedmineAPI(overrideKey?: string): Promise<{ users: Array<
   }
 
   // Non-admin key — fall back to project memberships (names only, no email)
-  const projectsData = await fetchJson(`${baseUrl}/projects.json?limit=100`, headers);
-  const projects: any[] = projectsData?.projects ?? [];
+  const projects: any[] = [];
+  {
+    const limit = 100;
+    let offset = 0;
+    while (true) {
+      const data = await fetchJson(`${baseUrl}/projects.json?limit=${limit}&offset=${offset}`, headers);
+      const batch: any[] = data?.projects ?? [];
+      projects.push(...batch);
+      if (batch.length < limit) break;
+      offset += limit;
+    }
+  }
 
   const userMap = new Map<number, { fullName: string; email: string; redmineId: number; redmineLogin: string }>();
   await Promise.all(
     projects.map(async (p: any) => {
       try {
-        const data = await fetchJson(`${baseUrl}/projects/${p.id}/memberships.json?limit=100`, headers);
-        for (const m of data?.memberships ?? []) {
-          if (m.user && !userMap.has(m.user.id)) {
-            userMap.set(m.user.id, {
-              fullName: m.user.name ?? "",
-              email: "",
-              redmineId: m.user.id,
-              redmineLogin: "",
-            });
+        const limit = 100;
+        let offset = 0;
+        while (true) {
+          const data = await fetchJson(`${baseUrl}/projects/${p.id}/memberships.json?limit=${limit}&offset=${offset}`, headers);
+          const batch: any[] = data?.memberships ?? [];
+          for (const m of batch) {
+            if (m.user && !userMap.has(m.user.id)) {
+              userMap.set(m.user.id, {
+                fullName: m.user.name ?? "",
+                email: "",
+                redmineId: m.user.id,
+                redmineLogin: "",
+              });
+            }
           }
+          if (batch.length < limit) break;
+          offset += limit;
         }
       } catch { /* skip inaccessible projects */ }
     }),
@@ -186,7 +210,6 @@ router.post("/contacts/sync-redmine", express.json(), async (req, res) => {
       nameOnly = result.nameOnly;
     }
 
-    // Load existing redmine contacts so we can preserve manually added emails
     const existing = await db.select().from(contactsTable).where(eq(contactsTable.source, "redmine"));
     const byRedmineId = new Map(existing.filter((c) => c.redmineId).map((c) => [c.redmineId!, c]));
     const byName     = new Map(existing.map((c) => [c.fullName.toLowerCase(), c]));
@@ -200,29 +223,41 @@ router.post("/contacts/sync-redmine", express.json(), async (req, res) => {
       const found = (u.redmineId ? byRedmineId.get(u.redmineId) : null)
                  ?? byName.get(u.fullName.toLowerCase());
 
-      // Keep existing email when the incoming sync has no email (name-only fallback)
-      const email = u.email?.trim() || found?.email || "";
-
-      if (found) {
-        await db.update(contactsTable)
-          .set({
+      if (nameOnly) {
+        // Name-only path (non-admin key): only insert missing contacts, never update existing ones
+        if (!found) {
+          await db.insert(contactsTable).values({
+            fullName:  u.fullName,
+            email:     "",
+            source:    "redmine" as const,
+            isGroup:   false,
+            redmineId: u.redmineId,
+            syncedAt:  now,
+          });
+        }
+      } else {
+        const email = u.email?.trim() || found?.email || "";
+        if (found) {
+          await db.update(contactsTable)
+            .set({
+              fullName:     u.fullName,
+              email,
+              redmineId:    u.redmineId    || found.redmineId,
+              redmineLogin: u.redmineLogin || found.redmineLogin,
+              syncedAt:     now,
+            })
+            .where(eq(contactsTable.id, found.id));
+        } else {
+          await db.insert(contactsTable).values({
             fullName:     u.fullName,
             email,
-            redmineId:    u.redmineId    || found.redmineId,
-            redmineLogin: u.redmineLogin || found.redmineLogin,
+            source:       "redmine" as const,
+            isGroup:      false,
+            redmineId:    u.redmineId,
+            redmineLogin: u.redmineLogin,
             syncedAt:     now,
-          })
-          .where(eq(contactsTable.id, found.id));
-      } else {
-        await db.insert(contactsTable).values({
-          fullName:     u.fullName,
-          email,
-          source:       "redmine" as const,
-          isGroup:      false,
-          redmineId:    u.redmineId,
-          redmineLogin: u.redmineLogin,
-          syncedAt:     now,
-        });
+          });
+        }
       }
     }
 

@@ -1,39 +1,1885 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
-import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable } from "@workspace/db";
+import { eq, and, desc, inArray, isNotNull } from "drizzle-orm";
+import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
+import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
 const router: IRouter = Router();
+
+// Dashboard data contains internal delivery, activity, and team information.
+// Enforce authentication at router level so newly added handlers cannot
+// accidentally omit the boundary check.
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
+
+const PM_ROLES = ["pm_member", "pm_lead", "hod_pm", "admin", "cto"];
+
+// CR038 — flat assumed weekly capacity per person, used for the Capacity
+// table's utilization % column. No per-user configurable capacity field
+// (deliberately parked in CR034/CR036/CR037 pending this exact decision).
+const WEEKLY_CAPACITY_HOURS = 40;
+
+function classifyResult(result: string | null): "passed" | "failed" | "blocked" | "notRun" {
+  const r = result?.toLowerCase() ?? "";
+  if (r === "passed" || r === "pass") return "passed";
+  if (r === "failed" || r === "fail") return "failed";
+  if (r === "blocked") return "blocked";
+  return "notRun";
+}
+
+// Coarse pass/fail/blocked/notRun rollup for a set of milestones, scoped to one
+// execution file type (qa | uat). Unlike the traceability matrix, this does not
+// resolve "latest result per TC identity across files" — it counts whatever is
+// currently saved on each execution_test_cases row. Good enough for a summary
+// readiness signal; use the traceability matrix's milestone filter for the
+// rigorous per-TC view.
+export async function rollupExecutionByMilestone(milestoneIds: number[], fileType: "qa" | "uat") {
+  const map = new Map<number, { tcCount: number; passed: number; failed: number; blocked: number; notRun: number; passPct: number }>();
+  if (milestoneIds.length === 0) return map;
+
+  const rows = await db
+    .select({ milestoneId: executionFilesTable.milestoneId, result: executionTestCasesTable.result })
+    .from(executionTestCasesTable)
+    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+    .where(and(inArray(executionFilesTable.milestoneId, milestoneIds), eq(executionFilesTable.fileType, fileType)));
+
+  const byMilestone = new Map<number, string[]>();
+  for (const row of rows) {
+    if (row.milestoneId == null) continue;
+    if (!byMilestone.has(row.milestoneId)) byMilestone.set(row.milestoneId, []);
+    byMilestone.get(row.milestoneId)!.push(row.result ?? "");
+  }
+
+  for (const id of milestoneIds) {
+    const results = byMilestone.get(id) ?? [];
+    let passed = 0, failed = 0, blocked = 0, notRun = 0;
+    for (const r of results) {
+      const c = classifyResult(r);
+      if (c === "passed") passed++;
+      else if (c === "failed") failed++;
+      else if (c === "blocked") blocked++;
+      else notRun++;
+    }
+    const tcCount = results.length;
+    map.set(id, { tcCount, passed, failed, blocked, notRun, passPct: tcCount > 0 ? Math.round((passed / tcCount) * 100) : 0 });
+  }
+  return map;
+}
+
+type ScheduleRisk = "on-track" | "at-risk" | "overdue" | "no-date" | "completed" | "cancelled";
+
+function computeScheduleRisk(status: string, targetDate: Date | null, readinessPct: number): ScheduleRisk {
+  if (status === "completed" || status === "cancelled") return status;
+  if (!targetDate) return "no-date";
+  const daysLeft = (targetDate.getTime() - Date.now()) / 86_400_000;
+  if (daysLeft < 0) return "overdue";
+  if (daysLeft <= 5 && readinessPct < 80) return "at-risk";
+  return "on-track";
+}
+
+// GET /dashboard/pm-summary — CR014 Part 3. Portfolio view for the PM track
+// (pm_member, pm_lead, hod_pm) plus admin/cto: per-project milestone health
+// (requirement approval + QA/UAT execution readiness, schedule risk) and a
+// project-level resource capacity strip. Optional ?projectId= drills into one.
+router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const projectIdParam = req.query.projectId ? Number(req.query.projectId) : null;
+  if (projectIdParam) {
+    const ok = await canAccessProject(ctx.userId, ctx.role, projectIdParam);
+    if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+  }
+
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+
+  let projects = await db.select().from(projectsTable);
+  if (projectIdParam) {
+    projects = projects.filter(p => p.id === projectIdParam);
+  } else if (accessible !== null) {
+    projects = projects.filter(p => accessible.includes(p.id));
+  }
+  const projectIds = projects.map(p => p.id);
+
+  const milestones = projectIds.length
+    ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, projectIds)).orderBy(milestonesTable.targetDate)
+    : [];
+  const milestoneIds = milestones.map(m => m.id);
+
+  const reqs = milestoneIds.length
+    ? await db.select({ milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus })
+        .from(requirementsTable).where(inArray(requirementsTable.milestoneId, milestoneIds))
+    : [];
+
+  const qaRollup = await rollupExecutionByMilestone(milestoneIds, "qa");
+  const uatRollup = await rollupExecutionByMilestone(milestoneIds, "uat");
+
+  // Resource capacity — project level only. tasks has no milestone-scoped
+  // enough history yet to slice finer with confidence; see CR014 register.
+  const allUsers = await db.select().from(usersTable);
+  const userNameById = new Map<number, string>(allUsers.map(u => [u.id, u.name] as [number, string]));
+  const allTasks = projectIds.length
+    ? await db.select().from(tasksTable).where(inArray(tasksTable.projectId, projectIds))
+    : [];
+
+
+  // CR055 — QA/FA have no task-based hours estimate (see the utilization %
+  // comment below), so instead of leaving them off the Capacity table
+  // entirely, count their still-open WORK ITEMS: test case rows a QA PIC
+  // hasn't executed yet, and requirements an FA author still needs to act
+  // on (draft, or rejected and needing revision — not "in_review", which is
+  // waiting on a reviewer, not the author). qaPic is a free-text name (same
+  // convention as resolveUserIdByName elsewhere), resolved case-insensitively.
+  const nameToUserId = new Map<string, number>(allUsers.map(u => [u.name.toLowerCase(), u.id]));
+  const projectExecFiles = projectIds.length
+    ? await db.select({ id: executionFilesTable.id, projectId: executionFilesTable.projectId })
+        .from(executionFilesTable).where(inArray(executionFilesTable.projectId, projectIds))
+    : [];
+  const execFileIds = projectExecFiles.map(f => f.id);
+  const pendingTcRows = execFileIds.length
+    ? await db.select({
+        executionFileId: executionTestCasesTable.executionFileId,
+        qaPic: executionTestCasesTable.qaPic,
+        result: executionTestCasesTable.result,
+        rowType: executionTestCasesTable.rowType,
+      }).from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, execFileIds))
+    : [];
+  const isPendingTc = (r: { result: string | null; rowType: string }) =>
+    r.rowType !== "group" && (!r.result?.trim() || r.result.trim().toLowerCase() === "not executed");
+  const pendingReqRows = projectIds.length
+    ? await db.select({ projectId: requirementsTable.projectId, createdBy: requirementsTable.createdBy, reviewStatus: requirementsTable.reviewStatus })
+        .from(requirementsTable)
+        .where(and(inArray(requirementsTable.projectId, projectIds), inArray(requirementsTable.reviewStatus, ["draft", "rejected"])))
+    : [];
+  // Dev: requirements currently assigned to them that haven't reached
+  // ready_for_qa yet — same "still-open work item" idea as the QA/FA rows
+  // above, replacing the old open-task-assignment signal now that tasksTable
+  // is empty (nothing in the real product writes to it any more). Filtered
+  // to open ones in JS below (isOpenDevAssignment), same style as
+  // isOpenTask/isPendingTc elsewhere in this handler.
+  const devAssignedReqRows = projectIds.length
+    ? await db.select({ projectId: requirementsTable.projectId, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus })
+        .from(requirementsTable)
+        .where(inArray(requirementsTable.projectId, projectIds))
+    : [];
+  const isOpenDevAssignment = (r: { devAssigneeId: number | null; devStatus: string | null }) =>
+    r.devAssigneeId != null && r.devStatus !== "ready_for_qa";
+
+  const resultProjects = projects.map(project => {
+    const projectMilestones = milestones.filter(m => m.projectId === project.id);
+    const projectTasks = allTasks.filter(t => t.projectId === project.id);
+
+    const milestoneSummaries = projectMilestones.map(m => {
+      const mReqs = reqs.filter(r => r.milestoneId === m.id);
+      const requirementCount = mReqs.length;
+      const approvedCount = mReqs.filter(r => r.reviewStatus === "approved").length;
+      const approvedPct = requirementCount > 0 ? Math.round((approvedCount / requirementCount) * 100) : 0;
+
+      const qa = qaRollup.get(m.id) ?? { tcCount: 0, passed: 0, failed: 0, blocked: 0, notRun: 0, passPct: 0 };
+      const uat = uatRollup.get(m.id) ?? { tcCount: 0, passed: 0, failed: 0, blocked: 0, notRun: 0, passPct: 0 };
+
+      const readinessPct = qa.tcCount > 0 ? qa.passPct : approvedPct;
+      const scheduleRisk = computeScheduleRisk(m.status, m.targetDate, readinessPct);
+
+      // CR069 — milestones with no requirement/dev/UAT phase of their own
+      // (e.g. type "data_prep") have nothing for the phase-driven readiness
+      // above to read, so the PM Dashboard falls back to this task rollup
+      // instead of rendering a blank "no requirements" tile.
+      const mTasks = projectTasks.filter(t => t.milestoneId === m.id);
+      const doneCount = mTasks.filter(t => t.status === "done" || t.status === "released_to_production").length;
+      const tasks = {
+        count: mTasks.length,
+        doneCount,
+        donePct: mTasks.length > 0 ? Math.round((doneCount / mTasks.length) * 100) : 0,
+        estimatedHours: mTasks.reduce((sum, t) => sum + (t.estimatedHours ?? 0), 0),
+        actualHours: mTasks.reduce((sum, t) => sum + (t.actualHours ?? 0), 0),
+      };
+
+      return {
+        id: m.id,
+        name: m.name,
+        type: m.type,
+        status: m.status,
+        targetDate: m.targetDate?.toISOString() ?? null,
+        requirementCount,
+        approvedCount,
+        approvedPct,
+        qa,
+        uat: uat.tcCount > 0 ? uat : null,
+        scheduleRisk,
+        tasks,
+      };
+    });
+
+    type CapacityEntry = {
+      userId: number; name: string; openTaskCount: number; estimatedHours: number;
+      overdueTaskCount: number; openQaItemCount: number; openFaItemCount: number;
+    };
+    const capacityByUser = new Map<number, CapacityEntry>();
+    const getOrInit = (uid: number): CapacityEntry => {
+      if (!capacityByUser.has(uid)) {
+        capacityByUser.set(uid, {
+          userId: uid, name: userNameById.get(uid) ?? `User #${uid}`,
+          openTaskCount: 0, estimatedHours: 0, overdueTaskCount: 0, openQaItemCount: 0, openFaItemCount: 0,
+        });
+      }
+      return capacityByUser.get(uid)!;
+    };
+
+    // Dev: open (not yet ready_for_qa) requirement assignments in this
+    // project. No due-date-comparable field here (a requirement's own
+    // dev-phase target date lives on its milestone, not per-assignment), so
+    // estimatedHours/overdueTaskCount stay 0 for this signal — same as the
+    // QA/FA open-item counts just below, which never carried an hours
+    // estimate either.
+    for (const row of devAssignedReqRows) {
+      if (row.projectId !== project.id || !isOpenDevAssignment(row)) continue;
+      getOrInit(row.devAssigneeId!).openTaskCount++;
+    }
+
+    // CR055 — QA: still-pending test case rows they're PIC on, in this
+    // project's execution files.
+    const execFileIdsForProject = new Set(
+      projectExecFiles.filter(f => f.projectId === project.id).map(f => f.id),
+    );
+    for (const row of pendingTcRows) {
+      if (!execFileIdsForProject.has(row.executionFileId) || !isPendingTc(row)) continue;
+      const uid = row.qaPic ? nameToUserId.get(row.qaPic.trim().toLowerCase()) : undefined;
+      if (uid === undefined) continue;
+      getOrInit(uid).openQaItemCount++;
+    }
+    // CR055 — FA: requirements they authored that still need their own
+    // action (draft or rejected), in this project.
+    for (const row of pendingReqRows) {
+      if (row.projectId !== project.id || row.createdBy == null) continue;
+      getOrInit(row.createdBy).openFaItemCount++;
+    }
+
+    // CR038 — utilization %, parked since CR034/CR036/CR037 pending a
+    // capacity-model decision. Resolved: flat 40h/week per person, no
+    // per-user configurable capacity field. Only meaningful for Dev/PM
+    // (the only roles with task-based estimatedHours today) — CR055 added
+    // QA/FA open-item counts (execution PIC / requirement authorship) to
+    // this same table, but neither carries an hours estimate, so their
+    // estimatedHours/utilizationPct stay 0 unless they also hold a task.
+    const capacity = Array.from(capacityByUser.values())
+      .map(entry => ({ ...entry, utilizationPct: Math.round((entry.estimatedHours / WEEKLY_CAPACITY_HOURS) * 100) }))
+      .sort((a, b) =>
+        (b.openTaskCount + b.openQaItemCount + b.openFaItemCount) -
+        (a.openTaskCount + a.openQaItemCount + a.openFaItemCount),
+      );
+
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      milestones: milestoneSummaries,
+      capacity,
+    };
+  });
+
+  const allMilestoneSummaries = resultProjects.flatMap(p => p.milestones);
+  const portfolio = {
+    totalProjects: projects.length,
+    activeMilestones: allMilestoneSummaries.filter(m => ["active", "verified", "uat"].includes(m.status)).length,
+    milestonesAtRisk: allMilestoneSummaries.filter(m => m.scheduleRisk === "at-risk").length,
+    milestonesOverdue: allMilestoneSummaries.filter(m => m.scheduleRisk === "overdue").length,
+  };
+
+  res.json({ portfolio, projects: resultProjects });
+});
+
+// ─── Milestone phase breakdown (CR032 — multi-cycle) ─────────────────────────
+// "Where did the time go" report. Each requirement's lifecycle is
+// reconstructed as a repeating Requirements -> Gap -> Develop -> QA/UAT
+// sequence from its ordered activity-log events plus execution timestamps —
+// not a single min/max window per fixed phase. Two problems that fixed-window
+// model had: (1) Develop was never represented even though CR030's dev-handoff
+// events exist; (2) a resubmit-and-reapprove cycle (CR023 reject/revise, or a
+// CR031 requirement defect raised after approval) silently dragged the single
+// "Requirements" window out to the later date instead of appearing as its own
+// segment — misattributing dev/QA time as slow requirements review.
+
+type PhaseKey = "requirements" | "gap" | "develop" | "qa" | "uat";
+
+const PHASE_LABELS: Record<PhaseKey, string> = {
+  requirements: "Requirements",
+  gap: "Gap",
+  develop: "Develop",
+  qa: "QA testing",
+  uat: "UAT",
+};
+
+interface PhaseSegment {
+  key: PhaseKey;
+  cycle: number;
+  label: string;
+  start: string;
+  end: string | null;
+  days: number;
+  ongoing: boolean;
+}
+
+function daysBetween(start: Date, end: Date): number {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000 * 10) / 10);
+}
+
+function makeSegment(key: PhaseKey, cycle: number, start: Date, end: Date | null, now: Date): PhaseSegment {
+  const effectiveEnd = end ?? now;
+  return {
+    key,
+    cycle,
+    label: cycle > 1 ? `${PHASE_LABELS[key]} (round ${cycle})` : PHASE_LABELS[key],
+    start: start.toISOString(),
+    end: end ? end.toISOString() : null,
+    days: daysBetween(start, effectiveEnd),
+    ongoing: !end,
+  };
+}
+
+const RELEVANT_EVENT_TYPES = [
+  "requirement_submit",
+  "requirement_approve",
+  "requirement_dev_assign",
+  "requirement_dev_ready_for_qa",
+  "requirement_dev_return_to_dev", // CR046 — QA bounced it back to dev
+  "requirement_return_to_fa", // CR053 — Dev/QA bounced it back to the FA author
+];
+
+// Look-ahead state machine, not a single reactive pass over events — at each
+// state we find the earliest of the possible next boundary events (which
+// differs per state) and jump straight to it. This is what makes the
+// "resubmit while still churning inside Requirements" case fall out for
+// free: requirement_submit only ends a cycle from the "gap" or "testing"
+// states below, never from "requirements" itself — only requirement_approve
+// closes that segment, no matter how many reject/revise/resubmit loops
+// (CR023) happened first. requirement_reject and requirement_dev_start are
+// intentionally not queried anywhere here — neither one moves a boundary.
+export function computeTimelineFromEvents(
+  requirementCreatedAt: Date,
+  events: { type: string; createdAt: Date }[], // pre-filtered to RELEVANT_EVENT_TYPES, ascending
+  qaExecTimes: Date[], // ascending
+  uatExecTimes: Date[], // ascending
+  milestoneCompletedAt: Date | null,
+): PhaseSegment[] {
+  const now = new Date();
+  const segments: PhaseSegment[] = [];
+
+  const nextEventOfType = (types: string[], after: Date) =>
+    events.find((e) => types.includes(e.type) && e.createdAt > after) ?? null;
+  // Emits a qa segment, then a uat segment, back to back, using whichever
+  // execution timestamps fall in this cycle's testing window.
+  //
+  // windowEnd bounds the drawn segment (so it never overlaps the next phase).
+  // captureEnd (CR052) bounds which exec timestamps count — normally the same
+  // as windowEnd, but when a Return-to-Dev ends the window, QA runs logged
+  // just after the return (before the next ready-for-QA) still belong to this
+  // testing round; captureEnd lets them count without drawing the bar past
+  // the return. Segments are still clamped to windowEnd.
+  const emitTesting = (windowStart: Date, windowEnd: Date | null, cycle: number, captureEnd?: Date | null) => {
+    const capEnd = captureEnd === undefined ? windowEnd : captureEnd;
+    const inWindow = (d: Date) => d >= windowStart && (capEnd === null || d < capEnd);
+    const qaTimes = qaExecTimes.filter(inWindow);
+    const uatTimes = uatExecTimes.filter(inWindow);
+    if (qaTimes.length === 0 && uatTimes.length === 0) return;
+    // A captured exec can fall past windowEnd (trailing runs after a Return);
+    // anchor such a segment's start at windowStart so the bar stays inside the
+    // drawn window instead of inverting.
+    const clampStart = (t: Date, end: Date | null) => (end !== null && t > end ? windowStart : t);
+    if (qaTimes.length > 0) {
+      const qaEnd = uatTimes.length > 0 ? uatTimes[0] : windowEnd;
+      segments.push(makeSegment("qa", cycle, clampStart(qaTimes[0], qaEnd), qaEnd, now));
+    }
+    if (uatTimes.length > 0) {
+      segments.push(makeSegment("uat", cycle, clampStart(uatTimes[0], windowEnd), windowEnd, now));
+    }
+  };
+
+  let cycle = 1;
+  let phaseStart = requirementCreatedAt;
+  let state: "requirements" | "gap" | "develop" | "testing" = "requirements";
+  let testingWindowStart: Date | null = null;
+  let guard = 0;
+
+  while (guard++ < 100) {
+    if (state === "requirements") {
+      const approveEv = nextEventOfType(["requirement_approve"], phaseStart);
+      if (!approveEv) { segments.push(makeSegment("requirements", cycle, phaseStart, milestoneCompletedAt, now)); break; }
+      segments.push(makeSegment("requirements", cycle, phaseStart, approveEv.createdAt, now));
+      phaseStart = approveEv.createdAt;
+      state = "gap";
+    } else if (state === "gap") {
+      // Every requirement passes through Develop before Testing — no
+      // shortcut from approval straight to QA. Whichever comes first, a
+      // dev handoff or a resubmit before one ever happened, decides how
+      // the gap closes.
+      const devAssignEv = nextEventOfType(["requirement_dev_assign"], phaseStart);
+      const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
+      const candidates: { at: Date; kind: "dev" | "submit" }[] = [];
+      if (devAssignEv) candidates.push({ at: devAssignEv.createdAt, kind: "dev" });
+      if (submitEv) candidates.push({ at: submitEv.createdAt, kind: "submit" });
+      if (candidates.length === 0) { segments.push(makeSegment("gap", cycle, phaseStart, milestoneCompletedAt, now)); break; }
+      candidates.sort((a, b) => a.at.getTime() - b.at.getTime());
+      const winner = candidates[0];
+      segments.push(makeSegment("gap", cycle, phaseStart, winner.at, now));
+      if (winner.kind === "submit") {
+        cycle += 1;
+        phaseStart = winner.at;
+        state = "requirements";
+      } else {
+        phaseStart = winner.at;
+        state = "develop";
+      }
+    } else if (state === "develop") {
+      const readyEv = nextEventOfType(["requirement_dev_ready_for_qa"], phaseStart);
+      const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
+      // FA edits the requirement mid-development and re-submits for review —
+      // if that re-submit arrives before ready_for_qa, end this develop cycle
+      // and start a new Requirements cycle (dev is now blocked).
+      const resubmitBreaks = submitEv && (!readyEv || submitEv.createdAt < readyEv.createdAt);
+      if (resubmitBreaks) {
+        segments.push(makeSegment("develop", cycle, phaseStart, submitEv!.createdAt, now));
+        cycle += 1;
+        phaseStart = submitEv!.createdAt;
+        state = "requirements";
+      } else if (!readyEv) {
+        segments.push(makeSegment("develop", cycle, phaseStart, milestoneCompletedAt, now));
+        break;
+      } else {
+        segments.push(makeSegment("develop", cycle, phaseStart, readyEv.createdAt, now));
+        phaseStart = readyEv.createdAt;
+        testingWindowStart = readyEv.createdAt;
+        state = "testing";
+      }
+    } else {
+      const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
+      // CR046 — QA can return a not-actually-done requirement to dev. If that
+      // happens before any resubmit, testing ends there and Develop resumes
+      // within the same cycle (it's rework, not a new requirements round).
+      const returnEv = nextEventOfType(["requirement_dev_return_to_dev"], phaseStart);
+      if (returnEv && (!submitEv || returnEv.createdAt < submitEv.createdAt)) {
+        // CR052 — count QA runs logged up to the start of the NEXT testing
+        // round (next ready-for-QA), not just before the return click, so a
+        // fail-then-Return sequence whose exec timestamps land just after the
+        // return still renders a QA segment instead of vanishing into Develop.
+        // The next round's window starts at that ready event, so there's no
+        // double-count; the drawn bar still ends at the return.
+        const nextReady = nextEventOfType(["requirement_dev_ready_for_qa"], returnEv.createdAt);
+        emitTesting(testingWindowStart!, returnEv.createdAt, cycle, nextReady?.createdAt ?? milestoneCompletedAt);
+        phaseStart = returnEv.createdAt;
+        state = "develop";
+        continue;
+      }
+      const windowEnd = submitEv ? submitEv.createdAt : milestoneCompletedAt;
+      emitTesting(testingWindowStart!, windowEnd, cycle);
+      if (!submitEv) break;
+      cycle += 1;
+      phaseStart = submitEv.createdAt;
+      state = "requirements";
+    }
+  }
+
+  return segments;
+}
+
+// Pipeline testing does not depend on requirement approval or dev handoff.
+// Import time is not testing time: start only at an actual execution.
+export function computePipelineTimeline(
+  qaExecTimes: Date[],
+  uatExecTimes: Date[],
+  milestone: { requiresUat: boolean; signedOffAt: Date | null; completedAt: Date | null },
+): { timeline: PhaseSegment[]; status: string } {
+  const now = new Date();
+  const validTimes = (times: Date[]) => times
+    .filter(t => !milestone.completedAt || t <= milestone.completedAt)
+    .sort((a, b) => a.getTime() - b.getTime());
+  const qaStart = validTimes(qaExecTimes)[0];
+  const uatStart = milestone.requiresUat ? validTimes(uatExecTimes)[0] : undefined;
+  const timeline: PhaseSegment[] = [];
+  if (qaStart) {
+    const boundaries = [milestone.signedOffAt, uatStart, milestone.completedAt]
+      .filter((t): t is Date => !!t && t >= qaStart)
+      .sort((a, b) => a.getTime() - b.getTime());
+    timeline.push(makeSegment("qa", 1, qaStart, boundaries[0] ?? null, now));
+  }
+  if (uatStart) timeline.push(makeSegment("uat", 1, uatStart, milestone.completedAt, now));
+  const status = milestone.completedAt ? "Completed"
+    : uatStart ? "In UAT"
+    : milestone.signedOffAt ? (milestone.requiresUat ? "Awaiting UAT" : "QA signed off")
+    : qaStart ? "In QA testing" : "Awaiting QA";
+  return { timeline, status };
+}
+
+interface RequirementTimelineEntry {
+  id: number;
+  title: string;
+  status: string;
+  parentId: number | null;
+  timeline: PhaseSegment[];
+  actualWorkStartedAt: string | null;
+}
+
+// Batches activity-log and execution rows for the whole milestone in two
+// queries (not one per requirement) and partitions them in memory — same
+// no-N+1 discipline as the CR026 analytics endpoint.
+//
+// Prefer computeRequirementTimelinesBatch() when you have more than one
+// milestone: this single-milestone entry point batches its reads, while
+// callers that looped it over every milestone were paying per milestone.
+export async function computeRequirementTimelines(milestoneId: number, milestoneCompletedAt: Date | null): Promise<RequirementTimelineEntry[]> {
+  const byMilestone = await computeRequirementTimelinesBatch([{ id: milestoneId, completedAt: milestoneCompletedAt }]);
+  return byMilestone.get(milestoneId) ?? [];
+}
+
+/**
+ * Same computation as computeRequirementTimelines, for many milestones in a
+ * fixed batch queries instead of queries per milestone.
+ *
+ * The per-milestone version was being called inside a loop over every
+ * milestone the user can see (the Tasks board, /dashboard/summary,
+ * /dashboard/weekly-trend, the execution file list), which is where most of
+ * those pages' load time was going.
+ */
+export async function computeRequirementTimelinesBatch(
+  milestones: { id: number; completedAt: Date | null }[],
+): Promise<Map<number, RequirementTimelineEntry[]>> {
+  const out = new Map<number, RequirementTimelineEntry[]>();
+  const milestoneIds = [...new Set(milestones.map((m) => m.id))];
+  if (milestoneIds.length === 0) return out;
+  for (const id of milestoneIds) out.set(id, []);
+
+  const reqCols = { id: requirementsTable.id, milestoneId: requirementsTable.milestoneId, title: requirementsTable.title, reviewStatus: requirementsTable.reviewStatus, devStatus: requirementsTable.devStatus, parentId: requirementsTable.parentId, createdAt: requirementsTable.createdAt };
+  const rootReqs = await db.select(reqCols).from(requirementsTable).where(inArray(requirementsTable.milestoneId, milestoneIds));
+  if (rootReqs.length === 0) return out;
+
+  // A milestone's requirement count (Milestones page) includes every
+  // descendant added via "Add child", but only the top-level requirement in
+  // that tree carries its own milestoneId — a child never gets one of its
+  // own. Walk the tree breadth-first from the roots above (same per-level
+  // query shape as fetchIssueTree's Redmine walk) so a child still resolves
+  // to its ancestor's milestone below, capped at depth 10 as a safety bound
+  // rather than any real tree needing it.
+  const allReqs = [...rootReqs];
+  const seenIds = new Set(rootReqs.map((r) => r.id));
+  const milestoneByReqId = new Map<number, number>(rootReqs.map((r) => [r.id, r.milestoneId as number]));
+  let frontier = rootReqs.map((r) => r.id);
+  for (let depth = 0; depth < 10 && frontier.length > 0; depth++) {
+    const children = await db.select(reqCols).from(requirementsTable).where(inArray(requirementsTable.parentId, frontier));
+    const next: number[] = [];
+    for (const c of children) {
+      if (seenIds.has(c.id)) continue;
+      seenIds.add(c.id);
+      const inherited = c.milestoneId ?? (c.parentId != null ? milestoneByReqId.get(c.parentId) : undefined);
+      if (inherited == null) continue; // orphaned mid-tree — no ancestor resolved, nothing to inherit
+      milestoneByReqId.set(c.id, inherited);
+      allReqs.push(c);
+      next.push(c.id);
+    }
+    frontier = next;
+  }
+  const reqIds = allReqs.map((r) => r.id);
+
+  const [activityRows, execRows, milestoneRows] = await Promise.all([
+    db
+      .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+      .from(activityTable)
+      .where(and(eq(activityTable.entityType, "requirement"), inArray(activityTable.entityId, reqIds)))
+      .orderBy(activityTable.createdAt),
+    db
+      .select({ requirementId: executionTestCasesTable.requirementId, milestoneId: executionFilesTable.milestoneId, fileType: executionFilesTable.fileType, executedAt: executionTestCasesTable.executedAt })
+      .from(executionTestCasesTable)
+      .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+      .where(inArray(executionTestCasesTable.requirementId, reqIds)),
+    db.select().from(milestonesTable).where(inArray(milestonesTable.id, milestoneIds)),
+  ]);
+  const milestoneById = new Map(milestoneRows.map(m => [m.id, m]));
+
+  // Actual work excludes record creation/import and assignment-only events.
+  const workEventTypes = new Set(["requirement_submit", "requirement_approve", "requirement_reject", "requirement_dev_start", "requirement_dev_ready_for_qa", "requirement_dev_return_to_dev", "requirement_return_to_fa"]);
+  const workStartedByReq = new Map<number, Date>();
+  for (const row of activityRows) {
+    if (row.entityId != null && workEventTypes.has(row.type) && !workStartedByReq.has(row.entityId)) {
+      workStartedByReq.set(row.entityId, row.createdAt);
+    }
+  }
+  for (const row of execRows) {
+    if (row.requirementId == null || !row.executedAt) continue;
+    const previous = workStartedByReq.get(row.requirementId);
+    if (!previous || row.executedAt < previous) workStartedByReq.set(row.requirementId, row.executedAt);
+  }
+  const activityByReq = new Map<number, { type: string; createdAt: Date }[]>();
+  for (const row of activityRows) {
+    if (row.entityId == null || !RELEVANT_EVENT_TYPES.includes(row.type)) continue;
+    if (!activityByReq.has(row.entityId)) activityByReq.set(row.entityId, []);
+    activityByReq.get(row.entityId)!.push({ type: row.type, createdAt: row.createdAt });
+  }
+  const execByReq = new Map<number, { qa: Date[]; uat: Date[] }>();
+  for (const row of execRows) {
+    if (row.requirementId == null || !row.executedAt) continue;
+    if (!execByReq.has(row.requirementId)) execByReq.set(row.requirementId, { qa: [], uat: [] });
+    const ownerId = milestoneByReqId.get(row.requirementId);
+    if (ownerId != null && milestoneById.get(ownerId)?.pipelineEnabled && row.milestoneId !== ownerId) continue;
+    const bucket = execByReq.get(row.requirementId)!;
+    if (row.fileType === "qa") bucket.qa.push(row.executedAt);
+    else if (row.fileType === "uat") bucket.uat.push(row.executedAt);
+  }
+
+  // completedAt is per-milestone, so it has to be looked up per requirement
+  // rather than closed over as it was in the single-milestone version.
+  const completedAtById = new Map(milestones.map((m) => [m.id, m.completedAt]));
+
+  for (const r of allReqs) {
+    const milestoneId = milestoneByReqId.get(r.id);
+    if (milestoneId == null) continue;
+    const milestoneCompletedAt = completedAtById.get(milestoneId) ?? null;
+    const events = activityByReq.get(r.id) ?? [];
+    const exec = execByReq.get(r.id) ?? { qa: [], uat: [] };
+    const qaExecTimes = [...exec.qa].sort((a, b) => a.getTime() - b.getTime());
+    const uatExecTimes = [...exec.uat].sort((a, b) => a.getTime() - b.getTime());
+    const milestone = milestoneById.get(milestoneId);
+    if (milestone?.pipelineEnabled) {
+      const pipeline = computePipelineTimeline(qaExecTimes, uatExecTimes, milestone);
+      out.get(milestoneId)!.push({ id: r.id, title: r.title, parentId: r.parentId ?? null,
+        ...pipeline, actualWorkStartedAt: pipeline.timeline[0]?.start ?? null });
+      continue;
+    }
+    const timeline = computeTimelineFromEvents(r.createdAt, events, qaExecTimes, uatExecTimes, milestoneCompletedAt);
+
+    let status: string;
+    const reviewStatus = (r as any).reviewStatus ?? "draft";
+    if (reviewStatus !== "approved") {
+      status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Draft";
+    } else if (uatExecTimes.length > 0) {
+      status = "Approved · in UAT";
+    } else if (qaExecTimes.length > 0) {
+      status = "Approved · in QA testing";
+    } else if (r.devStatus === "ready_for_qa") {
+      // Dev handed it off, but QA hasn't logged a single execution yet —
+      // distinct from "in development" (dev is still actively working it).
+      status = "Approved · awaiting QA";
+    } else if (r.devStatus) {
+      status = "Approved · in development";
+    } else {
+      // Approved, no QA/UAT execution yet, and devStatus is still null — no
+      // developer has even been assigned, so the next step is Dev, not QA.
+      status = "Approved · awaiting Dev";
+    }
+
+    out.get(milestoneId)!.push({ id: r.id, title: r.title, status, parentId: r.parentId ?? null, timeline, actualWorkStartedAt: workStartedByReq.get(r.id)?.toISOString() ?? null });
+  }
+
+  return out;
+}
+
+interface PhaseSummaryEntry {
+  key: PhaseKey;
+  label: string;
+  avgDays: number | null;
+  ongoing: false;
+}
+
+// Sums a requirement's own per-cycle durations for a given phase key first,
+// then averages that per-requirement total across requirements — so a
+// requirement with two Requirements-phase cycles contributes their combined
+// total, not two diluting data points. This is what makes the milestone
+// number answer "how much total time did requirements churn cost."
+export function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSummaryEntry[] {
+  const perReqTotals = entries.map((e) => {
+    const totals: Partial<Record<PhaseKey, number>> = {};
+    for (const seg of e.timeline) totals[seg.key] = (totals[seg.key] ?? 0) + seg.days;
+
+    // "Gap" is meant to read as total idle/waiting time on the milestone
+    // summary bar, not just the FA-approval-to-dev-assign delay — fold in
+    // the develop→qa idle window too (dev marked ready-for-qa, but QA's
+    // first logged execution came later). The per-requirement Timelines/
+    // Gantt views keep showing these as distinct "Awaiting Dev"/"Awaiting
+    // QA" segments (PmDashboard.tsx's injectAwaitingSegments) — this only
+    // affects the milestone-wide average.
+    for (let i = 0; i < e.timeline.length - 1; i++) {
+      const seg = e.timeline[i];
+      const next = e.timeline[i + 1];
+      if (seg.key === "develop" && seg.end && next.key === "qa") {
+        const idleDays = (new Date(next.start).getTime() - new Date(seg.end).getTime()) / 86_400_000;
+        if (idleDays > 0) totals.gap = Math.round(((totals.gap ?? 0) + idleDays) * 10) / 10;
+      }
+    }
+
+    return totals;
+  });
+  const avg = (vals: (number | undefined)[]) => {
+    const present = vals.filter((v): v is number => v !== undefined);
+    return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
+  };
+  const keys: PhaseKey[] = ["requirements", "gap", "develop", "qa", "uat"];
+  return keys
+    .map((key) => ({ key, label: PHASE_LABELS[key], avgDays: avg(perReqTotals.map((t) => t[key])), ongoing: false as const }))
+    .filter((entry) => entry.avgDays !== null && entry.avgDays > 0);
+}
+
+// Compute first-pass rate and stability index from activity events for a set of req IDs.
+// firstPassPct = % of reqs never rejected. stabilityPct = % of reqs revised after approval.
+export function computeKpiMetrics(reqIds: number[], events: { entityId: number | null; type: string; createdAt: Date }[]) {
+  const rejectedIds = new Set(
+    events.filter(e => e.type === "requirement_reject" && e.entityId != null).map(e => e.entityId as number),
+  );
+  const firstPassPct = reqIds.length > 0
+    ? Math.round((reqIds.filter(id => !rejectedIds.has(id)).length / reqIds.length) * 100)
+    : null;
+
+  const firstApproveByReq = new Map<number, Date>();
+  const revisedAfterApproval = new Set<number>();
+  for (const ev of events) {
+    if (ev.entityId == null) continue;
+    if (ev.type === "requirement_approve" && !firstApproveByReq.has(ev.entityId)) {
+      firstApproveByReq.set(ev.entityId, ev.createdAt);
+    } else if (ev.type === "requirement_submit") {
+      const firstApprove = firstApproveByReq.get(ev.entityId);
+      if (firstApprove && ev.createdAt > firstApprove) revisedAfterApproval.add(ev.entityId);
+    }
+  }
+  const stabilityPct = reqIds.length > 0
+    ? Math.round((revisedAfterApproval.size / reqIds.length) * 100)
+    : null;
+
+  return { firstPassPct, stabilityPct };
+}
+
+router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const milestoneId = req.query.milestoneId ? Number(req.query.milestoneId) : null;
+  if (!milestoneId) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+  const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, milestoneId));
+  if (!milestone) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, milestone.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const milestoneShape = {
+    pipelineEnabled: milestone.pipelineEnabled,
+    id: milestone.id,
+    name: milestone.name,
+    status: milestone.status,
+    targetDate: milestone.targetDate?.toISOString() ?? null,
+    createdAt: milestone.createdAt.toISOString(),
+    startDate: (milestone as any).startDate?.toISOString() ?? null,
+    reqTargetDate: milestone.pipelineEnabled ? null : milestone.reqTargetDate?.toISOString() ?? null,
+    devTargetDate: milestone.pipelineEnabled ? null : milestone.devTargetDate?.toISOString() ?? null,
+    qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
+    uatTargetDate: milestone.pipelineEnabled && !milestone.requiresUat ? null : milestone.uatTargetDate?.toISOString() ?? null,
+    goLiveDate: (milestone as any).goLiveDate?.toISOString() ?? null,
+    environment: (milestone as any).environment ?? null,
+  };
+
+  const requirementTimelines = await computeRequirementTimelines(milestoneId, milestone.completedAt);
+  if (requirementTimelines.length === 0) {
+    res.json({ milestone: milestoneShape, phaseSummary: null, plannedPhaseDays: null, goLiveGap: null, kpis: null, topBlockers: [], trend: null, requirements: [] });
+    return;
+  }
+
+  const phaseSummary = summarizeTimelines(requirementTimelines);
+  const allReqIds = requirementTimelines.map(r => r.id);
+
+  // ── KPI activity events (one batch query for all KPI metrics) ─────────────
+  const kpiActivityRows = await db
+    .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+    .from(activityTable)
+    .where(and(
+      eq(activityTable.entityType, "requirement"),
+      inArray(activityTable.entityId, allReqIds),
+      inArray(activityTable.type, ["requirement_reject", "requirement_submit", "requirement_approve"]),
+    ))
+    .orderBy(activityTable.createdAt);
+
+  const { firstPassPct, stabilityPct } = milestone.pipelineEnabled
+    ? { firstPassPct: null, stabilityPct: null }
+    : computeKpiMetrics(allReqIds, kpiActivityRows);
+
+  // ── Burn rate & SPI ───────────────────────────────────────────────────────
+  const approvedCount = requirementTimelines.filter(r => r.status.startsWith("Approved")).length;
+  const qaRollupData = (await rollupExecutionByMilestone([milestone.id], "qa")).get(milestone.id);
+  const workCompletedPct = (qaRollupData?.tcCount ?? 0) > 0
+    ? qaRollupData!.passPct
+    : Math.round((approvedCount / allReqIds.length) * 100);
+
+  let timeElapsedPct: number | null = null;
+  if (milestone.targetDate && milestone.status !== "completed" && milestone.status !== "cancelled") {
+    const totalMs = milestone.targetDate.getTime() - milestone.createdAt.getTime();
+    if (totalMs > 0) {
+      const elapsedMs = Date.now() - milestone.createdAt.getTime();
+      timeElapsedPct = Math.min(Math.round((elapsedMs / totalMs) * 100), 120);
+    }
+  }
+  const spi = (timeElapsedPct !== null && timeElapsedPct > 0)
+    ? Math.round((workCompletedPct / timeElapsedPct) * 100) / 100
+    : null;
+
+  const kpis = { timeElapsedPct, workCompletedPct, spi, firstPassPct, stabilityPct };
+
+  // ── Planned phase durations from milestone target dates ───────────────────
+  const startDate = (milestone as any).startDate as Date | null;
+  const reqTargetDate = milestone.pipelineEnabled ? null : milestone.reqTargetDate;
+  const devTargetDate = milestone.pipelineEnabled ? null : milestone.devTargetDate;
+  const qaTargetDate = (milestone as any).qaTargetDate as Date | null;
+  const uatTargetDate = milestone.pipelineEnabled && !milestone.requiresUat ? null : milestone.uatTargetDate;
+  const qaPlannedStart = milestone.pipelineEnabled ? startDate : devTargetDate;
+  const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate || uatTargetDate) ? {
+    requirements: (reqTargetDate && startDate) ? Math.max(0, Math.round((reqTargetDate.getTime() - startDate.getTime()) / 86_400_000)) : null,
+    develop: (devTargetDate && reqTargetDate) ? Math.max(0, Math.round((devTargetDate.getTime() - reqTargetDate.getTime()) / 86_400_000)) : null,
+    qa: (qaTargetDate && qaPlannedStart) ? Math.max(0, Math.round((qaTargetDate.getTime() - qaPlannedStart.getTime()) / 86_400_000)) : null,
+    uat: (uatTargetDate && qaTargetDate) ? Math.max(0, Math.round((uatTargetDate.getTime() - qaTargetDate.getTime()) / 86_400_000)) : null,
+  } : null;
+
+  // CR056 — Go-Live still can't be a duration bar (there's no "deployment
+  // started" event to measure a span from — see the goLiveDate schema
+  // comment), but the gap BETWEEN the UAT sign-off pack being uploaded and
+  // the PM actually flipping the milestone to "completed" is a real,
+  // measurable duration between two distinct real actions. Only meaningful
+  // once the milestone is actually completed; a milestone can be marked
+  // completed via the plain status PATCH without ever going through a
+  // sign-off upload, in which case there's nothing to diff against.
+  let goLiveGap: { signOffAt: string; completedAt: string; gapDays: number } | null = null;
+  if (milestone.status === "completed" && milestone.completedAt) {
+    const [latestSignOff] = await db.select({ createdAt: uatSignoffsTable.createdAt })
+      .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, milestoneId))
+      .orderBy(desc(uatSignoffsTable.createdAt)).limit(1);
+    if (latestSignOff) {
+      goLiveGap = {
+        signOffAt: latestSignOff.createdAt.toISOString(),
+        completedAt: milestone.completedAt.toISOString(),
+        gapDays: Math.round((milestone.completedAt.getTime() - latestSignOff.createdAt.getTime()) / 86_400_000 * 10) / 10,
+      };
+    }
+  }
+
+  // ── Top blockers: requirements stuck in review or rejected ────────────────
+  const blockerEntries = requirementTimelines.filter(r =>
+    r.status === "In review" || r.status === "Rejected — awaiting revision",
+  );
+  const blockerIds = new Set(blockerEntries.map(r => r.id));
+  const lastBlockerEventByReq = new Map<number, Date>();
+  for (const ev of kpiActivityRows) {
+    if (ev.entityId == null || !blockerIds.has(ev.entityId)) continue;
+    if (ev.type === "requirement_submit" || ev.type === "requirement_reject") {
+      const existing = lastBlockerEventByReq.get(ev.entityId);
+      if (!existing || ev.createdAt > existing) lastBlockerEventByReq.set(ev.entityId, ev.createdAt);
+    }
+  }
+  // Fetch module for blockers (one extra query, only if there are blockers)
+  const blockerModuleById = new Map<number, string | null>();
+  if (blockerEntries.length > 0) {
+    const blockerReqRows = await db
+      .select({ id: requirementsTable.id, module: requirementsTable.module })
+      .from(requirementsTable)
+      .where(inArray(requirementsTable.id, [...blockerIds]));
+    for (const r of blockerReqRows) blockerModuleById.set(r.id, r.module);
+  }
+  const now = new Date();
+  const topBlockers = blockerEntries.map(r => {
+    const last = lastBlockerEventByReq.get(r.id);
+    return {
+      id: r.id,
+      title: r.title,
+      reviewStatus: r.status === "In review" ? "in_review" : "rejected",
+      module: blockerModuleById.get(r.id) ?? null,
+      stuckDays: last ? Math.round((now.getTime() - last.getTime()) / 86_400_000) : 0,
+    };
+  }).sort((a, b) => b.stuckDays - a.stuckDays).slice(0, 5);
+
+  // ── Trend: last 5 completed milestones in this project ───────────────────
+  const completedMilestones = await db
+    .select().from(milestonesTable)
+    .where(and(eq(milestonesTable.projectId, milestone.projectId), eq(milestonesTable.status, "completed")))
+    .orderBy(desc(milestonesTable.targetDate))
+    .limit(5);
+
+  const trendEntries: { id: number; name: string; requirementsDays: number | null; gapDays: number | null; developDays: number | null; qaDays: number | null; uatDays: number | null; firstPassPct: number | null; stabilityPct: number | null }[] = [];
+  const trendTimelines = await computeRequirementTimelinesBatch(completedMilestones.map((m) => ({ id: m.id, completedAt: m.completedAt })));
+  for (const m of completedMilestones) {
+    const entries = trendTimelines.get(m.id) ?? [];
+    if (entries.length === 0) continue;
+    const summary = summarizeTimelines(entries);
+    const byKey = Object.fromEntries(summary.map((s) => [s.key, s.avgDays])) as Partial<Record<PhaseKey, number | null>>;
+
+    const mReqIds = entries.map(e => e.id);
+    let mFirstPassPct: number | null = null;
+    let mStabilityPct: number | null = null;
+    if (mReqIds.length > 0 && !m.pipelineEnabled) {
+      const mEvents = await db
+        .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt })
+        .from(activityTable)
+        .where(and(
+          eq(activityTable.entityType, "requirement"),
+          inArray(activityTable.entityId, mReqIds),
+          inArray(activityTable.type, ["requirement_reject", "requirement_submit", "requirement_approve"]),
+        ))
+        .orderBy(activityTable.createdAt);
+      const metrics = computeKpiMetrics(mReqIds, mEvents);
+      mFirstPassPct = metrics.firstPassPct;
+      mStabilityPct = metrics.stabilityPct;
+    }
+
+    trendEntries.push({
+      id: m.id, name: m.name,
+      requirementsDays: byKey.requirements ?? null, gapDays: byKey.gap ?? null,
+      developDays: byKey.develop ?? null, qaDays: byKey.qa ?? null, uatDays: byKey.uat ?? null,
+      firstPassPct: mFirstPassPct, stabilityPct: mStabilityPct,
+    });
+  }
+
+  const avg = (vals: (number | null)[]) => {
+    const present = vals.filter((v): v is number => v !== null);
+    return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
+  };
+
+  res.json({
+    milestone: milestoneShape,
+    phaseSummary,
+    plannedPhaseDays,
+    goLiveGap,
+    kpis,
+    topBlockers,
+    trend: {
+      count: trendEntries.length,
+      avgRequirementsDays: avg(trendEntries.map((e) => e.requirementsDays)),
+      avgGapDays: avg(trendEntries.map((e) => e.gapDays)),
+      avgDevelopDays: avg(trendEntries.map((e) => e.developDays)),
+      avgQaDays: avg(trendEntries.map((e) => e.qaDays)),
+      avgUatDays: avg(trendEntries.map((e) => e.uatDays)),
+      milestones: trendEntries,
+    },
+    requirements: requirementTimelines,
+  });
+});
+
+// ── CR060: Tasks page redesign — requirement/milestone rollup ────────────────
+// One row per requirement-with-a-milestone, across every project the caller
+// can access. Reuses computeRequirementTimelines (CR032) per milestone rather
+// than re-deriving phase state — "current phase" is just the last segment in
+// that requirement's own timeline. Department-scoped: qa/fa/dev only see rows
+// relevant to their own department; pm (any tier)/admin/cto see everything.
+const PHASE_DUE_DATE_FIELD: Record<PhaseKey, "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "uatTargetDate"> = {
+  requirements: "reqTargetDate",
+  gap: "devTargetDate",
+  develop: "devTargetDate",
+  qa: "qaTargetDate",
+  uat: "uatTargetDate",
+};
+
+// ── QA Pipeline progress for the Tasks board ────────────────────────────────
+// A pipeline milestone doesn't advance through the FA→Dev→QA activity events
+// that computeRequirementTimelines() reads: Step 4 approves execution *files*,
+// not requirements, and nothing ever writes requirement.reviewStatus. So the
+// timeline machinery leaves every pipeline requirement parked in
+// "requirements"/"Draft" at 0% no matter how much of the pipeline is done.
+//
+// For pipeline milestones we therefore derive stage, label and progress from the
+// pipeline's own gates — deliberately the same checks Step 8's readiness list
+// shows, so the two screens can't disagree.
+interface PipelineState {
+  progress: number;
+  label: string;
+  phase: PhaseKey;
+}
+
+function computePipelineState(input: {
+  requirementCount: number;
+  executionFileCount: number;
+  allFilesApproved: boolean;
+  totalExecRows: number;
+  executedRows: number;
+  signedOff: boolean;
+  requiresUat: boolean;
+  uatDocCount: number;
+  deployed: boolean;
+}): PipelineState {
+  const gates: { done: boolean; label: string; phase: PhaseKey }[] = [
+    { done: input.requirementCount > 0, label: "Awaiting requirements", phase: "requirements" },
+    { done: input.executionFileCount > 0, label: "Awaiting test cases", phase: "requirements" },
+    { done: input.allFilesApproved, label: "Awaiting test case approval", phase: "qa" },
+    { done: input.totalExecRows > 0 && input.executedRows >= input.totalExecRows, label: "In execution", phase: "qa" },
+    { done: input.signedOff, label: "Awaiting functional sign-off", phase: "qa" },
+    { done: !input.requiresUat || input.uatDocCount > 0, label: "Awaiting UAT sign-off", phase: "uat" },
+    { done: input.deployed, label: "Ready to deploy", phase: "uat" },
+  ];
+
+  const doneCount = gates.filter((g) => g.done).length;
+  const progress = Math.round((doneCount / gates.length) * 100);
+  const firstOpen = gates.find((g) => !g.done);
+
+  // Every gate cleared — the milestone is deployed and the pipeline is closed.
+  if (!firstOpen) return { progress: 100, label: "Deployed", phase: "uat" };
+  return { progress, label: firstOpen.label, phase: firstOpen.phase };
+}
+
+interface PhaseTimelineEntry {
+  key: "requirements" | "development" | "qa" | "uat";
+  label: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+}
+
+// Groups the requirement's raw segments (which key "gap"/"develop" separately
+// — see computeTimelineFromEvents) into the 4 phases the Tasks page shows,
+// mirroring PHASE_DUE_DATE_FIELD's merge of gap+develop under one planned
+// window. actualStart/actualEnd span the group's first segment's start to its
+// last segment's end across every cycle (a resubmitted requirement's second
+// Requirements round still counts) — actualEnd stays null while that phase is
+// the requirement's current one (its last segment is still "ongoing").
+export function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestonesTable.$inferSelect): PhaseTimelineEntry[] {
+  const groups: { key: PhaseTimelineEntry["key"]; label: string; segKeys: PhaseKey[]; plannedStart: Date | null; plannedEnd: Date | null }[] = [
+    { key: "requirements", label: "Requirements", segKeys: ["requirements"], plannedStart: m.startDate ?? null, plannedEnd: m.reqTargetDate ?? null },
+    { key: "development", label: "Development", segKeys: ["gap", "develop"], plannedStart: m.reqTargetDate ?? null, plannedEnd: m.devTargetDate ?? null },
+    { key: "qa", label: "Testing", segKeys: ["qa"], plannedStart: (m.pipelineEnabled ? m.startDate : m.devTargetDate) ?? null, plannedEnd: m.qaTargetDate ?? null },
+    { key: "uat", label: "UAT", segKeys: ["uat"], plannedStart: m.qaTargetDate ?? null, plannedEnd: m.uatTargetDate ?? null },
+  ];
+  return groups.filter(g => !m.pipelineEnabled || g.key === "qa" || (g.key === "uat" && m.requiresUat)).map((g) => {
+    const segs = segments.filter((s) => g.segKeys.includes(s.key));
+    const lastSeg = segs[segs.length - 1];
+    return {
+      key: g.key,
+      label: g.label,
+      plannedStart: g.plannedStart?.toISOString() ?? null,
+      plannedEnd: g.plannedEnd?.toISOString() ?? null,
+      actualStart: segs.length > 0 ? segs[0].start : null,
+      actualEnd: lastSeg?.end ?? null,
+    };
+  });
+}
+
+// CR075 — an execution file's test cases can each link to a different
+// requirement (per-row link, not per-file), so there's no single requirement
+// to read actual dates from. Rolls up across every linked requirement's own
+// buildPhaseTimeline instead: per phase, actualStart is the earliest start
+// among requirements that reached that phase; actualEnd is the latest end,
+// but stays null (phase reads "in progress") if ANY of them hasn't finished
+// it yet. Planned dates are identical across requirements in one milestone,
+// so they're just copied from whichever entry — or, with zero linked
+// requirements, straight from a call with no segments at all (planned-only).
+export function buildPhaseTimelineRollup(
+  entries: Awaited<ReturnType<typeof computeRequirementTimelines>>,
+  m: typeof milestonesTable.$inferSelect,
+): PhaseTimelineEntry[] {
+  if (entries.length === 0) return buildPhaseTimeline([], m);
+
+  const perReq = entries.map((e) => buildPhaseTimeline(e.timeline, m));
+  return perReq[0].map((_, i) => {
+    const rows = perReq.map((p) => p[i]);
+    const started = rows.filter((r) => r.actualStart != null);
+    const anyOngoing = started.some((r) => r.actualEnd == null);
+    return {
+      key: rows[0].key,
+      label: rows[0].label,
+      plannedStart: rows[0].plannedStart,
+      plannedEnd: rows[0].plannedEnd,
+      actualStart: started.length > 0
+        ? started.reduce((min, r) => (r.actualStart! < min ? r.actualStart! : min), started[0].actualStart!)
+        : null,
+      actualEnd: started.length === 0 || anyOngoing
+        ? null
+        : started.reduce((max, r) => (r.actualEnd! > max ? r.actualEnd! : max), started[0].actualEnd!),
+    };
+  });
+}
+
+function devStatusProgress(devStatus: string | null): number {
+  if (devStatus === "ready_for_qa") return 100;
+  if (devStatus === "in_progress") return 66;
+  if (devStatus === "assigned") return 33;
+  return 0;
+}
+
+function reviewStatusProgress(reviewStatus: string): number {
+  if (reviewStatus === "approved") return 100;
+  if (reviewStatus === "in_review") return 50;
+  return 0; // draft, rejected
+}
+
+// Shared by /dashboard/task-board (the real Tasks page) and
+// /dashboard/summary + /dashboard/weekly-trend below — those two used to
+// read the orphaned tasksTable instead, a legacy entity nothing in the
+// actual product creates rows in any more, so the Dashboard's task widgets
+// were structurally unable to agree with the Tasks page itself (a task
+// visible/blocked on one could never show on the other). One computation,
+// one source of truth.
+async function computeTaskBoardRows(ctx: { userId: number; role: string }): Promise<any[]> {
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const milestones = accessible === null
+    ? await db.select().from(milestonesTable)
+    : accessible.length > 0
+      ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, accessible))
+      : [];
+  if (milestones.length === 0) return [];
+
+  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
+  const usersById = new Map(allUsers.map((u) => [u.id, u]));
+
+  const rows: any[] = [];
+
+  // One batched pass for every milestone the user can see, instead of three
+  // queries per milestone inside the loop below.
+  const timelinesByMilestone = await computeRequirementTimelinesBatch(
+    milestones.map((m) => ({ id: m.id, completedAt: m.completedAt })),
+  );
+
+  // Every lookup below used to run once per milestone inside the loop.
+  // Requirement ids are globally unique and each belongs to exactly one
+  // milestone, so batching them across all milestones builds identical maps
+  // for a fixed number of queries instead of roughly six per milestone.
+  const allReqIds = [...new Set([...timelinesByMilestone.values()].flat().map((e) => e.id))];
+  const pipelineMilestones = milestones.filter((m) => m.pipelineEnabled);
+  const pipelineMilestoneIds = pipelineMilestones.map((m) => m.id);
+  const uatMilestoneIds = pipelineMilestones.filter((m) => m.requiresUat).map((m) => m.id);
+
+  const [extra, devTaskRows, execRows, pipelineFileRows, uatDocRows] = await Promise.all([
+    allReqIds.length
+      ? db
+          .select({
+            id: requirementsTable.id,
+            createdBy: requirementsTable.createdBy,
+            parentId: requirementsTable.parentId,
+            redmineTicketId: requirementsTable.redmineTicketId,
+            approvedBy: requirementsTable.approvedBy,
+            devAssigneeId: requirementsTable.devAssigneeId,
+            devAssignedBy: requirementsTable.devAssignedBy,
+            reviewStatus: requirementsTable.reviewStatus,
+            devStatus: requirementsTable.devStatus,
+            projectId: requirementsTable.projectId,
+            isBlocked: requirementsTable.isBlocked,
+            pipelineFaIds: requirementsTable.pipelineFaIds,
+            pipelineDevIds: requirementsTable.pipelineDevIds,
+            pipelineQaIds: requirementsTable.pipelineQaIds,
+          })
+          .from(requirementsTable)
+          .where(inArray(requirementsTable.id, allReqIds))
+      : [],
+    // Dev Tasks - {done, total} per requirement for the Tasks board's "N/M
+    // dev tasks" annotation. Additive alongside devStatusProgress's 33/66/100
+    // bucket below (that bucket stays as-is for zero-task requirements -
+    // this is display-only, it does not change progress math).
+    allReqIds.length
+      ? db
+          .select({ requirementId: tasksTable.requirementId, status: tasksTable.status })
+          .from(tasksTable)
+          .where(inArray(tasksTable.requirementId, allReqIds))
+      : [],
+    // QA PIC and QA/UAT results come off the same joined rows, so the big
+    // execution table is read once here rather than twice.
+    //
+    // QA "assignee" - resolved from linked execution file(s)' qaPic
+    // (file-level first, falling back to the per-row qaPic), not a dedicated
+    // column. The "who assigned" name (qaPicSetBy, CR067) is file-level only.
+    //
+    // Pass-rate keeps the same simplification rollupExecutionByMilestone
+    // documents: whatever is currently saved on each row, not "latest result
+    // per TC identity."
+    allReqIds.length
+      ? db
+          .select({
+            requirementId: executionTestCasesTable.requirementId,
+            executionFileId: executionTestCasesTable.executionFileId,
+            filePic: executionFilesTable.qaPic,
+            rowPic: executionTestCasesTable.qaPic,
+            filePicSetBy: executionFilesTable.qaPicSetBy,
+            fileApprovedBy: executionFilesTable.approvedBy,
+            fileRejectedBy: executionFilesTable.rejectedBy,
+            result: executionTestCasesTable.result,
+            fileType: executionFilesTable.fileType,
+          })
+          .from(executionTestCasesTable)
+          .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+          .where(inArray(executionTestCasesTable.requirementId, allReqIds))
+      : [],
+    pipelineMilestoneIds.length
+      ? db
+          .select({ id: executionFilesTable.id, milestoneId: executionFilesTable.milestoneId, reviewStatus: executionFilesTable.reviewStatus })
+          .from(executionFilesTable)
+          .where(inArray(executionFilesTable.milestoneId, pipelineMilestoneIds))
+      : [],
+    uatMilestoneIds.length
+      ? db
+          .select({ id: uatSignoffsTable.id, milestoneId: uatSignoffsTable.milestoneId })
+          .from(uatSignoffsTable)
+          .where(inArray(uatSignoffsTable.milestoneId, uatMilestoneIds))
+      : [],
+  ]);
+
+  const extraById = new Map(extra.map((e) => [e.id, e]));
+
+  const devTaskCountsByReq = new Map<number, { done: number; total: number }>();
+  for (const t of devTaskRows) {
+    if (t.requirementId == null) continue;
+    const counts = devTaskCountsByReq.get(t.requirementId) ?? { done: 0, total: 0 };
+    counts.total += 1;
+    if (t.status === "done") counts.done += 1;
+    devTaskCountsByReq.set(t.requirementId, counts);
+  }
+
+  const qaPicNamesByReq = new Map<number, Set<string>>();
+  // Everyone credited as QA PIC by having taken a file-level action on this
+  // requirement's execution file: who submitted it (qaPicSetBy) and — since
+  // approving or rejecting is a QA Lead+ taking ownership of the sign-off
+  // decision either way — whoever approved or rejected it.
+  const qaSetterIdsByReq = new Map<number, Set<number>>();
+  const qaFileIdByReq = new Map<number, number>();
+  const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
+  for (const r of execRows) {
+    if (r.requirementId == null) continue;
+    if (!qaFileIdByReq.has(r.requirementId)) qaFileIdByReq.set(r.requirementId, r.executionFileId);
+    const pic = r.filePic || r.rowPic;
+    if (pic) {
+      if (!qaPicNamesByReq.has(r.requirementId)) qaPicNamesByReq.set(r.requirementId, new Set());
+      qaPicNamesByReq.get(r.requirementId)!.add(pic);
+    }
+    for (const creditedId of [r.filePicSetBy, r.fileApprovedBy, r.fileRejectedBy]) {
+      if (creditedId == null) continue;
+      if (!qaSetterIdsByReq.has(r.requirementId)) qaSetterIdsByReq.set(r.requirementId, new Set());
+      qaSetterIdsByReq.get(r.requirementId)!.add(creditedId);
+    }
+    if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
+    const bucket = resultsByReq.get(r.requirementId)!;
+    (r.fileType === "uat" ? bucket.uat : bucket.qa).push(classifyResult(r.result));
+  }
+
+  // Pipeline milestones get their stage/progress from the pipeline's gates
+  // instead of the requirement activity timeline - see computePipelineState.
+  const pipelineFilesByMilestone = new Map<number, { id: number; reviewStatus: string }[]>();
+  for (const f of pipelineFileRows) {
+    if (f.milestoneId == null) continue;
+    if (!pipelineFilesByMilestone.has(f.milestoneId)) pipelineFilesByMilestone.set(f.milestoneId, []);
+    pipelineFilesByMilestone.get(f.milestoneId)!.push({ id: f.id, reviewStatus: f.reviewStatus });
+  }
+  const uatDocCountByMilestone = new Map<number, number>();
+  for (const d of uatDocRows) {
+    uatDocCountByMilestone.set(d.milestoneId, (uatDocCountByMilestone.get(d.milestoneId) ?? 0) + 1);
+  }
+  // Scoped by execution file, not requirementId, so rows that were never
+  // linked back to a requirement still count toward "everything executed".
+  const pipelineFileIds = pipelineFileRows.map((f) => f.id);
+  const pipelineExecRows = pipelineFileIds.length
+    ? await db
+        .select({ executionFileId: executionTestCasesTable.executionFileId, result: executionTestCasesTable.result })
+        .from(executionTestCasesTable)
+        .where(inArray(executionTestCasesTable.executionFileId, pipelineFileIds))
+    : [];
+  const milestoneIdByFileId = new Map(pipelineFileRows.map((f) => [f.id, f.milestoneId]));
+  const pipelineExecByMilestone = new Map<number, { result: string | null }[]>();
+  for (const r of pipelineExecRows) {
+    const mid = milestoneIdByFileId.get(r.executionFileId);
+    if (mid == null) continue;
+    if (!pipelineExecByMilestone.has(mid)) pipelineExecByMilestone.set(mid, []);
+    pipelineExecByMilestone.get(mid)!.push({ result: r.result });
+  }
+
+  const passPct = (results: string[]) => (results.length ? Math.round((results.filter((r) => r === "passed").length / results.length) * 100) : 0);
+
+  for (const m of milestones) {
+    const entries = timelinesByMilestone.get(m.id) ?? [];
+    if (entries.length === 0) continue;
+
+    const milestoneRequirementIds = new Set(entries.map((entry) => entry.id));
+    const parentRedmineIds = [...new Set(entries.flatMap((entry) => {
+      const info = extraById.get(entry.id);
+      // Roots of the linked requirement trees, never child-ticket IDs.
+      return info?.redmineTicketId && (info.parentId == null || !milestoneRequirementIds.has(info.parentId))
+        ? [info.redmineTicketId] : [];
+    }))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const actualStartDate = entries.map((entry) => entry.actualWorkStartedAt).filter((date): date is string => !!date).sort()[0] ?? null;
+    let pipelineState: PipelineState | null = null;
+    if (m.pipelineEnabled) {
+      const milestoneFiles = pipelineFilesByMilestone.get(m.id) ?? [];
+      const execRowsForMilestone = pipelineExecByMilestone.get(m.id) ?? [];
+      pipelineState = computePipelineState({
+        requirementCount: entries.length,
+        executionFileCount: milestoneFiles.length,
+        allFilesApproved: milestoneFiles.length > 0 && milestoneFiles.every((f) => f.reviewStatus === "approved"),
+        totalExecRows: execRowsForMilestone.length,
+        executedRows: execRowsForMilestone.filter((r) => classifyResult(r.result) !== "notRun").length,
+        signedOff: !!m.signedOffAt,
+        requiresUat: !!m.requiresUat,
+        uatDocCount: m.requiresUat ? uatDocCountByMilestone.get(m.id) ?? 0 : 0,
+        deployed: m.status === "completed",
+      });
+    }
+
+    for (const entry of entries) {
+      const info = extraById.get(entry.id);
+      if (!info) continue;
+      const lastSeg = entry.timeline[entry.timeline.length - 1];
+      const phase: PhaseKey = lastSeg?.key ?? "requirements";
+
+      const faOwnerId = info.createdBy ?? null;
+      const faOwnerName = faOwnerId != null ? usersById.get(faOwnerId)?.name ?? null : null;
+      const faApproverId = info.approvedBy ?? null;
+      const faApproverName = faApproverId != null ? usersById.get(faApproverId)?.name ?? null : null;
+      const faProgress = reviewStatusProgress(info.reviewStatus ?? "draft");
+
+      const devAssigneeId = info.devAssigneeId ?? null;
+      const devAssigneeName = devAssigneeId != null ? usersById.get(devAssigneeId)?.name ?? null : null;
+      const devAssignedById = info.devAssignedBy ?? null;
+      const devAssignedByName = devAssignedById != null ? usersById.get(devAssignedById)?.name ?? null : null;
+      const devProgress = devStatusProgress(info.devStatus);
+
+      const qaNames = qaPicNamesByReq.get(entry.id) ?? new Set<string>();
+      const qaSetterNames = [...(qaSetterIdsByReq.get(entry.id) ?? new Set<number>())]
+        .map((id) => usersById.get(id)?.name)
+        .filter((n): n is string => !!n);
+      const results = resultsByReq.get(entry.id) ?? { qa: [], uat: [] };
+      const qaProgress = passPct(results.qa);
+      const uatProgress = passPct(results.uat);
+
+      // Task board is cross-department visibility for everyone with project
+      // access (scopeToUserProjects above) — no dev/qa/fa row filtering here.
+      // Show every name that touched this requirement per department, not
+      // just one, and not just the department relevant to its current phase:
+      // FA's author + approver, Dev's assigning lead + assigned member, QA's
+      // assigning lead + assigned tester(s) (CR067). Progress still tracks
+      // the current phase — that's the only sensible single number when
+      // three departments' completion states differ.
+      const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
+      const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
+      const devAll = [...new Set([devAssignedByName, devAssigneeName].filter((n): n is string => !!n))];
+      const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
+
+      // A QA Pipeline milestone names its FA/Dev/QA owners up front in Step 2,
+      // rather than letting them accrue from workflow events. Where such
+      // explicit owners exist they win for that department — a direct statement
+      // of who's accountable beats an inference.
+      const pipelineNames = (ids: number[] | null) =>
+        (ids ?? []).map((id) => usersById.get(id)?.name).filter((n): n is string => !!n);
+      const pipelineFa = pipelineNames(info.pipelineFaIds);
+      const pipelineDev = pipelineNames(info.pipelineDevIds);
+      const pipelineQa = pipelineNames(info.pipelineQaIds);
+
+      // On a pipeline milestone the FA and Dev fallbacks are not just weaker
+      // evidence, they are evidence of something that never happened: faAll
+      // reads createdBy/approvedBy and devAll reads devAssigneeId, and a
+      // pipeline runs neither the FA approval nor the dev handoff that set
+      // those. The result was rows attributing a milestone's FA to whoever
+      // imported the requirement — "Admin User" — which reads to a manager as
+      // a real assignment. Unassigned means unassigned here, so the column
+      // shows a dash.
+      //
+      // QA keeps its fallback: those names come from the execution files' QA
+      // PIC, which IS a pipeline artifact (steps 3–4), not an inference.
+      const picByDepartment = m.pipelineEnabled
+        ? {
+            FA: [...new Set(pipelineFa)],
+            Dev: [...new Set(pipelineDev)],
+            QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+          }
+        : {
+            FA: [...new Set(pipelineFa.length > 0 ? pipelineFa : faAll)],
+            Dev: [...new Set(pipelineDev.length > 0 ? pipelineDev : devAll)],
+            QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+          };
+      const assignee = [
+        `FA: ${fmtNames(picByDepartment.FA)}`,
+        `Dev: ${fmtNames(picByDepartment.Dev)}`,
+        `QA: ${fmtNames(picByDepartment.QA)}`,
+      ].join(" · ");
+      let progress: number;
+      if (phase === "develop") progress = devProgress;
+      else if (phase === "qa") progress = qaProgress;
+      else if (phase === "uat") progress = uatProgress;
+      else progress = faProgress;
+
+      // Pipeline milestones report the pipeline's own stage and progress.
+      const effectivePhase = pipelineState ? pipelineState.phase : phase;
+      const effectiveLabel = pipelineState ? pipelineState.label : PHASE_LABELS[phase];
+      const effectiveProgress = pipelineState ? pipelineState.progress : progress;
+
+      // The per-phase target dates (Requirements by / Dev done by / …) are
+      // optional and usually blank, which left this column empty. Fall back to
+      // the milestone's own target date — the one date that's actually always
+      // set — and prefer it outright for pipeline milestones, where QA plans
+      // against the milestone target rather than per-phase windows.
+      const phaseDue = (m as any)[PHASE_DUE_DATE_FIELD[phase]] ?? null;
+      const milestoneDue = m.targetDate ?? null;
+      const dueDate = (m.pipelineEnabled
+        ? (milestoneDue ?? phaseDue)
+        : (phaseDue ?? milestoneDue))?.toISOString?.() ?? null;
+
+      rows.push({
+        requirementId: entry.id,
+        title: entry.title,
+        parentId: entry.parentId,
+        projectId: info.projectId,
+        milestoneId: m.id,
+        milestoneName: m.name,
+        milestonePriority: (m as any).priority ?? null,
+        milestoneStatus: m.status,
+        // Lets the Tasks board say a milestone runs on the QA Pipeline, which
+        // is what explains its empty FA/Dev columns and its gate-based phase
+        // labels rather than the usual FA→Dev→QA progression.
+        pipelineEnabled: !!m.pipelineEnabled,
+        parentRedmineIds,
+        targetStartDate: m.startDate?.toISOString() ?? null,
+        targetEndDate: m.targetDate?.toISOString() ?? null,
+        actualStartDate,
+        actualEndDate: m.status === "completed" ? m.completedAt?.toISOString() ?? null : null,
+        phase: effectivePhase,
+        phaseLabel: effectiveLabel,
+        statusLabel: pipelineState ? effectiveLabel : entry.status,
+        assignee,
+        picByDepartment,
+        progress: effectiveProgress,
+        dueDate,
+        goLiveDate: m.goLiveDate?.toISOString() ?? null,
+        devAssigneeId,
+        executionFileId: qaFileIdByReq.get(entry.id) ?? null,
+        phaseTimeline: buildPhaseTimeline(entry.timeline, m),
+        isBlocked: info.isBlocked ?? false,
+        devTaskCounts: devTaskCountsByReq.get(entry.id) ?? null,
+        // Last real activity on this requirement (its current phase segment's
+        // end, or start if that phase is still ongoing) — used to bucket
+        // /dashboard/weekly-trend by week, same idea as tasksTable.updatedAt
+        // used to serve for the old task-based version of that chart.
+        lastActivityAt: entry.timeline.length > 0
+          ? entry.timeline[entry.timeline.length - 1].end ?? entry.timeline[entry.timeline.length - 1].start
+          : null,
+      });
+    }
+  }
+
+  return rows;
+}
+
+router.get("/dashboard/task-board", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const rows = await computeTaskBoardRows(ctx);
+  res.json(rows);
+});
+
+// ── CR033p1: Closed Milestones (PMBOK Closing) ───────────────────────────────
+// Retrospective list — reuses the CR032 timeline machinery so each closed
+// milestone's phase summary is consistent with what the phase-breakdown
+// panel would have shown right before it closed.
+router.get("/dashboard/closed-milestones", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!PM_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
+
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+
+  const closed = await db.select().from(milestonesTable)
+    .where(and(eq(milestonesTable.projectId, projectId), eq(milestonesTable.status, "completed")))
+    .orderBy(desc(milestonesTable.completedAt));
+
+  const closedByIds = closed.map(m => m.closedBy).filter((id): id is number => id != null);
+  const closedByUsers = closedByIds.length
+    ? await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, closedByIds))
+    : [];
+  const closedByName = new Map(closedByUsers.map(u => [u.id, u.name]));
+
+  const result = [];
+  const closedTimelines = await computeRequirementTimelinesBatch(closed.map((m) => ({ id: m.id, completedAt: m.completedAt })));
+  for (const m of closed) {
+    const entries = closedTimelines.get(m.id) ?? [];
+    const phaseSummary = entries.length > 0 ? summarizeTimelines(entries) : [];
+    result.push({
+      id: m.id,
+      name: m.name,
+      type: m.type,
+      targetDate: m.targetDate?.toISOString() ?? null,
+      completedAt: m.completedAt?.toISOString() ?? null,
+      closedBy: m.closedBy ?? null,
+      closedByName: m.closedBy ? (closedByName.get(m.closedBy) ?? null) : null,
+      lessonsLearned: m.lessonsLearned ?? null,
+      requirementCount: entries.length,
+      phaseSummary,
+    });
+  }
+
+  res.json(result);
+});
+
+// ── CR034: Resource Management — active focus / no active milestone / closed history ──
+// A per-department, not-`tasksTable`-for-everyone view of who's actually
+// engaged on an active milestone right now. QA's system of record is the
+// execution file (qaPic); FA's is the requirement they authored; Dev/PM's is
+// tasksTable — FA never appears as a task assignee in practice, so a single
+// tasksTable-based rule would silently show every FA lead as always idle.
+type ResourceScope = { departments: string[] | null; projectIds: number[] | null } | null;
+
+async function resolveResourceViewScope(ctx: { userId: number; role: string }): Promise<ResourceScope> {
+  if (ctx.role === "admin" || ctx.role === "cto") return { departments: null, projectIds: null };
+
+  const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, ctx.role));
+  const department = roleRow?.department ?? null;
+  const tierRank = roleRow?.tierRank ?? 1;
+  if (!department || tierRank < 2) return null; // tier 1 (member) — no access to this view
+
+  if (department === "pm" && tierRank >= 4) {
+    return { departments: null, projectIds: null }; // hod_pm — every department, every project
+  }
+  if (department === "pm") {
+    // pm_lead — cross-cutting (every department), scoped to their own projects
+    const projectIds = await scopeToUserProjects(ctx.userId, ctx.role);
+    return { departments: null, projectIds: projectIds ?? [] };
+  }
+  if (tierRank >= 3) {
+    // qa_manager/hod_qa/hod_fa/hod_dev — own department, every project.
+    // Not scoped via project_members: roles.ts' bootstrap() cross-joins
+    // every user x every project into that table on every server start
+    // (a permissive access-control default, not real assignment), so a
+    // project_members-based "which projects has this department" query
+    // would always resolve to literally every project anyway. Being
+    // explicitly unrestricted here is more honest than pretending to
+    // filter with data that can't actually filter anything.
+    return { departments: [department], projectIds: null };
+  }
+  // lead (tier 2) — own department, scoped to their own projects
+  const projectIds = await scopeToUserProjects(ctx.userId, ctx.role);
+  return { departments: [department], projectIds: projectIds ?? [] };
+}
+
+router.get("/dashboard/resource-view", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const scope = await resolveResourceViewScope(ctx);
+  if (!scope) { res.status(403).json({ error: "Lead role or above required" }); return; }
+
+  const requestedProjectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (requestedProjectId && scope.projectIds !== null && !scope.projectIds.includes(requestedProjectId)) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+  const effectiveProjectIds = requestedProjectId ? [requestedProjectId] : scope.projectIds;
+
+  const requestedDept = typeof req.query.department === "string" ? req.query.department : null;
+  const effectiveDepartments = scope.departments
+    ? scope.departments
+    : (requestedDept ? [requestedDept] : null); // null = viewer can see every department
+
+  // ── Candidate users: department-scoped, NOT sourced from project_members ──
+  // roles.ts' bootstrap() cross-joins every user x every project into
+  // project_members on every server start, so that table can't distinguish
+  // "actually on this project" from "exists in the system" — using it here
+  // showed every QA member as belonging to all 8+ projects in the DB. A
+  // person's real project involvement is derived below from their own
+  // activity (execution PIC / authored requirement / assigned task) instead.
+  let candidates = await db
+    .select({ userId: usersTable.id, name: usersTable.name, role: usersTable.role, department: rolesTable.department })
+    .from(usersTable)
+    .leftJoin(rolesTable, eq(rolesTable.name, usersTable.role));
+  if (effectiveDepartments !== null) candidates = candidates.filter(u => u.department && effectiveDepartments!.includes(u.department)) as typeof candidates;
+  if (candidates.length === 0) { res.json([]); return; }
+
+  const searchProjectIds = effectiveProjectIds !== null
+    ? effectiveProjectIds
+    : (await db.select({ id: projectsTable.id }).from(projectsTable)).map(p => p.id);
+  const projects = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, searchProjectIds));
+  const projectNameById = new Map(projects.map(p => [p.id, p.name]));
+
+  const milestones = searchProjectIds.length
+    ? await db.select().from(milestonesTable).where(inArray(milestonesTable.projectId, searchProjectIds))
+    : [];
+  const activeMilestoneIds = new Set(milestones.filter(m => ["active", "verified", "uat"].includes(m.status)).map(m => m.id));
+  const closedMilestoneIds = new Set(milestones.filter(m => m.status === "completed").map(m => m.id));
+  const milestoneById = new Map(milestones.map(m => [m.id, m]));
+  const allTrackedMilestoneIds = milestones.map(m => m.id);
+
+  // ── QA signal: everyone actually assigned QA work on the milestone ────────
+  // This read the execution FILE's QA PIC and nothing else, so a milestone
+  // whose testing is split across the team showed one name and the rest of QA
+  // vanished from the roster entirely — not just from "Active", but from "No
+  // active milestone" and "Closed history" too, because the result loop below
+  // drops anyone with no signal at all.
+  //
+  // Three real assignments count now. The first two are stored as names on
+  // the execution tables, the third as user ids on the requirement, so they
+  // are collected into separate maps and unioned per person further down:
+  //   · execution file QA PIC     — whoever owns the file
+  //   · execution row QA PIC      — the per-test-case tester ("Assign to me")
+  //   · requirement pipelineQaIds — QA named up front in the QA Pipeline,
+  //                                 which is the only signal a pipeline
+  //                                 milestone has before any file exists
+  const [execRows, execRowPicRows] = await Promise.all([
+    allTrackedMilestoneIds.length
+      ? db.select({ qaPic: executionFilesTable.qaPic, milestoneId: executionFilesTable.milestoneId })
+          .from(executionFilesTable).where(inArray(executionFilesTable.milestoneId, allTrackedMilestoneIds))
+      : Promise.resolve([] as { qaPic: string | null; milestoneId: number | null }[]),
+    allTrackedMilestoneIds.length
+      // Distinct, not every row: a milestone can hold thousands of test cases
+      // and this only ever needs the set of (tester, milestone) pairs.
+      ? db.selectDistinct({ qaPic: executionTestCasesTable.qaPic, milestoneId: executionFilesTable.milestoneId })
+          .from(executionTestCasesTable)
+          .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+          .where(and(
+            inArray(executionFilesTable.milestoneId, allTrackedMilestoneIds),
+            isNotNull(executionTestCasesTable.qaPic),
+          ))
+      : Promise.resolve([] as { qaPic: string | null; milestoneId: number | null }[]),
+  ]);
+
+  const qaActiveByName = new Map<string, Set<number>>();
+  const qaClosedByName = new Map<string, Set<number>>();
+  const addQaName = (name: string | null, milestoneId: number | null) => {
+    const pic = name?.trim();
+    if (!pic || milestoneId == null) return;
+    const target = activeMilestoneIds.has(milestoneId) ? qaActiveByName
+      : closedMilestoneIds.has(milestoneId) ? qaClosedByName
+      : null;
+    if (!target) return;
+    if (!target.has(pic)) target.set(pic, new Set());
+    target.get(pic)!.add(milestoneId);
+  };
+  for (const row of execRows) addQaName(row.qaPic, row.milestoneId);
+  for (const row of execRowPicRows) addQaName(row.qaPic, row.milestoneId);
+
+  // ── FA signal: authored requirement, active = not yet approved ─────────────
+  // Also carries devAssigneeId/devStatus for the Dev signal just below —
+  // one query instead of two, same requirement rows either way.
+  //
+  // A milestone's displayed requirement count (Milestones page) includes
+  // every descendant in the tree, but only the top-level requirement in that
+  // tree actually has milestoneId set — a child added via "Add child" never
+  // gets one of its own. Filtering this query by `milestoneId IN (tracked)`
+  // the way computeRequirementTimelinesBatch above does would silently miss
+  // every child, so instead every requirement in the searched projects is
+  // pulled and each row's *effective* milestone is resolved by walking
+  // parentId up to the nearest ancestor that has one set (memoized — a large
+  // tree has many siblings resolving through the same ancestors).
+  const allProjectReqs = searchProjectIds.length
+    ? await db.select({ id: requirementsTable.id, parentId: requirementsTable.parentId, createdBy: requirementsTable.createdBy, milestoneId: requirementsTable.milestoneId, reviewStatus: requirementsTable.reviewStatus, devAssigneeId: requirementsTable.devAssigneeId, devStatus: requirementsTable.devStatus, pipelineQaIds: requirementsTable.pipelineQaIds })
+        .from(requirementsTable).where(inArray(requirementsTable.projectId, searchProjectIds))
+    : [];
+  const reqById = new Map(allProjectReqs.map((r) => [r.id, r]));
+  const effectiveMilestoneCache = new Map<number, number | null>();
+  function effectiveMilestoneId(reqId: number, guard: Set<number> = new Set()): number | null {
+    if (effectiveMilestoneCache.has(reqId)) return effectiveMilestoneCache.get(reqId)!;
+    if (guard.has(reqId)) return null; // cyclic parentId — bail rather than loop forever
+    guard.add(reqId);
+    const r = reqById.get(reqId);
+    const resolved = r ? (r.milestoneId ?? (r.parentId != null ? effectiveMilestoneId(r.parentId, guard) : null)) : null;
+    effectiveMilestoneCache.set(reqId, resolved);
+    return resolved;
+  }
+
+  const faActiveByUser = new Map<number, Set<number>>();
+  const faClosedByUser = new Map<number, Set<number>>();
+  for (const row of allProjectReqs) {
+    if (row.createdBy == null) continue;
+    const milestoneId = effectiveMilestoneId(row.id);
+    if (milestoneId == null) continue;
+    if (activeMilestoneIds.has(milestoneId) && row.reviewStatus !== "approved") {
+      if (!faActiveByUser.has(row.createdBy)) faActiveByUser.set(row.createdBy, new Set());
+      faActiveByUser.get(row.createdBy)!.add(milestoneId);
+    } else if (closedMilestoneIds.has(milestoneId)) {
+      if (!faClosedByUser.has(row.createdBy)) faClosedByUser.set(row.createdBy, new Set());
+      faClosedByUser.get(row.createdBy)!.add(milestoneId);
+    }
+  }
+
+  // ── Dev signal: requirement dev-assignment, active = not yet ready_for_qa ──
+  // Replaces the old open-task-assignment signal — tasksTable is empty in
+  // real usage (nothing in the product writes to it any more; see
+  // computeTaskBoardRows in the /dashboard/task-board section above).
+  const devActiveByUser = new Map<number, Set<number>>();
+  const devClosedByUser = new Map<number, Set<number>>();
+  for (const row of allProjectReqs) {
+    if (row.devAssigneeId == null) continue;
+    const milestoneId = effectiveMilestoneId(row.id);
+    if (milestoneId == null) continue;
+    if (activeMilestoneIds.has(milestoneId) && row.devStatus !== "ready_for_qa") {
+      if (!devActiveByUser.has(row.devAssigneeId)) devActiveByUser.set(row.devAssigneeId, new Set());
+      devActiveByUser.get(row.devAssigneeId)!.add(milestoneId);
+    } else if (closedMilestoneIds.has(milestoneId)) {
+      if (!devClosedByUser.has(row.devAssigneeId)) devClosedByUser.set(row.devAssigneeId, new Set());
+      devClosedByUser.get(row.devAssigneeId)!.add(milestoneId);
+    }
+  }
+
+  // ── QA pipeline roster: requirement.pipelineQaIds ─────────────────────────
+  // Step 2 of the QA Pipeline names its QA members outright. That is a direct
+  // statement of who is on the milestone, and it lands before any execution
+  // file exists — so without it a pipeline milestone's QA team stays invisible
+  // on this page until someone happens to be set as a file PIC.
+  const qaPipelineActiveByUser = new Map<number, Set<number>>();
+  const qaPipelineClosedByUser = new Map<number, Set<number>>();
+  for (const row of allProjectReqs) {
+    if (!row.pipelineQaIds || row.pipelineQaIds.length === 0) continue;
+    const milestoneId = effectiveMilestoneId(row.id);
+    if (milestoneId == null) continue;
+    const target = activeMilestoneIds.has(milestoneId) ? qaPipelineActiveByUser
+      : closedMilestoneIds.has(milestoneId) ? qaPipelineClosedByUser
+      : null;
+    if (!target) continue;
+    for (const uid of row.pipelineQaIds) {
+      if (uid == null) continue;
+      if (!target.has(uid)) target.set(uid, new Set());
+      target.get(uid)!.add(milestoneId);
+    }
+  }
+
+  // ── PM signal: milestone ownership (createdBy) — a PM's real, tracked tie
+  // to a milestone in this schema, replacing the same tasksTable dependency.
+  const pmActiveByUser = new Map<number, Set<number>>();
+  const pmClosedByUser = new Map<number, Set<number>>();
+  for (const m of milestones) {
+    if (m.createdBy == null) continue;
+    if (activeMilestoneIds.has(m.id)) {
+      if (!pmActiveByUser.has(m.createdBy)) pmActiveByUser.set(m.createdBy, new Set());
+      pmActiveByUser.get(m.createdBy)!.add(m.id);
+    } else if (closedMilestoneIds.has(m.id)) {
+      if (!pmClosedByUser.has(m.createdBy)) pmClosedByUser.set(m.createdBy, new Set());
+      pmClosedByUser.get(m.createdBy)!.add(m.id);
+    }
+  }
+
+  // Each milestone ID is globally unique and already carries its own
+  // projectId (via milestoneById) — so a milestone chip's project comes
+  // from the milestone itself, never from whichever roster row we're on.
+  // The qa/fa/dev/pm signal maps above are already aggregated per person
+  // across every project in scope, not per membership row, so there's
+  // nothing project-specific left to loop over here.
+  const unionIds = (a: Set<number> | undefined, b: Set<number> | undefined) => {
+    if (!a) return b;
+    if (!b) return a;
+    return new Set([...a, ...b]);
+  };
+
+  const milestoneRefs = (ids: Set<number> | undefined) =>
+    ids ? [...ids].map(id => {
+      const m = milestoneById.get(id);
+      return { id, name: m?.name ?? `Milestone #${id}`, projectId: m?.projectId ?? null, projectName: m ? (projectNameById.get(m.projectId) ?? `Project #${m.projectId}`) : null };
+    }) : [];
+
+  // One row per person, only for people with at least one real activity
+  // signal (active or closed) — someone with genuinely zero exec/requirement/
+  // task history in these projects has nothing trustworthy to show them
+  // against (see the project_members caveat above), so they're left out
+  // rather than shown with a fabricated "N projects" count.
+  const result = candidates.flatMap(u => {
+    let activeIds: Set<number> | undefined;
+    let closedIds: Set<number> | undefined;
+    let signal: "execution_pic" | "qa_pipeline" | "requirement_author" | "dev_assignee" | "milestone_owner" | null = null;
+
+    if (u.department === "qa") {
+      // QA is the one department with more than one way to be on a milestone,
+      // so its two rosters are unioned rather than picked between. The signal
+      // label follows the stronger evidence: an actual execution assignment
+      // where there is one, the pipeline roster where that is all there is.
+      const picActive = qaActiveByName.get(u.name);
+      const picClosed = qaClosedByName.get(u.name);
+      activeIds = unionIds(picActive, qaPipelineActiveByUser.get(u.userId));
+      closedIds = unionIds(picClosed, qaPipelineClosedByUser.get(u.userId));
+      signal = (picActive?.size || picClosed?.size) ? "execution_pic" : "qa_pipeline";
+    } else if (u.department === "fa") {
+      activeIds = faActiveByUser.get(u.userId); closedIds = faClosedByUser.get(u.userId); signal = "requirement_author";
+    } else if (u.department === "dev") {
+      activeIds = devActiveByUser.get(u.userId); closedIds = devClosedByUser.get(u.userId); signal = "dev_assignee";
+    } else if (u.department === "pm") {
+      activeIds = pmActiveByUser.get(u.userId); closedIds = pmClosedByUser.get(u.userId); signal = "milestone_owner";
+    }
+
+    if ((!activeIds || activeIds.size === 0) && (!closedIds || closedIds.size === 0)) return [];
+
+    const activeMilestones = milestoneRefs(activeIds);
+    const closedMilestones = milestoneRefs(closedIds);
+    const projects = new Map<number, { id: number; name: string }>();
+    for (const m of [...activeMilestones, ...closedMilestones]) {
+      if (m.projectId != null) projects.set(m.projectId, { id: m.projectId, name: m.projectName ?? `Project #${m.projectId}` });
+    }
+
+    return [{
+      userId: u.userId,
+      name: u.name,
+      role: u.role,
+      department: u.department,
+      projects: Array.from(projects.values()),
+      signal,
+      activeMilestones,
+      hasNoActiveMilestone: !activeIds || activeIds.size === 0,
+      closedMilestones,
+    }];
+  });
+
+  res.json(result);
+});
 
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const now = new Date();
 
-  let tasks = await db.select().from(tasksTable);
-  let testCases = await db.select().from(testCasesTable);
-  let requirements = await db.select().from(requirementsTable);
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  // Only the columns the counters below actually read. `select()` pulled
+  // every column of both tables - including the long description/test-step
+  // text - across the wire just to produce a handful of integers.
+  const [testCasesAll, requirementsAll] = await Promise.all([
+    db
+      .select({
+        projectId: testCasesTable.projectId,
+        authorId: testCasesTable.authorId,
+        aiAssisted: testCasesTable.aiAssisted,
+        type: testCasesTable.type,
+      })
+      .from(testCasesTable),
+    db
+      .select({
+        projectId: requirementsTable.projectId,
+        status: requirementsTable.status,
+      })
+      .from(requirementsTable),
+  ]);
+  let testCases = testCasesAll;
+  let requirements = requirementsAll;
+
+  // "Tasks" here are the same requirement/milestone rows the Tasks page
+  // itself shows (computeTaskBoardRows) — not the orphaned tasksTable,
+  // which nothing in the real product writes to any more. Previously these
+  // two were structurally unable to agree: a requirement marked blocked
+  // there had no way to ever show up as "blocked" here.
+  let taskRows = await computeTaskBoardRows(ctx);
 
   const parsed = GetDashboardSummaryQueryParams.safeParse(req.query);
   if (parsed.success) {
     const { projectId, userId } = parsed.data;
     if (projectId) {
-      tasks = tasks.filter(t => t.projectId === projectId);
+      taskRows = taskRows.filter(r => r.projectId === projectId);
       testCases = testCases.filter(tc => tc.projectId === projectId);
       requirements = requirements.filter(r => r.projectId === projectId);
     }
     if (userId) {
-      tasks = tasks.filter(t => t.assigneeId === userId);
+      // taskRows intentionally isn't filtered by userId here — a task-board
+      // row's assignee is a formatted "FA: X · Dev: Y · QA: Z" display
+      // string, not a clean id, so there's no exact per-user filter to do
+      // without a name-based heuristic. Task counts fall back to org-wide
+      // (still scoped to the caller's accessible projects) when a userId is
+      // passed; testCases below keeps its real id-based filter.
       testCases = testCases.filter(tc => tc.authorId === userId);
     }
   }
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.status === "released_to_production").length;
-  const pendingTasks = tasks.filter(t => ["uat", "sit"].includes(t.status)).length;
-  const blockedTasks = tasks.filter(t => t.status === "blocked").length;
-  const overdueTasks = tasks.filter(t => {
-    if (t.status === "released_to_production" || !t.dueDate) return false;
-    return new Date(t.dueDate) < now;
-  }).length;
+  // A completed milestone's requirement isn't "pending" no matter which
+  // phase it last sat in — same "completed beats phase" precedence the
+  // weekly-trend bucketing already uses. Without this, a requirement that
+  // finished cleanly (e.g. reached UAT, then its milestone closed) was
+  // double-counted as both completed and pending.
+  const isPending = (r: (typeof taskRows)[number]) =>
+    r.milestoneStatus !== "completed" && (r.phase === "qa" || r.phase === "uat");
+  const isOverdueRow = (r: (typeof taskRows)[number]) =>
+    r.milestoneStatus !== "completed" && !!r.dueDate && new Date(r.dueDate) < now;
+
+  const totalTasks = taskRows.length;
+  const completedTasks = taskRows.filter(r => r.milestoneStatus === "completed").length;
+  const pendingTasks = taskRows.filter(isPending).length;
+  const blockedTasks = taskRows.filter(r => r.isBlocked).length;
+  const overdueTasks = taskRows.filter(isOverdueRow).length;
 
   const totalRequirements = requirements.length;
   const openRequirements = requirements.filter(r => r.status !== "done").length;
@@ -44,24 +1890,21 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const automationCandidates = testCases.filter(tc => tc.type === "automation_candidate").length;
 
   // Blocked/overdue task details
-  const blockedOrOverdueTasks = tasks
-    .filter(t => {
-      if (t.status === "blocked") return true;
-      if (t.status === "released_to_production" || !t.dueDate) return false;
-      return new Date(t.dueDate) < now;
-    })
-    .map(t => ({
-      id: t.id,
-      name: t.name,
-      status: t.status,
-      dueDate: t.dueDate,
-      isOverdue: t.status !== "released_to_production" && !!t.dueDate && new Date(t.dueDate) < now,
+  const blockedOrOverdueTasks = taskRows
+    .filter(r => r.isBlocked || isOverdueRow(r))
+    .map(r => ({
+      id: r.requirementId,
+      requirementId: r.requirementId,
+      name: r.title,
+      status: r.isBlocked ? "blocked" : r.phaseLabel,
+      dueDate: r.dueDate,
+      isOverdue: isOverdueRow(r),
     }));
 
-  // Pending task details (UAT / SIT)
-  const pendingTasksList = tasks
-    .filter(t => ["uat", "sit"].includes(t.status))
-    .map(t => ({ id: t.id, name: t.name, status: t.status, dueDate: t.dueDate ?? null }));
+  // Pending task details (QA / UAT phase, milestone still open)
+  const pendingTasksList = taskRows
+    .filter(isPending)
+    .map(r => ({ id: r.requirementId, requirementId: r.requirementId, name: r.title, status: r.phaseLabel, dueDate: r.dueDate ?? null }));
 
   res.json({
     totalTasks,
@@ -80,27 +1923,51 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   });
 });
 
+// NOTE: not currently called by any frontend page (checked — no reference
+// to memberStats/tasksByProject anywhere in artifacts/qm-pulse/src). Fixed
+// anyway for consistency with the other dashboard routes, in case something
+// starts consuming it later, but there's no UI regression risk either way.
 router.get("/dashboard/team", async (req, res): Promise<void> => {
-  const now = new Date();
   const users = await db.select().from(usersTable);
-  const allTasks = await db.select().from(tasksTable);
   const allTestCases = await db.select().from(testCasesTable);
   const allProjects = await db.select().from(projectsTable);
 
+  // QA member "tasks" here are the execution rows they're PIC on — the real
+  // unit of QA work in this app — replacing tasksTable (empty; nothing in
+  // the product writes to it). File-level qaPic wins over the per-row one,
+  // same precedence computeTaskBoardRows uses for the same field pair.
+  const execRows = await db
+    .select({
+      projectId: executionFilesTable.projectId,
+      filePic: executionFilesTable.qaPic,
+      rowPic: executionTestCasesTable.qaPic,
+      result: executionTestCasesTable.result,
+      rowType: executionTestCasesTable.rowType,
+    })
+    .from(executionTestCasesTable)
+    .innerJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId));
+
+  const nameToUserId = new Map<string, number>(users.map(u => [u.name.toLowerCase(), u.id]));
+  const normResult = (r: string | null) => (r ?? "").trim().toLowerCase();
+
   const memberStats = users.filter(u => u.role === "qa_member" || u.role === "qa_lead").map(user => {
-    const userTasks = allTasks.filter(t => t.assigneeId === user.id);
+    const userExecRows = execRows.filter(r => {
+      if (r.rowType === "group") return false;
+      const pic = r.filePic || r.rowPic;
+      return pic ? nameToUserId.get(pic.trim().toLowerCase()) === user.id : false;
+    });
     const userTestCases = allTestCases.filter(tc => tc.authorId === user.id);
 
     return {
       userId: user.id,
       userName: user.name,
-      completed: userTasks.filter(t => t.status === "released_to_production").length,
-      pending: userTasks.filter(t => ["uat", "sit"].includes(t.status)).length,
-      blocked: userTasks.filter(t => t.status === "blocked").length,
-      overdue: userTasks.filter(t => {
-        if (t.status === "released_to_production" || !t.dueDate) return false;
-        return new Date(t.dueDate) < now;
-      }).length,
+      completed: userExecRows.filter(r => normResult(r.result) === "passed").length,
+      pending: userExecRows.filter(r => !normResult(r.result) || normResult(r.result) === "not executed").length,
+      blocked: userExecRows.filter(r => normResult(r.result) === "blocked").length,
+      // Repurposed from "past due date" (tasksTable had one, execution rows
+      // don't) to "failed and still unresolved" — the closest real signal
+      // this data actually has for "needs follow-up."
+      overdue: userExecRows.filter(r => normResult(r.result) === "failed").length,
       testCasesCreated: userTestCases.length,
     };
   });
@@ -108,27 +1975,42 @@ router.get("/dashboard/team", async (req, res): Promise<void> => {
   const projectCounts = allProjects.map(p => ({
     projectId: p.id,
     projectName: p.name,
-    count: allTasks.filter(t => t.projectId === p.id).length,
+    count: execRows.filter(r => r.projectId === p.id && r.rowType !== "group").length,
   }));
 
   res.json({ memberStats, tasksByProject: projectCounts });
 });
 
 router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = GetWeeklyTrendQueryParams.safeParse(req.query);
   const weeks = parsed.success && parsed.data.weeks ? parsed.data.weeks : 6;
-  const userId = parsed.success ? parsed.data.userId : undefined;
+  // userId filtering dropped here for the same reason as /dashboard/summary
+  // above — a task-board row's assignee is a display string, not an id.
 
-  let allTasks = await db.select().from(tasksTable);
-
-  if (userId) {
-    allTasks = allTasks.filter((t) => t.assigneeId === userId);
-  }
+  // Same requirement/task-board rows as /dashboard/summary and the real
+  // Tasks page — see computeTaskBoardRows for why this replaced tasksTable.
+  const rows = await computeTaskBoardRows(ctx);
 
   const now = new Date();
   // Find start of current week (Monday-based)
   const currentDay = now.getDay(); // 0=Sun, 1=Mon...6=Sat
   const daysToMonday = currentDay === 0 ? 6 : currentDay - 1;
+
+  // One bucket per row, priority order: blocked beats everything (most
+  // urgent to surface), completed beats phase (a requirement whose
+  // milestone closed is done regardless of which phase it last sat in),
+  // otherwise bucket by its current phase.
+  const bucketOf = (r: (typeof rows)[number]): "blocked" | "completed" | "requirements" | "development" | "qa" | "uat" => {
+    if (r.isBlocked) return "blocked";
+    if (r.milestoneStatus === "completed") return "completed";
+    if (r.phase === "gap" || r.phase === "develop") return "development";
+    if (r.phase === "qa") return "qa";
+    if (r.phase === "uat") return "uat";
+    return "requirements";
+  };
 
   const trendData = [];
   for (let i = weeks - 1; i >= 0; i--) {
@@ -143,32 +2025,25 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
     // ISO date string so the frontend chart can parse it
     const weekIso = weekStart.toISOString().split("T")[0];
 
-    // Get all tasks that were updated/active during this specific week
-    const weekTasks = allTasks.filter(t => {
-      const updated = new Date(t.updatedAt);
-      return updated >= weekStart && updated <= weekEnd;
+    // Rows whose last real activity (its current phase's end, or start if
+    // still ongoing) falls in this specific week.
+    const weekRows = rows.filter(r => {
+      if (!r.lastActivityAt) return false;
+      const activity = new Date(r.lastActivityAt);
+      return activity >= weekStart && activity <= weekEnd;
     });
 
-    // Count tasks by their exact status
-    const newCount = weekTasks.filter(t => t.status === "new").length;
-    const pendingCount = weekTasks.filter(t => t.status === "pending").length;
-    const inProgressCount = weekTasks.filter(t => t.status === "in_progress").length;
-    const blockedCount = weekTasks.filter(t => t.status === "blocked").length;
-    const sitCount = weekTasks.filter(t => t.status === "sit").length;
-    const uatCount = weekTasks.filter(t => t.status === "uat").length;
-    const doneCount = weekTasks.filter(t => t.status === "done").length;
-    const releasedCount = weekTasks.filter(t => t.status === "released_to_production").length;
+    const counts = { blocked: 0, completed: 0, requirements: 0, development: 0, qa: 0, uat: 0 };
+    for (const r of weekRows) counts[bucketOf(r)]++;
 
-    trendData.push({ 
-      week: weekIso, 
-      new: newCount,
-      pending: pendingCount,
-      in_progress: inProgressCount,
-      blocked: blockedCount,
-      sit: sitCount,
-      uat: uatCount,
-      done: doneCount,
-      released_to_production: releasedCount
+    trendData.push({
+      week: weekIso,
+      requirements: counts.requirements,
+      development: counts.development,
+      qa: counts.qa,
+      uat: counts.uat,
+      blocked: counts.blocked,
+      completed: counts.completed,
     });
   }
 
@@ -200,6 +2075,229 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
     entityType: a.entityType,
     createdAt: a.createdAt.toISOString(),
   })));
+});
+
+// ── CR026: QA Analytics Dashboard ────────────────────────────────────────────
+
+const QA_ANALYTICS_ROLES = ["qa_lead", "qa_manager", "hod_qa", "admin", "cto"];
+
+function toIsoWeek(d: Date): string {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function weeksBetween(start: Date, end: Date): string[] {
+  const weeks: string[] = [];
+  const d = new Date(start);
+  // Snap to start of week (Monday)
+  const dow = d.getDay();
+  d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+  d.setHours(0, 0, 0, 0);
+  while (d <= end) {
+    weeks.push(toIsoWeek(d));
+    d.setDate(d.getDate() + 7);
+  }
+  // Cap at 26 weeks to avoid oversized responses
+  return weeks.slice(-26);
+}
+
+router.get("/dashboard/qa-analytics", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!QA_ANALYTICS_ROLES.includes(ctx.role)) { res.status(403).json({ error: "QA lead role or higher required" }); return; }
+
+  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+  if (!projectId || isNaN(projectId)) { res.status(400).json({ error: "projectId is required" }); return; }
+
+  const ok = await canAccessProject(ctx.userId, ctx.role, projectId);
+  if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
+
+  const milestoneId = req.query.milestoneId ? Number(req.query.milestoneId) : null;
+  const now = new Date();
+  const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const endDate = req.query.endDate ? new Date(String(req.query.endDate)) : now;
+
+  // Load all execution files for the project
+  const projectFiles = await db.select().from(executionFilesTable).where(eq(executionFilesTable.projectId, projectId));
+
+  // Files scoped by milestone filter (if active)
+  const scopedFiles = milestoneId ? projectFiles.filter(f => f.milestoneId === milestoneId) : projectFiles;
+  const scopedFileIds = scopedFiles.map(f => f.id);
+
+  // Execution test cases for the scoped files
+  const etcs = scopedFileIds.length > 0
+    ? await db.select().from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, scopedFileIds))
+    : [];
+
+  // Defects for the project
+  const defects = await db.select().from(defectsTable).where(eq(defectsTable.projectId, projectId));
+
+  // Recent milestones for the project (last 6, for cross-milestone panels)
+  const allMilestones = await db.select().from(milestonesTable)
+    .where(eq(milestonesTable.projectId, projectId))
+    .orderBy(desc(milestonesTable.createdAt));
+  const recentMilestones = allMilestones.slice(0, 6).reverse();
+
+  // Requirements for coverage (scoped by milestone if active)
+  const reqFilter = milestoneId
+    ? and(eq(requirementsTable.projectId, projectId), eq(requirementsTable.milestoneId, milestoneId))
+    : eq(requirementsTable.projectId, projectId);
+  const reqs = await db.select({ id: requirementsTable.id }).from(requirementsTable).where(reqFilter);
+  const reqIds = reqs.map(r => r.id);
+
+  // Library test cases linked to those requirements
+  const tcs = reqIds.length > 0
+    ? await db.select({ id: testCasesTable.id, requirementId: testCasesTable.requirementId })
+        .from(testCasesTable).where(inArray(testCasesTable.requirementId, reqIds))
+    : [];
+
+  // ── Panel 1: Execution Trend ──────────────────────────────────────────────
+  const weeks = weeksBetween(startDate, endDate);
+  const executionTrend = weeks.map(week => {
+    const wEtcs = etcs.filter(e => e.executedAt && toIsoWeek(e.executedAt) === week);
+    let passed = 0, failed = 0, blocked = 0, notRun = 0;
+    for (const e of wEtcs) {
+      const c = classifyResult(e.result);
+      if (c === "passed") passed++;
+      else if (c === "failed") failed++;
+      else if (c === "blocked") blocked++;
+      else notRun++;
+    }
+    return { week, passed, failed, blocked, notRun };
+  });
+
+  // ── Panel 2: Velocity ────────────────────────────────────────────────────
+  const velocity = weeks.map(week => {
+    const executed = etcs.filter(e =>
+      e.executedAt && toIsoWeek(e.executedAt) === week && classifyResult(e.result) !== "notRun"
+    ).length;
+    return { week, executed };
+  });
+
+  // ── Panel 3: Pass Rate by Milestone ──────────────────────────────────────
+  const passByMilestone: { milestoneId: number; milestoneName: string; total: number; passed: number; pct: number }[] = [];
+  for (const m of recentMilestones) {
+    const mFileIds = projectFiles.filter(f => f.milestoneId === m.id).map(f => f.id);
+    const mEtcs = mFileIds.length > 0
+      ? await db.select({ result: executionTestCasesTable.result })
+          .from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, mFileIds))
+      : [];
+    const total = mEtcs.length;
+    const passed = mEtcs.filter(e => classifyResult(e.result) === "passed").length;
+    passByMilestone.push({ milestoneId: m.id, milestoneName: m.name, total, passed, pct: total > 0 ? Math.round((passed / total) * 100) : 0 });
+  }
+
+  // ── Panel 4: Defect Density by Module ────────────────────────────────────
+  const moduleMap = new Map<string, { critical: number; high: number; medium: number; low: number }>();
+  for (const d of defects) {
+    const mod = d.module ?? "Unassigned";
+    if (!moduleMap.has(mod)) moduleMap.set(mod, { critical: 0, high: 0, medium: 0, low: 0 });
+    const entry = moduleMap.get(mod)!;
+    const sev = d.severity ?? "medium";
+    if (sev === "critical") entry.critical++;
+    else if (sev === "high") entry.high++;
+    else if (sev === "low") entry.low++;
+    else entry.medium++;
+  }
+  const defectByModule = Array.from(moduleMap.entries())
+    .map(([module, c]) => ({ module, ...c, _total: c.critical + c.high + c.medium + c.low }))
+    .sort((a, b) => b._total - a._total)
+    .slice(0, 10)
+    .map(({ _total: _, ...rest }) => rest);
+
+  // ── Panel 5: Defect Trend ─────────────────────────────────────────────────
+  const closedStatuses = new Set(["Closed", "Resolved", "Verified"]);
+  const defectTrend = weeks.map(week => {
+    const opened = defects.filter(d => d.createdAt && toIsoWeek(d.createdAt) === week).length;
+    const closed = defects.filter(d => d.updatedAt && toIsoWeek(d.updatedAt) === week && closedStatuses.has(d.status)).length;
+    return { week, opened, closed };
+  });
+
+  // ── Panel 6: Escape Funnel by Milestone ──────────────────────────────────
+  // Resolve defect → milestone primarily from defects.milestoneId directly
+  // (set at creation time on every path since the milestone-traceability
+  // fix — manual QA defect, fail-modal, Redmine pull, sync-from-redmine).
+  // Falls back to the old defect_links → execution_test_cases →
+  // execution_files chain for defects created before that column existed,
+  // so historical data doesn't just disappear from the panel.
+  const allLinks = await db.select({ defectId: defectLinksTable.defectId, executionTcId: defectLinksTable.executionTcId })
+    .from(defectLinksTable);
+
+  // Build executionTcId → milestoneId from all project execution files
+  const allProjectEtcIds = scopedFileIds.length > 0
+    ? await db.select({ id: executionTestCasesTable.id, executionFileId: executionTestCasesTable.executionFileId })
+        .from(executionTestCasesTable).where(inArray(executionTestCasesTable.executionFileId, projectFiles.map(f => f.id)))
+    : [];
+  const etcToFileId = new Map<number, number>(allProjectEtcIds.map(e => [e.id, e.executionFileId]));
+  const fileToMilestoneId = new Map<number, number | null>(projectFiles.map(f => [f.id, f.milestoneId]));
+
+  const defectToMilestone = new Map<number, number>();
+  for (const d of defects) {
+    if (d.milestoneId) defectToMilestone.set(d.id, d.milestoneId);
+  }
+  for (const link of allLinks) {
+    if (defectToMilestone.has(link.defectId)) continue; // direct milestoneId already resolved it
+    if (!link.executionTcId) continue;
+    const fileId = etcToFileId.get(link.executionTcId);
+    if (!fileId) continue;
+    const mId = fileToMilestoneId.get(fileId);
+    if (mId) defectToMilestone.set(link.defectId, mId);
+  }
+
+  const escapeFunnel = recentMilestones.map(m => {
+    const mDefects = defects.filter(d => defectToMilestone.get(d.id) === m.id);
+    return {
+      milestoneId: m.id,
+      milestoneName: m.name,
+      sit: mDefects.filter(d => d.foundIn === "SIT").length,
+      uat: mDefects.filter(d => d.foundIn === "UAT").length,
+      production: mDefects.filter(d => d.foundIn === "Production").length,
+    };
+  });
+
+  // ── Panel 7: Coverage Snapshot ────────────────────────────────────────────
+  const tcCoveredReqIds = new Set(tcs.map(tc => tc.requirementId).filter((id): id is number => id != null));
+
+  // Map libraryTcId → results from scoped execution files
+  const execResultsByTcId = new Map<number, string[]>();
+  for (const e of etcs) {
+    if (!e.libraryTcId) continue;
+    if (!execResultsByTcId.has(e.libraryTcId)) execResultsByTcId.set(e.libraryTcId, []);
+    execResultsByTcId.get(e.libraryTcId)!.push(e.result ?? "");
+  }
+  const tcsByReqId = new Map<number, number[]>();
+  for (const tc of tcs) {
+    if (!tc.requirementId) continue;
+    if (!tcsByReqId.has(tc.requirementId)) tcsByReqId.set(tc.requirementId, []);
+    tcsByReqId.get(tc.requirementId)!.push(tc.id);
+  }
+
+  let executedReqs = 0, passedReqs = 0;
+  for (const rid of reqIds) {
+    const linkedTcIds = tcsByReqId.get(rid) ?? [];
+    const allResults = linkedTcIds.flatMap(id => execResultsByTcId.get(id) ?? []);
+    if (allResults.some(r => classifyResult(r) !== "notRun")) executedReqs++;
+    if (allResults.some(r => classifyResult(r) === "passed")) passedReqs++;
+  }
+
+  res.json({
+    executionTrend,
+    velocity,
+    passByMilestone,
+    defectByModule,
+    defectTrend,
+    escapeFunnel,
+    coverage: {
+      totalReqs: reqIds.length,
+      tcCoveredReqs: tcCoveredReqIds.size,
+      executedReqs,
+      passedReqs,
+    },
+  });
 });
 
 export default router;

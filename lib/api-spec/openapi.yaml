@@ -3,7 +3,7 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: QA Pulse - QA Management Platform API
+  description: QM Pulse - QA Management Platform API
 servers:
   - url: /api
     description: Base API path
@@ -298,6 +298,10 @@ paths:
       summary: List requirements
       parameters:
         - name: projectId
+          in: query
+          schema:
+            type: integer
+        - name: milestoneId
           in: query
           schema:
             type: integer
@@ -1112,6 +1116,8 @@ components:
           type: ["string", "null"]
         mustChangePassword:
           type: boolean
+        emailNotificationsEnabled:
+          type: boolean
         createdAt:
           type: string
 
@@ -1135,6 +1141,8 @@ components:
       properties:
         name:
           type: string
+        email:
+          type: string
         role:
           type: string
         team:
@@ -1142,6 +1150,8 @@ components:
         avatarUrl:
           type: string
         mustChangePassword:
+          type: boolean
+        emailNotificationsEnabled:
           type: boolean
         password:
           type: string
@@ -1444,14 +1454,25 @@ components:
           type: string
 
     # AI Generation
+    AIRequirementInput:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+
     AIGenerateInput:
       type: object
-      required: [requirementTitle]
+      required: [requirements]
       properties:
-        requirementTitle:
-          type: string
-        requirementDescription:
-          type: string
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIRequirementInput"
         module:
           type: string
         projectId:
@@ -1466,8 +1487,6 @@ components:
           type: string
         additionalNotes:
           type: string
-        requirementId:
-          type: integer
         generatePositive:
           type: boolean
         generateNegative:
@@ -1483,15 +1502,21 @@ components:
 
     AIGeneratedTestCase:
       type: object
-      required: [title, objective, preconditions, testSteps, expectedResult, type, priority]
+      required: [title, testSteps, expectedResult, type, priority]
       properties:
         title:
           type: string
-        objective:
+        redmineUserStory:
+          type: string
+        tracker:
+          type: string
+        scenario:
           type: string
         preconditions:
           type: string
         testSteps:
+          type: string
+        testData:
           type: string
         expectedResult:
           type: string
@@ -1501,17 +1526,30 @@ components:
           type: string
         tags:
           type: string
-        automationCandidate:
-          type: boolean
 
-    AIGenerateResponse:
+    AIGenerateResultGroup:
       type: object
-      required: [testCases]
+      required: [requirementId, requirementTitle, testCases]
       properties:
+        requirementId:
+          type: integer
+        requirementTitle:
+          type: string
         testCases:
           type: array
           items:
             $ref: "#/components/schemas/AIGeneratedTestCase"
+        error:
+          type: string
+
+    AIGenerateResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIGenerateResultGroup"
         similarTestCasesUsed:
           type: integer
         templateUsed:
@@ -1571,11 +1609,12 @@ components:
 
     TaskInput:
       type: object
-      required: [name, type, status]
+      # `type` was dropped from the tasks table and `assigneeId` became the
+      # `assigneeIds` array (multi-assignee). `status` carries a column default,
+      # so it is not required on create either.
+      required: [name]
       properties:
         name:
-          type: string
-        type:
           type: string
         redmineId:
           type: string
@@ -1585,8 +1624,12 @@ components:
           type: integer
         projectId:
           type: integer
-        assigneeId:
+        milestoneId:
           type: integer
+        assigneeIds:
+          type: array
+          items:
+            type: integer
         startDate:
           type: string
         dueDate:
@@ -1603,14 +1646,14 @@ components:
           type: string
         tracker:
           type: string
+        blockedByTaskId:
+          type: integer
 
     TaskUpdate:
       type: object
       properties:
         name:
           type: string
-        type:
-          type: string
         redmineId:
           type: string
         requirementId:
@@ -1619,8 +1662,12 @@ components:
           type: integer
         projectId:
           type: integer
-        assigneeId:
+        milestoneId:
           type: integer
+        assigneeIds:
+          type: array
+          items:
+            type: integer
         startDate:
           type: string
         dueDate:
@@ -1637,6 +1684,8 @@ components:
           type: string
         tracker:
           type: string
+        blockedByTaskId:
+          type: integer
 
     # Dashboard
     DashboardSummary:

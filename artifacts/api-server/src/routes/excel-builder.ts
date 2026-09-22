@@ -83,7 +83,7 @@ Keep each text field under 20 words.`;
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model: "meta-llama/llama-3.2-3b-instruct:free", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 2048, response_format: { type: "json_object" } }),
         });
-        const d = await resp.json();
+        const d: any = await resp.json();
         content = d.choices?.[0]?.message?.content ?? "";
         console.log(`[runCapaAI] OpenRouter response length=${content.length}`);
       }
@@ -152,7 +152,7 @@ Return ONLY valid JSON: { "classifications": [{ "id": <number>, "category": "<ca
             response_format: { type: "json_object" },
           }),
         });
-        const d = await resp.json();
+        const d: any = await resp.json();
         content = d.choices?.[0]?.message?.content ?? "";
         console.log(`[runParetoAI] OpenRouter response length=${content.length}`);
       }
@@ -218,8 +218,27 @@ export function trackerCode(issueType: string): string {
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+/**
+ * One evidence attachment as the export sees it. `path` is relative to the
+ * workbook inside the download ZIP ("evidence/<case>/<file>"), which is what
+ * makes the Excel hyperlink resolve after the archive is extracted — the
+ * reviewer clicks the cell instead of hunting for the screenshot by hand.
+ */
+export interface ExcelEvidenceLink {
+  fileName: string;
+  originalFileName?: string | null;
+  path: string;
+  /** The row's evidence folder, linked when a case has more than one file. */
+  folderPath: string;
+}
+
 export interface TestCaseRow {
   caseId?: string;
+  // The execution grid never writes caseId — it stores the visible id in
+  // testCaseId (caseId only ever arrives from a clone or a linked library
+  // case), so column A has to fall back to it the same way the UI does.
+  testCaseId?: string;
+  rowType?: string;
   userStory?: string;
   tracker?: string;
   scenario?: string;
@@ -232,6 +251,7 @@ export interface TestCaseRow {
   defectNumber?: string;
   comments?: string;
   qaPic?: string;
+  evidence?: ExcelEvidenceLink[];
 }
 
 export interface DefectForExcel {
@@ -248,6 +268,10 @@ export interface AuditEntry {
   updatedByName?: string | null;
   createdAt: string; // ISO date string
   tcCount?: number;
+  // Stamped once an approval covers this entry (executionFileAuditTable.reviewedByName/reviewedAt).
+  // Null for entries added since the last approval, or predating this feature.
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
 }
 
 export interface CapaAiItem {
@@ -276,6 +300,15 @@ export interface ExcelBuildOptions {
   allDefects?: DefectForExcel[];
   // Document register ref no e.g. "BSB-QA-FWCMS-153-CRD-V1.0"
   refNo?: string;
+  // CR011 P4: a PASS verdict closes the CAPA loop — fills empty Actual Closure Dates
+  capaClosureDate?: string;
+  // Execution-file peer review: the name/date of whoever approved this file
+  // (executionFilesTable.approvedBy/approvedAt), once it's actually gone
+  // through submit-for-review -> approve. Undefined/null when the file isn't
+  // approved yet — Doc Info's Reviewed By/Date stay blank for manual fill,
+  // same as before this existed.
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -329,6 +362,85 @@ function buildCapaRows(
   }));
 }
 
+// ── Columns A-C: file-level fallbacks ─────────────────────────────────────────
+// The template's first three columns (Case ID, Redmine User Story, Tracker) are
+// the ones the execution grid does not itself fill, so writing the row field
+// alone exported them blank even though the app displayed a value:
+//   · Case ID — the grid stores the id in testCaseId; the UI renders
+//     `caseId || testCaseId`, and the Excel import maps the "Case ID" header to
+//     testCaseId too, so caseId is null on every row that wasn't cloned.
+//   · Redmine User Story / Tracker — both are hidden by default in the grid and
+//     live on the execution file instead (redmineTicketId / tracker).
+// Group rows are section banners whose label lives in caseName; they get no
+// fallbacks, or every banner would export looking like a real test case.
+function resolveIdColumns(
+  tc: TestCaseRow,
+  opts: { redmineId?: string; issueType?: string },
+): { caseId: string; userStory: string; tracker: string } {
+  if (tc.rowType === "group") {
+    return { caseId: tc.caseId ?? "", userStory: tc.userStory ?? "", tracker: tc.tracker ?? "" };
+  }
+  // verdict-report passes the literal "Issue" placeholder when the file has no
+  // tracker — that is not a tracker name, so it must not land in column C.
+  const fileTracker = opts.issueType && opts.issueType !== "Issue" ? opts.issueType : "";
+  return {
+    caseId: tc.caseId || tc.testCaseId || "",
+    userStory: tc.userStory || opts.redmineId || "",
+    tracker: tc.tracker || fileTracker,
+  };
+}
+
+// ── Result colour ─────────────────────────────────────────────────────────────
+// The Result column exported as plain text, so a reviewer had to read every
+// row to find the failures. These are the same five states the execution grid
+// shows, in the same hues as its pills, as Excel-friendly pastels: a reader
+// moving between the app and the workbook sees one colour language.
+//
+// The word stays in the cell, so the sheet still reads correctly in black and
+// white or to a colour-blind reader — the fill is a second channel, not the
+// only one.
+const RESULT_FILL: Record<string, { fill: string; font: string }> = {
+  passed: { fill: "C6EFCE", font: "1E6B33" },        // green pastel
+  failed: { fill: "FFC7CE", font: "9C0006" },        // red pastel
+  blocked: { fill: "FCD9B6", font: "9C4A06" },       // orange pastel
+  "in progress": { fill: "CFE2F3", font: "1F4E79" }, // blue pastel
+  "not executed": { fill: "E7E6E6", font: "595959" },// grey pastel
+};
+
+// The grid writes "Passed"/"Failed"/…, but imported sheets carry whatever the
+// source file used — "PASS", "fail", "in-progress" — so match on a normalised
+// form rather than an exact string.
+function resultFill(result: string | null | undefined): { fill: string; font: string } | null {
+  const r = (result ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (!r) return null;
+  if (r === "pass") return RESULT_FILL.passed!;
+  if (r === "fail") return RESULT_FILL.failed!;
+  if (r.startsWith("in progress") || r === "inprogress") return RESULT_FILL["in progress"]!;
+  if (r.startsWith("not executed") || r === "notexecuted" || r === "not run") return RESULT_FILL["not executed"]!;
+  return RESULT_FILL[r] ?? null;
+}
+
+// ── Evidence column ───────────────────────────────────────────────────────────
+// The template stops at M (QA PIC), so N is free for the attachments. One file
+// links straight to it; several link to the case's folder, because a cell can
+// only carry one hyperlink and opening the folder beats linking one of three
+// screenshots and stranding the rest.
+const EVIDENCE_COLUMN = "N";
+const EVIDENCE_HEADER = "Evidence";
+
+function evidenceCell(links: ExcelEvidenceLink[]): { label: string; target: string; tooltip: string } | null {
+  if (!links || links.length === 0) return null;
+  const name = (link: ExcelEvidenceLink) => link.originalFileName || link.fileName;
+  if (links.length === 1) {
+    return { label: name(links[0]!), target: links[0]!.path, tooltip: `Open ${links[0]!.fileName}` };
+  }
+  return {
+    label: `${links.length} files: ${links.map(name).join(", ")}`,
+    target: links[0]!.folderPath,
+    tooltip: `Open the evidence folder for this test case (${links.length} files)`,
+  };
+}
+
 // ── SheetJS fallback ──────────────────────────────────────────────────────────
 function buildTestCaseExcelFallback(
   testCases: TestCaseRow[],
@@ -348,13 +460,26 @@ function buildTestCaseExcelFallback(
   ]), "Doc Info");
 
   // Test cases sheet
-  const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC"];
-  const tcRows = testCases.map((tc) => [
-    tc.caseId ?? "", tc.userStory ?? "", tc.tracker ?? "", tc.scenario ?? "",
-    tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
-    tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
-  ]);
-  XlsxSheetJS.utils.book_append_sheet(wb, XlsxSheetJS.utils.aoa_to_sheet([tcHeaders, ...tcRows]), redmineId ? `#${redmineId}` : "Test Step");
+  const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC", EVIDENCE_HEADER];
+  const tcRows = testCases.map((tc) => {
+    const ids = resolveIdColumns(tc, { redmineId, issueType });
+    return [
+      ids.caseId, ids.userStory, ids.tracker, tc.scenario ?? "",
+      tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
+      tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
+      evidenceCell(tc.evidence ?? [])?.label ?? "",
+    ];
+  });
+  const tcSheetFallback = XlsxSheetJS.utils.aoa_to_sheet([tcHeaders, ...tcRows]);
+  // aoa_to_sheet writes the label as plain text; the link has to be attached
+  // to the cell afterwards or the fallback export loses the clickthrough.
+  testCases.forEach((tc, i) => {
+    const link = evidenceCell(tc.evidence ?? []);
+    if (!link) return;
+    const cell = tcSheetFallback[`${EVIDENCE_COLUMN}${i + 2}`];
+    if (cell) cell.l = { Target: link.target, Tooltip: link.tooltip };
+  });
+  XlsxSheetJS.utils.book_append_sheet(wb, tcSheetFallback, redmineId ? `#${redmineId}` : "Test Step");
 
   // Review Log — skeleton row
   const rlHeaders = ["Sl #", "Review Cycle", "Version No.", "Posted Date", "Reviewer Name", "Size of Work", "Document Name", "Section ID", "Comment", "Severity", "Action Required", "Comment Status", "Target Closure", "Actual Closure", "Remarks"];
@@ -411,7 +536,7 @@ export async function buildTestCaseExcel(
 
   try {
     const wb = await XlsxPopulate.fromDataAsync(TEMPLATE_BUFFER);
-    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo } = options;
+    const { redmineId, issueType, issueSubject, senderName, activeDefects = [], auditEntries, capaItems, allDefects, refNo, capaClosureDate, reviewedByName, reviewedAt } = options;
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
     // ── Doc Info ───────────────────────────────────────────────────────────────
@@ -426,13 +551,32 @@ export async function buildTestCaseExcel(
       const entries: AuditEntry[] = auditEntries && auditEntries.length > 0
         ? auditEntries
         : [{ summary: "Generated test case report", updatedByName: senderName ?? null, createdAt: new Date().toISOString() }];
-      entries.forEach(({ summary, updatedByName, createdAt }, i) => {
+      entries.forEach(({ summary, updatedByName, createdAt, reviewedByName: entryReviewedByName, reviewedAt: entryReviewedAt }, i) => {
         const row = 9 + i;
         docSheet.cell(`B${row}`).value(i + 1);
         docSheet.cell(`C${row}`).value(fmtShortDate(createdAt));
         docSheet.cell(`D${row}`).value(updatedByName ?? "");
         docSheet.cell(`E${row}`).value(summary);
-        // F = Reviewed by, G = Reviewed date — left blank for manual fill
+        // F = Reviewed by, G = Reviewed date. Each entry carries its own
+        // reviewer/date once an approval has covered it (stamped in bulk on
+        // "approve" — see the /execution-files/:id/review route). Entries
+        // added since the last approval have none yet and stay blank. The
+        // file-level reviewedByName/reviewedAt is a fallback for the latest
+        // row only, for entries that predate this per-entry tracking — and
+        // only when that row's own createdAt is at or before the approval;
+        // otherwise the row was added *after* the file was last approved and
+        // showing the old approval date would claim it was reviewed before
+        // it existed. Blanked (not left alone) when nothing applies, so the
+        // template's baked-in sample values for row 9 ("Syamil", 23-May-25)
+        // don't leak through — B-E get overwritten unconditionally above,
+        // F/G must too.
+        const isLatestEntry = i === entries.length - 1;
+        const fallbackApplies = isLatestEntry && !!reviewedByName && !!reviewedAt
+          && new Date(createdAt).getTime() <= new Date(reviewedAt).getTime();
+        const rowReviewedByName = entryReviewedByName ?? (fallbackApplies ? reviewedByName : null);
+        const rowReviewedAt = entryReviewedAt ?? (fallbackApplies ? reviewedAt : null);
+        docSheet.cell(`F${row}`).value(rowReviewedByName ?? "");
+        docSheet.cell(`G${row}`).value(rowReviewedByName ? fmtShortDate(rowReviewedAt) : "");
       });
     }
 
@@ -445,20 +589,63 @@ export async function buildTestCaseExcel(
     if (tcSheet && testCases.length > 0) {
       testCases.forEach((tc, i) => {
         const row = i + 2;
-        if (tc.caseId)         tcSheet.cell(`A${row}`).value(String(tc.caseId));
-        if (tc.userStory)      tcSheet.cell(`B${row}`).value(String(tc.userStory));
-        if (tc.tracker)        tcSheet.cell(`C${row}`).value(String(tc.tracker));
+        const ids = resolveIdColumns(tc, { redmineId, issueType });
+        if (ids.caseId)        tcSheet.cell(`A${row}`).value(String(ids.caseId));
+        if (ids.userStory)     tcSheet.cell(`B${row}`).value(String(ids.userStory));
+        if (ids.tracker)       tcSheet.cell(`C${row}`).value(String(ids.tracker));
         if (tc.scenario)       tcSheet.cell(`D${row}`).value(String(tc.scenario));
         if (tc.preCondition)   tcSheet.cell(`E${row}`).value(String(tc.preCondition));
         if (tc.caseName)       tcSheet.cell(`F${row}`).value(String(tc.caseName));
         if (tc.testSteps)      tcSheet.cell(`G${row}`).value(String(tc.testSteps));
         if (tc.testData)       tcSheet.cell(`H${row}`).value(String(tc.testData));
         if (tc.expectedResult) tcSheet.cell(`I${row}`).value(String(tc.expectedResult));
-        if (tc.result)         tcSheet.cell(`J${row}`).value(String(tc.result));
+        if (tc.result) {
+          const resultCell = tcSheet.cell(`J${row}`);
+          resultCell.value(String(tc.result));
+          const paint = resultFill(tc.result);
+          if (paint) {
+            try {
+              resultCell.style({
+                fill: paint.fill, fontColor: paint.font, bold: true,
+                horizontalAlignment: "center", verticalAlignment: "center",
+              });
+            } catch {
+              // Colour is a readability aid — never lose the value over it.
+            }
+          }
+        }
         if (tc.defectNumber)   tcSheet.cell(`K${row}`).value(String(tc.defectNumber));
         if (tc.comments)       tcSheet.cell(`L${row}`).value(String(tc.comments));
         if (tc.qaPic)          tcSheet.cell(`M${row}`).value(String(tc.qaPic));
+
+        const link = evidenceCell(tc.evidence ?? []);
+        if (link) {
+          const cell = tcSheet.cell(`${EVIDENCE_COLUMN}${row}`);
+          cell.value(link.label);
+          // Relative target: Excel resolves it against the workbook's own
+          // folder, so it only works once the ZIP has been extracted — which
+          // is how the archive is laid out (workbook at the root, evidence/
+          // beside it).
+          cell.hyperlink({ hyperlink: link.target, tooltip: link.tooltip });
+          try {
+            cell.style({ fontColor: "0563C1", underline: true, verticalAlignment: "top", wrapText: true });
+          } catch {
+            // Styling is cosmetic — never lose the link over it.
+          }
+        }
       });
+
+      // Header for the evidence column, matched to the template's own header
+      // row so it doesn't read as a stray addition.
+      tcSheet.cell(`${EVIDENCE_COLUMN}1`).value(EVIDENCE_HEADER);
+      try {
+        tcSheet.cell(`${EVIDENCE_COLUMN}1`).style(
+          tcSheet.cell("M1").style(["bold", "fill", "border", "fontColor", "fontSize", "fontFamily", "horizontalAlignment", "verticalAlignment"]),
+        );
+        tcSheet.column(EVIDENCE_COLUMN).width(32);
+      } catch {
+        // Older templates may not carry a styled M1; the header still lands.
+      }
     }
 
     // ── Review Log — one row per audit entry (same list as Doc Info) ──────────
@@ -484,7 +671,7 @@ export async function buildTestCaseExcel(
 
     // ── Review & Rework Effort — one row per audit entry ──────────────────────
     // Template headers (row 4): B=Sl# C=Review Cycle D=Document Name E=Review Time F=Rework Time G=Remarks
-    // E, F, G left blank — QA Pulse does not track time
+    // E, F, G left blank — QM Pulse does not track time
     const rrSheet = wb.sheet("Review & Rework Effort");
     if (rrSheet) {
       const rrEntries: AuditEntry[] = auditEntries && auditEntries.length > 0
@@ -546,7 +733,8 @@ export async function buildTestCaseExcel(
           if (ai.correctiveAction) capaSheet.cell(`D${row}`).value(ai.correctiveAction);
           if (ai.preventiveAction) capaSheet.cell(`E${row}`).value(ai.preventiveAction);
           if (ai.plannedDate) capaSheet.cell(`F${row}`).value(ai.plannedDate);
-          if (ai.actualClosureDate) capaSheet.cell(`G${row}`).value(ai.actualClosureDate);
+          const closure = ai.actualClosureDate || (capaClosureDate ? fmtShortDate(capaClosureDate) : "");
+          if (closure) capaSheet.cell(`G${row}`).value(closure);
         });
       } else {
         // Fallback: existing logic without AI
@@ -555,6 +743,7 @@ export async function buildTestCaseExcel(
           capaSheet.cell(`B${row}`).value(sl);
           capaSheet.cell(`C${row}`).value(analysisPoint);
           if (plannedDate) capaSheet.cell(`F${row}`).value(plannedDate);
+          if (capaClosureDate) capaSheet.cell(`G${row}`).value(fmtShortDate(capaClosureDate));
         });
       }
     }

@@ -1,8 +1,15 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, socialEventsTable, usersTable, calendarEventsTable, notificationsTable } from "@workspace/db";
+import { getAuthContext } from "../middleware/access";
 
 const router: IRouter = Router();
+
+// CR049 — social events require auth on every route (was fully open).
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 function parseTaggedUserIds(raw: string | null | undefined): number[] {
   if (!raw) return [];

@@ -7,6 +7,7 @@ export type ErrorType<T = unknown> = ApiError<T>;
 export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
+export type RefreshHandler = () => Promise<boolean>;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
@@ -18,6 +19,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
 let _unauthorizedHandler: (() => void) | null = null;
+let _refreshHandler: RefreshHandler | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -47,6 +49,19 @@ export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
 
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   _unauthorizedHandler = handler;
+}
+
+/**
+ * Register a handler that attempts to refresh the auth session (e.g. via a
+ * refresh token) and resolves `true` on success. When set, a 401 response to
+ * a request that relied on the auto-attached bearer token triggers one
+ * refresh-and-retry before falling back to the unauthorized handler — so a
+ * merely-expired access token doesn't force a hard logout on every request
+ * that happens to land in the gap before the client's own expiry timer fires.
+ * Pass `null` to clear the handler.
+ */
+export function setRefreshHandler(handler: RefreshHandler | null): void {
+  _refreshHandler = handler;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -356,8 +371,9 @@ export async function customFetch<T = unknown>(
 
   // Attach bearer token when an auth getter is configured and no
   // Authorization header has been explicitly provided.
-  if (_authTokenGetter && !headers.has("authorization")) {
-    const token = await _authTokenGetter();
+  const hadAutoAuth = _authTokenGetter != null && !headers.has("authorization");
+  if (hadAutoAuth) {
+    const token = await _authTokenGetter!();
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
     }
@@ -365,7 +381,21 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  let response = await fetch(input, { ...init, method, headers });
+
+  // A 401 on an auto-authenticated request may just mean the access token
+  // expired mid-session — try one refresh-and-retry before treating it as a
+  // real logout, instead of forcing one on every expiry the client's own
+  // proactive refresh timer didn't beat.
+  if (response.status === 401 && hadAutoAuth && _refreshHandler) {
+    const refreshed = await _refreshHandler();
+    if (refreshed) {
+      const retryHeaders = mergeHeaders(headers);
+      const newToken = await _authTokenGetter!();
+      if (newToken) retryHeaders.set("authorization", `Bearer ${newToken}`);
+      response = await fetch(input, { ...init, method, headers: retryHeaders });
+    }
+  }
 
   if (!response.ok) {
     if (response.status === 401 && _unauthorizedHandler) {

@@ -16,10 +16,24 @@ import {
   GetUserStatsParams,
   ListUsersQueryParams,
 } from "@workspace/api-zod";
+import { getAuthContext, getRoleTierRank } from "../middleware/access";
 
 const router: IRouter = Router();
 
-function formatUser(u: typeof usersTable.$inferSelect) {
+// CR049 — the whole user-management surface was unauthenticated, so anyone
+// could POST /users {role:"admin"} and mint an admin, or delete/deactivate
+// accounts. Auth is now required everywhere; privileged identity operations
+// (create / delete / activate / role changes) are Manager-tier+ or admin,
+// and self-service (own profile, password, Redmine key) is allowed for the
+// account owner.
+function requireAuth(req: any, res: any): { userId: number; role: string } | null {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  return ctx;
+}
+const PRIVILEGED_ROLES = ["admin", "cto"];
+
+function formatUser(u: typeof usersTable.$inferSelect, includeSecrets = false) {
   return {
     id: u.id,
     name: u.name,
@@ -29,12 +43,14 @@ function formatUser(u: typeof usersTable.$inferSelect) {
     avatarUrl: u.avatarUrl,
     mustChangePassword: u.mustChangePassword,
     isActive: u.isActive ?? true,
-    redmineApiKey: u.redmineApiKey ?? null,
+    emailNotificationsEnabled: u.emailNotificationsEnabled ?? false,
+    ...(includeSecrets ? { redmineApiKey: u.redmineApiKey ?? null } : {}),
     createdAt: u.createdAt.toISOString(),
   };
 }
 
 router.get("/users", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   const parsed = ListUsersQueryParams.safeParse(req.query);
   let users = await db.select().from(usersTable).orderBy(usersTable.name);
 
@@ -52,18 +68,30 @@ router.get("/users", async (req, res): Promise<void> => {
     }
   }
 
-  res.json(users.map(formatUser));
+  res.json(users.map((user) => formatUser(user)));
 });
 
 router.post("/users", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const isAdmin = PRIVILEGED_ROLES.includes(ctx.role);
+  const isManager = (await getRoleTierRank(ctx.role)) >= 3;
+  if (!isManager) { res.status(403).json({ error: "Manager tier or above required to create users" }); return; }
+
   const parsed = CreateUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  // Only an admin/cto may mint another admin/cto — closes the escalation path.
+  if (PRIVILEGED_ROLES.includes(parsed.data.role) && !isAdmin) {
+    res.status(403).json({ error: "Only an admin can create admin/cto accounts" }); return;
+  }
 
   const insertData = {
     ...parsed.data,
+    // Passwords are stored hashed, same as the PATCH path — never plaintext.
+    password: await bcrypt.hash(parsed.data.password, 12),
     mustChangePassword: true,
   };
   const [user] = await db.insert(usersTable).values(insertData).returning();
@@ -71,6 +99,8 @@ router.post("/users", async (req, res): Promise<void> => {
 });
 
 router.get("/users/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const params = GetUserParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -86,14 +116,23 @@ router.get("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser(user));
+  res.json(formatUser(user, ctx.userId === user.id));
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const params = UpdateUserParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
+  }
+
+  const isAdmin = PRIVILEGED_ROLES.includes(ctx.role);
+  const isManager = (await getRoleTierRank(ctx.role)) >= 3;
+  const isSelf = ctx.userId === params.data.id;
+  if (!isManager && !isSelf) {
+    res.status(403).json({ error: "You can only edit your own profile" }); return;
   }
 
   const parsed = UpdateUserBody.safeParse(req.body);
@@ -101,10 +140,66 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  // Role changes are an admin-only privilege — a self-service or manager edit
+  // can't escalate anyone (including themselves) to admin.
+  if (parsed.data.role !== undefined && !isAdmin) {
+    res.status(403).json({ error: "Only an admin can change a user's role" }); return;
+  }
+
+  const [targetUser] = await db.select().from(usersTable).where(eq(usersTable.id, params.data.id));
+  if (!targetUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  // Email is identity, not a preference — same Manager-tier+ gate as a
+  // password reset, and never self-service here (Settings' own Profile tab
+  // deliberately disables the field; this is the admin/manager path).
+  // usersTable.email is unique, so a collision needs a clean 409 rather than
+  // the raw DB constraint error the update below would otherwise throw.
+  let normalizedEmail: string | undefined;
+  if (parsed.data.email !== undefined) {
+    if (!isManager) {
+      res.status(403).json({ error: "Manager tier or above required to change a user's email" }); return;
+    }
+    normalizedEmail = parsed.data.email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      res.status(400).json({ error: "Email cannot be empty" }); return;
+    }
+    if (normalizedEmail !== targetUser.email.toLowerCase()) {
+      const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, normalizedEmail));
+      if (existing && existing.id !== targetUser.id) {
+        res.status(409).json({ error: "Another user already has this email" }); return;
+      }
+    }
+  }
+
+  // Self-service password changes belong exclusively to /auth/change-password,
+  // where the current password is verified. Managers may issue temporary
+  // passwords to ordinary users, but only admin/cto may reset another
+  // privileged account.
+  if (parsed.data.password !== undefined) {
+    if (isSelf) {
+      res.status(400).json({ error: "Use the change-password endpoint to change your own password" }); return;
+    }
+    if (!isManager) {
+      res.status(403).json({ error: "Manager tier or above required to reset passwords" }); return;
+    }
+    if (PRIVILEGED_ROLES.includes(targetUser.role) && !isAdmin) {
+      res.status(403).json({ error: "Only an admin can reset an admin/cto password" }); return;
+    }
+    if (parsed.data.password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" }); return;
+    }
+  }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
+  if (normalizedEmail !== undefined) {
+    updateData.email = normalizedEmail;
+  }
   if (parsed.data.password) {
     updateData.password = await bcrypt.hash(parsed.data.password, 12);
+    updateData.mustChangePassword = true;
   }
 
   const [user] = await db
@@ -117,14 +212,21 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser(user));
+  res.json(formatUser(user, isSelf));
 });
 
 router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
   const id = parseInt(req.params.id);
   if (isNaN(id)) {
     res.status(400).json({ error: "Invalid user ID" });
     return;
+  }
+  // A personal Redmine key is self-service; managers may set it for others.
+  const isManager = (await getRoleTierRank(ctx.role)) >= 3;
+  if (ctx.userId !== id && !isManager) {
+    res.status(403).json({ error: "You can only set your own Redmine key" }); return;
   }
   const { redmineApiKey } = req.body;
   const [user] = await db
@@ -136,10 +238,11 @@ router.patch("/users/:id/redmine-key", async (req, res): Promise<void> => {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  res.json(formatUser(user));
+  res.json(formatUser(user, ctx.userId === user.id));
 });
 
 router.get("/users/:id/stats", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   const params = GetUserStatsParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -149,10 +252,8 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
   const { id } = params.data;
   const now = new Date();
 
-  const tasks = await db
-    .select()
-    .from(tasksTable)
-    .where(eq(tasksTable.assigneeId, id));
+  const allTasks = await db.select().from(tasksTable);
+  const tasks = allTasks.filter((t) => t.assigneeIds?.includes(id));
 
   const tasksCompleted = tasks.filter((t) => t.status === "released_to_production").length;
   const tasksPending = tasks.filter((t) =>
@@ -225,6 +326,11 @@ router.get("/users/:id/stats", async (req, res): Promise<void> => {
 
 router.patch("/users/:id/active", async (req, res): Promise<void> => {
   try {
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
+    if ((await getRoleTierRank(ctx.role)) < 3) {
+      res.status(403).json({ error: "Manager tier or above required to activate/deactivate users" }); return;
+    }
     const id = parseInt(req.params.id);
     if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
     const { isActive } = req.body;
@@ -238,6 +344,11 @@ router.patch("/users/:id/active", async (req, res): Promise<void> => {
 });
 
 router.delete("/users/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (!PRIVILEGED_ROLES.includes(ctx.role)) {
+    res.status(403).json({ error: "Only an admin can delete users" }); return;
+  }
   // Using GetUserParams since it already validates the :id parameter perfectly
   const params = GetUserParams.safeParse(req.params);
   if (!params.success) {

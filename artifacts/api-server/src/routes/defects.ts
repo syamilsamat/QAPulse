@@ -1,0 +1,2124 @@
+import { readAvailability, recordAvailability } from "./defect-availability";
+import { Router, type IRouter } from "express";
+import { eq, and, inArray, desc, ilike } from "drizzle-orm";
+import {
+  db,
+  defectsTable,
+  defectLinksTable,
+  defectVerificationEvidenceTable,
+  testCasesTable,
+  requirementsTable,
+  projectsTable,
+  executionTestCasesTable,
+  executionFilesTable,
+  redmineStatusesTable,
+  usersTable,
+  milestonesTable,
+  codeReviewsTable,
+} from "@workspace/db";
+import { actorFromReq } from "./auth";
+import { buildDefectLogExcel, type DefectExportRow } from "./defects-excel";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
+import { logActivity, diffChanges } from "./_audit";
+import { notifyUser } from "./_notify";
+import { resolveApiKeyFromToken } from "./requirements";
+import { submitForReview, getLatestReview, getEvidenceForReview, decideReview, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
+import {
+  pushDefectToRedmine,
+  refreshDefectStatuses,
+  pullTrackerIssues,
+  fetchIssueTree,
+  fetchSingleIssue,
+  severityFromPriority,
+  syncIssueStatuses,
+  pushStatusToRedmine,
+  pushVerificationToRedmine,
+  pushDefectFieldsToRedmine,
+  pushAssigneeToRedmine,
+  routeForTracker,
+  defectCodePrefix,
+} from "./redmine-defect-bridge";
+
+const router: IRouter = Router();
+
+// Hoisted out of PATCH /defects/:id/status so the code-review gate (which
+// runs earlier in that same handler, before the Redmine write-through) can
+// test against the same "resolved-ish" bucket the reopen-detection below it
+// already uses — one definition of "this status means dev says it's fixed".
+const RESOLVED_STATES = /fixed|resolved|\bverified\b|closed/i;
+const ACTIVE_DEV_STATES = /reopen|in.?progress|assigned/i;
+
+// Deliberately separate from RESOLVED_STATES above (which only feeds the
+// pre-existing reopen-detection heuristic and isn't ours to redefine) — this
+// tracker's actual status list includes a plain "Done" that the narrower
+// regex doesn't catch, which let a defect reach a resolved-shaped state with
+// the code-review gate never firing (found via smoke test on DEF-0001).
+const GATE_RESOLVED_STATES = /fixed|resolved|\bverified\b|closed|done/i;
+
+// CR014 access control. Defects with no project are visible to any
+// authenticated user (Redmine pulls can land without a project); scoping
+// applies only to project-tagged defects.
+function requireAuth(req: any, res: any): { userId: number; role: string } | null {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  return ctx;
+}
+
+async function canAccessDefectProject(
+  ctx: { userId: number; role: string },
+  projectId: number | null | undefined,
+): Promise<boolean> {
+  if (projectId == null) return true;
+  return canAccessProject(ctx.userId, ctx.role, projectId);
+}
+
+async function blockUnavailable(req: any, res: any, userId: number, defect: { id: number; redmineId: string | null }): Promise<boolean> {
+  if (!defect.redmineId) return false;
+  const key = await resolveApiKeyFromToken(req.headers.authorization);
+  const rows = await readAvailability(userId, key, [defect.id]);
+  if (!rows.some(row => row.redmineId === defect.redmineId)) return false;
+  res.status(409).json({ error: "This Redmine issue is unavailable. Use Check again before updating it. Your last saved details are retained." });
+  return true;
+}
+
+// Redmine statuses that mean "fix landed, QA should retest"
+const RETEST_STATUS = /fixed|resolved|ready/i;
+const CLOSED_STATUS = /closed|\bverified\b|rejected|cancelled/i;
+// A word boundary is important here: tracker-specific statuses such as
+// "Unverified" must not trigger the mandatory verification workflow.
+const VERIFIED_STATUS = /\bverified\b/i;
+// CR075 — a defect may only be verified straight out of QA retest. Verifying
+// from anywhere else (still in progress, already closed, never handed to QA)
+// would put a "QA has retested this" note on an issue no QA retested.
+const QA_TEST_STATUS = /qa\s*test/i;
+const MAX_VERIFICATION_EVIDENCE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_VERIFICATION_EVIDENCE_MIME = /^(image\/(png|jpeg|gif|webp)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|application\/vnd\.ms-excel|text\/(plain|csv))$/i;
+const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
+
+// CR027 — defect_opened: fan out to the project's qa_lead+ users so quality
+// leads see new defects without needing to check the Defects page.
+const QA_LEAD_ROLES = ["qa_lead", "hod_qa", "admin", "cto"];
+
+// CR031 — who may raise a defect against an already-approved requirement.
+const REQUIREMENT_DEFECT_RAISER_ROLES = [
+  "dev_member", "dev_lead", "hod_dev",
+  "qa_member", "qa_lead", "hod_qa",
+  "admin", "cto",
+];
+
+async function notifyQaLeads(defect: typeof defectsTable.$inferSelect, actorId: number | null): Promise<void> {
+  if (defect.projectId == null) return;
+  const candidates = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable);
+  const eligible = candidates.filter((u) => QA_LEAD_ROLES.includes(u.role));
+  const projectId = defect.projectId;
+  const recipients: number[] = [];
+  for (const u of eligible) {
+    if (await canAccessProject(u.id, u.role, projectId)) recipients.push(u.id);
+  }
+  await Promise.all(
+    recipients.map((uid) =>
+      notifyUser(
+        uid,
+        "New defect opened",
+        `${defect.defectCode ?? `Defect #${defect.id}`} "${defect.title}" was opened.`,
+        "defect_opened",
+        "defect",
+        defect.id,
+        actorId,
+      ).catch(() => {}),
+    ),
+  );
+}
+
+// The execution row (qaPic + result) behind a defect's "found_by" link, if any.
+async function findLinkedExecutionTc(defectId: number): Promise<{ qaPic: string | null; result: string | null } | null> {
+  const [link] = await db
+    .select({ executionTcId: defectLinksTable.executionTcId })
+    .from(defectLinksTable)
+    .where(eq(defectLinksTable.defectId, defectId));
+  if (!link?.executionTcId) return null;
+  const [row] = await db
+    .select({ qaPic: executionTestCasesTable.qaPic, result: executionTestCasesTable.result })
+    .from(executionTestCasesTable)
+    .where(eq(executionTestCasesTable.id, link.executionTcId));
+  return row ?? null;
+}
+
+// qaPic is stored as a free-text name, not a user id — best-effort resolve
+// against the users table (same convention used for Redmine-imported names
+// elsewhere in this codebase).
+async function resolveActorName(userId: number): Promise<string> {
+  const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, userId));
+  return u?.name?.trim() || "QA";
+}
+
+async function resolveUserIdByName(name: string | null): Promise<number | null> {
+  if (!name?.trim()) return null;
+  const [user] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, name.trim()));
+  return user?.id ?? null;
+}
+
+// QM Pulse-native defect category taxonomy — fixed set, independent of
+// whatever a given Redmine project's own "category" field happens to hold.
+const DEFECT_CATEGORIES = [
+  "functional", "ui_ux", "usability", "performance", "security",
+  "data", "compatibility", "integration", "configuration", "localization",
+] as const;
+
+// Only Lead-tier and above may set a defect's category.
+// Category used to be Lead-tier only, which meant the field simply did not
+// render for a QA member — the person actually raising most defects. It is a
+// classification, not an authority: whoever writes the defect is best placed
+// to say what kind it is, and the value is validated against DEFECT_CATEGORIES
+// either way. Kept as a function so a tier gate can come back in one edit.
+async function canSetDefectCategory(_role: string): Promise<boolean> {
+  return true;
+}
+
+// CR080 — root cause taxonomy for the fields the gate below requires on
+// Critical/High QA-sourced defects. No tier gate, unlike DEFECT_CATEGORIES —
+// whoever can already change the defect's status can fill these in.
+const ROOT_CAUSE_CATEGORIES = [
+  "code_defect", "configuration", "data_issue", "environment", "requirement_gap", "third_party",
+] as const;
+
+// CR061 — title/description/tracker can be wrong at creation and Redmine
+// won't let just anyone edit them once synced, so this is deliberately
+// narrower than the general project-access gate: the original reporter (they
+// know what they meant to type) or a qa_lead+ (tier ≥2, qa department).
+async function canEditDefectInfo(ctx: { userId: number; role: string }, defect: { reporterId: number | null }): Promise<boolean> {
+  if (ctx.role === "admin") return true;
+  if (defect.reporterId != null && defect.reporterId === ctx.userId) return true;
+  const [tierRank, department] = await Promise.all([getRoleTierRank(ctx.role), getRoleDepartment(ctx.role)]);
+  return tierRank >= 2 && department === "qa";
+}
+
+// Append the Redmine id to the execution row's defect_number exactly as if the
+// QA had typed it — keeps Pareto/CAPA/verdict Excel and link-out chips working.
+async function backfillDefectNumber(executionTcId: number, redmineId: string) {
+  const [row] = await db
+    .select({ defectNumber: executionTestCasesTable.defectNumber })
+    .from(executionTestCasesTable)
+    .where(eq(executionTestCasesTable.id, executionTcId));
+  if (!row) return;
+  const existing = (row.defectNumber ?? "")
+    .split(/[,;\s]+/)
+    .map((s: any) => s.trim())
+    .filter(Boolean);
+  if (existing.includes(redmineId)) return;
+  await db
+    .update(executionTestCasesTable)
+    .set({ defectNumber: [...existing, redmineId].join(", ") })
+    .where(eq(executionTestCasesTable.id, executionTcId));
+}
+
+// ─── List ────────────────────────────────────────────────────────────────────
+
+router.get("/defects", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const { source, severity, projectId, search, escapeStatus, view } = req.query as Record<string, string>;
+
+    // CR051 — a non-numeric projectId (e.g. ?projectId=abc) coerces to NaN,
+    // which silently matched nothing for scoped users and everything for
+    // admins. Reject it explicitly instead.
+    let projectIdNum: number | null = null;
+    if (projectId != null && projectId !== "") {
+      projectIdNum = Number(projectId);
+      if (!Number.isInteger(projectIdNum)) {
+        res.status(400).json({ error: "projectId must be an integer" });
+        return;
+      }
+    }
+
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (projectIdNum != null && accessible !== null && !accessible.includes(projectIdNum)) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    let defects = await db.select().from(defectsTable).orderBy(desc(defectsTable.id));
+    if (accessible !== null) {
+      defects = defects.filter((d: any) => d.projectId == null || accessible.includes(d.projectId));
+    }
+    if (source) defects = defects.filter((d: any) => d.source === source);
+    if (severity) defects = defects.filter((d: any) => d.severity === severity);
+    if (projectIdNum != null) defects = defects.filter((d: any) => d.projectId === projectIdNum);
+    if (escapeStatus) defects = defects.filter((d: any) => d.escapeStatus === escapeStatus);
+
+    // CR035 — module-scope, checked once per distinct project rather than per row.
+    const defectProjectIds = [...new Set(defects.map((d: any) => d.projectId).filter((id: any): id is number => id != null))];
+    const defectModuleScopes = new Map(await Promise.all(defectProjectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const)));
+    defects = defects.filter((d: any) => {
+      const scope = d.projectId != null ? defectModuleScopes.get(d.projectId) : undefined;
+      if (!scope || !scope.restricted) return true;
+      return d.module != null && scope.moduleNames.includes(d.module);
+    });
+    if (search?.trim()) {
+      const q = search.trim().toLowerCase();
+      defects = defects.filter(
+        (d: any) =>
+          d.title.toLowerCase().includes(q) ||
+          (d.defectCode ?? "").toLowerCase().includes(q) ||
+          (d.redmineId ?? "").includes(q),
+      );
+    }
+
+    const ids = defects.map((d: any) => d.id);
+    const availabilityKey = await resolveApiKeyFromToken(req.headers.authorization).catch(() => null);
+    const unavailableRows = availabilityKey !== null ? await readAvailability(ctx.userId, availabilityKey, ids) : [];
+    const unavailableById = new Map(unavailableRows.map(row => [row.defectId, row]));
+    const verificationEvidence = ids.length
+      ? await db.select({
+          id: defectVerificationEvidenceTable.id,
+          defectId: defectVerificationEvidenceTable.defectId,
+          fileName: defectVerificationEvidenceTable.fileName,
+          mimeType: defectVerificationEvidenceTable.mimeType,
+          sizeBytes: defectVerificationEvidenceTable.sizeBytes,
+          uploadedBy: defectVerificationEvidenceTable.uploadedBy,
+          createdAt: defectVerificationEvidenceTable.createdAt,
+        }).from(defectVerificationEvidenceTable).where(inArray(defectVerificationEvidenceTable.defectId, ids))
+      : [];
+    const links = ids.length
+      ? await db.select().from(defectLinksTable).where(inArray(defectLinksTable.defectId, ids))
+      : [];
+
+    const execIds = links.map((l: any) => l.executionTcId).filter((v: any): v is number => v != null);
+    const execRows = execIds.length
+      ? await db
+          .select({
+            id: executionTestCasesTable.id,
+            caseId: executionTestCasesTable.caseId,
+            testCaseId: executionTestCasesTable.testCaseId,
+            caseName: executionTestCasesTable.caseName,
+            result: executionTestCasesTable.result,
+            fileId: executionFilesTable.id,
+            fileTicket: executionFilesTable.redmineTicketId,
+            fileTitle: executionFilesTable.title,
+          })
+          .from(executionTestCasesTable)
+          .leftJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+          .where(inArray(executionTestCasesTable.id, execIds))
+      : [];
+    const execById = new Map<number, any>(execRows.map((r: any) => [r.id, r]));
+
+    const tcIds = links.map((l: any) => l.testCaseId).filter((v: any): v is number => v != null);
+    const tcRows = tcIds.length
+      ? await db
+          .select({ id: testCasesTable.id, caseId: testCasesTable.caseId, title: testCasesTable.title })
+          .from(testCasesTable)
+          .where(inArray(testCasesTable.id, tcIds))
+      : [];
+    const tcById = new Map<number, any>(tcRows.map((r: any) => [r.id, r]));
+
+    const reqIds = links.map((l: any) => l.requirementId).filter((v: any): v is number => v != null);
+    const reqRows = reqIds.length
+      ? await db
+          .select({ id: requirementsTable.id, title: requirementsTable.title, redmineTicketId: requirementsTable.redmineTicketId })
+          .from(requirementsTable)
+          .where(inArray(requirementsTable.id, reqIds))
+      : [];
+    const reqById = new Map<number, any>(reqRows.map((r: any) => [r.id, r]));
+
+    const projects = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable);
+    const projectById = new Map<number, any>(projects.map((p: any) => [p.id, p.name]));
+
+    let result = defects.map((d: any) => {
+      const unavailable = unavailableById.get(d.id);
+      d.redmineUnavailableAt = unavailable && unavailable.redmineId === d.redmineId ? unavailable.checkedAt.toISOString() : null;
+      const dLinks = links
+        .filter((l: any) => l.defectId === d.id)
+        .map((l: any) => {
+          const exec = l.executionTcId != null ? execById.get(l.executionTcId) : undefined;
+          const tc = l.testCaseId != null ? tcById.get(l.testCaseId) : undefined;
+          const reqRow = l.requirementId != null ? reqById.get(l.requirementId) : undefined;
+          const failed = /fail/i.test(exec?.result ?? "");
+          return {
+            id: l.id,
+            linkType: l.linkType,
+            executionTcId: l.executionTcId,
+            displayCaseId: exec ? exec.testCaseId ?? exec.caseId ?? `#${exec.id}` : tc?.caseId ?? null,
+            caseName: exec?.caseName ?? tc?.title ?? null,
+            result: exec?.result ?? null,
+            fileTicket: exec?.fileTicket ?? null,
+            fileTitle: exec?.fileTitle ?? null,
+            testCaseId: l.testCaseId,
+            requirementId: l.requirementId,
+            requirementTitle: reqRow?.title ?? null,
+            retestNeeded:
+              failed && RETEST_STATUS.test(d.status) && !CLOSED_STATUS.test(d.status),
+          };
+        });
+
+      return {
+        ...d,
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+        statusSyncedAt: d.statusSyncedAt ? d.statusSyncedAt.toISOString() : null,
+        projectName: d.projectId ? projectById.get(d.projectId) ?? null : null,
+        links: dLinks,
+        retestNeeded: dLinks.some((l: any) => l.retestNeeded),
+        hasRegressionTc: dLinks.some((l: any) => l.linkType === "regression_tc"),
+        verificationEvidence: verificationEvidence
+          .filter((e) => e.defectId === d.id)
+          .map((e) => ({ ...e, createdAt: e.createdAt.toISOString() })),
+      };
+    });
+
+    if (view === "blocking") {
+      result = result.filter(
+        (d: any) => !CLOSED_STATUS.test(d.status) && d.links.some((l: any) => /fail|block/i.test(l.result ?? "")),
+      );
+    } else if (view === "retest") {
+      result = result.filter((d: any) => d.retestNeeded);
+    } else if (view === "open") {
+      result = result.filter((d: any) => !CLOSED_STATUS.test(d.status));
+    } else if (view === "mine") {
+      // CR030 — "My Defects": native assignment only (Redmine-only cached
+      // assignee names aren't matched back to a QM Pulse user id).
+      result = result.filter((d: any) => d.assigneeId === ctx.userId);
+    }
+
+    if (req.query.availability === "unavailable") result = result.filter((d: any) => d.redmineUnavailableAt);
+    res.json(result);
+  } catch (err: any) {
+    console.error("[GET /defects]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to fetch defects" });
+  }
+});
+
+// ─── Metrics (incl. CR020 leakage rate) ──────────────────────────────────────
+
+router.get("/defects/metrics", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const { projectId } = req.query as Record<string, string>;
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (projectId && accessible !== null && !accessible.includes(Number(projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    let defects = await db.select().from(defectsTable);
+    if (accessible !== null) {
+      defects = defects.filter((d: any) => d.projectId == null || accessible.includes(d.projectId));
+    }
+    if (projectId) defects = defects.filter((d: any) => d.projectId === Number(projectId));
+
+    const links = await db.select().from(defectLinksTable);
+    const regressionDefectIds = new Set(links.filter((l: any) => l.linkType === "regression_tc").map((l: any) => l.defectId));
+
+    const qa = defects.filter((d: any) => d.source === "qa");
+    const prod = defects.filter((d: any) => d.source === "production");
+    const others = defects.filter((d: any) => d.source === "other");
+    const reqDefects = defects.filter((d: any) => d.source === "requirement");
+    const open = (list: typeof defects) => list.filter((d: any) => !CLOSED_STATUS.test(d.status)).length;
+    const retest = defects.filter((d: any) => RETEST_STATUS.test(d.status) && !CLOSED_STATUS.test(d.status)).length;
+    const total = defects.length;
+
+    res.json({
+      total,
+      qaCount: qa.length,
+      prodCount: prod.length,
+      othersCount: others.length,
+      reqCount: reqDefects.length,
+      openQa: open(qa),
+      openProd: open(prod),
+      openOthers: open(others),
+      openReq: open(reqDefects),
+      otherTrackers: new Set(others.map((d: any) => d.tracker).filter(Boolean)).size,
+      awaitingRetest: retest,
+      leakageRate: total > 0 ? Math.round((prod.length / total) * 100) : 0,
+      escapesAnalyzed: prod.filter((d: any) => d.escapeStatus !== "pending").length,
+      escapesClosed: prod.filter((d: any) => d.escapeStatus === "closed").length,
+      regressionTcs: prod.filter((d: any) => regressionDefectIds.has(d.id)).length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to compute metrics" });
+  }
+});
+
+// ─── Create (write-through to Redmine) ───────────────────────────────────────
+
+router.post("/defects", async (req, res): Promise<void> => {
+  try {
+    const {
+      title, description, stepsToReproduce, expectedResult, actualResult,
+      severity, module, projectId, foundIn, executionTcId, requirementId,
+      sourceIssueId, redmineProjectId, trackerName, defectCategory,
+      assigneeId, assigneeName, complexity, targetedStartDate, targetedCompletionDate,
+      source, milestoneId, tracker, uploads,
+    } = req.body ?? {};
+
+    if (!title || typeof title !== "string" || !title.trim()) {
+      res.status(400).json({ error: "title is required" });
+      return;
+    }
+    if (defectCategory != null && !DEFECT_CATEGORIES.includes(defectCategory)) {
+      res.status(400).json({ error: "Invalid defectCategory" });
+      return;
+    }
+    const isRequirementDefect = source === "requirement";
+    if (source != null && !["qa", "requirement"].includes(source)) {
+      res.status(400).json({ error: "source must be 'qa' or 'requirement'" });
+      return;
+    }
+
+    const ctx = requireAuth(req, res);
+    if (!ctx) return;
+
+    // CR031 — a requirement defect auto-routes to the requirement's own
+    // author; everything else about the flow (severity, description) is
+    // caller-supplied same as a normal defect.
+    let requirementRow: typeof requirementsTable.$inferSelect | undefined;
+    if (isRequirementDefect) {
+      if (!REQUIREMENT_DEFECT_RAISER_ROLES.includes(ctx.role)) {
+        res.status(403).json({ error: "Not authorized to raise a requirement defect" });
+        return;
+      }
+      if (requirementId == null) {
+        res.status(400).json({ error: "requirementId is required for a requirement defect" });
+        return;
+      }
+      [requirementRow] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, Number(requirementId)));
+      if (!requirementRow) {
+        res.status(404).json({ error: "Requirement not found" });
+        return;
+      }
+      if (((requirementRow as any).reviewStatus ?? "draft") !== "approved") {
+        res.status(400).json({ error: "Requirement defects can only be raised against an approved requirement" });
+        return;
+      }
+    }
+
+    const effectiveProjectId = projectId ?? requirementRow?.projectId ?? null;
+    if (effectiveProjectId != null && !(await canAccessProject(ctx.userId, ctx.role, Number(effectiveProjectId)))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    // Category is Lead-tier+ only — a lower-tier caller's value is silently
+    // dropped rather than failing the whole defect creation over it. Doesn't
+    // apply to requirement defects at all (product taxonomy, not authoring).
+    const categoryAllowed = !isRequirementDefect && defectCategory != null && (await canSetDefectCategory(ctx.role));
+    const validatedUploads: { filename: string; contentType: string; base64: string }[] = [];
+    if (uploads != null) {
+      if (!Array.isArray(uploads) || uploads.length > 10) {
+        res.status(400).json({ error: "uploads must contain at most 10 images" });
+        return;
+      }
+      for (const file of uploads) {
+        const filename = typeof file?.filename === "string" ? file.filename.replace(/[\r\n]/g, " ").slice(0, 255) : "";
+        const contentType = typeof file?.contentType === "string" ? file.contentType : "";
+        const base64 = typeof file?.base64 === "string" ? file.base64 : "";
+        const size = base64 ? Buffer.from(base64, "base64").length : 0;
+        if (!filename || !contentType.startsWith("image/") || !base64 || size === 0 || size > 5 * 1024 * 1024) {
+          res.status(400).json({ error: `Invalid screenshot attachment: ${filename || "unnamed file"}` });
+          return;
+        }
+        validatedUploads.push({ filename, contentType, base64 });
+      }
+    }
+
+    // Resolve the link target *before* inserting the defect, so milestoneId
+    // can be set directly on defectsTable at creation time — explicit param
+    // wins, then the linked requirement's own milestone, then the linked
+    // execution file's milestone. Direct storage instead of relying solely
+    // on the defect_links -> execution chain is what makes milestone-scoped
+    // analytics (e.g. the CR026 escape funnel) work regardless of how the
+    // defect came to exist.
+    let effectiveMilestoneId: number | null = milestoneId ? Number(milestoneId) : null;
+    let execRow: { libraryTcId: number | null; requirementId: number | null; executionFileMilestoneId: number | null } | undefined;
+    let linkedRequirementMilestoneId: number | null = null;
+    if (!isRequirementDefect && executionTcId != null) {
+      [execRow] = await db
+        .select({
+          libraryTcId: executionTestCasesTable.libraryTcId,
+          requirementId: executionTestCasesTable.requirementId,
+          executionFileMilestoneId: executionFilesTable.milestoneId,
+        })
+        .from(executionTestCasesTable)
+        .leftJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+        .where(eq(executionTestCasesTable.id, Number(executionTcId)));
+      if (effectiveMilestoneId == null) effectiveMilestoneId = execRow?.executionFileMilestoneId ?? null;
+    } else if (!isRequirementDefect && requirementId != null) {
+      const [linkedReq] = await db.select({ milestoneId: requirementsTable.milestoneId }).from(requirementsTable).where(eq(requirementsTable.id, Number(requirementId)));
+      linkedRequirementMilestoneId = linkedReq?.milestoneId ?? null;
+      if (effectiveMilestoneId == null) effectiveMilestoneId = linkedRequirementMilestoneId;
+    }
+    if (isRequirementDefect && effectiveMilestoneId == null) {
+      effectiveMilestoneId = requirementRow?.milestoneId ?? null;
+    }
+
+    const actorId = actorFromReq(req);
+    // CR045 — the dialog's assignee is a Redmine member; assigneeName is the
+    // display name we can match against QM Pulse users.
+    const localAssigneeId = isRequirementDefect
+      ? null
+      : await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
+    const [defect] = await db
+      .insert(defectsTable)
+      .values({
+        title: title.trim(),
+        description: description ?? null,
+        stepsToReproduce: stepsToReproduce ?? null,
+        expectedResult: expectedResult ?? null,
+        actualResult: actualResult ?? null,
+        severity: severity ?? "medium",
+        module: module ?? null,
+        projectId: effectiveProjectId,
+        milestoneId: effectiveMilestoneId,
+        reporterId: actorId,
+        source: isRequirementDefect ? "requirement" : "qa",
+        foundIn: foundIn ?? (isRequirementDefect ? "Development" : "SIT"),
+        tracker: trackerName ?? null,
+        defectCategory: categoryAllowed ? defectCategory : null,
+        syncStatus: isRequirementDefect ? "not_applicable" : "pending",
+        // CR045 — a QA defect created with an assignee picked in the dialog
+        // stores that assignment locally too (best-effort name match, same
+        // convention as qaPic), not just in Redmine — so the dev is
+        // notified and the Defects page shows the assignment immediately.
+        assigneeId: isRequirementDefect ? requirementRow!.createdBy : localAssigneeId,
+        assigneeName: isRequirementDefect
+          ? (await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, requirementRow!.createdBy!)))[0]?.name ?? null
+          : (typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null),
+        assigneeAssignedAt: isRequirementDefect || localAssigneeId != null ? new Date() : null,
+      })
+      .returning();
+
+    const defectCode = `DEF-${String(defect.id).padStart(4, "0")}`;
+    await db.update(defectsTable).set({ defectCode }).where(eq(defectsTable.id, defect.id));
+    defect.defectCode = defectCode;
+
+    if (executionTcId != null) {
+      await db.insert(defectLinksTable).values({
+        defectId: defect.id,
+        executionTcId: Number(executionTcId),
+        testCaseId: execRow?.libraryTcId ?? null,
+        requirementId: execRow?.requirementId ?? null,
+        linkType: "found_by",
+      });
+    } else if (requirementId != null) {
+      await db.insert(defectLinksTable).values({
+        defectId: defect.id,
+        requirementId: Number(requirementId),
+        linkType: "requirement",
+      });
+    }
+
+    // Requirement defects are QM Pulse-native only — no Redmine tracker
+    // equivalent, so skip the write-through entirely (consistent with the
+    // standing principle that Redmine integrations stay thin/disposable).
+    if (isRequirementDefect) {
+      await logActivity({
+        type: "defect_created",
+        description: `Requirement defect ${defectCode} "${defect.title}" raised against "${requirementRow!.title}" — routed to ${defect.assigneeName ?? "the requirement author"}`,
+        userId: actorId,
+        entityId: defect.id,
+        entityType: "defect",
+        newValue: { title: defect.title, severity: defect.severity, foundIn: defect.foundIn, requirementId: Number(requirementId) },
+      });
+
+      if (defect.assigneeId) {
+        await notifyUser(
+          defect.assigneeId,
+          "Requirement defect assigned to you",
+          `${defectCode} "${defect.title}" was raised against your requirement "${requirementRow!.title}".`,
+          "defect_opened",
+          "defect",
+          defect.id,
+          actorId,
+        ).catch(() => {});
+      }
+
+      res.status(201).json({ ...defect, syncOk: true, syncError: null });
+      return;
+    }
+
+    // Write-through push — never blocks defect creation (pending-sync fallback)
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const push = await pushDefectToRedmine(defect, apiKey, {
+      redmineProjectId: redmineProjectId ?? null,
+      sourceIssueId: sourceIssueId ?? null,
+      trackerName,
+      assigneeId: assigneeId ?? null,
+      complexity: complexity ?? null,
+      targetedStartDate: targetedStartDate ?? null,
+      targetedCompletionDate: targetedCompletionDate ?? null,
+      uploads: validatedUploads,
+    });
+
+    if (push.ok && push.redmineId) {
+      await db
+        .update(defectsTable)
+        .set({ redmineId: push.redmineId, syncStatus: "synced", syncError: null, statusSyncedAt: new Date() })
+        .where(eq(defectsTable.id, defect.id));
+      defect.redmineId = push.redmineId;
+      defect.syncStatus = "synced";
+      if (executionTcId != null) await backfillDefectNumber(Number(executionTcId), push.redmineId);
+    } else {
+      await db
+        .update(defectsTable)
+        .set({ syncStatus: "pending", syncError: push.error ?? null })
+        .where(eq(defectsTable.id, defect.id));
+      defect.syncError = push.error ?? null;
+    }
+
+    await logActivity({
+      type: "defect_created",
+      description: `Defect ${defectCode} "${defect.title}" was created${push.ok ? ` (Redmine #${push.redmineId})` : " (Redmine sync pending)"}`,
+      userId: actorId,
+      entityId: defect.id,
+      entityType: "defect",
+      newValue: { title: defect.title, severity: defect.severity, foundIn: defect.foundIn, redmineId: push.redmineId ?? null },
+    });
+
+    await notifyQaLeads(defect, actorId);
+
+    // CR045 — the assigned dev hears about it at creation, not only when the
+    // separate assign endpoint is used later.
+    if (!isRequirementDefect && defect.assigneeId) {
+      await notifyUser(
+        defect.assigneeId,
+        "Defect assigned",
+        `${defectCode} "${defect.title}" has been assigned to you.`,
+        "defect_assigned",
+        "defect",
+        defect.id,
+        actorId,
+      ).catch(() => {});
+    }
+
+    res.status(201).json({ ...defect, syncOk: push.ok, syncError: push.ok ? null : push.error });
+  } catch (err: any) {
+    console.error("[POST /defects]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to create defect" });
+  }
+});
+
+// ─── Register a defect that was already created in Redmine ──────────────────
+// The execution fail modal creates the Redmine issue itself (pre-CR019 flow,
+// with assignee/custom fields/screenshots) — this records it locally so the
+// Defects page and retest tracking know about it. Upserts by redmineId.
+
+router.post("/defects/register", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const { redmineId, title, description, stepsToReproduce, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, tracker, projectId: requestedProjectId } = req.body ?? {};
+    if (!redmineId || !title) {
+      res.status(400).json({ error: "redmineId and title are required" });
+      return;
+    }
+    if (defectCategory != null && !DEFECT_CATEGORIES.includes(defectCategory)) {
+      res.status(400).json({ error: "Invalid defectCategory" });
+      return;
+    }
+
+    if (requestedProjectId != null && (!Number.isSafeInteger(requestedProjectId) || requestedProjectId <= 0)) {
+      res.status(400).json({ error: "projectId must be a positive integer" }); return;
+    }
+    if (stepsToReproduce != null && typeof stepsToReproduce !== "string") {
+      res.status(400).json({ error: "stepsToReproduce must be text" }); return;
+    }
+    const normalizedSeverity = typeof severity === "string" ? severity.trim().toLowerCase() : "medium";
+    if (!["critical", "high", "medium", "low"].includes(normalizedSeverity)) {
+      res.status(400).json({ error: "Invalid severity" }); return;
+    }
+    const actorId = actorFromReq(req);
+    const categoryAllowed = defectCategory != null && (await canSetDefectCategory(ctx.role));
+
+    // Derive the default project + environment from the execution row's file.
+    let projectId: number | null = null;
+    let milestoneId: number | null = null;
+    let foundIn = "SIT";
+    let execMeta: { libraryTcId: number | null; requirementId: number | null } | null = null;
+    if (executionTcId != null) {
+      const [row] = await db
+        .select({
+          libraryTcId: executionTestCasesTable.libraryTcId,
+          requirementId: executionTestCasesTable.requirementId,
+          fileProjectId: executionFilesTable.projectId,
+          fileMilestoneId: executionFilesTable.milestoneId,
+          fileTracker: executionFilesTable.tracker,
+        })
+        .from(executionTestCasesTable)
+        .leftJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
+        .where(eq(executionTestCasesTable.id, Number(executionTcId)));
+      if (!row) { res.status(404).json({ error: "Execution test case not found" }); return; }
+      if (!(await canAccessDefectProject(ctx, row.fileProjectId))) {
+        res.status(403).json({ error: "Access denied to the execution project" }); return;
+      }
+      if (row) {
+        projectId = row.fileProjectId ?? null;
+        // CR050 — carry the execution file's milestone onto the defect, same
+        // as every other creation path. Without it, fail-modal defects were
+        // missing from the CR026 milestone escape funnel and CR037 risk.
+        milestoneId = row.fileMilestoneId ?? null;
+        if (/uat/i.test(row.fileTracker ?? "")) foundIn = "UAT";
+        execMeta = { libraryTcId: row.libraryTcId, requirementId: row.requirementId };
+      }
+    }
+
+    // Persist the editable QM Pulse selection separately from the Redmine project.
+    if (requestedProjectId != null) {
+      if (requestedProjectId !== projectId) milestoneId = null;
+      projectId = requestedProjectId;
+    }
+    if (!(await canAccessDefectProject(ctx, projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    if (projectId != null) {
+      const [project] = await db.select({ id: projectsTable.id }).from(projectsTable).where(eq(projectsTable.id, projectId));
+      if (!project) { res.status(400).json({ error: "QM Pulse project not found" }); return; }
+    }
+    const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
+    let defect = existing;
+    if (!existing) {
+      // CR045 — carry the fail-modal's Redmine assignee into the local row
+      // (best-effort name match) so the dev is notified at creation.
+      const localAssigneeId = await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
+      // CR051 — the select-above/insert-below is a TOCTOU: a double-submit
+      // (double-click, slow-network retry) can race past the select. The
+      // partial UNIQUE index on redmine_id makes the loser hit a 23505; we
+      // treat that as "already registered", fetch the winner, and skip the
+      // creation-only side effects (code, notifications).
+      let created: typeof defectsTable.$inferSelect | undefined;
+      try {
+        [created] = await db
+          .insert(defectsTable)
+          .values({
+            title: String(title),
+            description: description ?? null,
+            stepsToReproduce: stepsToReproduce ?? null,
+            expectedResult: expectedResult ?? null,
+            actualResult: actualResult ?? null,
+            severity: normalizedSeverity,
+            module: module ?? null,
+            projectId,
+            milestoneId,
+            reporterId: actorId,
+            redmineId: String(redmineId),
+            syncStatus: "synced",
+            source: "qa",
+            foundIn,
+            tracker: typeof tracker === "string" ? tracker : null,
+            defectCategory: categoryAllowed ? defectCategory : null,
+            statusSyncedAt: null,
+            assigneeId: localAssigneeId,
+            assigneeName: typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null,
+            assigneeAssignedAt: localAssigneeId != null ? new Date() : null,
+          })
+          .returning();
+      } catch (err: any) {
+        // drizzle-orm wraps driver errors in DrizzleQueryError — the real pg
+        // error (with .code) lives at err.cause, not on err itself.
+        if (err?.code === "23505" || err?.cause?.code === "23505") {
+          const [winner] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, String(redmineId)));
+          defect = winner;
+        } else {
+          throw err;
+        }
+      }
+      if (created) {
+      const defectCode = `DEF-${String(created.id).padStart(4, "0")}`;
+      await db.update(defectsTable).set({ defectCode }).where(eq(defectsTable.id, created.id));
+      created.defectCode = defectCode;
+      defect = created;
+      await logActivity({
+        type: "defect_created",
+        description: `Defect ${defectCode} "${created.title}" registered (Redmine #${redmineId})`,
+        userId: actorId,
+        entityId: created.id,
+        entityType: "defect",
+        newValue: { title: created.title, redmineId: String(redmineId), foundIn },
+      });
+      await notifyQaLeads(created, actorId);
+
+      // CR045 — notify the assigned dev at creation (see POST /defects).
+      if (created.assigneeId) {
+        await notifyUser(
+          created.assigneeId,
+          "Defect assigned",
+          `${defectCode} "${created.title}" has been assigned to you.`,
+          "defect_assigned",
+          "defect",
+          created.id,
+          actorId,
+        ).catch(() => {});
+      }
+      }
+    }
+
+    if (executionTcId != null && defect) {
+      const dLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.defectId, defect.id));
+      if (!dLinks.some((l: any) => l.executionTcId === Number(executionTcId))) {
+        await db.insert(defectLinksTable).values({
+          defectId: defect.id,
+          executionTcId: Number(executionTcId),
+          testCaseId: execMeta?.libraryTcId ?? null,
+          requirementId: execMeta?.requirementId ?? null,
+          linkType: "found_by",
+        });
+      }
+    }
+
+    res.status(existing ? 200 : 201).json(defect);
+  } catch (err: any) {
+    console.error("[POST /defects/register]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to register defect" });
+  }
+});
+
+// ─── Retry a pending/errored Redmine push ────────────────────────────────────
+
+router.post("/defects/:id/retry-sync", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const push = await pushDefectToRedmine(defect, apiKey, {
+      redmineProjectId: req.body?.redmineProjectId ?? null,
+      sourceIssueId: req.body?.sourceIssueId ?? null,
+    });
+    if (push.ok && push.redmineId) {
+      await db
+        .update(defectsTable)
+        .set({ redmineId: push.redmineId, syncStatus: "synced", syncError: null, statusSyncedAt: new Date() })
+        .where(eq(defectsTable.id, id));
+      const dLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.defectId, id));
+      for (const l of dLinks) {
+        if (l.executionTcId != null) await backfillDefectNumber(l.executionTcId, push.redmineId);
+      }
+      res.json({ ok: true, redmineId: push.redmineId });
+    } else {
+      await db.update(defectsTable).set({ syncStatus: "error", syncError: push.error ?? null }).where(eq(defectsTable.id, id));
+      res.status(502).json({ ok: false, error: push.error });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Retry failed" });
+  }
+});
+
+// ─── Redmine status list (synced locally, auto-populates when empty) ─────────
+
+router.get("/defects/statuses", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  try {
+    let statuses = await db.select().from(redmineStatusesTable);
+    if (statuses.length === 0) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      await syncIssueStatuses(apiKey);
+      statuses = await db.select().from(redmineStatusesTable);
+    }
+    res.json(statuses.map((s: any) => ({ redmineId: s.redmineId, name: s.name, isClosed: !!s.isClosed })));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to load statuses" });
+  }
+});
+
+router.post("/defects/sync-statuses", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  try {
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const result = await syncIssueStatuses(apiKey);
+    if (result.error) {
+      res.status(502).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Status sync failed" });
+  }
+});
+
+// ─── Status edit (write-through: Redmine first, local cache on success) ──────
+
+router.get("/defects/:id/verification-evidence/:evidenceId/download", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const id = Number(req.params.id);
+  const evidenceId = Number(req.params.evidenceId);
+  if (!Number.isInteger(id) || !Number.isInteger(evidenceId)) {
+    res.status(400).json({ error: "Invalid ID" }); return;
+  }
+  const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+  if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+  if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" }); return;
+  }
+  const [evidence] = await db.select().from(defectVerificationEvidenceTable).where(
+    and(eq(defectVerificationEvidenceTable.id, evidenceId), eq(defectVerificationEvidenceTable.defectId, id)),
+  );
+  if (!evidence) { res.status(404).json({ error: "Verification evidence not found" }); return; }
+  const inlineSafe = /^(image\/|application\/pdf$|text\/plain$)/.test(evidence.mimeType);
+  const inline = (req.query.inline === "1" || req.query.inline === "true") && inlineSafe;
+  res.setHeader("Content-Type", evidence.mimeType);
+  res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${evidence.fileName.replace(/"/g, "")}"`);
+  res.send(Buffer.from(evidence.dataBase64, "base64"));
+});
+
+router.patch("/defects/:id/status", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    const statusRedmineId = Number(req.body?.statusRedmineId);
+    if (!Number.isInteger(statusRedmineId)) {
+      res.status(400).json({ error: "statusRedmineId is required" });
+      return;
+    }
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    if (await blockUnavailable(req, res, ctx.userId, defect)) return;
+    const [statusRow] = await db
+      .select()
+      .from(redmineStatusesTable)
+      .where(eq(redmineStatusesTable.redmineId, statusRedmineId));
+    if (!statusRow) {
+      res.status(400).json({ error: "Unknown status — sync statuses first" });
+      return;
+    }
+
+    let verificationEvidence: typeof defectVerificationEvidenceTable.$inferSelect | null = null;
+    if (VERIFIED_STATUS.test(statusRow.name)) {
+      if (!QA_VERIFY_ROLES.has(ctx.role)) {
+        res.status(403).json({ error: "Only QA roles can verify a defect" });
+        return;
+      }
+      if (!QA_TEST_STATUS.test(defect.status ?? "")) {
+        res.status(409).json({
+          error: `A defect can only be verified from "For QA Test" — this one is "${defect.status ?? "unknown"}". Move it to For QA Test and retest it first.`,
+        });
+        return;
+      }
+      const evidence = req.body?.evidence;
+      const fileName = typeof evidence?.fileName === "string" ? evidence.fileName.replace(/[\r\n]/g, " ").slice(0, 255) : "";
+      const mimeType = typeof evidence?.mimeType === "string" ? evidence.mimeType.slice(0, 150) : "application/octet-stream";
+      const dataBase64 = typeof evidence?.dataBase64 === "string" ? evidence.dataBase64.replace(/^data:[^;]+;base64,/, "") : "";
+      if (!dataBase64 || dataBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(dataBase64)) {
+        res.status(400).json({ error: "Verification evidence data is invalid" });
+        return;
+      }
+      const bytes = dataBase64 ? Buffer.from(dataBase64, "base64") : Buffer.alloc(0);
+      if (!fileName || bytes.length === 0) {
+        res.status(400).json({ error: "Verification evidence attachment is required" });
+        return;
+      }
+      if (!ALLOWED_VERIFICATION_EVIDENCE_MIME.test(mimeType)) {
+        res.status(400).json({ error: "Unsupported verification evidence file type" });
+        return;
+      }
+      if (bytes.length > MAX_VERIFICATION_EVIDENCE_BYTES) {
+        res.status(400).json({ error: "Verification evidence exceeds the 10 MB limit" });
+        return;
+      }
+      [verificationEvidence] = await db.insert(defectVerificationEvidenceTable).values({
+        defectId: id,
+        fileName,
+        mimeType,
+        sizeBytes: bytes.length,
+        dataBase64,
+        uploadedBy: ctx.userId,
+      }).returning();
+    }
+
+    // Code-review gate — only for defects natively assigned to a dev in
+    // QM Pulse (assigneeId set) and only QA-sourced ones; production defects
+    // keep their separate escape-review lifecycle (escapeStatus/escapeClass)
+    // untouched, since that process is built for firefighting speed, not a
+    // peer-review gate. A defect with no native assignee has no reviewer to
+    // gate against, so it's left alone too.
+    if (GATE_RESOLVED_STATES.test(statusRow.name) && defect.assigneeId != null && defect.source === "qa") {
+      const latestReview = await getLatestReview("defect", id);
+      if (!latestReview || latestReview.status !== "approved") {
+        if (verificationEvidence) {
+          await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));
+        }
+        res.status(409).json({ error: "Code review required before this defect can be marked Resolved — submit it for review first" });
+        return;
+      }
+    }
+
+    // CR080 — root cause & resolution gate. Same QA-sourced boundary as the
+    // code-review gate above, and independently enforced (both can block the
+    // same transition). Only Critical/High severity is mandatory — Medium/Low
+    // stays optional, not worth the overhead on a typo-class fix. The fields
+    // themselves are set via PATCH /defects/:id (same as escapeNotes etc.),
+    // so this only checks what's already on the row.
+    if (GATE_RESOLVED_STATES.test(statusRow.name) && defect.source === "qa" && (defect.severity === "critical" || defect.severity === "high")) {
+      if (!defect.rootCause?.trim() || !defect.resolutionSummary?.trim()) {
+        if (verificationEvidence) {
+          await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));
+        }
+        res.status(409).json({ error: "Root cause and resolution are required for a High/Critical severity defect before it can be marked Fixed/Resolved." });
+        return;
+      }
+    }
+
+    // Write-through: Redmine is still the record. Only defects without a
+    // Redmine id (pending sync) may change status locally.
+    if (defect.redmineId) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      // A verification carries its note and evidence into Redmine in the same
+      // PUT as the status, so the issue never shows the move without the
+      // explanation beside it. Every other status change is a bare move.
+      const push = verificationEvidence
+        ? await pushVerificationToRedmine(defect.redmineId, statusRedmineId, apiKey, {
+            verifierName: await resolveActorName(ctx.userId),
+            fromStatus: defect.status ?? "unknown",
+            toStatus: statusRow.name,
+            attachment: {
+              filename: verificationEvidence.fileName,
+              contentType: verificationEvidence.mimeType,
+              base64: verificationEvidence.dataBase64,
+            },
+          })
+        : await pushStatusToRedmine(defect.redmineId, statusRedmineId, apiKey);
+      if (!push.ok) {
+        if (verificationEvidence) {
+          await db.delete(defectVerificationEvidenceTable).where(eq(defectVerificationEvidenceTable.id, verificationEvidence.id));
+        }
+        res.status(502).json({ error: push.error ?? "Redmine rejected the status change" });
+        return;
+      }
+    }
+
+    const oldStatus = defect.status;
+    const [updated] = await db
+      .update(defectsTable)
+      .set({ status: statusRow.name, statusSyncedAt: new Date() })
+      .where(eq(defectsTable.id, id))
+      .returning();
+
+    const actorId = actorFromReq(req);
+    await logActivity({
+      type: "defect_status_changed",
+      description: `Defect ${defect.defectCode ?? `#${id}`} status changed from ${oldStatus} to ${statusRow.name}${defect.redmineId ? ` (synced to Redmine #${defect.redmineId})` : " (local only — not yet in Redmine)"}`,
+      userId: actorId,
+      entityId: id,
+      entityType: "defect",
+      oldValue: { status: oldStatus },
+      newValue: { status: statusRow.name, verificationEvidenceId: verificationEvidence?.id ?? null },
+    });
+
+    // CR027 — defect_status_changed to the reporter + the linked TC's last
+    // executor, and retest_needed to that same executor when the new status
+    // reads as "fixed" but the execution row is still sitting on Failed.
+    // CR046 — the assignee (dev) is a recipient too: without them, a QA
+    // reopen notified nobody but the QA themselves.
+    const linkedExec = await findLinkedExecutionTc(id);
+    const executorId = linkedExec ? await resolveUserIdByName(linkedExec.qaPic) : null;
+
+    // CR050 — reopen = an explicit "Reopened" status, OR leaving a genuinely
+    // resolved state (fixed/resolved/verified/closed) back INTO active dev
+    // work (in progress / assigned / reopened). Deliberately narrower than
+    // the old "left any retest-ish status" test, which false-flagged normal
+    // forward moves: "Ready for Testing → In Progress" (QA starting the
+    // retest), "Fixed → Retest", and "Resolved → Feedback" are NOT reopens.
+    const isReopen =
+      /reopen/i.test(statusRow.name) ||
+      (RESOLVED_STATES.test(oldStatus) && ACTIVE_DEV_STATES.test(statusRow.name));
+
+    const statusRecipients = new Set<number>();
+    if (defect.reporterId) statusRecipients.add(defect.reporterId);
+    if (executorId) statusRecipients.add(executorId);
+    if (defect.assigneeId && !isReopen) statusRecipients.add(defect.assigneeId); // reopen gets its own louder message below
+    await Promise.all(
+      [...statusRecipients].map((uid) =>
+        notifyUser(
+          uid,
+          "Defect status changed",
+          `${defect.defectCode ?? `Defect #${id}`} moved from ${oldStatus} to ${statusRow.name}.`,
+          "defect_status_changed",
+          "defect",
+          id,
+          actorId,
+        ).catch(() => {}),
+      ),
+    );
+
+    if (isReopen && defect.assigneeId) {
+      await notifyUser(
+        defect.assigneeId,
+        "Defect reopened",
+        `${defect.defectCode ?? `Defect #${id}`} "${defect.title}" failed retest — reopened (${oldStatus} → ${statusRow.name}).`,
+        "defect_reopened",
+        "defect",
+        id,
+        actorId,
+      ).catch(() => {});
+    }
+
+    if (executorId && RETEST_STATUS.test(statusRow.name) && linkedExec?.result && /fail/i.test(linkedExec.result)) {
+      await notifyUser(
+        executorId,
+        "Retest needed",
+        `${defect.defectCode ?? `Defect #${id}`} is now ${statusRow.name} — the linked test case is still marked Failed and needs a retest.`,
+        "retest_needed",
+        "defect",
+        id,
+        actorId,
+      ).catch(() => {});
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    console.error("[PATCH /defects/:id/status]", err);
+    res.status(500).json({ error: err?.message ?? "Status update failed" });
+  }
+});
+
+// ─── Code review — gates the RESOLVED_STATES status push above ──────────────
+// Same code_reviews primitive Dev Tasks uses (see _code-review.ts), pointed at
+// entityType "defect" instead of "task". Only meaningful for a defect that
+// already has a native assigneeId (CR030) — that's the reviewer's counterpart.
+
+// POST /defects/:id/submit-review — the defect's assignee submits it for peer
+// review. Body: { prLink?: string, evidence?: { filename, mimeType, data (base64) } }
+// GET /defects/:id/review — latest review round (if any), for the frontend
+// review panel. Anyone who can see the defect can see this; write actions
+// are gated separately below.
+router.get("/defects/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const latestReview = await getLatestReview("defect", id);
+  if (!latestReview) { res.json(null); return; }
+
+  let reviewerName: string | null = null;
+  if (latestReview.reviewerId) {
+    const [reviewer] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, latestReview.reviewerId));
+    reviewerName = reviewer?.name ?? null;
+  }
+  const evidence = await getEvidenceForReview(latestReview.id);
+
+  res.json({
+    id: latestReview.id,
+    status: latestReview.status,
+    prLink: latestReview.prLink,
+    note: latestReview.note,
+    submittedAt: latestReview.submittedAt,
+    reviewerId: latestReview.reviewerId,
+    reviewerName,
+    evidence: evidence.map((e) => ({ id: e.id, filename: e.filename, mimeType: e.mimeType, size: e.size })),
+  });
+});
+
+router.post("/defects/:id/submit-review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+  if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+
+  if (defect.assigneeId !== ctx.userId) {
+    res.status(403).json({ error: "Only this defect's assignee can submit it for review" });
+    return;
+  }
+
+  const { prLink, evidence } = req.body ?? {};
+  let review;
+  try {
+    review = await submitForReview({
+      entityType: "defect",
+      entityId: id,
+      submittedBy: ctx.userId,
+      prLink: typeof prLink === "string" ? prLink : null,
+      evidence: evidence && evidence.filename && evidence.data ? evidence : null,
+      logDescription: `Defect ${defect.defectCode ?? `#${id}`} submitted for code review`,
+      logEntityType: "defect",
+    });
+  } catch (err) {
+    if (err instanceof EvidenceRejectedError) { res.status(400).json({ error: err.message }); return; }
+    throw err;
+  }
+
+  await notifyDevPeersOfReview({
+    projectId: defect.projectId,
+    title: "Code review requested",
+    message: `Defect ${defect.defectCode ?? `#${id}`} "${defect.title}" is ready for review.`,
+    type: "defect_review_requested",
+    entityType: "defect",
+    entityId: id,
+    actorId: ctx.userId,
+    excludeUserIds: [ctx.userId],
+  }).catch(() => {});
+
+  res.status(201).json(review);
+});
+
+// POST /defects/:id/review — a peer dev (never the assignee) approves or
+// rejects the defect's latest review round. Body: { decision: "approve"|"reject", note?: string }
+router.post("/defects/:id/review", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const { decision, note } = req.body ?? {};
+  if (decision !== "approve" && decision !== "reject") {
+    res.status(400).json({ error: "decision must be approve or reject" });
+    return;
+  }
+
+  const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+  if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+  if (defect.assigneeId === ctx.userId) {
+    res.status(403).json({ error: "Can't review your own defect" });
+    return;
+  }
+
+  const department = await getRoleDepartment(ctx.role);
+  const tierRank = await getRoleTierRank(ctx.role);
+  const isEligibleReviewer = department === "dev" || tierRank >= 2 || ctx.role === "admin" || ctx.role === "cto";
+  if (!isEligibleReviewer) {
+    res.status(403).json({ error: "Dev department or Lead-tier role required to review" });
+    return;
+  }
+  if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+    res.status(403).json({ error: "Access denied to this project" });
+    return;
+  }
+
+  const review = await getLatestReview("defect", id);
+  if (!review || review.status !== "in_review") {
+    res.status(409).json({ error: "No pending review found for this defect" });
+    return;
+  }
+
+  const updatedReview = await decideReview({
+    reviewId: review.id,
+    reviewerId: ctx.userId,
+    decision,
+    note: typeof note === "string" ? note : null,
+    logDescription: decision === "approve"
+      ? `Defect ${defect.defectCode ?? `#${id}`} — code review approved`
+      : `Defect ${defect.defectCode ?? `#${id}`} — changes requested${note ? `: ${note}` : ""}`,
+    logEntityType: "defect",
+    entityId: id,
+  });
+
+  if (defect.assigneeId) {
+    await notifyUser(
+      defect.assigneeId,
+      decision === "approve" ? "Code review approved" : "Changes requested",
+      decision === "approve"
+        ? `${defect.defectCode ?? `Defect #${id}`} was approved — you can mark it Resolved.`
+        : `${defect.defectCode ?? `Defect #${id}`} needs changes${note ? `: ${note}` : ""}.`,
+      decision === "approve" ? "defect_review_approved" : "defect_review_rejected",
+      "defect",
+      id,
+      ctx.userId,
+    ).catch(() => {});
+  }
+
+  res.json(updatedReview);
+});
+
+// ─── CR030: native dev assignment (Lead-tier+ gate) ──────────────────────────
+// assigneeId is the source of truth going forward; assigneeName stays in sync
+// so existing display code (and the Redmine-cache fallback) keeps working.
+
+router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    const rawAssigneeId = req.body?.assigneeId;
+    const assigneeId = rawAssigneeId == null ? null : Number(rawAssigneeId);
+    if (assigneeId != null && !Number.isInteger(assigneeId)) {
+      res.status(400).json({ error: "assigneeId must be an integer or null" });
+      return;
+    }
+
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+
+    // CR031 (extended by CR054 follow-up) — a defect's CURRENT assignee can
+    // hand it off without a Lead gate, whatever the defect's source: the dev
+    // who fixed a QA-raised defect passes it back to the reporting tester to
+    // verify, exactly like a requirement defect's auto-routed assignee.
+    // Mirrors CR030's precedent of letting the dev assignee self-drive
+    // start/ready_for_qa. Everyone else needs the Lead-tier gate.
+    const isSelfHandoff = defect.assigneeId === ctx.userId;
+    if (!isSelfHandoff && (await getRoleTierRank(ctx.role)) < 2) {
+      res.status(403).json({ error: "Lead-tier role required to assign a defect" });
+      return;
+    }
+
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    if (await blockUnavailable(req, res, ctx.userId, defect)) return;
+
+    let assigneeName: string | null = null;
+    if (assigneeId != null) {
+      const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, assigneeId));
+      if (!user) {
+        res.status(400).json({ error: "Assignee not found" });
+        return;
+      }
+      assigneeName = user.name;
+    }
+
+    const now = new Date();
+    const [updated] = await db
+      .update(defectsTable)
+      .set({ assigneeId, assigneeName, assigneeAssignedAt: assigneeId != null ? now : null })
+      .where(eq(defectsTable.id, id))
+      .returning();
+
+    // Best-effort write-through — a defect already in Redmine gets its
+    // assignment pushed there too; failure never blocks the native assignment.
+    let syncOk: boolean | null = null;
+    let syncError: string | null = null;
+    if (assigneeId != null && defect.redmineId) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      const push = await pushAssigneeToRedmine(defect.redmineId, assigneeId, apiKey);
+      syncOk = push.ok;
+      syncError = push.ok ? null : push.error ?? null;
+    }
+
+    await logActivity({
+      type: "defect_assigned",
+      description: `Defect ${defect.defectCode ?? `#${id}`} ${assigneeId != null ? `assigned to ${assigneeName}` : "unassigned"}`,
+      userId: ctx.userId,
+      entityId: id,
+      entityType: "defect",
+      oldValue: { assigneeId: defect.assigneeId ?? null },
+      newValue: { assigneeId, assigneeName },
+    });
+
+    if (assigneeId != null) {
+      await notifyUser(
+        assigneeId,
+        "Defect assigned",
+        `${defect.defectCode ?? `Defect #${id}`} "${defect.title}" has been assigned to you.`,
+        "defect_assigned",
+        "defect",
+        id,
+        ctx.userId,
+      ).catch(() => {});
+    }
+
+    res.json({ ...updated, syncOk, syncError });
+  } catch (err: any) {
+    console.error("[PATCH /defects/:id/assign]", err);
+    res.status(500).json({ error: err?.message ?? "Assignment failed" });
+  }
+});
+
+// ─── Refresh cached Redmine statuses (one-way read) ──────────────────────────
+
+router.post("/defects/refresh-status", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const requestedId = req.body?.defectId;
+    if (requestedId != null && (!Number.isInteger(requestedId) || requestedId < 1)) {
+      res.status(400).json({ error: "Invalid defect ID" }); return;
+    }
+    const candidates = requestedId != null ? [requestedId] : (await db.select({ id: defectsTable.id }).from(defectsTable)).map(d => d.id);
+    const visible = candidates.length ? await loadSelectableDefects(ctx, candidates) : [];
+    if (requestedId != null && !visible.length) { res.status(404).json({ error: "Defect not found" }); return; }
+    const result = await refreshDefectStatuses(apiKey, visible.map(d => d.id), (defect, unavailable) => recordAvailability(ctx.userId, apiKey, defect, unavailable));
+    res.status(result.failed > 0 && result.refreshed === 0 && result.unavailable === 0 ? 502 : 200).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Refresh failed" });
+  }
+});
+
+// ─── CR020: pull production incidents from Redmine ───────────────────────────
+
+router.post("/defects/pull-production", async (req, res): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  try {
+    const trackerName = req.body?.trackerName;
+    if (!trackerName || typeof trackerName !== "string") {
+      res.status(400).json({ error: "trackerName is required" });
+      return;
+    }
+    const milestoneId = req.body?.milestoneId ? Number(req.body.milestoneId) : null;
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const result = await pullTrackerIssues(apiKey, trackerName, milestoneId);
+    if (result.error) {
+      res.status(502).json(result);
+      return;
+    }
+    await logActivity({
+      type: "defects_pulled",
+      description: `Pulled Redmine tracker "${trackerName}": ${result.imported} new (${result.qaDefects} QA, ${result.prodDefects} prod, ${result.others} others, ${result.requirements} requirements), ${result.ignored} already in QM Pulse (ignored)`,
+      userId: actorFromReq(req),
+      entityType: "defect",
+      newValue: { trackerName, ...result },
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Pull failed" });
+  }
+});
+
+// ─── Sync from Redmine: children of a requirement's ticket, routed by tracker ─
+// Routing (shared routeForTracker in the bridge): QA Defect → QA tab ·
+// Prod Defect → Production tab · User Story → requirements · else → Others tab.
+
+router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const { projectId, module, requirementId, trackerName, parentRedmineId } = req.body ?? {};
+    const typedParentId = parentRedmineId != null ? String(parentRedmineId).trim().replace(/^#/, "") : "";
+    if (!requirementId && !typedParentId) {
+      res.status(400).json({ error: "Enter a parent Redmine ID (or pick a requirement)" });
+      return;
+    }
+    if (typedParentId && !/^\d+$/.test(typedParentId)) {
+      res.status(400).json({ error: "Parent Redmine ID must be a number, e.g. 38849" });
+      return;
+    }
+    // trackerName optional: "all" (or empty) syncs every tracker, each issue
+    // routed by its OWN tracker; a specific name imports only that tracker
+    // (the tree is still walked so deep matches under other trackers land too)
+    const trackerFilter =
+      trackerName && String(trackerName).toLowerCase() !== "all" ? String(trackerName).toLowerCase() : null;
+
+    const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+    const actorId = actorFromReq(req);
+    const syncDate = new Date();
+    let created = 0;
+    let ignored = 0; // already in QM Pulse → left untouched (insert-only sync)
+    let skipped = 0;
+    const counts = { requirements: 0, qaDefects: 0, prodDefects: 0, others: 0 };
+
+    // The tree walk hangs everything off a QM Pulse requirement (it supplies the
+    // project/module/milestone defaults and the hierarchy root). Two ways to get
+    // one:
+    //   • requirementId — pick an already-imported requirement (original flow).
+    //   • parentRedmineId — type the parent ticket straight from Redmine. The
+    //     parent itself gets imported here, so a single ID brings in the parent
+    //     *and* its whole subtree, which is what fetchIssueTree alone can't do
+    //     (it only returns descendants).
+    let requirement: typeof requirementsTable.$inferSelect | undefined;
+
+    if (typedParentId) {
+      const { issue: rootIssue, error: rootErr } = await fetchSingleIssue(apiKey, typedParentId);
+      if (rootErr || !rootIssue) {
+        res.status(502).json({ error: rootErr ?? `Redmine issue #${typedParentId} not found` });
+        return;
+      }
+      if (!(await canAccessDefectProject(ctx, projectId ?? null))) {
+        res.status(403).json({ error: "Access denied to this project" });
+        return;
+      }
+      [requirement] = await db
+        .select()
+        .from(requirementsTable)
+        .where(eq(requirementsTable.redmineTicketId, typedParentId));
+      if (requirement) {
+        ignored++; // parent already in QM Pulse — reuse it as the anchor
+      } else {
+        const [row] = await db
+          .insert(requirementsTable)
+          .values({
+            title: rootIssue.subject ?? `Redmine #${typedParentId}`,
+            description: rootIssue.description ?? null,
+            module: module ?? null,
+            projectId: projectId ?? null,
+            redmineTicketId: typedParentId,
+            tracker: rootIssue.tracker?.name ?? null,
+            status: "open",
+            redmineCreatedAt: rootIssue.created_on ? new Date(rootIssue.created_on) : null,
+            createdBy: actorId,
+          })
+          .returning();
+        requirement = row;
+        created++;
+        counts.requirements++;
+      }
+    } else {
+      [requirement] = await db
+        .select()
+        .from(requirementsTable)
+        .where(eq(requirementsTable.id, Number(requirementId)));
+      if (!requirement) {
+        res.status(404).json({ error: "Requirement not found" });
+        return;
+      }
+      if (!(await canAccessDefectProject(ctx, projectId ?? requirement.projectId))) {
+        res.status(403).json({ error: "Access denied to this project" });
+        return;
+      }
+      if (!requirement.redmineTicketId) {
+        res.status(400).json({ error: "Selected requirement has no Redmine ticket id" });
+        return;
+      }
+    }
+
+    const { issues, error } = await fetchIssueTree(apiKey, requirement.redmineTicketId!);
+    if (error) {
+      res.status(502).json({ error });
+      return;
+    }
+
+    // Hierarchy anchors: for each Redmine id, the QM Pulse requirement to hang
+    // children off. Root = the selected requirement. Defects and skipped
+    // issues pass their parent's anchor through, so grandchildren still link.
+    const anchorByRedmineId = new Map<string, number>();
+    anchorByRedmineId.set(String(requirement.redmineTicketId), requirement.id);
+
+    for (const { issue, parentRedmineId } of issues) {
+      const rid = String(issue.id);
+      const issueTracker: string = issue.tracker?.name ?? "";
+      const route = routeForTracker(issueTracker);
+      const anchorReqId = anchorByRedmineId.get(parentRedmineId) ?? requirement.id;
+      const redmineCreatedAt = issue.created_on ? new Date(issue.created_on) : null;
+
+      if (trackerFilter && issueTracker.toLowerCase() !== trackerFilter) {
+        // not imported, but children still anchor to this issue's anchor
+        anchorByRedmineId.set(rid, anchorReqId);
+        skipped++;
+        continue;
+      }
+
+      if (route === "requirement") {
+        const [existing] = await db
+          .select()
+          .from(requirementsTable)
+          .where(eq(requirementsTable.redmineTicketId, rid));
+        let reqId: number;
+        if (existing) {
+          // already in QM Pulse → ignore untouched; still anchor children to it
+          reqId = existing.id;
+          ignored++;
+        } else {
+          const [row] = await db
+            .insert(requirementsTable)
+            .values({
+              title: issue.subject ?? "Untitled",
+              description: issue.description ?? null,
+              module: module ?? requirement.module,
+              projectId: projectId ?? requirement.projectId,
+              milestoneId: requirement.milestoneId ?? null,
+              parentId: anchorReqId,
+              redmineTicketId: rid,
+              tracker: issueTracker || null,
+              status: "open",
+              redmineCreatedAt,
+            })
+            .returning();
+          reqId = row.id;
+          created++;
+          counts.requirements++;
+        }
+        anchorByRedmineId.set(rid, reqId); // children of a story anchor to the story
+        continue;
+      }
+
+      // defect routes (qa / production / other-tracker-as-qa)
+      const cached = {
+        status: issue.status?.name ?? "Unknown",
+        assigneeName: issue.assigned_to?.name ?? null,
+        statusSyncedAt: syncDate,
+      };
+      const [existing] = await db.select().from(defectsTable).where(eq(defectsTable.redmineId, rid));
+      if (existing) {
+        // already in QM Pulse → ignore untouched; children still anchor through
+        anchorByRedmineId.set(rid, anchorReqId);
+        ignored++;
+        continue;
+      }
+      let defectId: number;
+      {
+        const [row] = await db
+          .insert(defectsTable)
+          .values({
+            title: issue.subject ?? "Untitled",
+            description: issue.description ?? null,
+            severity: severityFromPriority(issue.priority?.name),
+            module: module ?? issue.category?.name ?? null,
+            // CR047 — fall back to the anchor requirement's project, same as
+            // the requirement branch above. A null projectId is treated as
+            // world-visible by canAccessDefectProject, so dropping it here
+            // leaked project-scoped defects to every authenticated user.
+            projectId: projectId ?? requirement.projectId,
+            milestoneId: requirement.milestoneId ?? null,
+            reporterId: actorId,
+            redmineId: rid,
+            syncStatus: "synced",
+            source: route, // qa | production | other
+            foundIn: route === "production" ? "Production" : "SIT",
+            tracker: issueTracker || null,
+            category: issue.category?.name ?? null,
+            redmineCreatedAt,
+            ...cached,
+          })
+          .returning();
+        await db
+          .update(defectsTable)
+          .set({ defectCode: `${defectCodePrefix(route)}${String(row.id).padStart(4, "0")}` })
+          .where(eq(defectsTable.id, row.id));
+        defectId = row.id;
+        created++;
+      }
+      if (route === "production") counts.prodDefects++;
+      else if (route === "other") counts.others++;
+      else counts.qaDefects++;
+
+      // link to the nearest ancestor requirement (dedupe)
+      const dLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.defectId, defectId));
+      if (!dLinks.some((l: any) => l.requirementId === anchorReqId)) {
+        await db.insert(defectLinksTable).values({
+          defectId,
+          requirementId: anchorReqId,
+          linkType: "requirement",
+        });
+      }
+      anchorByRedmineId.set(rid, anchorReqId); // children of a defect keep its anchor
+    }
+
+    await logActivity({
+      type: "defects_synced",
+      description: `Synced subtree of "${requirement.title}" (#${requirement.redmineTicketId}): ${created} new, ${ignored} already in QM Pulse (ignored) — ${counts.requirements} requirements, ${counts.qaDefects} QA defects, ${counts.prodDefects} prod defects, ${counts.others} others${skipped ? `, ${skipped} skipped by tracker filter` : ""}`,
+      userId: actorId,
+      entityId: requirement.id,
+      entityType: "defect",
+      newValue: { trackerFilter, created, ignored, skipped, ...counts, parentRedmineId: requirement.redmineTicketId },
+    });
+
+    res.json({ total: issues.length, created, ignored, skipped, ...counts });
+  } catch (err: any) {
+    console.error("[POST /defects/sync-from-redmine]", err);
+    res.status(500).json({ error: err?.message ?? "Sync failed" });
+  }
+});
+
+// ─── CR020: escape review fields ─────────────────────────────────────────────
+
+router.patch("/defects/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid defect ID" });
+      return;
+    }
+    const [before] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!before) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, before.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    const patch: Record<string, any> = {};
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker", "expectedResult", "actualResult", "foundIn", "milestoneId", "rootCause", "rootCauseCategory", "resolutionSummary"]) {
+      if (key in (req.body ?? {})) patch[key] = req.body[key];
+    }
+    if ("defectCategory" in patch) {
+      if (patch.defectCategory != null && !DEFECT_CATEGORIES.includes(patch.defectCategory)) {
+        res.status(400).json({ error: "Invalid defectCategory" });
+        return;
+      }
+      if (!(await canSetDefectCategory(ctx.role))) delete patch.defectCategory;
+    }
+    if ("rootCauseCategory" in patch && patch.rootCauseCategory != null && !ROOT_CAUSE_CATEGORIES.includes(patch.rootCauseCategory)) {
+      res.status(400).json({ error: "Invalid rootCauseCategory" });
+      return;
+    }
+    // CR061 — the defect's own "info" fields (everything the New Defect
+    // dialog collects, minus Redmine-creation-only bits like assignee/
+    // complexity/dates, which have their own flows or aren't stored at all):
+    // reporter or qa_lead+ only. If already synced to Redmine, push
+    // title/description/tracker there first (fail-closed, same pattern as
+    // status write-through) before the local row changes — severity/module/
+    // expectedResult/actualResult/foundIn/milestoneId are QM Pulse-local only.
+    const infoFields = ["title", "description", "tracker", "severity", "module", "expectedResult", "actualResult", "foundIn", "milestoneId"].filter((k) => k in patch);
+    if (infoFields.length > 0) {
+      if (!(await canEditDefectInfo(ctx, before))) {
+        res.status(403).json({ error: "Only the reporter or a qa_lead can edit defect info" });
+        return;
+      }
+      if (patch.title !== undefined && !String(patch.title).trim()) {
+        res.status(400).json({ error: "Title cannot be empty" });
+        return;
+      }
+      if (before.redmineId) {
+        if (await blockUnavailable(req, res, ctx.userId, before)) return;
+        const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+        const push = await pushDefectFieldsToRedmine(before.redmineId, {
+          title: patch.title,
+          description: patch.description,
+          tracker: patch.tracker,
+        }, apiKey);
+        if (!push.ok) {
+          res.status(502).json({ error: push.error ?? "Redmine rejected the update" });
+          return;
+        }
+      }
+    }
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "Nothing to update" });
+      return;
+    }
+    if (patch.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, Number(patch.projectId)))) {
+      res.status(403).json({ error: "Access denied to the target project" });
+      return;
+    }
+    const [updated] = await db.update(defectsTable).set(patch).where(eq(defectsTable.id, id)).returning();
+
+    const diff = diffChanges(before, patch);
+    if (diff) {
+      await logActivity({
+        type: "defect_updated",
+        description: `Defect ${updated.defectCode ?? `#${id}`} was updated`,
+        userId: actorFromReq(req),
+        entityId: id,
+        entityType: "defect",
+        ...diff,
+      });
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Update failed" });
+  }
+});
+
+// ─── CR061: link an existing defect to an existing test case ────────────────
+// Both creation paths (fail-modal, POST /defects with executionTcId) create
+// this same found_by link automatically when the TC is already known — this
+// is the missing "do it after the fact" path: a defect raised without that
+// context (New Defect dialog, Redmine pull) previously had no way to attach
+// one later. Open to any qa-department user, not just the reporter/qa_lead —
+// linking is a shared QA workflow action, not "fixing what I wrote."
+router.post("/defects/:id/link", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    const executionTcId = Number(req.body?.executionTcId);
+    if (!Number.isInteger(executionTcId)) {
+      res.status(400).json({ error: "executionTcId is required" });
+      return;
+    }
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) { res.status(404).json({ error: "Defect not found" }); return; }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    if (ctx.role !== "admin" && ctx.role !== "cto") {
+      const department = await getRoleDepartment(ctx.role);
+      if (department !== "qa") {
+        res.status(403).json({ error: "Only QA-department users can link a defect to a test case" });
+        return;
+      }
+    }
+    const [execTc] = await db
+      .select({ id: executionTestCasesTable.id, caseId: executionTestCasesTable.caseId, executionFileId: executionTestCasesTable.executionFileId })
+      .from(executionTestCasesTable)
+      .where(eq(executionTestCasesTable.id, executionTcId));
+    if (!execTc) { res.status(404).json({ error: "Test case row not found" }); return; }
+
+    const [existing] = await db
+      .select()
+      .from(defectLinksTable)
+      .where(and(eq(defectLinksTable.defectId, id), eq(defectLinksTable.executionTcId, executionTcId)));
+    if (existing) { res.status(409).json({ error: "Already linked to this test case" }); return; }
+
+    const [link] = await db.insert(defectLinksTable).values({ defectId: id, executionTcId, linkType: "found_by" }).returning();
+    if (defect.redmineId) await backfillDefectNumber(executionTcId, defect.redmineId);
+
+    await logActivity({
+      type: "defect_updated",
+      description: `Defect ${defect.defectCode ?? `#${id}`} linked to test case ${execTc.caseId ?? `#${execTc.id}`}`,
+      userId: actorFromReq(req),
+      entityId: id,
+      entityType: "defect",
+    });
+    res.status(201).json(link);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Failed to link" });
+  }
+});
+
+// ─── CR020: create a regression TC from a defect ─────────────────────────────
+
+router.post("/defects/:id/regression-tc", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  try {
+    const id = Number(req.params.id);
+    const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
+    if (!defect) {
+      res.status(404).json({ error: "Defect not found" });
+      return;
+    }
+    if (!(await canAccessDefectProject(ctx, defect.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    const actorId = actorFromReq(req);
+    // linked requirement (if any) so the regression TC lands in traceability
+    const dLinks = await db.select().from(defectLinksTable).where(eq(defectLinksTable.defectId, id));
+    const linkedReqId = dLinks.find((l: any) => l.requirementId != null)?.requirementId ?? null;
+
+    const [tc] = await db
+      .insert(testCasesTable)
+      .values({
+        title: req.body?.title?.trim() || `Regression: ${defect.title}`,
+        scenario: `Regression coverage for ${defect.defectCode ?? `defect #${id}`}${defect.redmineId ? ` (RM #${defect.redmineId})` : ""}`,
+        preconditions: req.body?.preconditions ?? null,
+        testSteps: defect.stepsToReproduce ?? defect.description ?? null,
+        expectedResult: defect.expectedResult ?? null,
+        module: req.body?.module ?? defect.module ?? null,
+        projectId: req.body?.projectId ?? defect.projectId ?? null,
+        requirementId: linkedReqId,
+        authorId: actorId,
+        tags: "regression,escape",
+      })
+      .returning();
+
+    await db.insert(defectLinksTable).values({
+      defectId: id,
+      testCaseId: tc.id,
+      requirementId: linkedReqId,
+      linkType: "regression_tc",
+    });
+
+    // regression TC created = analysis progressed; close handled manually/on retest
+    if (defect.source === "production" && defect.escapeStatus === "pending") {
+      await db.update(defectsTable).set({ escapeStatus: "analyzing" }).where(eq(defectsTable.id, id));
+    }
+
+    await logActivity({
+      type: "test_case_created",
+      description: `Regression TC "${tc.title}" created from defect ${defect.defectCode ?? `#${id}`}`,
+      userId: actorId,
+      entityId: tc.id,
+      entityType: "test_case",
+      newValue: { defectId: id, defectCode: defect.defectCode ?? null },
+    });
+
+    res.status(201).json(tc);
+  } catch (err: any) {
+    console.error("[POST /defects/:id/regression-tc]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to create regression TC" });
+  }
+});
+
+// ─── Bulk selection actions (Defects page checkboxes) ────────────────────────
+
+/**
+ * Narrows a caller-supplied id list to the defects that caller may act on.
+ * Same gates the list endpoint applies — project scope, then module scope — so
+ * a selection can never reach a defect the Defects page would not have shown.
+ */
+async function loadSelectableDefects(ctx: { userId: number; role: string }, ids: number[]) {
+  const rows = await db.select().from(defectsTable).where(inArray(defectsTable.id, ids));
+  const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+  const scoped = accessible === null
+    ? rows
+    : rows.filter((d: any) => d.projectId == null || accessible.includes(d.projectId));
+
+  const projectIds = [...new Set(scoped.map((d: any) => d.projectId).filter((id: any): id is number => id != null))];
+  const moduleScopes = new Map(await Promise.all(
+    projectIds.map(async (pid) => [pid, await getModuleScope(ctx.userId, ctx.role, pid)] as const),
+  ));
+  return scoped.filter((d: any) => {
+    const scope = d.projectId != null ? moduleScopes.get(d.projectId) : undefined;
+    if (!scope || !scope.restricted) return true;
+    return d.module != null && scope.moduleNames.includes(d.module);
+  });
+}
+
+function parseIdList(body: any): number[] | null {
+  const raw = body?.ids;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const ids = [...new Set(raw.map((v: any) => Number(v)).filter((v: number) => Number.isInteger(v) && v > 0))];
+  return ids.length > 0 ? ids : null;
+}
+
+// POST /defects/export — the selected defects as a formatted Defect Log.
+// POST rather than GET: a "select all" on a busy project sends more ids than a
+// query string can safely carry.
+router.post("/defects/export", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const ids = parseIdList(req.body);
+  if (!ids) { res.status(400).json({ error: "Select at least one defect to export" }); return; }
+
+  try {
+    const defects = await loadSelectableDefects(ctx, ids);
+    if (defects.length === 0) { res.status(403).json({ error: "None of the selected defects are available to you" }); return; }
+
+    // Resolve every display name in one round trip per table rather than one
+    // per defect — an export of a few hundred rows is otherwise all latency.
+    const projectIds = [...new Set(defects.map((d: any) => d.projectId).filter((v: any): v is number => v != null))];
+    const milestoneIds = [...new Set(defects.map((d: any) => d.milestoneId).filter((v: any): v is number => v != null))];
+    const userIds = [...new Set(defects.flatMap((d: any) => [d.reporterId, d.assigneeId]).filter((v: any): v is number => v != null))];
+    const defectIds = defects.map((d: any) => d.id);
+
+    const [projectRows, milestoneRows, userRows, linkRows] = await Promise.all([
+      projectIds.length ? db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable).where(inArray(projectsTable.id, projectIds)) : [],
+      milestoneIds.length ? db.select({ id: milestonesTable.id, name: milestonesTable.name }).from(milestonesTable).where(inArray(milestonesTable.id, milestoneIds)) : [],
+      userIds.length ? db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(inArray(usersTable.id, userIds)) : [],
+      db.select().from(defectLinksTable).where(inArray(defectLinksTable.defectId, defectIds)),
+    ]);
+
+    const projectName = new Map(projectRows.map((p: any) => [p.id, p.name]));
+    const milestoneName = new Map(milestoneRows.map((m: any) => [m.id, m.name]));
+    const userName = new Map(userRows.map((u: any) => [u.id, u.name]));
+
+    // Linked test cases come from both sides of defect_links: the execution row
+    // that failed, and any regression case raised off the back of it.
+    const execIds = [...new Set(linkRows.map((l: any) => l.executionTcId).filter((v: any): v is number => v != null))];
+    const tcIds = [...new Set(linkRows.map((l: any) => l.testCaseId).filter((v: any): v is number => v != null))];
+    const [execRows, tcRows] = await Promise.all([
+      execIds.length ? db.select({ id: executionTestCasesTable.id, caseId: executionTestCasesTable.caseId, testCaseId: executionTestCasesTable.testCaseId }).from(executionTestCasesTable).where(inArray(executionTestCasesTable.id, execIds)) : [],
+      tcIds.length ? db.select({ id: testCasesTable.id, caseId: testCasesTable.caseId }).from(testCasesTable).where(inArray(testCasesTable.id, tcIds)) : [],
+    ]);
+    const execLabel = new Map(execRows.map((r: any) => [r.id, r.caseId || r.testCaseId || null]));
+    const tcLabel = new Map(tcRows.map((r: any) => [r.id, r.caseId || null]));
+
+    const caseLabelsByDefect = new Map<number, Set<string>>();
+    for (const link of linkRows as any[]) {
+      const label = (link.executionTcId != null ? execLabel.get(link.executionTcId) : null)
+        ?? (link.testCaseId != null ? tcLabel.get(link.testCaseId) : null);
+      if (!label) continue;
+      if (!caseLabelsByDefect.has(link.defectId)) caseLabelsByDefect.set(link.defectId, new Set());
+      caseLabelsByDefect.get(link.defectId)!.add(String(label));
+    }
+
+    const rows: DefectExportRow[] = defects.map((d: any) => ({
+      defectCode: d.defectCode ?? `DEF-${d.id}`,
+      redmineId: d.redmineId ?? null,
+      title: d.title,
+      severity: d.severity ?? null,
+      status: d.status ?? null,
+      source: d.source ?? null,
+      tracker: d.tracker ?? null,
+      foundIn: d.foundIn ?? null,
+      module: d.module ?? null,
+      projectName: d.projectId != null ? projectName.get(d.projectId) ?? null : null,
+      milestoneName: d.milestoneId != null ? milestoneName.get(d.milestoneId) ?? null : null,
+      defectCategory: d.defectCategory ?? null,
+      // assigneeName is Redmine cached text; assigneeId is the in-app
+      // assignment and wins when both exist (same precedence as the UI).
+      assigneeName: (d.assigneeId != null ? userName.get(d.assigneeId) : null) ?? d.assigneeName ?? null,
+      reporterName: d.reporterId != null ? userName.get(d.reporterId) ?? null : null,
+      description: d.description ?? null,
+      stepsToReproduce: d.stepsToReproduce ?? null,
+      expectedResult: d.expectedResult ?? null,
+      actualResult: d.actualResult ?? null,
+      rootCause: d.rootCause ?? null,
+      resolutionSummary: d.resolutionSummary ?? null,
+      linkedTestCases: [...(caseLabelsByDefect.get(d.id) ?? [])].sort().join(", ") || null,
+      createdAt: d.createdAt instanceof Date ? d.createdAt.toISOString() : d.createdAt ?? null,
+      updatedAt: d.updatedAt instanceof Date ? d.updatedAt.toISOString() : d.updatedAt ?? null,
+    }));
+
+    const [actor] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, ctx.userId));
+    const skipped = ids.length - defects.length;
+    const buffer = await buildDefectLogExcel(rows, {
+      exportedByName: actor?.name ?? null,
+      scopeLabel: `${rows.length} defect${rows.length === 1 ? "" : "s"} selected${skipped > 0 ? ` (${skipped} not accessible to you)` : ""}`,
+    });
+    if (!buffer) { res.status(500).json({ error: "Failed to build the Defect Log workbook" }); return; }
+
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${date}_DefectLog.xlsx"`);
+    res.send(buffer);
+  } catch (err: any) {
+    console.error("[defects/export]", err);
+    res.status(500).json({ error: err?.message ?? "Export failed" });
+  }
+});
+
+// POST /defects/bulk-delete — admin only, and QM Pulse-side only.
+//
+// This never touches Redmine. Redmine stays the system of record and deleting
+// an issue there is irreversible, so a synced defect will be pulled back in by
+// the next "Pull now" / "Sync from Redmine" — that is expected, and the
+// confirmation dialog on the page says so before anything is deleted. Delete
+// it in Redmine first if it should stay gone.
+//
+// defect_links and defect_verification_evidence are FK cascades. code_reviews
+// references a defect by (entityType, entityId) with no FK, so it is cleared
+// here rather than left orphaned.
+router.post("/defects/bulk-delete", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  if (ctx.role !== "admin") { res.status(403).json({ error: "Only an admin can delete defects" }); return; }
+  const ids = parseIdList(req.body);
+  if (!ids) { res.status(400).json({ error: "Select at least one defect to delete" }); return; }
+
+  try {
+    const defects = await loadSelectableDefects(ctx, ids);
+    if (defects.length === 0) { res.status(403).json({ error: "None of the selected defects are available to you" }); return; }
+
+    const deletableIds = defects.map((d: any) => d.id);
+    const stillInRedmine = defects.filter((d: any) => !!d.redmineId).length;
+
+    await db.delete(codeReviewsTable).where(and(
+      eq(codeReviewsTable.entityType, "defect"),
+      inArray(codeReviewsTable.entityId, deletableIds),
+    ));
+    await db.delete(defectsTable).where(inArray(defectsTable.id, deletableIds));
+
+    // One audit entry naming every defect, not one per row: this is a single
+    // deliberate action and the log should read as one. oldValue keeps the
+    // identifying fields, so a mistaken bulk delete can still be traced.
+    const labels = defects.map((d: any) => d.defectCode ?? `DEF-${d.id}`).join(", ");
+    await logActivity({
+      type: "defects_deleted",
+      description: `Deleted ${deletableIds.length} defect${deletableIds.length === 1 ? "" : "s"}: ${labels}`,
+      userId: ctx.userId,
+      entityType: "defect",
+      oldValue: defects.map((d: any) => ({ id: d.id, defectCode: d.defectCode, title: d.title, redmineId: d.redmineId })),
+    });
+
+    res.json({ deleted: deletableIds.length, skipped: ids.length - deletableIds.length, stillInRedmine });
+  } catch (err: any) {
+    console.error("[defects/bulk-delete]", err);
+    res.status(500).json({ error: err?.message ?? "Delete failed" });
+  }
+});
+
+export default router;
+

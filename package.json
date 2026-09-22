@@ -11,6 +11,9 @@
   "private": true,
   "devDependencies": {
     "@types/pg": "^8.20.0",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/three": "0.180.0",
     "@types/xlsx": "^0.0.36",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
@@ -19,7 +22,7 @@
     "@google/genai": "^2.8.0",
     "@gsap/react": "^2.1.2",
     "@heyputer/puter.js": "^2.5.1",
-    "@studio-freight/react-lenis": "^0.0.47",
+    "@react-three/fiber": "^9.3.0",
     "drizzle-orm": "catalog:",
     "framer-motion": "catalog:",
     "gsap": "^3.15.0",
@@ -27,8 +30,10 @@
     "jspdf": "^4.2.1",
     "lucide-react": "catalog:",
     "pg": "^8.21.0",
-    "react-router-dom": "^7.17.0",
-    "xlsx": "^0.18.5",
+    "react-router-dom": "^7.18.3",
+    "three": "0.180.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "xlsx-js-style": "^1.2.0"
-  }
+  },
+  "packageManager": "pnpm@12.3.4+sha512.961aa41fb077da3a04a441d9f8e15ebc0c96da8ef710b2eb67bf9ee7cb0610eabd48f1fd85f51cffe73846785fa0f87c56a3a872a1d893f8446741b5cce45457"
 }

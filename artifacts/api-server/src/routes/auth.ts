@@ -1,11 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
-import { db, usersTable, refreshTokensTable } from "@workspace/db";
+import { db, usersTable, refreshTokensTable, rolesTable } from "@workspace/db";
 import { LoginBody } from "@workspace/api-zod";
 import { logger } from "../lib/logger";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomBytes } from "crypto";
+import { logActivity } from "./_audit";
 
 const router: IRouter = Router();
 
@@ -13,8 +14,8 @@ const router: IRouter = Router();
 if (!process.env.JWT_SECRET && process.env.NODE_ENV === "production") {
   throw new Error("JWT_SECRET env var is required in production — server will not start without it");
 }
-const JWT_SECRET = process.env.JWT_SECRET ?? "qa-pulse-dev-secret-change-in-production-2024";
-const JWT_EXPIRES_IN = "15m";
+const JWT_SECRET = process.env.JWT_SECRET ?? "qm-pulse-dev-secret-change-in-production-2024";
+const JWT_EXPIRES_IN = "1h";
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // CR007-4: In-memory access token blacklist (invalidated on logout)
@@ -40,6 +41,24 @@ export function verifyToken(token: string): { id: number; email: string; role: s
   return jwt.verify(token, JWT_SECRET) as { id: number; email: string; role: string };
 }
 
+// CR011: actor identity for audit rows — null when unauthenticated/invalid
+export function actorFromReq(req: Request): number | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  try {
+    return verifyToken(authHeader.slice(7)).id;
+  } catch {
+    return null;
+  }
+}
+
+// CR011: client IP — parse X-Forwarded-For directly (Replit sits behind a proxy)
+export function clientIp(req: Request): string | null {
+  const xf = req.headers["x-forwarded-for"];
+  if (typeof xf === "string" && xf) return xf.split(",")[0].trim();
+  return req.ip ?? req.socket?.remoteAddress ?? null;
+}
+
 export async function getAuthUser(req: Request): Promise<typeof usersTable.$inferSelect | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -53,17 +72,33 @@ export async function getAuthUser(req: Request): Promise<typeof usersTable.$infe
   }
 }
 
-function formatUser(user: typeof usersTable.$inferSelect) {
+async function formatUser(user: typeof usersTable.$inferSelect) {
+  let tierRank: number | null = null;
+  let department: string | null = null;
+  if (user.role === "admin") {
+    tierRank = 99; // unrestricted — kept finite so it round-trips through JSON
+  } else {
+    try {
+      const [roleRow] = await db.select().from(rolesTable).where(eq(rolesTable.name, user.role));
+      tierRank = roleRow?.tierRank ?? 1;
+      department = roleRow?.department ?? null;
+    } catch {
+      tierRank = 1;
+    }
+  }
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
+    tierRank,
+    department,
     team: user.team,
     avatarUrl: user.avatarUrl,
     mustChangePassword: user.mustChangePassword,
     isActive: user.isActive ?? true,
     redmineApiKey: user.redmineApiKey ?? null,
+    emailNotificationsEnabled: user.emailNotificationsEnabled ?? false,
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -117,16 +152,36 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     expiresAt: new Date(Date.now() + REFRESH_EXPIRES_MS),
   });
 
-  res.json({ user: formatUser(user), token, refreshToken });
+  await logActivity({
+    type: "user_login",
+    description: `${user.name} logged in`,
+    userId: user.id,
+    entityId: user.id,
+    entityType: "system",
+    newValue: { ip: clientIp(req) },
+  });
+
+  res.json({ user: await formatUser(user), token, refreshToken });
 });
 
 // CR007-4: Stateful logout — blacklist access token + revoke refresh token
 router.post("/auth/logout", async (req, res): Promise<void> => {
+  const actorId = actorFromReq(req); // resolve before blacklisting the token
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     tokenBlacklist.add(authHeader.slice(7));
   }
-  const { refreshToken } = req.body;
+  if (actorId) {
+    await logActivity({
+      type: "user_logout",
+      description: `User #${actorId} logged out`,
+      userId: actorId,
+      entityId: actorId,
+      entityType: "system",
+      newValue: { ip: clientIp(req) },
+    });
+  }
+  const { refreshToken } = req.body ?? {};
   if (refreshToken && typeof refreshToken === "string") {
     await db
       .update(refreshTokensTable)
@@ -191,7 +246,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       return;
     }
 
-    res.json(formatUser(user));
+    res.json(await formatUser(user));
   } catch (e) {
     if (e instanceof jwt.TokenExpiredError) {
       res.status(401).json({ error: "Token expired" });
@@ -205,23 +260,41 @@ router.get("/auth/me", async (req, res): Promise<void> => {
 router.post("/auth/change-password", async (req, res): Promise<void> => {
   const { userId, currentPassword, newPassword } = req.body;
 
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  let authenticatedUserId: number;
+  try {
+    authenticatedUserId = verifyToken(authHeader.slice(7)).id;
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
     res.status(400).json({ error: "New password must be at least 8 characters" });
     return;
   }
 
-  if (!userId) {
-    res.status(400).json({ error: "userId is required" });
+  if (userId != null && Number(userId) !== authenticatedUserId) {
+    res.status(403).json({ error: "You can only change your own password" });
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, Number(userId)));
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, authenticatedUserId));
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;
   }
 
-  if (!user.mustChangePassword && currentPassword) {
+  if (!user.mustChangePassword) {
+    if (!currentPassword || typeof currentPassword !== "string") {
+      res.status(400).json({ error: "Current password is required" });
+      return;
+    }
     let currentValid = false;
     if (user.password.startsWith("$2")) {
       currentValid = await bcrypt.compare(currentPassword, user.password);
@@ -241,7 +314,7 @@ router.post("/auth/change-password", async (req, res): Promise<void> => {
     .where(eq(usersTable.id, user.id))
     .returning();
 
-  res.json(formatUser(updated));
+  res.json(await formatUser(updated));
 });
 
 export default router;

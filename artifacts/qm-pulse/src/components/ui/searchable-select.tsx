@@ -1,0 +1,133 @@
+import { useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+
+export interface SearchableSelectOption {
+  value: string;
+  label: string;
+  badge?: string;
+  /** Extra text (e.g. a Redmine ID) to match against when searching, beyond the visible label. */
+  keywords?: string;
+}
+
+interface SearchableSelectProps {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: SearchableSelectOption[];
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+  /**
+   * Show the search box. Left unset it decides for itself: a list long enough
+   * to need searching gets a box, a handful of options does not — a search
+   * field above four items is furniture, not help.
+   */
+  showSearch?: boolean;
+}
+
+/** Lists at or above this length get a search box when `showSearch` is unset. */
+const SEARCH_THRESHOLD = 8;
+
+export function SearchableSelect({
+  value,
+  onValueChange,
+  options,
+  placeholder = "Select...",
+  searchPlaceholder = "Search...",
+  emptyText = "No results found.",
+  disabled = false,
+  className,
+  showSearch,
+}: SearchableSelectProps) {
+  const [open, setOpen] = useState(false);
+
+  const selected = options.find((o) => o.value === value);
+  const searchable = showSearch ?? options.length >= SEARCH_THRESHOLD;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className={cn("w-full justify-between font-normal", className)}
+        >
+          <span className="truncate min-w-0">
+            {selected ? selected.label : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      {/* PopoverContent is w-72 by default, which overflows a narrow phone once
+          the trigger is wider or the screen is smaller. Track the trigger width
+          and clamp to the viewport instead. */}
+      <PopoverContent
+        className="p-0 w-[var(--radix-popper-anchor-width)] min-w-[var(--radix-popper-anchor-width)] max-w-[calc(100vw-2rem)]"
+        align="start"
+      >
+        <Command shouldFilter={searchable}>
+          {searchable && <CommandInput placeholder={searchPlaceholder} />}
+          <div
+            className="max-h-[min(240px,50vh)] overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y"
+            onWheel={(e) => {
+              // When this popover opens from inside a Dialog (e.g. the AI Test
+              // Case Generation modal's Tracker field), Radix's Dialog scroll
+              // lock can intercept wheel events before native scroll ever
+              // reaches this nested list. Drive scrollTop manually and stop
+              // the event here so neither the lock nor a native scroll that
+              // does get through can fight this or double it up.
+              e.preventDefault();
+              e.stopPropagation();
+              e.currentTarget.scrollTop += e.deltaY;
+            }}
+          >
+          <CommandList className="max-h-none overflow-visible">
+            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  value={option.keywords ? `${option.label} ${option.keywords}` : option.label}
+                  onSelect={() => {
+                    onValueChange(option.value);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === option.value ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  <span className="flex-1">{option.label}</span>
+                  {option.badge && (
+                    <span className="ml-2 text-xs text-primary">{option.badge}</span>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+          </div>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}

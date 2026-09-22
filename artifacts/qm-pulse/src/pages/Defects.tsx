@@ -1,0 +1,2443 @@
+import { useState, useEffect, useRef, Fragment } from "react";
+import { useLocation, useSearch } from "wouter";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import { getApiUrl } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
+import { format, formatDistanceToNow } from "date-fns";
+import {
+  Bug,
+  Plus,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  RefreshCw,
+  CloudUpload,
+  CloudDownload,
+  AlertTriangle,
+  RotateCw,
+  CheckCircle2,
+  FlaskConical,
+  Search,
+  Upload,
+  X,
+  Link2,
+  Pencil,
+  Eye,
+  Download,
+  FileCheck2,
+  Wrench,
+  Trash2,
+} from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { DefectHistory } from "@/components/DefectHistory";
+import { useDefectHistorySummaries } from "@/lib/defect-history";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { DefectReviewSection } from "@/components/DefectReviewSection";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import {
+  fetchRedmineProjectConfig,
+  fetchContactAssignees,
+  fetchRedmineTrackers,
+  searchRedmineIssues,
+  fetchExecutionFiles,
+  fetchTestCases,
+  type RedmineProjectConfigItem,
+  type RedmineMember,
+  type RedmineTracker,
+  type RedmineIssueMatch,
+  type ExecutionFile,
+  type ExecutionTestCase,
+} from "@/lib/execution-api";
+import { DefectCategoryField } from "@/components/DefectCategoryField";
+import { ModuleSelect } from "@/components/ModuleSelect";
+import { defectCategoryLabel } from "@/lib/defect-categories";
+import { ROOT_CAUSE_CATEGORIES } from "@/lib/root-cause-categories";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface DefectLink {
+  id: number;
+  linkType: string;
+  executionTcId: number | null;
+  displayCaseId: string | null;
+  caseName: string | null;
+  result: string | null;
+  fileTicket: string | null;
+  fileTitle: string | null;
+  testCaseId: number | null;
+  requirementId: number | null;
+  requirementTitle: string | null;
+  retestNeeded: boolean;
+}
+
+interface DefectRow {
+  id: number;
+  defectCode: string | null;
+  title: string;
+  description: string | null;
+  stepsToReproduce: string | null;
+  expectedResult: string | null;
+  actualResult: string | null;
+  severity: string;
+  status: string;
+  module: string | null;
+  projectId: number | null;
+  projectName: string | null;
+  assigneeName: string | null;
+  assigneeId: number | null;
+  reporterId: number | null;
+  redmineId: string | null;
+  syncStatus: string;
+  syncError: string | null;
+  source: string;
+  foundIn: string;
+  tracker: string | null;
+  category: string | null;
+  defectCategory: string | null;
+  rootCause: string | null;
+  rootCauseCategory: string | null;
+  resolutionSummary: string | null;
+  redmineCreatedAt: string | null;
+  escapeStatus: string;
+  escapeClass: string | null;
+  escapeNotes: string | null;
+  statusSyncedAt: string | null;
+  redmineUnavailableAt: string | null;
+  createdAt: string;
+  links: DefectLink[];
+  retestNeeded: boolean;
+  hasRegressionTc: boolean;
+  verificationEvidence: Array<{
+    id: number;
+    defectId: number;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    uploadedBy: number | null;
+    createdAt: string;
+  }>;
+}
+
+interface Metrics {
+  total: number;
+  qaCount: number;
+  prodCount: number;
+  othersCount: number;
+  reqCount: number;
+  openQa: number;
+  openProd: number;
+  openOthers: number;
+  openReq: number;
+  otherTrackers: number;
+  awaitingRetest: number;
+  leakageRate: number;
+  escapesAnalyzed: number;
+  escapesClosed: number;
+  regressionTcs: number;
+}
+
+const REDMINE_BASE = "https://redmine.bestinet.my";
+
+// ─── Badges ──────────────────────────────────────────────────────────────────
+
+function SeverityBadge({ severity }: { severity: string }) {
+  const map: Record<string, string> = {
+    critical: "bg-red-100 text-red-700 hover:bg-red-100",
+    high: "bg-orange-100 text-orange-700 hover:bg-orange-100",
+    medium: "bg-yellow-100 text-yellow-700 hover:bg-yellow-100",
+    low: "bg-gray-100 text-gray-600 hover:bg-gray-100",
+  };
+  return <Badge className={`${map[severity] ?? map.low} text-[10px] capitalize`}>{severity}</Badge>;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  let cls = "bg-gray-100 text-gray-600 hover:bg-gray-100";
+  if (/progress|assigned/.test(s)) cls = "bg-blue-100 text-blue-700 hover:bg-blue-100";
+  else if (/fixed|resolved|ready/.test(s)) cls = "bg-amber-100 text-amber-700 hover:bg-amber-100";
+  else if (/closed|\bverified\b/.test(s)) cls = "bg-green-100 text-green-700 hover:bg-green-100";
+  else if (/rejected|cancelled/.test(s)) cls = "bg-gray-200 text-gray-500 hover:bg-gray-200";
+  else if (/new|open/.test(s)) cls = "bg-red-100 text-red-700 hover:bg-red-100";
+  return <Badge className={`${cls} text-[10px] whitespace-nowrap`}>{status}</Badge>;
+}
+
+function TcResultBadge({ result }: { result: string | null }) {
+  const r = result?.toLowerCase() ?? "";
+  if (r.startsWith("pass")) return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-[10px]">Passed</Badge>;
+  if (r.startsWith("fail")) return <Badge className="bg-red-100 text-red-700 hover:bg-red-100 text-[10px]">Failed</Badge>;
+  if (r === "blocked") return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 text-[10px]">Blocked</Badge>;
+  return <Badge className="bg-gray-100 text-gray-500 hover:bg-gray-100 text-[10px]">Not Run</Badge>;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+const DEV_ROLES = new Set(["dev_member", "dev_lead", "hod_dev"]);
+const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
+// Mirrors the server's own gate in PATCH /defects/:id/status — a defect is
+// only verifiable straight out of QA retest. Kept as the same tolerant match
+// so a tracker spelling it "For QA Testing" still qualifies.
+const QA_TEST_STATUS = /qa\s*test/i;
+const VERIFICATION_EVIDENCE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv";
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(0.1, sizeBytes / 1024).toFixed(1)} KB`;
+}
+
+export default function Defects() {
+  const { token, user } = useAuth();
+  const canAssign = ((user as any)?.tierRank ?? 1) >= 2;
+  const canVerify = QA_VERIFY_ROLES.has(user?.role ?? "");
+  // CR061 — linking is a shared QA workflow action, not restricted to the
+  // reporter/qa_lead like editing the defect's own info.
+  const canLinkTc = (user as any)?.department === "qa" || user?.role === "admin" || user?.role === "cto";
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
+  const deepLinkedTab = new URLSearchParams(searchString).get("tab");
+
+  const [tab, setTab] = useState<"qa" | "production" | "other" | "requirement">(
+    deepLinkedTab === "production" || deepLinkedTab === "other" || deepLinkedTab === "requirement" ? deepLinkedTab : "qa",
+  );
+  useHighlightRow([tab]); // CR051 — focus a defect row from a ?highlight= deep-link
+  const [view, setView] = useState<string>("open");
+  const [filterProject, setFilterProject] = useState("all");
+  const [filterSeverity, setFilterSeverity] = useState("all");
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (deepLinkedTab === "qa" || deepLinkedTab === "production" || deepLinkedTab === "other" || deepLinkedTab === "requirement") {
+      setTab(deepLinkedTab);
+    }
+    const highlight = Number(new URLSearchParams(searchString).get("highlight"));
+    if (Number.isInteger(highlight) && highlight > 0) setExpanded(new Set([highlight]));
+  }, [deepLinkedTab, searchString]);
+  const [onlyUnavailable, setOnlyUnavailable] = useState(false);
+  const [checkingId, setCheckingId] = useState<number | null>(null);
+  const [refreshSummary, setRefreshSummary] = useState<{ refreshed: number; unavailable: number; failed: number } | null>(null);
+  const [detailTabs, setDetailTabs] = useState<Record<number, string>>({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullTracker, setPullTracker] = useState<string>(() => localStorage.getItem("qa_pulse_prod_tracker") ?? "");
+  const [pullMilestone, setPullMilestone] = useState<string>("");
+  const [newOpen, setNewOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [editingDefect, setEditingDefect] = useState<DefectRow | null>(null);
+  const [linkingDefect, setLinkingDefect] = useState<DefectRow | null>(null);
+  const [verificationTarget, setVerificationTarget] = useState<{ defect: DefectRow; statusRedmineId: number } | null>(null);
+  const [verificationFile, setVerificationFile] = useState<File | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  // CR061 — title/description/tracker editing: the reporter (they know what
+  // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
+  // server-side canEditDefectInfo gate in defects.ts.
+  const canEditDefectInfo = (d: DefectRow) =>
+    d.reporterId === (user as any)?.id ||
+    (((user as any)?.tierRank ?? 1) >= 2 && (user as any)?.department === "qa");
+
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  // Deletion is admin-only and deliberately QM Pulse-side only: Redmine stays
+  // the system of record, so a synced defect returns on the next pull. The
+  // confirmation below says so rather than letting it look like a bug later.
+  const canDeleteDefects = user?.role === "admin";
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["projects"],
+    queryFn: async () => (await fetch(`${getApiUrl()}/projects`, { headers: authHeaders })).json(),
+  });
+
+  // Milestone for the pull-tracker bar — a pulled tracker occasionally
+  // includes a User Story / Change Request issue, which becomes a
+  // requirement; this is where it inherits a milestone from since a flat
+  // tracker-wide pull has no single anchor requirement to inherit from.
+  const { data: milestonesForPull = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", filterProject],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${filterProject}`, { headers: authHeaders });
+      return res.ok ? res.json() : [];
+    },
+    enabled: filterProject !== "all",
+  });
+
+  const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["users-dev"],
+    enabled: canAssign,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/users`, { headers: authHeaders });
+      if (!res.ok) return [];
+      const all: { id: number; name: string; role: string }[] = await res.json();
+      return all.filter((u) => DEV_ROLES.has(u.role));
+    },
+  });
+
+  // CR031 — dev+QA users a requirement defect can be handed off to
+  const { data: handoffUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["users-handoff"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/users`, { headers: authHeaders });
+      if (!res.ok) return [];
+      const all: { id: number; name: string; role: string }[] = await res.json();
+      return all.filter((u) =>
+        DEV_ROLES.has(u.role) || ["qa_member", "qa_lead", "hod_qa"].includes(u.role),
+      );
+    },
+  });
+
+  const { data: trackers = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["redmine-trackers"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/redmine/trackers`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const { data: statuses = [] } = useQuery<{ redmineId: number; name: string; isClosed: boolean }[]>({
+    queryKey: ["defect-statuses"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/defects/statuses`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const listParams = new URLSearchParams();
+  if (!onlyUnavailable) listParams.set("source", tab);
+  else listParams.set("availability", "unavailable");
+  if (view !== "all") listParams.set("view", view);
+  if (filterProject !== "all") listParams.set("projectId", filterProject);
+  if (filterSeverity !== "all") listParams.set("severity", filterSeverity);
+  if (search.trim()) listParams.set("search", search.trim());
+
+  const { data: defects = [], isLoading } = useQuery<DefectRow[]>({
+    queryKey: ["defects", user?.id, tab, view, filterProject, filterSeverity, search, onlyUnavailable],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/defects?${listParams.toString()}`, { headers: authHeaders });
+      if (!res.ok) throw new Error("Failed to fetch defects");
+      return res.json();
+    },
+  });
+
+  const { data: metrics } = useQuery<Metrics>({
+    queryKey: ["defects-metrics", filterProject],
+    queryFn: async () => {
+      const qs = filterProject !== "all" ? `?projectId=${filterProject}` : "";
+      const res = await fetch(`${getApiUrl()}/defects/metrics${qs}`, { headers: authHeaders });
+      return res.json();
+    },
+  });
+
+  const historySummaries = useDefectHistorySummaries(defects, user?.id, token);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["defect-history"] });
+    queryClient.invalidateQueries({ queryKey: ["defect-history-summaries"] });
+    queryClient.invalidateQueries({ queryKey: ["defects"] });
+    queryClient.invalidateQueries({ queryKey: ["defects-metrics"] });
+  };
+
+  const lastSynced = defects
+    .map((d) => d.statusSyncedAt)
+    .filter(Boolean)
+    .sort()
+    .pop();
+
+  const toggleExpand = (id: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const handleRefreshStatus = async (defectId?: number) => {
+    setIsRefreshing(true);
+    setCheckingId(defectId ?? null);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/refresh-status`, { method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" }, body: JSON.stringify(defectId ? { defectId } : {}) });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Could not refresh statuses from Redmine. Please try again.");
+      if (!data || !Number.isInteger(data.refreshed) || data.refreshed < 0 ||
+          !Number.isInteger(data.failed) || data.failed < 0 ||
+          !Number.isInteger(data.unavailable) || data.unavailable < 0) {
+        throw new Error("Received an invalid refresh response. Please try again.");
+      }
+      if (data.refreshed > 0 || data.unavailable > 0) invalidate();
+      setRefreshSummary(data);
+      if (data.failed > 0) {
+        toast({
+          variant: "destructive",
+          title: data.refreshed > 0
+            ? `${data.refreshed} defect(s) refreshed; ${data.failed} could not be refreshed. Please retry.`
+            : "Could not refresh statuses from Redmine",
+          description: [data.error, data.unavailable > 0 ? `${data.unavailable} issue(s) unavailable.` : ""].filter(Boolean).join(" "),
+        });
+      } else if (data.unavailable > 0) {
+        toast({ title: `${data.refreshed} refreshed · ${data.unavailable} issue(s) unavailable`,
+          description: "These issues may have been deleted or you no longer have access. Last saved details are retained.",
+          className: "border-amber-500/40 bg-background text-amber-600 dark:text-amber-400" });
+      } else {
+        toast({ title: data.refreshed > 0
+          ? `Status refreshed for ${data.refreshed} defect(s)`
+          : "No defects linked to Redmine" });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Status refresh failed",
+        description: err instanceof Error ? err.message : "Could not refresh statuses from Redmine. Please try again.",
+      });
+    } finally {
+      setIsRefreshing(false);
+      setCheckingId(null);
+    }
+  };
+
+  const handlePull = async () => {
+    if (!pullTracker) {
+      toast({ variant: "destructive", title: "Pick the Redmine tracker used for production incidents" });
+      return;
+    }
+    setIsPulling(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/pull-production`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ trackerName: pullTracker, milestoneId: pullMilestone ? Number(pullMilestone) : undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Pull failed");
+      localStorage.setItem("qa_pulse_prod_tracker", pullTracker);
+      const destParts = [
+        data.qaDefects ? `${data.qaDefects} QA` : null,
+        data.prodDefects ? `${data.prodDefects} prod` : null,
+        data.others ? `${data.others} others` : null,
+        data.requirements ? `${data.requirements} requirement(s)` : null,
+      ].filter(Boolean);
+      toast({
+        title: `Pulled from Redmine: ${data.imported} new, ${data.ignored} already in QM Pulse (ignored)`,
+        description: destParts.length ? destParts.join(" · ") : undefined,
+      });
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  // ── Bulk selection helpers ────────────────────────────────────────────────
+  // Selection is keyed on defect id, not on position, so it survives a filter
+  // change — but anything filtered out of view is dropped on the way to the
+  // server, because acting on a defect the user can no longer see is exactly
+  // the kind of surprise a bulk delete must not spring.
+  const visibleIds = defects.map((d) => d.id);
+  const selectedVisibleIds = visibleIds.filter((id) => selectedIds.has(id));
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length;
+  const someVisibleSelected = selectedVisibleIds.length > 0 && !allVisibleSelected;
+
+  const toggleSelect = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of visibleIds) {
+        if (checked) next.add(id); else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectedDefects = defects.filter((d) => selectedIds.has(d.id));
+  const selectedRedmineCount = selectedDefects.filter((d) => !!d.redmineId).length;
+  // Listed in the dialog so the user confirms against names, not a bare count.
+  const selectedDefectLabels = selectedDefects
+    .map((d) => d.defectCode ?? `DEF-${d.id}`)
+    .slice(0, 12)
+    .join(", ") + (selectedDefects.length > 12 ? `, and ${selectedDefects.length - 12} more` : "");
+
+  const handleExportSelected = async () => {
+    if (selectedVisibleIds.length === 0 || isExporting) return;
+    setIsExporting(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/export`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedVisibleIds }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const filename = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1]
+        ?? `DefectLog_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({
+        title: `Exported ${selectedVisibleIds.length} defect${selectedVisibleIds.length === 1 ? "" : "s"}`,
+        description: filename,
+      });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Export failed" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedVisibleIds.length === 0 || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/bulk-delete`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedVisibleIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      toast({
+        title: `Deleted ${data.deleted} defect${data.deleted === 1 ? "" : "s"}`,
+        description: data.stillInRedmine > 0
+          ? `${data.stillInRedmine} still exist in Redmine and will return on the next pull.`
+          : undefined,
+      });
+      clearSelection();
+      setConfirmDeleteOpen(false);
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message ?? "Delete failed" });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleRetrySync = async (d: DefectRow) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}/retry-sync`, { method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" }, body: "{}" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      toast({ title: `Synced — Redmine #${data.redmineId}` });
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    }
+  };
+
+  const handleAssign = async (d: DefectRow, assigneeId: number | null) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}/assign`, {
+        method: "PATCH",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ assigneeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Assignment failed");
+      toast({
+        title: assigneeId ? "Defect assigned" : "Defect unassigned",
+        description: data.syncOk === false ? `Not synced to Redmine: ${data.syncError}` : undefined,
+      });
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    }
+  };
+
+  const submitStatusChange = async (d: DefectRow, statusRedmineId: number, evidence?: { fileName: string; mimeType: string; dataBase64: string }) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}/status`, {
+        method: "PATCH",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ statusRedmineId, evidence }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Status update failed");
+      toast({
+        title: d.redmineId
+          ? `Status updated — synced to Redmine #${d.redmineId}`
+          : "Status updated locally (defect not yet in Redmine)",
+      });
+      invalidate();
+      return true;
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+      return false;
+    }
+  };
+
+  const handleStatusChange = async (d: DefectRow, statusRedmineId: number) => {
+    const targetStatus = statuses.find((status) => status.redmineId === statusRedmineId)?.name ?? "";
+    if (/\bverified\b/i.test(targetStatus)) {
+      if (!canVerify) {
+        toast({ variant: "destructive", title: "Only QA can verify a defect" });
+        return;
+      }
+      setVerificationTarget({ defect: d, statusRedmineId });
+      setVerificationFile(null);
+      return;
+    }
+    await submitStatusChange(d, statusRedmineId);
+  };
+
+  const handleVerifyWithEvidence = async () => {
+    if (!verificationTarget || !verificationFile) return;
+    if (verificationFile.size > 10 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+        reader.onerror = () => reject(new Error("Could not read verification evidence"));
+        reader.readAsDataURL(verificationFile);
+      });
+      const ok = await submitStatusChange(verificationTarget.defect, verificationTarget.statusRedmineId, {
+        fileName: verificationFile.name,
+        mimeType: verificationFile.type || "application/octet-stream",
+        dataBase64,
+      });
+      if (ok) {
+        setVerificationTarget(null);
+        setVerificationFile(null);
+      }
+    } catch (error: any) {
+      toast({ variant: "destructive", title: error?.message ?? "Could not read verification evidence" });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const openVerificationEvidence = async (defectId: number, evidenceId: number, fileName: string, inline: boolean) => {
+    const previewWindow = inline ? window.open("", "_blank") : null;
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${defectId}/verification-evidence/${evidenceId}/download${inline ? "?inline=1" : ""}`, { headers: authHeaders });
+      if (!res.ok) throw new Error("Unable to open verification evidence");
+      const url = URL.createObjectURL(await res.blob());
+      if (inline) {
+        if (!previewWindow) throw new Error("Preview was blocked by the browser");
+        previewWindow.opener = null;
+        previewWindow.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error: any) {
+      previewWindow?.close();
+      toast({ variant: "destructive", title: error.message });
+    }
+  };
+
+  const handleEscapePatch = async (d: DefectRow, patch: Record<string, any>) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    }
+  };
+
+  const handleRegressionTc = async (d: DefectRow) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${d.id}/regression-tc`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const tc = await res.json();
+      if (!res.ok) throw new Error(tc.error ?? "Failed to create regression TC");
+      toast({ title: `Regression TC "${tc.title}" added to the library` });
+      invalidate();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    }
+  };
+
+  const cards =
+    tab === "qa"
+      ? [
+          { label: "QA defects", value: metrics?.qaCount ?? 0, cls: "" },
+          { label: "Open", value: metrics?.openQa ?? 0, cls: "text-red-600" },
+          { label: "Awaiting retest", value: metrics?.awaitingRetest ?? 0, cls: "text-amber-600" },
+          { label: "Leakage rate", value: `${metrics?.leakageRate ?? 0}%`, cls: "text-blue-600" },
+        ]
+      : tab === "production"
+        ? [
+            { label: "Prod defects", value: metrics?.prodCount ?? 0, cls: "" },
+            { label: "Leakage rate", value: `${metrics?.leakageRate ?? 0}%`, cls: "text-red-600" },
+            { label: "Escapes analyzed", value: `${metrics?.escapesAnalyzed ?? 0} / ${metrics?.prodCount ?? 0}`, cls: "text-amber-600" },
+            { label: "Regression TCs added", value: metrics?.regressionTcs ?? 0, cls: "text-green-600" },
+          ]
+        : tab === "other"
+          ? [
+              { label: "Other issues", value: metrics?.othersCount ?? 0, cls: "" },
+              { label: "Open", value: metrics?.openOthers ?? 0, cls: "text-red-600" },
+              { label: "Awaiting retest", value: metrics?.awaitingRetest ?? 0, cls: "text-amber-600" },
+              { label: "Distinct trackers", value: metrics?.otherTrackers ?? 0, cls: "text-blue-600" },
+            ]
+          : [
+              { label: "Requirement defects", value: metrics?.reqCount ?? 0, cls: "" },
+              { label: "Open", value: metrics?.openReq ?? 0, cls: "text-red-600" },
+            ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Bug className="w-6 h-6 text-red-500" />
+            Defects
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1 flex items-center gap-1.5">
+            <RefreshCw className="w-3 h-3" />
+            Status synced from Redmine
+            {lastSynced ? ` · ${formatDistanceToNow(new Date(lastSynced), { addSuffix: true })}` : " · never"}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setSyncOpen(true)} className="gap-2">
+            <CloudDownload className="w-4 h-4" /> Sync from Redmine
+          </Button>
+          <Button variant="outline" onClick={() => handleRefreshStatus()} disabled={isRefreshing} className="gap-2">
+            {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Refresh status
+          </Button>
+          <Button onClick={() => setNewOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> New defect
+          </Button>
+        </div>
+      </div>
+
+      {refreshSummary && refreshSummary.unavailable > 0 && (
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <span>{refreshSummary.refreshed} refreshed · {refreshSummary.unavailable} issue(s) unavailable{refreshSummary.failed > 0 ? ` · ${refreshSummary.failed} failed` : ""}</span>
+          <Button size="sm" variant="outline" onClick={() => { setOnlyUnavailable(true); setView("all"); setFilterProject("all"); setFilterSeverity("all"); setSearch(""); }}>View affected defects</Button>
+        </div>
+      )}
+      {onlyUnavailable && <div className="text-sm flex items-center gap-3">Showing unavailable issues across all defect categories<Button variant="ghost" size="sm" onClick={() => setOnlyUnavailable(false)}>Clear filter</Button></div>}
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        <button
+          className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "qa" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setOnlyUnavailable(false); setTab("qa"); setExpanded(new Set()); }}
+        >
+          QA defects
+        </button>
+        <button
+          className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "production" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setOnlyUnavailable(false); setTab("production"); setView("all"); setExpanded(new Set()); }}
+        >
+          Production
+        </button>
+        <button
+          className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "other" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setOnlyUnavailable(false); setTab("other"); setView("all"); setExpanded(new Set()); }}
+        >
+          Others
+        </button>
+        <button
+          className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${tab === "requirement" ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setOnlyUnavailable(false); setTab("requirement"); setView("all"); setExpanded(new Set()); }}
+        >
+          Requirement defects
+        </button>
+      </div>
+
+      {/* Metric cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {cards.map((c) => (
+          <Card key={c.label}>
+            <CardHeader className="pb-1 pt-4 px-4">
+              <CardTitle className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{c.label}</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <p className={`text-2xl font-bold ${c.cls}`}>{c.value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(tab === "qa"
+          ? [
+              { v: "open", label: "All open" },
+              { v: "blocking", label: "Blocking TCs" },
+              { v: "retest", label: "Awaiting retest" },
+              { v: "mine", label: "My Defects" },
+              { v: "all", label: "All" },
+            ]
+          : [
+              { v: "all", label: "All" },
+              { v: "open", label: "Open" },
+              { v: "retest", label: "Awaiting retest" },
+              { v: "mine", label: "My Defects" },
+            ]
+        ).map((o) => (
+          <button
+            key={o.v}
+            onClick={() => setView(o.v)}
+            className={`px-3 py-1 rounded-full text-xs border transition-colors ${view === o.v ? "bg-primary/10 text-primary border-primary/30 font-medium" : "text-muted-foreground border-border hover:bg-muted"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+        <button onClick={() => { setOnlyUnavailable(!onlyUnavailable); setView("all"); }} className={`px-3 py-1 rounded-full text-xs border ${onlyUnavailable ? "border-amber-500 text-amber-500 bg-amber-500/10" : "border-border text-muted-foreground"}`}>Redmine unavailable</button>
+        <div className="flex-1" />
+        <Select value={filterProject} onValueChange={(v) => { setFilterProject(v); setPullMilestone(""); }}>
+          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All projects" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All projects</SelectItem>
+            {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterSeverity} onValueChange={setFilterSeverity}>
+          <SelectTrigger className="w-32 h-8 text-xs"><SelectValue placeholder="All severity" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All severity</SelectItem>
+            {["critical", "high", "medium", "low"].map((s) => (
+              <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input placeholder="Search defects" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 w-44 text-xs" />
+        </div>
+      </div>
+
+      {/* Pull sync bar — each pulled issue routes by its own tracker */}
+      {(tab === "production" || tab === "other") && (
+        <div className="flex items-center gap-2 flex-wrap rounded-md border bg-muted/30 px-3 py-2">
+          <CloudUpload className="w-4 h-4 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Pull issues from Redmine tracker:</span>
+          <Select value={pullTracker} onValueChange={setPullTracker}>
+            <SelectTrigger className="w-44 h-7 text-xs"><SelectValue placeholder="Select tracker..." /></SelectTrigger>
+            <SelectContent>
+              {trackers.map((t) => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">Milestone (for any requirements pulled):</span>
+          <Select value={pullMilestone} onValueChange={setPullMilestone} disabled={filterProject === "all"}>
+            <SelectTrigger className="w-44 h-7 text-xs">
+              <SelectValue placeholder={filterProject === "all" ? "Pick a project filter first" : "None"} />
+            </SelectTrigger>
+            <SelectContent>
+              {milestonesForPull.map((m) => <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={handlePull} disabled={isPulling}>
+            {isPulling ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+            Pull now
+          </Button>
+        </div>
+      )}
+
+      {historySummaries.isError && <p className="text-xs text-muted-foreground" role="status">History activity check unavailable: {historySummaries.error.message}</p>}
+      {/* List */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      ) : defects.length === 0 ? (
+        <div className="text-center py-20 text-muted-foreground">
+          <p className="text-sm">
+            {tab === "production"
+              ? "No production defects yet — pick the incident tracker above and pull from Redmine."
+              : tab === "other"
+                ? "No other-tracker issues yet — pull a tracker above or use Sync from Redmine."
+                : tab === "requirement"
+                  ? "No requirement defects raised yet — these come from the \"Raise Requirement Defect\" button on a requirement's detail page."
+                  : "No defects match the selected filters."}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-md border">
+          {/* Selection bar — the select-all box always sits above the list so
+              the checkbox column has a header, and the actions only appear
+              once something is actually selected. */}
+          <div className="flex items-center gap-3 flex-wrap px-4 py-2 border-b bg-muted/30">
+            <Checkbox
+              checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+              onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+              aria-label="Select all defects in this view"
+            />
+            <span className="text-xs text-muted-foreground">
+              {selectedVisibleIds.length > 0
+                ? `${selectedVisibleIds.length} of ${visibleIds.length} selected`
+                : canDeleteDefects
+                  ? `Select defects to export or delete · ${visibleIds.length} shown`
+                  : `Select defects to export to Excel · ${visibleIds.length} shown`}
+            </span>
+            {selectedVisibleIds.length > 0 && (
+              <div className="flex items-center gap-2 ml-auto flex-wrap">
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={clearSelection}>
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 text-xs"
+                  onClick={handleExportSelected}
+                  disabled={isExporting}
+                >
+                  {isExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                  Export to Excel
+                </Button>
+                {canDeleteDefects && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    Delete
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="divide-y">
+          {defects.map((d) => (
+            <Fragment key={d.id}>
+              <div id={highlightRowId(d.id)} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/40" onClick={() => toggleExpand(d.id)}>
+                {/* Stops the row from expanding when the intent was to tick it. */}
+                <span onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center">
+                  <Checkbox
+                    checked={selectedIds.has(d.id)}
+                    onCheckedChange={(checked) => toggleSelect(d.id, checked === true)}
+                    aria-label={`Select ${d.defectCode ?? `DEF-${d.id}`}`}
+                  />
+                </span>
+                {expanded.has(d.id) ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-semibold">{d.defectCode ?? `DEF-${d.id}`}</span>
+                    {d.redmineId ? (
+                      <a
+                        href={`${REDMINE_BASE}/issues/${d.redmineId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[10px] border rounded-full px-2 py-0.5 text-muted-foreground hover:text-primary hover:border-primary/50"
+                      >
+                        RM #{d.redmineId} <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ) : d.source === "requirement" ? (
+                      <Badge variant="outline" className="text-[10px]" title="Requirement defects are QM Pulse-native — no Redmine tracker equivalent">
+                        QM Pulse-native
+                      </Badge>
+                    ) : (
+                      <Badge
+                        className="bg-amber-100 text-amber-700 hover:bg-amber-200 text-[10px] cursor-pointer gap-1"
+                        onClick={(e) => { e.stopPropagation(); handleRetrySync(d); }}
+                        title={d.syncError ?? "Waiting to sync — click to retry"}
+                      >
+                        <CloudUpload className="w-2.5 h-2.5" /> Syncing to Redmine — retry
+                      </Badge>
+                    )}
+                    <span className="font-medium text-sm truncate">{d.title}</span>
+                    {d.redmineUnavailableAt && <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600 dark:text-amber-400"><AlertTriangle className="w-3 h-3" />Redmine issue unavailable</span>}
+                    {!d.redmineUnavailableAt && canEditDefectInfo(d) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0"
+                        title="Edit defect info"
+                        onClick={(e) => { e.stopPropagation(); setEditingDefect(d); }}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {!historySummaries.isError && historySummaries.data?.[d.id]?.hasUpdates && (
+                      <Button variant="secondary" size="sm" className="text-xs h-7 shrink-0"
+                        title={`Redmine activity since your last history view. Checked ${formatDistanceToNow(new Date(historySummaries.data[d.id].checkedAt), { addSuffix: true })}`}
+                        onClick={(e) => { e.stopPropagation(); setExpanded(prev => new Set(prev).add(d.id)); setDetailTabs(prev => ({ ...prev, [d.id]: "history" })); }}>
+                        New activity
+                      </Button>
+                    )}
+                    {d.retestNeeded && (
+                      <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] gap-1">
+                        <RotateCw className="w-2.5 h-2.5" /> Retest needed
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {[
+                      d.module,
+                      d.category && d.category !== d.module ? d.category : null,
+                      defectCategoryLabel(d.defectCategory),
+                      d.projectName,
+                      d.tracker,
+                      `found in ${d.foundIn}`,
+                      format(new Date(d.redmineCreatedAt ?? d.createdAt), "dd MMM yyyy"),
+                      `${d.links.length} linked TC${d.links.length !== 1 ? "s" : ""}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <SeverityBadge severity={d.severity} />
+                <div className="flex flex-col items-end gap-1">
+                  {d.redmineUnavailableAt && <span className="text-[10px] text-muted-foreground">Last known status</span>}
+                  <StatusBadge status={d.status} />
+                </div>
+                <span className="text-xs text-muted-foreground w-24 truncate hidden sm:block" title={d.assigneeId ? "Assigned in QM Pulse" : d.assigneeName ? "Redmine-only (unassigned in QM Pulse)" : undefined}>
+                  {d.assigneeName ?? "Unassigned"}
+                </span>
+              </div>
+
+              {expanded.has(d.id) && (
+                <div className="bg-muted/20 px-4 py-3 space-y-3">
+                  {d.redmineUnavailableAt && (
+                    <div role="status" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 space-y-2 text-sm">
+                      <p className="font-medium text-amber-600 dark:text-amber-400">Redmine issue #{d.redmineId} is unavailable</p>
+                      <p>This issue may have been deleted in Redmine, or you no longer have access. Last saved defect details are retained. Redmine updates are paused until the issue is accessible again.</p>
+                      <p className="text-xs text-muted-foreground">Checked {new Date(d.redmineUnavailableAt).toLocaleString()} · Last successful sync: {d.statusSyncedAt ? new Date(d.statusSyncedAt).toLocaleString() : "Never"}</p>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" disabled={isRefreshing} onClick={() => handleRefreshStatus(d.id)}>{checkingId === d.id ? "Checking…" : "Check again"}</Button>
+                        <Button size="sm" variant="ghost" asChild><a href={`${REDMINE_BASE}/issues/${d.redmineId}`} target="_blank" rel="noopener noreferrer">Open in Redmine <ExternalLink className="ml-1 w-3 h-3" /></a></Button>
+                      </div>
+                    </div>
+                  )}
+                  <Tabs value={detailTabs[d.id] ?? "details"} onValueChange={value => setDetailTabs(prev => ({ ...prev, [d.id]: value }))}>
+                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">Redmine History</TabsTrigger></TabsList>
+                    <TabsContent value="history"><DefectHistory key={`${user?.id}-${d.id}`} defectId={d.id} redmineId={d.redmineId} /></TabsContent>
+                    <TabsContent value="details" className="space-y-3">
+                  {/* Status edit — write-through to Redmine */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-muted-foreground">Status:</span>
+                      <Select
+                        disabled={!!d.redmineUnavailableAt}
+                        value={String(statuses.find((s) => s.name.toLowerCase() === d.status.toLowerCase())?.redmineId ?? "")}
+                        onValueChange={(v) => handleStatusChange(d, Number(v))}
+                      >
+                        <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                          <SelectValue placeholder={d.status} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {statuses.map((s) => (
+                            <SelectItem
+                              key={s.redmineId}
+                              value={String(s.redmineId)}
+                              // Verify is QA-only and only reachable straight
+                              // out of QA retest — the server enforces both, so
+                              // show why it is unavailable rather than letting
+                              // the click fail.
+                              disabled={/\bverified\b/i.test(s.name) && (!canVerify || !QA_TEST_STATUS.test(d.status ?? ""))}
+                            >
+                              {s.name}
+                              {/\bverified\b/i.test(s.name)
+                                ? QA_TEST_STATUS.test(d.status ?? "")
+                                  ? " · evidence required"
+                                  : " · needs For QA Test"
+                                : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-[10px] text-muted-foreground">
+                        {d.redmineId ? `saving pushes the change to Redmine #${d.redmineId}` : "local only until synced to Redmine"}
+                      </span>
+                    </div>
+                    {canLinkTc && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs gap-1 border"
+                        onClick={(e) => { e.stopPropagation(); setLinkingDefect(d); }}
+                      >
+                        <Link2 className="w-3 h-3" /> Link Test Case
+                      </Button>
+                    )}
+                  </div>
+
+                  {(d.description || d.stepsToReproduce || d.expectedResult || d.actualResult) && (
+                    <div className="rounded-md border bg-background px-3 py-2.5 space-y-2.5">
+                      {d.description && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Description</p>
+                          <p className="text-xs whitespace-pre-wrap">{d.description}</p>
+                        </div>
+                      )}
+                      {d.stepsToReproduce && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Steps to Reproduce</p>
+                          <p className="text-xs whitespace-pre-wrap">{d.stepsToReproduce}</p>
+                        </div>
+                      )}
+                      {d.expectedResult && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Expected Result</p>
+                          <p className="text-xs whitespace-pre-wrap">{d.expectedResult}</p>
+                        </div>
+                      )}
+                      {d.actualResult && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Actual Result</p>
+                          <p className="text-xs whitespace-pre-wrap text-red-700 dark:text-red-400">{d.actualResult}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {d.verificationEvidence.length > 0 && (
+                    <div className="rounded-md border bg-background px-3 py-2.5 space-y-2">
+                      <p className="text-xs font-semibold flex items-center gap-1.5">
+                        <FileCheck2 className="w-3.5 h-3.5 text-green-600" />
+                        Verification evidence
+                      </p>
+                      {d.verificationEvidence.map((evidence) => (
+                        <div key={evidence.id} className="flex items-center gap-2 text-xs rounded border px-2 py-1.5">
+                          <span className="flex-1 min-w-0 truncate" title={evidence.fileName}>{evidence.fileName}</span>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                            {formatFileSize(evidence.sizeBytes)} · {format(new Date(evidence.createdAt), "dd MMM yyyy, HH:mm")}
+                          </span>
+                          {/^(image\/|application\/pdf$|text\/plain$)/.test(evidence.mimeType) && (
+                            <Button variant="ghost" size="sm" className="h-6 px-2 gap-1" onClick={() => openVerificationEvidence(d.id, evidence.id, evidence.fileName, true)}>
+                              <Eye className="w-3 h-3" /> View
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" className="h-6 px-2 gap-1" onClick={() => openVerificationEvidence(d.id, evidence.id, evidence.fileName, false)}>
+                            <Download className="w-3 h-3" /> Download
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Dev assignment — Lead-tier+ only (CR030), plus a CR031 self-handoff
+                      exception: a requirement defect's current assignee can hand it off
+                      to dev or QA without a Lead gate. */}
+                  {(() => {
+                    const isSelfHandoff = d.source === "requirement" && d.assigneeId === user?.id;
+                    const canEditAssignee = canAssign || isSelfHandoff;
+                    const assignOptions = d.source === "requirement" ? handoffUsers : devUsers;
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-muted-foreground">Assignee:</span>
+                        {canEditAssignee ? (
+                          <Select
+                            disabled={!!d.redmineUnavailableAt}
+                            value={d.assigneeId ? String(d.assigneeId) : "unassigned"}
+                            onValueChange={(v) => handleAssign(d, v === "unassigned" ? null : Number(v))}
+                          >
+                            <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                              <SelectValue placeholder="Unassigned" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                              {assignOptions.map((u) => (
+                                <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs">{d.assigneeName ?? "Unassigned"}</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Code review — QA-sourced defects with a native assignee only;
+                      gates the Resolved/Fixed-type status push above. */}
+                  {d.source === "qa" && d.assigneeId != null && (
+                    <DefectReviewSection defectId={d.id} assigneeId={d.assigneeId} />
+                  )}
+
+                  {/* CR080: root cause & resolution — QA-sourced defects only.
+                      Mandatory for Critical/High severity before the status
+                      gate above allows Fixed/Resolved; saved independently via
+                      PATCH /defects/:id (same generic patch as escape notes). */}
+                  {d.source === "qa" && (() => {
+                    const needsRootCause = (d.severity === "critical" || d.severity === "high") && (!d.rootCause?.trim() || !d.resolutionSummary?.trim());
+                    return (
+                      <div
+                        className={`rounded-md border px-3 py-2.5 space-y-2 ${
+                          needsRootCause ? "border-dashed border-violet-300 bg-violet-50/60 dark:bg-violet-950/20" : "bg-background"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className="text-xs font-semibold flex items-center gap-1.5">
+                            <Wrench className="w-3.5 h-3.5 text-violet-600" />
+                            Root Cause &amp; Resolution
+                          </p>
+                          {needsRootCause && (
+                            <Badge className="bg-violet-100 text-violet-700 hover:bg-violet-100 text-[10px] capitalize">
+                              Required &middot; {d.severity} severity
+                            </Badge>
+                          )}
+                        </div>
+                        <Select
+                          value={d.rootCauseCategory ?? ""}
+                          onValueChange={(v) => handleEscapePatch(d, { rootCauseCategory: v })}
+                        >
+                          <SelectTrigger className="w-56 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                            <SelectValue placeholder="Root cause category..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ROOT_CAUSE_CATEGORIES.map((c) => (
+                              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Textarea
+                          placeholder="Root cause detail — what actually went wrong?"
+                          defaultValue={d.rootCause ?? ""}
+                          className="text-xs min-h-14"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            if (e.target.value !== (d.rootCause ?? "")) handleEscapePatch(d, { rootCause: e.target.value });
+                          }}
+                        />
+                        <Textarea
+                          placeholder="Resolution / fix summary — what was changed to fix it?"
+                          defaultValue={d.resolutionSummary ?? ""}
+                          className="text-xs min-h-14"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            if (e.target.value !== (d.resolutionSummary ?? "")) handleEscapePatch(d, { resolutionSummary: e.target.value });
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
+
+                  {/* Linked TCs */}
+                  {d.links.length === 0 && <p className="text-xs text-muted-foreground">No linked test cases.</p>}
+                  {d.links.length > 0 && (
+                    <div className="space-y-1">
+                      {d.links.map((l) => (
+                        <div
+                          key={l.id}
+                          className={`flex items-center gap-2 text-xs rounded px-2 py-1.5 ${l.fileTicket ? "cursor-pointer hover:bg-muted/60" : ""}`}
+                          onClick={() => {
+                            if (l.fileTicket) {
+                              const tcQ = l.displayCaseId ? `?tc=${encodeURIComponent(l.displayCaseId)}` : "";
+                              setLocation(`/test-cases/execution/${l.fileTicket}${tcQ}`);
+                            }
+                          }}
+                        >
+                          {l.linkType === "regression_tc" ? (
+                            <FlaskConical className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                          ) : (
+                            <span className="w-3.5" />
+                          )}
+                          <span className="font-mono text-muted-foreground">{l.displayCaseId ?? (l.requirementTitle ? `REQ #${l.requirementId}` : "—")}</span>
+                          <span className="flex-1 min-w-0 truncate">
+                            {l.caseName ?? l.requirementTitle ?? ""}
+                            {l.fileTicket && <span className="text-muted-foreground"> · {l.fileTitle ?? `#${l.fileTicket}`}</span>}
+                            {l.linkType === "regression_tc" && <span className="text-green-600"> · regression TC</span>}
+                          </span>
+                          {l.retestNeeded && (
+                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] gap-1">
+                              <RotateCw className="w-2.5 h-2.5" /> Retest
+                            </Badge>
+                          )}
+                          {l.executionTcId != null && <TcResultBadge result={l.result} />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* CR020: escape analysis for production defects */}
+                  {d.source === "production" && (
+                    <div className="rounded-md border bg-background px-3 py-2.5 space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                        Escape analysis — why did testing miss this?
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Select value={d.escapeStatus} onValueChange={(v) => handleEscapePatch(d, { escapeStatus: v })}>
+                          <SelectTrigger className="w-36 h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pending">Pending review</SelectItem>
+                            <SelectItem value="analyzing">Analyzing</SelectItem>
+                            <SelectItem value="closed">Closed loop</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Select value={d.escapeClass ?? ""} onValueChange={(v) => handleEscapePatch(d, { escapeClass: v })}>
+                          <SelectTrigger className="w-52 h-7 text-xs"><SelectValue placeholder="Root cause..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="coverage_gap">Coverage gap — no TC covered it</SelectItem>
+                            <SelectItem value="selection_gap">Selection gap — TC existed, not run</SelectItem>
+                            <SelectItem value="passed_wrongly">TC ran but passed wrongly</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {!d.hasRegressionTc ? (
+                          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={(e) => { e.stopPropagation(); handleRegressionTc(d); }}>
+                            <Plus className="w-3 h-3" /> Create regression TC
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-green-600 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Regression TC added
+                          </span>
+                        )}
+                      </div>
+                      <Input
+                        placeholder="Escape notes (what should have caught this?)"
+                        defaultValue={d.escapeNotes ?? ""}
+                        className="h-7 text-xs"
+                        onBlur={(e) => {
+                          if (e.target.value !== (d.escapeNotes ?? "")) handleEscapePatch(d, { escapeNotes: e.target.value });
+                        }}
+                      />
+                    </div>
+                  )}
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              )}
+            </Fragment>
+          ))}
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation. Names the count, and says plainly what the
+          delete does and does not touch — a synced defect returning on the
+          next pull is correct behaviour, but only if it was not a surprise. */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={(open) => { if (!isDeleting) setConfirmDeleteOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedVisibleIds.length} defect{selectedVisibleIds.length === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  This removes the {selectedVisibleIds.length === 1 ? "record" : "records"} from QM Pulse
+                  along with {selectedVisibleIds.length === 1 ? "its" : "their"} test-case links and
+                  verification evidence. It cannot be undone.
+                </p>
+                {selectedRedmineCount > 0 && (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                    <strong>{selectedRedmineCount}</strong> of these {selectedRedmineCount === 1 ? "is" : "are"} linked to Redmine.
+                    Redmine is not touched, so {selectedRedmineCount === 1 ? "it will come" : "they will come"} back on the
+                    next <em>Pull now</em> or <em>Sync from Redmine</em>. Delete {selectedRedmineCount === 1 ? "it" : "them"} in
+                    Redmine first if {selectedRedmineCount === 1 ? "it" : "they"} should stay gone.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {selectedDefectLabels}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteSelected(); }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+              Delete {selectedVisibleIds.length} defect{selectedVisibleIds.length === 1 ? "" : "s"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={!!verificationTarget}
+        onOpenChange={(open) => {
+          if (!open && !isVerifying) {
+            setVerificationTarget(null);
+            setVerificationFile(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileCheck2 className="w-5 h-5 text-green-600" /> Verify defect
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border bg-muted/30 px-3 py-2">
+              <p className="text-xs font-semibold">{verificationTarget?.defect.defectCode ?? `DEF-${verificationTarget?.defect.id}`}</p>
+              <p className="text-sm mt-0.5">{verificationTarget?.defect.title}</p>
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Upload evidence showing the defect was retested successfully. The attachment is mandatory and stays in the defect history.
+              {verificationTarget?.defect.redmineId ? (
+                <>
+                  {" "}It is also attached to Redmine #{verificationTarget.defect.redmineId}, together with a note recording who
+                  verified it and when.
+                </>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="defect-verification-evidence">Verification attachment <span className="text-destructive">*</span></Label>
+              <Input
+                id="defect-verification-evidence"
+                type="file"
+                accept={VERIFICATION_EVIDENCE_ACCEPT}
+                disabled={isVerifying}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  if (file && file.size === 0) {
+                    toast({ variant: "destructive", title: "Attachment is empty", description: "Choose a file that contains verification evidence." });
+                    event.target.value = "";
+                    setVerificationFile(null);
+                    return;
+                  }
+                  if (file && file.size > 10 * 1024 * 1024) {
+                    toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
+                    event.target.value = "";
+                    setVerificationFile(null);
+                    return;
+                  }
+                  setVerificationFile(file);
+                }}
+              />
+              <p className="text-[10px] text-muted-foreground">Images, PDF, Word, Excel, TXT or CSV · maximum 10 MB</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={isVerifying} onClick={() => { setVerificationTarget(null); setVerificationFile(null); }}>
+              Cancel
+            </Button>
+            <Button disabled={!verificationFile || isVerifying} onClick={handleVerifyWithEvidence}>
+              {isVerifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck2 className="w-4 h-4 mr-2" />}
+              Verify with evidence
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <NewDefectDialog
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        projects={projects}
+        onCreated={() => { setNewOpen(false); invalidate(); }}
+      />
+
+      <EditDefectDialog
+        defect={editingDefect}
+        projects={projects}
+        onClose={() => setEditingDefect(null)}
+        onSaved={() => { setEditingDefect(null); invalidate(); }}
+      />
+
+      <LinkTestCaseDialog
+        defect={linkingDefect}
+        onClose={() => setLinkingDefect(null)}
+        onLinked={() => { setLinkingDefect(null); invalidate(); }}
+      />
+
+      <SyncRedmineDialog
+        open={syncOpen}
+        onClose={() => setSyncOpen(false)}
+        projects={projects}
+        trackers={trackers}
+        onSynced={() => {
+          setSyncOpen(false);
+          queryClient.invalidateQueries();
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Sync from Redmine dialog ────────────────────────────────────────────────
+// Pulls the child issues of a requirement's Redmine ticket, one tracker at a
+// time. Routing: QA Defect → QA list · Prod Defect → Production list ·
+// User Story → Requirements · other trackers → QA list (real tracker kept).
+
+function SyncRedmineDialog({
+  open,
+  onClose,
+  projects,
+  trackers,
+  onSynced,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projects: { id: number; name: string }[];
+  trackers: { id: number; name: string }[];
+  onSynced: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [projectId, setProjectId] = useState<string>("");
+  const [module, setModule] = useState<string>("");
+  const [requirementId, setRequirementId] = useState<string>("");
+  // Typed straight from Redmine — the parent needn't exist in QM Pulse yet.
+  const [parentRedmineId, setParentRedmineId] = useState<string>("");
+  const [trackerName, setTrackerName] = useState<string>("all");
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const { data: modules = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["execution-modules"],
+    enabled: open,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/modules`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const { data: requirements = [] } = useQuery<any[]>({
+    queryKey: ["sync-requirements", projectId],
+    enabled: open,
+    queryFn: async () => {
+      const qs = projectId ? `?projectId=${projectId}` : "";
+      const res = await fetch(`${getApiUrl()}/requirements${qs}`, { headers: authHeaders });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const reqOptions = requirements
+    .filter((r) => r.redmineTicketId)
+    .map((r) => ({ value: String(r.id), label: `#${r.redmineTicketId} — ${r.title}` }));
+
+  const handleSync = async () => {
+    const typedParent = parentRedmineId.trim().replace(/^#/, "");
+    if (!typedParent && !requirementId) {
+      toast({ variant: "destructive", title: "Enter the parent Redmine ID to sync" });
+      return;
+    }
+    if (typedParent && !/^\d+$/.test(typedParent)) {
+      toast({ variant: "destructive", title: "Parent Redmine ID must be a number, e.g. 38849" });
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/sync-from-redmine`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: projectId ? Number(projectId) : null,
+          module: module || null,
+          // Typed ID wins when both are somehow present.
+          ...(typedParent
+            ? { parentRedmineId: typedParent }
+            : { requirementId: Number(requirementId) }),
+          trackerName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      const parts = [
+        data.requirements ? `${data.requirements} requirement(s)` : null,
+        data.qaDefects ? `${data.qaDefects} QA defect(s)` : null,
+        data.prodDefects ? `${data.prodDefects} prod defect(s)` : null,
+        data.others ? `${data.others} other(s)` : null,
+        data.ignored ? `${data.ignored} already in QM Pulse (ignored)` : null,
+        data.skipped ? `${data.skipped} skipped by tracker filter` : null,
+      ].filter(Boolean);
+      toast({
+        title: `Synced ${data.total} issue(s) — ${data.created} new`,
+        description: parts.length ? parts.join(" · ") : "Nothing matched.",
+      });
+      onSynced();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base flex items-center gap-2">
+            <CloudDownload className="w-4 h-4" /> Sync from Redmine
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Project</Label>
+              <Select value={projectId} onValueChange={setProjectId}>
+                <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Module</Label>
+              <SearchableSelect
+                value={module}
+                onValueChange={setModule}
+                options={modules.map((m) => ({ value: m.name, label: m.name }))}
+                placeholder="Select module..."
+                searchPlaceholder="Search module..."
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="syncParentRedmineId">
+              Parent Redmine ID <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="syncParentRedmineId"
+              inputMode="numeric"
+              value={parentRedmineId}
+              onChange={(e) => setParentRedmineId(e.target.value)}
+              placeholder="e.g. 38849"
+            />
+            <p className="text-xs text-muted-foreground">
+              The parent ticket is imported too, along with every child and grandchild beneath it — it doesn't need
+              to be in QM Pulse first.
+            </p>
+            {reqOptions.length > 0 && (
+              <details className="pt-1">
+                <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                  Or pick a requirement already in QM Pulse
+                </summary>
+                <div className="pt-2">
+                  <SearchableSelect
+                    value={requirementId}
+                    onValueChange={(v) => { setRequirementId(v); setParentRedmineId(""); }}
+                    options={reqOptions}
+                    placeholder="Select #redmineId — title..."
+                    searchPlaceholder="Search requirement..."
+                    emptyText={projectId ? "No requirements with a Redmine ticket in this project." : "No requirements with a Redmine ticket."}
+                  />
+                </div>
+              </details>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tracker</Label>
+            <Select value={trackerName} onValueChange={setTrackerName}>
+              <SelectTrigger><SelectValue placeholder="All trackers" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All trackers</SelectItem>
+                {trackers.map((t) => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {trackerName === "all"
+                ? "Syncs the whole subtree — every child and grandchild is routed by its own tracker: User Story / Change Request → Requirements, Prod Defect → Production, QA Defect → QA list, others → Others tab."
+                : /prod/i.test(trackerName)
+                  ? "Only Prod Defect issues in the subtree — saved as production defects."
+                  : /story|change request|^cr$/i.test(trackerName)
+                    ? "Only these issues in the subtree — saved as requirements under their parent."
+                    : /defect|bug/i.test(trackerName)
+                      ? "Only these issues in the subtree — saved as QA defects."
+                      : `Only "${trackerName}" issues — saved with that tracker, listed in the Others tab.`}
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={isSyncing}>Cancel</Button>
+          <Button onClick={handleSync} disabled={isSyncing} className="gap-2">
+            {isSyncing ? <><Loader2 className="w-4 h-4 animate-spin" /> Syncing...</> : <><CloudDownload className="w-4 h-4" /> Sync</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CR061: Edit defect info — same field set/layout as the New Defect
+// dialog's QM Pulse section, minus creation-only bits (Redmine project,
+// assignee, complexity, targeted dates, duplicate check, screenshots) that
+// either aren't stored post-creation or already have their own dedicated
+// flow (assignee). Reporter or qa_lead+ only (server-enforced too);
+// title/description/tracker write through to Redmine when already synced.
+function EditDefectDialog({
+  defect,
+  projects,
+  onClose,
+  onSaved,
+}: {
+  defect: DefectRow | null;
+  projects: { id: number; name: string }[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const [form, setForm] = useState<Record<string, any>>({});
+  const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!defect) return;
+    setForm({
+      title: defect.title,
+      description: defect.description ?? "",
+      tracker: defect.tracker ?? "",
+      severity: defect.severity,
+      foundIn: defect.foundIn,
+      module: defect.module ?? "",
+      projectId: defect.projectId ?? undefined,
+      milestoneId: (defect as any).milestoneId ?? undefined,
+      defectCategory: defect.defectCategory ?? "",
+      stepsToReproduce: (defect as any).stepsToReproduce ?? "",
+      expectedResult: (defect as any).expectedResult ?? "",
+      actualResult: (defect as any).actualResult ?? "",
+    });
+  }, [defect]);
+
+  useEffect(() => {
+    if (!defect) return;
+    fetchRedmineTrackers().then(setTrackers).catch(() => {});
+  }, [defect]);
+
+  const { data: milestonesForEdit = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", form.projectId, "defect-edit"],
+    enabled: !!defect && !!form.projectId,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${form.projectId}`, { headers: authHeaders });
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const handleSave = async () => {
+    if (!defect) return;
+    if (!form.title?.trim()) {
+      toast({ variant: "destructive", title: "Title cannot be empty" });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${defect.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          description: form.description?.trim() || null,
+          stepsToReproduce: form.stepsToReproduce?.trim() || null,
+          tracker: form.tracker || undefined,
+          severity: form.severity,
+          foundIn: form.foundIn,
+          module: form.module?.trim() || null,
+          projectId: form.projectId ?? null,
+          milestoneId: form.milestoneId ?? null,
+          defectCategory: form.defectCategory || null,
+          expectedResult: form.expectedResult?.trim() || null,
+          actualResult: form.actualResult?.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to save");
+      }
+      toast({ title: "Defect updated" });
+      onSaved();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!defect} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-[75vw] w-[95vw] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-base">Edit Defect</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Title <span className="text-destructive">*</span></Label>
+            <Input value={form.title ?? ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+
+          {/* Steps to Reproduce */}
+          <div className="space-y-1.5">
+            <Label>Steps to Reproduce</Label>
+            <Textarea
+              rows={3}
+              value={form.stepsToReproduce ?? ""}
+              onChange={(e) => setForm({ ...form, stepsToReproduce: e.target.value })}
+              placeholder={"1. Go to ...\n2. Enter ...\n3. Click ..."}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Expected Result</Label>
+              <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Actual Result</Label>
+              <Textarea rows={2} value={form.actualResult ?? ""} onChange={(e) => setForm({ ...form, actualResult: e.target.value })} />
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Severity</Label>
+                <Select value={form.severity ?? "medium"} onValueChange={(v) => setForm({ ...form, severity: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["critical", "high", "medium", "low"].map((s) => (
+                      <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Found in</Label>
+                <Select value={form.foundIn ?? "SIT"} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Module</Label>
+                <ModuleSelect
+                  value={form.module ?? ""}
+                  onChange={(v) => setForm({ ...form, module: v })}
+                  projectId={form.projectId ?? null}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>QM Pulse Project</Label>
+              <Select
+                value={form.projectId ? String(form.projectId) : ""}
+                onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, milestoneId: undefined })}
+              >
+                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Milestone</Label>
+              <SearchableSelect
+                value={form.milestoneId ? String(form.milestoneId) : ""}
+                onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : undefined })}
+                options={milestonesForEdit.map((m) => ({ value: String(m.id), label: m.name }))}
+                placeholder={form.projectId ? "Optional" : "Pick a project first"}
+                searchPlaceholder="Search milestones..."
+              />
+            </div>
+            <DefectCategoryField
+              value={form.defectCategory ?? ""}
+              onChange={(v) => setForm({ ...form, defectCategory: v })}
+            />
+          </div>
+
+          <Separator />
+
+          <div className="space-y-1.5">
+            <Label>Tracker</Label>
+            <Select value={form.tracker ?? ""} onValueChange={(v) => setForm({ ...form, tracker: v })}>
+              <SelectTrigger><SelectValue placeholder="Select tracker" /></SelectTrigger>
+              <SelectContent>
+                {trackers.map((t) => (
+                  <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                ))}
+                {form.tracker && !trackers.some((t) => t.name === form.tracker) && (
+                  <SelectItem value={form.tracker}>{form.tracker}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {defect?.redmineId && (
+              <p className="text-xs text-muted-foreground">Title/Description/Tracker changes sync to Redmine issue #{defect.redmineId}.</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CR061: Link an existing defect to an existing test case ────────────────
+// Fills the gap where a defect raised without TC context (New Defect dialog,
+// Redmine pull/sync) previously had no way to attach one afterward.
+function LinkTestCaseDialog({
+  defect,
+  onClose,
+  onLinked,
+}: {
+  defect: DefectRow | null;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const [ticketId, setTicketId] = useState("");
+  const [testCaseRowId, setTestCaseRowId] = useState("");
+  const [files, setFiles] = useState<ExecutionFile[]>([]);
+  const [testCases, setTestCases] = useState<ExecutionTestCase[]>([]);
+  const [loadingTcs, setLoadingTcs] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!defect) { setTicketId(""); setTestCaseRowId(""); setTestCases([]); return; }
+    fetchExecutionFiles().then(setFiles).catch(() => {});
+  }, [defect]);
+
+  useEffect(() => {
+    if (!ticketId) { setTestCases([]); setTestCaseRowId(""); return; }
+    setLoadingTcs(true);
+    fetchTestCases(ticketId)
+      .then((res) => setTestCases(res.testCases))
+      .catch(() => setTestCases([]))
+      .finally(() => setLoadingTcs(false));
+  }, [ticketId]);
+
+  const handleLink = async () => {
+    if (!defect || !testCaseRowId) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/${defect.id}/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ executionTcId: Number(testCaseRowId) }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to link");
+      }
+      toast({ title: "Test case linked" });
+      onLinked();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!defect} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Link Test Case</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>Execution File</Label>
+            <SearchableSelect
+              value={ticketId}
+              onValueChange={(v) => setTicketId(v)}
+              options={files.map((f) => ({ value: f.redmineTicketId, label: `#${f.redmineTicketId} — ${f.title ?? "Untitled"}` }))}
+              placeholder="Search execution file..."
+              searchPlaceholder="Search by ticket ID or title..."
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Test Case</Label>
+            <SearchableSelect
+              value={testCaseRowId}
+              onValueChange={setTestCaseRowId}
+              options={testCases.map((tc) => ({ value: String(tc.id), label: `${tc.caseId ?? tc.testCaseId ?? `#${tc.id}`} — ${tc.caseName}` }))}
+              placeholder={!ticketId ? "Pick an execution file first" : loadingTcs ? "Loading..." : "Search test case..."}
+              searchPlaceholder="Search test case..."
+              disabled={!ticketId || loadingTcs}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
+          <Button onClick={handleLink} disabled={isSaving || !testCaseRowId}>
+            {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Linking...</> : "Link"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Manual "New defect" dialog (secondary path; fail modal is primary) ──────
+
+const COMPLEXITY_OPTIONS = ["S", "M", "L", "XL"];
+
+function NewDefectDialog({
+  open,
+  onClose,
+  projects,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projects: { id: number; name: string }[];
+  onCreated: () => void;
+}) {
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // QM Pulse fields
+  const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
+
+  // Redmine fields
+  const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string; identifier?: string }[]>([]);
+  const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
+  const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
+  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
+  const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
+  const [complexity, setComplexity] = useState("M");
+  const [targetedStartDate, setTargetedStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [targetedCompletionDate, setTargetedCompletionDate] = useState("");
+  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
+
+  // Duplicate check
+  const [duplicates, setDuplicates] = useState<RedmineIssueMatch[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load Redmine projects + trackers on open
+  useEffect(() => {
+    if (!open) return;
+    fetch(`${getApiUrl()}/redmine/projects`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => r.ok ? r.json() : []).then(setRedmineProjects).catch(() => {});
+    fetchRedmineTrackers()
+      .then((list) => {
+        setTrackers(list);
+        const qa = list.find((t) => t.name.toLowerCase().includes("qa defect") || t.name.toLowerCase().includes("defect"));
+        setQaDefectTrackerId(qa?.id ?? list[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, [open, token]);
+
+  // Assignees come from the contact directory, not the selected project's
+  // Redmine memberships — the same reason as DefectCreationModal: a
+  // membership held on a sub-project or through a group never showed up.
+  useEffect(() => {
+    if (!open) return;
+    fetchContactAssignees().then(setMembers).catch(() => {});
+  }, [open]);
+
+  // Project config still follows the selected Redmine project.
+  useEffect(() => {
+    const pid = form.redmineProjectId;
+    if (!pid) { setProjectConfig(null); return; }
+    fetchRedmineProjectConfig(pid).then(setProjectConfig).catch(() => {});
+  }, [form.redmineProjectId]);
+
+  // Requirement + milestone — a QA defect should link to both; picking a
+  // requirement suggests its own milestone by default (still overridable).
+  const { data: requirementsForLink = [] } = useQuery<{ id: number; title: string; milestoneId: number | null }[]>({
+    queryKey: ["requirements-for-defect-link", form.projectId],
+    enabled: open && !!form.projectId,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/requirements?projectId=${form.projectId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      return res.ok ? res.json() : [];
+    },
+  });
+  const { data: milestonesForLink = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["milestones", form.projectId],
+    enabled: open && !!form.projectId,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=${form.projectId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  // Auto duplicate check
+  useEffect(() => {
+    if (!form.redmineProjectId || !form.title?.trim()) { setDuplicates([]); return; }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try { setDuplicates(await searchRedmineIssues(form.title, form.redmineProjectId)); }
+      catch { setDuplicates([]); }
+      finally { setIsSearching(false); }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [form.redmineProjectId, form.title]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    Array.from(e.target.files ?? []).forEach((file) => {
+      if (file.size > 5 * 1024 * 1024) { toast({ variant: "destructive", title: `${file.name} exceeds 5MB` }); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = (ev.target?.result as string).split(",")[1];
+        setScreenshots((prev) => [...prev, { filename: file.name, contentType: file.type, base64 }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const handleClose = () => {
+    setForm({ severity: "medium", foundIn: "SIT" });
+    setSelectedAssigneeId(null);
+    setComplexity("M");
+    setTargetedStartDate(new Date().toISOString().slice(0, 10));
+    setTargetedCompletionDate("");
+    setScreenshots([]);
+    setDuplicates([]);
+    onClose();
+  };
+
+  const handleSubmit = async () => {
+    if (!form.title?.trim()) { toast({ variant: "destructive", title: "Title is required" }); return; }
+    if (!targetedCompletionDate) { toast({ variant: "destructive", title: "Targeted Completion Date is required" }); return; }
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/defects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          ...form,
+          assigneeId: selectedAssigneeId,
+          assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
+          trackerName: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
+          complexity,
+          targetedStartDate: targetedStartDate || undefined,
+          targetedCompletionDate: targetedCompletionDate || undefined,
+          uploads: screenshots,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create defect");
+      toast({
+        title: data.syncOk
+          ? `${data.defectCode} created — Redmine #${data.redmineId}`
+          : `${data.defectCode} created locally — Redmine sync pending`,
+        description: data.syncOk ? undefined : data.syncError ?? undefined,
+      });
+      handleClose();
+      onCreated();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <DialogContent className="sm:max-w-[75vw] w-[95vw] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-base">New Defect</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+
+          {/* Title */}
+          <div className="space-y-1.5">
+            <Label>Title <span className="text-destructive">*</span></Label>
+            <Input value={form.title ?? ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Textarea rows={3} value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+
+          {/* Steps to Reproduce */}
+          <div className="space-y-1.5">
+            <Label>Steps to Reproduce</Label>
+            <Textarea
+              rows={3}
+              value={form.stepsToReproduce ?? ""}
+              onChange={(e) => setForm({ ...form, stepsToReproduce: e.target.value })}
+              placeholder={"1. Go to ...\n2. Enter ...\n3. Click ..."}
+            />
+          </div>
+
+          {/* Expected / Actual */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Expected Result</Label>
+              <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Actual Result</Label>
+              <Textarea rows={2} value={form.actualResult ?? ""} onChange={(e) => setForm({ ...form, actualResult: e.target.value })} />
+            </div>
+          </div>
+
+          {/* Screenshots */}
+          <div className="space-y-1.5">
+            <Label>Screenshots</Label>
+            <div className="flex flex-wrap gap-2">
+              {screenshots.map((s, i) => (
+                <div key={i} className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
+                  <span className="max-w-[120px] truncate">{s.filename}</span>
+                  <button onClick={() => setScreenshots((prev) => prev.filter((_, idx) => idx !== i))}>
+                    <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                  </button>
+                </div>
+              ))}
+              <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="w-3 h-3" /> Add Screenshot
+              </Button>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+          </div>
+
+          <Separator />
+
+          {/* QM Pulse section */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Severity</Label>
+                <Select value={form.severity} onValueChange={(v) => setForm({ ...form, severity: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["critical", "high", "medium", "low"].map((s) => (
+                      <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Found in</Label>
+                <Select value={form.foundIn} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Module</Label>
+                <ModuleSelect
+                  value={form.module ?? ""}
+                  onChange={(v) => setForm({ ...form, module: v })}
+                  projectId={form.projectId ?? null}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>QM Pulse Project</Label>
+              <Select
+                value={form.projectId ? String(form.projectId) : ""}
+                onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, requirementId: undefined, milestoneId: undefined })}
+              >
+                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Requirement</Label>
+                <SearchableSelect
+                  value={form.requirementId ? String(form.requirementId) : ""}
+                  onValueChange={(v) => {
+                    const linked = requirementsForLink.find((r) => String(r.id) === v);
+                    setForm({ ...form, requirementId: v ? Number(v) : undefined, milestoneId: linked?.milestoneId ?? form.milestoneId });
+                  }}
+                  options={requirementsForLink.map((r) => ({ value: String(r.id), label: r.title }))}
+                  placeholder={form.projectId ? "Optional" : "Pick a project first"}
+                  searchPlaceholder="Search requirements..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Milestone</Label>
+                <SearchableSelect
+                  value={form.milestoneId ? String(form.milestoneId) : ""}
+                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : undefined })}
+                  options={milestonesForLink.map((m) => ({ value: String(m.id), label: m.name }))}
+                  placeholder={form.projectId ? "Optional" : "Pick a project first"}
+                  searchPlaceholder="Search milestones..."
+                />
+              </div>
+            </div>
+            <DefectCategoryField
+              value={form.defectCategory ?? ""}
+              onChange={(v) => setForm({ ...form, defectCategory: v })}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Redmine section */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Redmine Project</Label>
+                <Select value={form.redmineProjectId ? String(form.redmineProjectId) : ""} onValueChange={(v) => setForm({ ...form, redmineProjectId: v ? Number(v) : undefined })}>
+                  <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                  <SelectContent>
+                    {/* Several Redmine projects can share a display name, so
+                        show the unique identifier alongside it — otherwise the
+                        list reads as duplicated entries. */}
+                    {redmineProjects.map((p) => (
+                      <SelectItem key={p.redmineId} value={String(p.redmineId)}>
+                        {p.name}
+                        {p.identifier ? <span className="ml-2 text-xs text-muted-foreground">{p.identifier}</span> : null}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tracker</Label>
+                <Select
+                  value={qaDefectTrackerId?.toString() ?? ""}
+                  onValueChange={(v) => setQaDefectTrackerId(Number(v))}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select tracker..." /></SelectTrigger>
+                  <SelectContent>
+                    {trackers.map((t) => (
+                      <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              <SearchableSelect
+                value={selectedAssigneeId?.toString() ?? ""}
+                onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
+                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                placeholder="Select assignee..."
+                searchPlaceholder="Search contact..."
+                emptyText="No contacts found."
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Complexity</Label>
+                <SearchableSelect
+                  value={complexity}
+                  onValueChange={setComplexity}
+                  options={COMPLEXITY_OPTIONS.map((c) => ({ value: c, label: c }))}
+                  searchPlaceholder="Search..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Targeted Start Date</Label>
+                <Input type="date" value={targetedStartDate} onChange={(e) => setTargetedStartDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Targeted Completion Date <span className="text-destructive">*</span></Label>
+                <Input type="date" value={targetedCompletionDate} onChange={(e) => setTargetedCompletionDate(e.target.value)} />
+              </div>
+            </div>
+
+            {!projectConfig && form.redmineProjectId && (
+              <p className="text-xs text-amber-600">
+                No custom field config for this project. Complexity and dates won't be set. Configure in Settings → Redmine Integration.
+              </p>
+            )}
+          </div>
+
+          {/* Duplicate check */}
+          {form.redmineProjectId && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <Search className="w-3.5 h-3.5" />
+                  Similar Open Issues
+                  {isSearching && <Loader2 className="w-3 h-3 animate-spin" />}
+                </div>
+                {duplicates.length === 0 && !isSearching && (
+                  <p className="text-xs text-muted-foreground">No similar open issues found.</p>
+                )}
+                {duplicates.map((issue) => (
+                  <div key={issue.id} className="flex items-center justify-between p-2 border rounded-md text-xs gap-2">
+                    <div className="min-w-0">
+                      <span className="font-mono text-primary mr-2">#{issue.id}</span>
+                      <span className="truncate">{issue.subject}</span>
+                      <span className="ml-2 text-muted-foreground">[{issue.status?.name}] {issue.project?.name}</span>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1 h-6 text-xs shrink-0">
+                      <Link2 className="w-3 h-3" /> Link
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={handleClose} disabled={isSaving}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={isSaving} className="gap-2">
+            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><ExternalLink className="w-4 h-4" /> Create and push to Redmine</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

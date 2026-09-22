@@ -1,0 +1,50 @@
+pnpm is running through Node.js because the script that installs its native binary was skipped.
+Reinstall pnpm with its build scripts allowed to run the binary directly.
+
+$ export NODE_ENV=development && pnpm run build && pnpm run start
+pnpm is running through Node.js because the script that installs its native binary was skipped.
+Reinstall pnpm with its build scripts allowed to run the binary directly.
+$ node ./build.mjs
+
+  dist/index.mjs                       6.4mb ⚠️
+  dist/pino-worker.mjs               153.4kb
+  dist/pino-file.mjs                 142.1kb
+  dist/pino-pretty.mjs               114.6kb
+  dist/thread-stream-worker.mjs        7.3kb
+  dist/index.mjs.map                  10.7mb
+  dist/pino-worker.mjs.map           256.9kb
+  dist/pino-file.mjs.map             229.0kb
+  dist/pino-pretty.mjs.map           204.0kb
+  dist/thread-stream-worker.mjs.map   12.0kb
+
+⚡ Done in 1102ms
+pnpm is running through Node.js because the script that installs its native binary was skipped.
+Reinstall pnpm with its build scripts allowed to run the binary directly.
+$ node --enable-source-maps ./dist/index.mjs
+[excel-builder] template loaded from file: /home/runner/workspace/artifacts/api-server/assets/test-case-template.xlsx
+[lessons-learned-excel] template loaded from file: /home/runner/workspace/artifacts/api-server/assets/lessons-learned-template.xlsx
+[risk-log-excel] template loaded from file: /home/runner/workspace/artifacts/api-server/assets/risk-log-template.xlsx
+[07:28:39.069] ERROR (4149): Error listening on port
+    err: {
+      "type": "Error",
+      "message": "listen EADDRINUSE: address already in use 0.0.0.0:8080",
+      "stack":
+          Error: listen EADDRINUSE: address already in use 0.0.0.0:8080
+              at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+              at listenInCluster (node:net:1997:12)
+              at Server.listen (node:net:2102:7)
+              at app2.listen (/home/runner/workspace/node_modules/.pnpm/express@5.2.1/node_modules/express/lib/application.js:605:24)
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/index.ts:53:9)
+              at <anonymous>
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      "code": "EADDRINUSE",
+      "errno": -98,
+      "syscall": "listen",
+      "address": "0.0.0.0",
+      "port": 8080
+    }
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.
+Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+
+  × "pnpm recursive run" failed in /home/runner/workspace/artifacts/api-server

@@ -1,8 +1,15 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, documentRegisterTable } from "@workspace/db";
+import { getAuthContext } from "../middleware/access";
 
 const router = Router();
+
+// CR049 — document register requires auth on every route (was fully open).
+router.use((req, res, next) => {
+  if (!getAuthContext(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  next();
+});
 
 router.get("/document-register", async (_req, res) => {
   try {

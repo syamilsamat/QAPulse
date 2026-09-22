@@ -1,0 +1,814 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Users, Plus, Pencil, Trash2, UserPlus, UserMinus, ChevronsUpDown, Check, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { getApiUrl } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { fetchProjects, type ExecutionProject } from "@/lib/execution-api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useLocation } from "wouter";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+interface Team {
+  id: number;
+  name: string;
+  department: string;
+  memberCount: number;
+  members: Array<{ id: number; name: string; teamRole: string }>;
+  projects: Array<{ id: number; name: string }>;
+  createdAt: string;
+}
+
+interface TeamDetail extends Team {
+  members: Array<{ id: number; name: string; email: string; role: string; teamRole: string }>;
+  projectIds: number[];
+}
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+}
+
+const DEPARTMENTS = [
+  { value: "qa", label: "QA" },
+  { value: "pm", label: "PM" },
+  { value: "fa", label: "FA / BI" },
+  { value: "dev", label: "Dev" },
+];
+
+function deptLabel(d: string) {
+  return DEPARTMENTS.find((x) => x.value === d)?.label ?? d.toUpperCase();
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  qa_member: "QA Member",
+  qa_lead: "QA Lead",
+  admin: "Admin",
+  pm_member: "PM Member",
+  pm_lead: "PM Lead",
+  dev_member: "Dev Member",
+  dev_lead: "Dev Lead",
+  fa_member: "FA Member",
+  fa_lead: "FA Lead",
+  cto: "CTO",
+  hod_qa: "HOD QA",
+  hod_pm: "HOD PM",
+  hod_fa: "HOD FA",
+  hod_dev: "HOD Dev",
+};
+
+function formatRoleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function api(path: string) {
+  return `${getApiUrl()}${path}`;
+}
+
+function authHeaders(token: string | null) {
+  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+}
+
+export default function Teams() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTeam, setEditTeam] = useState<Team | null>(null);
+  const [deleteTeam, setDeleteTeam] = useState<Team | null>(null);
+  const [detailTeam, setDetailTeam] = useState<TeamDetail | null>(null);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<{ userId: number; role: string; name: string } | null>(null);
+
+  const [form, setForm] = useState({ name: "", department: "", projectIds: [] as number[], originalProjectIds: [] as number[] });
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [memberForm, setMemberForm] = useState({ userIds: [] as number[], role: "member" });
+  const [loc, setLocation] = useLocation();
+
+  const { data: allProjects = [] } = useQuery<ExecutionProject[]>({
+    queryKey: ["projects"],
+    queryFn: fetchProjects,
+  });
+
+  const { data: teams = [], isLoading } = useQuery<Team[]>({
+    queryKey: ["teams"],
+    queryFn: async () => {
+      const r = await fetch(api("/teams"), { headers: authHeaders(token) });
+      if (!r.ok) throw new Error("Failed to load teams");
+      return r.json();
+    },
+  });
+
+  const { data: allUsers = [] } = useQuery<User[]>({
+    queryKey: ["users"],
+    queryFn: async () => {
+      const r = await fetch(api("/users"), { headers: authHeaders(token) });
+      if (!r.ok) throw new Error("Failed to load users");
+      return r.json();
+    },
+  });
+
+  async function loadTeamDetail(team: Team) {
+    const r = await fetch(api(`/teams/${team.id}`), { headers: authHeaders(token) });
+    if (r.ok) setDetailTeam(await r.json());
+  }
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { name: string; department: string; projectIds: number[] }) => {
+      const r = await fetch(api("/teams"), {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({ name: data.name, department: data.department }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to create team");
+      const team = await r.json();
+
+      await Promise.all(data.projectIds.map(async (projectId) => {
+        await fetch(api(`/projects/${projectId}/teams`), {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify({ teamId: team.id }),
+        });
+      }));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      setCreateOpen(false);
+      setForm({ name: "", department: "", projectIds: [], originalProjectIds: [] });
+      toast({ title: "Team created" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async (data: { id: number; name: string; department: string; projectIds: number[]; originalProjectIds: number[] }) => {
+      const r = await fetch(api(`/teams/${data.id}`), {
+        method: "PATCH",
+        headers: authHeaders(token),
+        body: JSON.stringify({ name: data.name, department: data.department }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to update team");
+
+      const toAdd = data.projectIds.filter(id => !data.originalProjectIds.includes(id));
+      const toRemove = data.originalProjectIds.filter(id => !data.projectIds.includes(id));
+
+      await Promise.all(toAdd.map(projectId => 
+        fetch(api(`/projects/${projectId}/teams`), {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify({ teamId: data.id }),
+        })
+      ));
+
+      await Promise.all(toRemove.map(projectId => 
+        fetch(api(`/projects/${projectId}/teams/${data.id}`), {
+          method: "DELETE",
+          headers: authHeaders(token),
+        })
+      ));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      setEditTeam(null);
+      toast({ title: "Team updated" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await fetch(api(`/teams/${id}`), {
+        method: "DELETE",
+        headers: authHeaders(token),
+      });
+      if (!r.ok) throw new Error("Failed to delete team");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      setDeleteTeam(null);
+      toast({ title: "Team deleted" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: async (data: { teamId: number; userIds: number[]; role: string }) => {
+      await Promise.all(data.userIds.map(async (userId) => {
+        const r = await fetch(api(`/teams/${data.teamId}/members`), {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify({ userId, role: data.role }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error ?? "Failed to add member");
+      }));
+    },
+    onSuccess: async () => {
+      setAddMemberOpen(false);
+      setMemberPickerOpen(false);
+      setMemberForm({ userIds: [], role: "member" });
+      if (detailTeam) await loadTeamDetail(detailTeam);
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      const count = memberForm.userIds.length;
+      toast({ title: count === 1 ? "Member added" : `${count} members added` });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (data: { teamId: number; userId: number }) => {
+      const r = await fetch(api(`/teams/${data.teamId}/members/${data.userId}`), {
+        method: "DELETE",
+        headers: authHeaders(token),
+      });
+      if (!r.ok) throw new Error("Failed to remove member");
+    },
+    onSuccess: async () => {
+      if (detailTeam) await loadTeamDetail(detailTeam);
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      toast({ title: "Member removed" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const updateMemberRoleMutation = useMutation({
+    mutationFn: async (data: { teamId: number; userId: number; role: string }) => {
+      const r = await fetch(api(`/teams/${data.teamId}/members`), {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({ userId: data.userId, role: data.role }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to update member role");
+    },
+    onSuccess: async () => {
+      if (detailTeam) await loadTeamDetail(detailTeam);
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      setEditingMember(null);
+      toast({ title: "Member role updated" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const availableUsers = allUsers.filter((u) => {
+    // Already in team
+    if (detailTeam?.members.find((m) => m.id === u.id)) return false;
+    if (!detailTeam) return true;
+
+    const role = u.role;
+    // Admins and CTOs can be added anywhere
+    if (role === "admin" || role === "cto") return true;
+
+    const dept = detailTeam.department;
+    if (dept === "qa" && !["qa_member", "qa_lead", "hod_qa"].includes(role)) return false;
+    if (dept === "pm" && !["pm_member", "pm_lead", "hod_pm"].includes(role)) return false;
+    if (dept === "dev" && !["dev_member", "dev_lead", "hod_dev"].includes(role)) return false;
+    if (dept === "fa" && !["fa_member", "fa_lead", "hod_fa"].includes(role)) return false;
+
+    return true;
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Users className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-medium">Teams</h2>
+          <span className="text-sm text-muted-foreground">— assign users to projects by team</span>
+        </div>
+        <Button onClick={() => { setForm({ name: "", department: "", projectIds: [], originalProjectIds: [] }); setCreateOpen(true); }}>
+          <Plus className="h-4 w-4 mr-2" /> New Team
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Loading teams…</p>
+      ) : teams.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            No teams yet. Create one to start assigning users to projects.
+          </CardContent>
+        </Card>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-40">Team</TableHead>
+              <TableHead className="w-24">Department</TableHead>
+              <TableHead>Members</TableHead>
+              <TableHead>Projects</TableHead>
+              <TableHead className="text-right w-24">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {teams.map((team) => (
+              <TableRow
+                key={team.id}
+                className="cursor-pointer hover:bg-muted/50 align-top"
+                onClick={() => loadTeamDetail(team)}
+              >
+                <TableCell className="font-medium pt-3">{team.name}</TableCell>
+                <TableCell className="pt-3">
+                  <Badge variant="outline">{deptLabel(team.department)}</Badge>
+                </TableCell>
+                <TableCell>
+                  {team.members.length === 0 ? (
+                    <Button 
+                      variant="link" 
+                      className="p-0 h-auto text-xs text-muted-foreground hover:text-primary"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await loadTeamDetail(team);
+                      }}
+                    >
+                      Add members
+                    </Button>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1 py-1">
+                      {[...team.members].sort((a, b) => (a.teamRole === "lead" ? -1 : b.teamRole === "lead" ? 1 : 0)).map((m) => (
+                        <span
+                          key={m.id}
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                            m.teamRole === "lead"
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {m.name}
+                          {m.teamRole === "lead" && <span className="ml-1 opacity-60">★</span>}
+                        </span>
+                      ))}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground ml-1"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await loadTeamDetail(team);
+                        }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {team.projects.length === 0 ? (
+                    <Button 
+                      variant="link" 
+                      className="p-0 h-auto text-xs text-muted-foreground hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLocation("?tab=project-access");
+                      }}
+                    >
+                      Assign members to project
+                    </Button>
+                  ) : (
+                    <div className="flex flex-wrap gap-1 py-1">
+                      {team.projects.map((p) => (
+                        <span
+                          key={p.id}
+                          className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs text-foreground"
+                        >
+                          {p.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="text-right pt-2">
+                  <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => { 
+                        const pIds = team.projects.map(p => p.id);
+                        setForm({ name: team.name, department: team.department, projectIds: pIds, originalProjectIds: pIds }); 
+                        setEditTeam(team); 
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTeam(team)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      {/* ── Team Detail Dialog ───────────────────────────────────────────────── */}
+      <Dialog open={!!detailTeam} onOpenChange={(o) => { if (!o) setDetailTeam(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              {detailTeam?.name}
+              <Badge variant="outline" className="ml-2">{deptLabel(detailTeam?.department ?? "")}</Badge>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Members */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium">Members ({detailTeam?.members.length ?? 0})</h3>
+                <Button size="sm" variant="outline" onClick={() => setAddMemberOpen(true)} disabled={availableUsers.length === 0}>
+                  <UserPlus className="h-4 w-4 mr-1" /> Add
+                </Button>
+              </div>
+              {(detailTeam?.members.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground">No members yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>System Role</TableHead>
+                      <TableHead>Team Role</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...(detailTeam?.members || [])].sort((a, b) => (a.teamRole === "lead" ? -1 : b.teamRole === "lead" ? 1 : 0)).map((m) => (
+                      <TableRow key={m.id}>
+                        <TableCell>{m.name}</TableCell>
+                        <TableCell><Badge variant="secondary">{formatRoleLabel(m.role)}</Badge></TableCell>
+                        <TableCell>
+                          <Badge variant={m.teamRole === "lead" ? "default" : "outline"}>
+                            {m.teamRole}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setEditingMember({ userId: m.id, role: m.teamRole, name: m.name })}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive"
+                            onClick={() => removeMemberMutation.mutate({ teamId: detailTeam!.id, userId: m.id })}
+                          >
+                            <UserMinus className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Member Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={addMemberOpen} onOpenChange={(o) => { if (!o) { setAddMemberOpen(false); setMemberPickerOpen(false); setMemberForm({ userIds: [], role: "member" }); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Members</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Users</Label>
+              <Popover open={memberPickerOpen} onOpenChange={setMemberPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between min-h-10 h-auto"
+                  >
+                    <span className="flex flex-wrap gap-1 py-0.5">
+                      {memberForm.userIds.length === 0 ? (
+                        <span className="text-muted-foreground font-normal">Search and select users…</span>
+                      ) : (
+                        memberForm.userIds.map((uid) => {
+                          const u = availableUsers.find((x) => x.id === uid);
+                          return (
+                            <span
+                              key={uid}
+                              className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
+                            >
+                              {u?.name ?? uid}
+                              <span
+                                role="button"
+                                aria-label="Remove"
+                                className="hover:text-destructive cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMemberForm((f) => ({ ...f, userIds: f.userIds.filter((id) => id !== uid) }));
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </span>
+                            </span>
+                          );
+                        })
+                      )}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search by name or role…" />
+                    <CommandList>
+                      <CommandEmpty>No users found.</CommandEmpty>
+                      <CommandGroup>
+                        {availableUsers.map((u) => {
+                          const selected = memberForm.userIds.includes(u.id);
+                          return (
+                            <CommandItem
+                              key={u.id}
+                              value={`${u.name} ${formatRoleLabel(u.role)}`}
+                              onSelect={() => {
+                                setMemberForm((f) => ({
+                                  ...f,
+                                  userIds: selected
+                                    ? f.userIds.filter((id) => id !== u.id)
+                                    : [...f.userIds, u.id],
+                                }));
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
+                              <span>{u.name}</span>
+                              <Badge variant="outline" className="ml-auto text-xs">{formatRoleLabel(u.role)}</Badge>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div>
+              <Label>Team Role</Label>
+              <Select value={memberForm.role} onValueChange={(v) => setMemberForm((f) => ({ ...f, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="lead">Lead</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAddMemberOpen(false); setMemberForm({ userIds: [], role: "member" }); }}>Cancel</Button>
+            <Button
+              disabled={memberForm.userIds.length === 0 || addMemberMutation.isPending}
+              onClick={() => addMemberMutation.mutate({
+                teamId: detailTeam!.id,
+                userIds: memberForm.userIds,
+                role: memberForm.role,
+              })}
+            >
+              Add {memberForm.userIds.length > 0 ? `(${memberForm.userIds.length})` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Member Role Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={!!editingMember} onOpenChange={(o) => { if (!o) setEditingMember(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Role for {editingMember?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Team Role</Label>
+              <Select 
+                value={editingMember?.role} 
+                onValueChange={(v) => setEditingMember((prev) => prev ? { ...prev, role: v } : null)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="lead">Lead</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingMember(null)}>Cancel</Button>
+            <Button
+              disabled={updateMemberRoleMutation.isPending}
+              onClick={() => {
+                if (editingMember && detailTeam) {
+                  updateMemberRoleMutation.mutate({
+                    teamId: detailTeam.id,
+                    userId: editingMember.userId,
+                    role: editingMember.role,
+                  });
+                }
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Create / Edit Team Dialog ─────────────────────────────────────────── */}
+      <Dialog open={createOpen || !!editTeam} onOpenChange={(o) => { if (!o) { setCreateOpen(false); setEditTeam(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editTeam ? "Edit Team" : "New Team"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Team Name</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. QA Squad A"
+              />
+            </div>
+            <div>
+              <Label>Department</Label>
+              <Select value={form.department} onValueChange={(v) => setForm((f) => ({ ...f, department: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select department…" /></SelectTrigger>
+                <SelectContent>
+                  {DEPARTMENTS.map((d) => (
+                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Projects (Optional)</Label>
+              <Popover open={projectPickerOpen} onOpenChange={setProjectPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between min-h-10 h-auto"
+                  >
+                    <span className="flex flex-wrap gap-1 py-0.5">
+                      {form.projectIds.length === 0 ? (
+                        <span className="text-muted-foreground font-normal">Select projects…</span>
+                      ) : (
+                        form.projectIds.map((pid) => {
+                          const p = allProjects.find((x) => x.id === pid);
+                          return (
+                            <span
+                              key={pid}
+                              className="inline-flex items-center gap-1 rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium"
+                            >
+                              {p?.name ?? pid}
+                              <span
+                                role="button"
+                                aria-label="Remove"
+                                className="hover:text-destructive cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setForm((f) => ({ ...f, projectIds: f.projectIds.filter((id) => id !== pid) }));
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </span>
+                            </span>
+                          );
+                        })
+                      )}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search projects…" />
+                    <CommandList>
+                      <CommandEmpty>No projects found.</CommandEmpty>
+                      <CommandGroup>
+                        {allProjects.map((p) => {
+                          const selected = form.projectIds.includes(p.id);
+                          return (
+                            <CommandItem
+                              key={p.id}
+                              value={p.name}
+                              onSelect={() => {
+                                setForm((f) => ({
+                                  ...f,
+                                  projectIds: selected
+                                    ? f.projectIds.filter((id) => id !== p.id)
+                                    : [...f.projectIds, p.id],
+                                }));
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
+                              <span>{p.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCreateOpen(false); setEditTeam(null); }}>Cancel</Button>
+            <Button
+              disabled={!form.name || !form.department || createMutation.isPending || editMutation.isPending}
+              onClick={() => {
+                if (editTeam) {
+                  editMutation.mutate({ id: editTeam.id, name: form.name, department: form.department, projectIds: form.projectIds, originalProjectIds: form.originalProjectIds });
+                } else {
+                  createMutation.mutate({ name: form.name, department: form.department, projectIds: form.projectIds });
+                }
+              }}
+            >
+              {editTeam ? "Save" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Confirm ────────────────────────────────────────────────────── */}
+      <AlertDialog open={!!deleteTeam} onOpenChange={(o) => { if (!o) setDeleteTeam(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{deleteTeam?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the team and all its member and project assignments. Users are not deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTeam && deleteMutation.mutate(deleteTeam.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -14,6 +14,8 @@ export const tasksTable = pgTable("tasks", {
   projectId: integer("project_id"),
   moduleId: integer("module_id"),
   moduleIds: text("module_ids"),                        // Comma-separated module IDs for multi-select
+  milestoneId: integer("milestone_id"),                 // Ties a task to a milestone (nullable — ad-hoc tasks stay unassigned)
+  blockedByTaskId: integer("blocked_by_task_id"),       // CR036 — single blocker; must be a same-project task, cycle-checked in routes
   environmentIds: integer("environment_ids").array(), // Multi-select Environments
   assigneeIds: integer("assignee_ids").array(),       // Multi-select QA PICs
   startDate: text("start_date"),                      // Planned Start Date
@@ -26,9 +28,15 @@ export const tasksTable = pgTable("tasks", {
   completionPercentage: integer("completion_percentage").default(0),
   tracker: text("tracker"),
   notes: text("notes"),
+  // CR023p4 — requirement-change re-review flow
+  requirementRevisedAt: timestamp("requirement_revised_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("tasks_requirement_idx").on(t.requirementId),
+  index("tasks_project_idx").on(t.projectId),
+  index("tasks_milestone_idx").on(t.milestoneId),
+]);
 
 export const insertTaskSchema = createInsertSchema(tasksTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTask = z.infer<typeof insertTaskSchema>;

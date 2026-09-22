@@ -1,0 +1,124 @@
+import { pgTable, text, serial, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+
+// CR019: native defect records. QM Pulse is the front door for QA defects
+// (write-through to Redmine, which stays the system of record for lifecycle);
+// production defects are pulled in from the Redmine incident tracker (CR020).
+// All Redmine-specific sync code lives in redmine-defect-bridge.ts only.
+export const defectsTable = pgTable(
+  "defects",
+  {
+    id: serial("id").primaryKey(),
+    defectCode: text("defect_code"), // DEF-0001 / DEF-P0001, filled right after insert
+    title: text("title").notNull(),
+    description: text("description"),
+    stepsToReproduce: text("steps_to_reproduce"),
+    expectedResult: text("expected_result"),
+    actualResult: text("actual_result"),
+    severity: text("severity").notNull().default("medium"), // critical | high | medium | low
+    // Lifecycle status — cached read-only from Redmine until CR021 cutover
+    status: text("status").notNull().default("New"),
+    module: text("module"),
+    projectId: integer("project_id"),
+    // Direct milestone link — unlike the transitive defect_links -> execution
+    // chain, this is set on every creation path (manual, fail-modal, Redmine
+    // pull, sync-from-redmine) so milestone-scoped analytics (e.g. the CR026
+    // escape funnel) work regardless of how the defect came to exist.
+    milestoneId: integer("milestone_id"),
+    reporterId: integer("reporter_id"),
+    assigneeName: text("assignee_name"), // cached from Redmine
+    // CR030 — native dev assignment. assigneeId is the source of truth for
+    // in-app assignment; assigneeAssignedAt is compared against Redmine's own
+    // issue.updated_on on refresh so whichever side changed most recently wins
+    // (see reconcileDefectAssignee in redmine-defect-bridge.ts).
+    assigneeId: integer("assignee_id"),
+    assigneeAssignedAt: timestamp("assignee_assigned_at", { withTimezone: true }),
+    redmineId: text("redmine_id"), // legacy id after CR021 cutover
+    syncStatus: text("sync_status").notNull().default("pending"), // pending | synced | error
+    syncError: text("sync_error"),
+    source: text("source").notNull().default("qa"), // qa | production
+    foundIn: text("found_in").notNull().default("SIT"), // SIT | UAT | Production
+    // Actual Redmine tracker name — "other" trackers land in the QA list for
+    // now but keep their real tracker recorded (Sync from Redmine dialog)
+    tracker: text("tracker"),
+    category: text("category"), // Redmine category name, saved alongside the tracker
+    // QM Pulse-native defect classification (independent of the Redmine category
+    // above, which is a freeform per-project Redmine field) — one of a fixed
+    // set: functional | ui_ux | usability | performance | security | data |
+    // compatibility | integration | configuration | localization. Settable
+    // only by Lead-tier+ users (see getRoleTierRank in middleware/access.ts).
+    defectCategory: text("defect_category"),
+    redmineCreatedAt: timestamp("redmine_created_at", { withTimezone: true }), // issue created_on
+    // CR080 — QA-sourced defects only, gates the New Defect -> Fixed/Resolved
+    // transition for Critical/High severity (see GATE_RESOLVED_STATES in
+    // routes/defects.ts). QM Pulse-native, deliberately not pushed to Redmine —
+    // same "local only" precedent as defectCategory below.
+    rootCause: text("root_cause"),
+    rootCauseCategory: text("root_cause_category"), // code_defect | configuration | data_issue | environment | requirement_gap | third_party
+    resolutionSummary: text("resolution_summary"),
+    // CR020 escape review (production defects only)
+    escapeStatus: text("escape_status").notNull().default("pending"), // pending | analyzing | closed
+    escapeClass: text("escape_class"), // coverage_gap | selection_gap | passed_wrongly
+    escapeNotes: text("escape_notes"),
+    statusSyncedAt: timestamp("status_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("defects_source_idx").on(t.source),
+    index("defects_redmine_id_idx").on(t.redmineId),
+    index("defects_project_idx").on(t.projectId),
+    // CR051 — a partial UNIQUE index on redmine_id (non-null only, since many
+    // native/pending defects have none) backs the idempotent register upsert:
+    // a double-submit from the fail modal hits a 23505 instead of inserting a
+    // twin. Created in bootstrap (roles.ts) so a fresh DB self-heals; declared
+    // here so the schema stays the source of truth.
+    uniqueIndex("defects_redmine_id_unique").on(t.redmineId).where(sql`${t.redmineId} IS NOT NULL`),
+  ],
+);
+
+// A defect can link to an execution row (QA defects), and later to the
+// library TC / requirement (production escapes + regression backfill).
+export const defectLinksTable = pgTable(
+  "defect_links",
+  {
+    id: serial("id").primaryKey(),
+    defectId: integer("defect_id")
+      .references(() => defectsTable.id, { onDelete: "cascade" })
+      .notNull(),
+    executionTcId: integer("execution_tc_id"),
+    testCaseId: integer("test_case_id"),
+    requirementId: integer("requirement_id"),
+    linkType: text("link_type").notNull().default("found_by"), // found_by | regression_tc | requirement
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("defect_links_defect_idx").on(t.defectId)],
+);
+
+// Mandatory QA evidence captured whenever a defect is moved to Verified.
+// Stored separately from code-review evidence because this proves retest
+// verification, not implementation review.
+export const defectVerificationEvidenceTable = pgTable(
+  "defect_verification_evidence",
+  {
+    id: serial("id").primaryKey(),
+    defectId: integer("defect_id")
+      .references(() => defectsTable.id, { onDelete: "cascade" })
+      .notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    dataBase64: text("data_base64").notNull(),
+    uploadedBy: integer("uploaded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("defect_verification_evidence_defect_idx").on(t.defectId)],
+);
+
+export const insertDefectSchema = createInsertSchema(defectsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertDefect = z.infer<typeof insertDefectSchema>;
+export type Defect = typeof defectsTable.$inferSelect;
+export type DefectLink = typeof defectLinksTable.$inferSelect;
+export type DefectVerificationEvidence = typeof defectVerificationEvidenceTable.$inferSelect;

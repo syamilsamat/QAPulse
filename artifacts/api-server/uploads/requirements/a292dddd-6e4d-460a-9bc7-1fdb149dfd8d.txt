@@ -1,0 +1,8 @@
+Finance SOP v3.2 — Refund Approval Matrix
+Effective 01 Aug 2026
+
+Refund amount          Required approvers
+Up to RM 5,000         1 approver
+Above RM 5,000         2 approvers
+
+Attached by Aina Zulkifli as evidence when resubmitting REQ-103 after Daniel Wong's rejection (S3.3).
