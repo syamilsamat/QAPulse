@@ -173,7 +173,7 @@ so it stays readable against the document regardless of the shift.
 
 ## Logging in
 
-All 11 users share one password: `Sparrow@2026`. Emails are
+All 11 users share one password: `password123`. Emails are
 `firstname.lastname@demo.qmpulse.local`.
 
 | Name | Role | Email |

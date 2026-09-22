@@ -19,7 +19,7 @@
  * timestamps; clear-sparrow-data.ts tears it all down via the manifest.
  */
 
-export const SPARROW_PASSWORD = "Sparrow@2026";
+export const SPARROW_PASSWORD = "password123";
 
 export const PDF_DATE_SHIFT_MONTHS = -4;
 

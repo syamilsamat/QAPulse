@@ -14,7 +14,7 @@
  * (on-track / at-risk / overdue / planned) actually lands when demoed.
  */
 
-export const DEMO_PASSWORD = "Demo@2026";
+export const DEMO_PASSWORD = "password123";
 
 export interface DemoUser {
   key: string;

@@ -73,7 +73,7 @@ It rewrites requirement/activity/execution timestamps (and completed
 milestones' `completedAt`) to the per-milestone anchors defined at the top
 of that script.
 
-All demo users share one password: `Demo@2026` (see `demo-data.ts`'s
+All demo users share one password: `password123` (see `demo-data.ts`'s
 `DEMO_PASSWORD` if you change it). Their emails are all
 `firstname.lastname@demo.qmpulse.local`, so they're easy to spot in the
 Team/Roles pages and won't collide with anyone real.
