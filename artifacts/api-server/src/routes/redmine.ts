@@ -433,11 +433,6 @@ router.get("/redmine/search", async (req, res): Promise<void> => {
 
 // ─── Create issue ────────────────────────────────────────────────────────────
 
-// Substrings that mark a Redmine validation error as being about one of the
-// custom fields this route sends. Used to decide whether retrying without them
-// could possibly help — see the retry in POST /redmine/issues.
-const CUSTOM_FIELD_ERROR_HINTS = ["complexity", "targeted start", "targeted completion", "source"];
-
 router.post("/redmine/issues", async (req, res): Promise<void> => {
   const {
     projectId,
@@ -571,16 +566,19 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       // recognize. Retry without them so the defect still gets created; only
       // the metadata that project doesn't support is lost.
       //
-      // Gated on the errors actually naming one of those fields. Retrying blind
-      // made every unrelated failure worse: an unusable parent came back as
-      // "Complexity cannot be blank; Targeted Start Date cannot be blank;
-      // Targeted Completion Date cannot be blank; Parent task is invalid",
-      // because the retry stripped fields the tracker requires and the second
-      // response was the one reported. Only the last clause was the real cause.
-      const namesACustomField = firstErrors.some((message) =>
-        CUSTOM_FIELD_ERROR_HINTS.some((hint) => message.toLowerCase().includes(hint)),
-      );
-      if (customFields.length > 0 && namesACustomField) {
+      // 422 is Redmine's validation failure, and the retry changes nothing but
+      // the custom fields — so it can only succeed when the custom fields were
+      // the blocker. That makes it safe on any validation error rather than
+      // only ones naming a field we recognise, which matters because a field id
+      // mapped to the WRONG Redmine field fails under that field's name: a
+      // Complexity id pointing at a date field comes back as "Actual Start Date
+      // is not a valid date", a name no hint list could have anticipated.
+      //
+      // The reported error stays the first attempt's either way, so a real
+      // cause like an invalid parent is never hidden behind the complaints of
+      // the weaker payload (the retry strips fields the tracker requires, so
+      // its errors describe what we removed, not what the reporter got wrong).
+      if (customFields.length > 0 && response.status === 422) {
         response = await postIssue(baseIssue);
         customFieldsDropped = response.ok;
       }
@@ -598,6 +596,11 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       id: data.issue.id,
       url: `${getBaseUrl()}/issues/${data.issue.id}`,
       customFieldsDropped,
+      // What Redmine actually objected to. Worth carrying through on a success:
+      // the defect got filed, but a field id mapping to the wrong Redmine field
+      // is invisible otherwise — the reporter only ever sees metadata quietly
+      // going missing, with no clue which id to correct.
+      ...(customFieldsDropped && firstErrors.length > 0 ? { customFieldErrors: firstErrors } : {}),
       ...(parentDropped ? { parentDropped } : {}),
     });
   } catch (err: any) {
