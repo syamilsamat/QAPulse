@@ -206,7 +206,7 @@ export default function DefectCreationModal({
   // Source is excluded: it is only rendered when its field id exists.
   const unmappedCustomFields = [
     !projectConfig?.complexityFieldId ? "Complexity" : null,
-    !projectConfig?.targetedStartDateFieldId ? "Actual Start Date" : null,
+    !projectConfig?.targetedStartDateFieldId ? "Targeted Start Date" : null,
     !projectConfig?.targetedCompletionDateFieldId ? "Targeted Completion Date" : null,
   ].filter((label): label is string => label !== null);
 
@@ -298,7 +298,7 @@ export default function DefectCreationModal({
       return;
     }
     if (!targetedStartDate) {
-      toast({ variant: "destructive", title: "Actual Start Date is required" });
+      toast({ variant: "destructive", title: "Targeted Start Date is required" });
       return;
     }
     if (!targetedCompletionDate) {
@@ -344,10 +344,10 @@ export default function DefectCreationModal({
                 // "Redmine rejected a field" sends people hunting; a setting
                 // name and the id it holds is a one-line fix.
                 result.misconfiguredFields?.length
-                  ? `${result.misconfiguredFields.join("; ")}. Fix it in Settings → Redmine Integration.`
+                  ? `${result.misconfiguredFields.join("; ")}. Fix it in Configuration → Redmine Integration.`
                   : result.customFieldErrors?.length
-                    ? `Redmine said: ${result.customFieldErrors.join("; ")}. Check the custom field IDs in Settings → Redmine Integration.`
-                    : "Check the custom field IDs in Settings → Redmine Integration.",
+                    ? `Redmine said: ${result.customFieldErrors.join("; ")}. Check the custom field IDs in Configuration → Redmine Integration.`
+                    : "Check the custom field IDs in Configuration → Redmine Integration.",
               ].filter(Boolean).join(" ")
             : null,
           // The defect exists but hangs off nothing, so whoever triages it needs
@@ -643,11 +643,10 @@ export default function DefectCreationModal({
                 />
               </div>
               <div className="space-y-1.5">
-                {/* Redmine's mandatory start-date field on the QA Defect
-                    tracker. The config slot and payload key still read
-                    "targetedStartDate" — see the note on the setting in
-                    Settings → Redmine Integration. */}
-                <Label>Actual Start Date <span className="text-destructive">*</span></Label>
+                {/* Required by QA's own flow, not just by Redmine: both
+                    Targeted dates are filled on every QA defect. Actual
+                    Start/Completion Date are dev-side and stay empty here. */}
+                <Label>Targeted Start Date <span className="text-destructive">*</span></Label>
                 <Input
                   type="date"
                   value={targetedStartDate}
@@ -674,7 +673,7 @@ export default function DefectCreationModal({
                 {unmappedCustomFields.join(", ")} {unmappedCustomFields.length === 1 ? "has" : "have"} no
                 Redmine field mapping, so {unmappedCustomFields.length === 1 ? "it won't be" : "they won't be"} sent.
                 If the tracker requires {unmappedCustomFields.length === 1 ? "it" : "them"}, Redmine will reject
-                this issue — map {unmappedCustomFields.length === 1 ? "it" : "them"} in Settings → Redmine Integration.
+                this issue — map {unmappedCustomFields.length === 1 ? "it" : "them"} in Configuration → Redmine Integration.
               </p>
             )}
           </div>

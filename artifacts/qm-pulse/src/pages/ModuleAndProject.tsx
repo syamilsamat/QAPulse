@@ -1159,7 +1159,7 @@ export default function ModuleAndProject() {
                     <Input type="number" placeholder="e.g. 2" value={configForm.complexityFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, complexityFieldId: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Actual Start Date Field ID</Label>
+                    <Label className="text-xs">Targeted Start Date Field ID</Label>
                     <Input type="number" placeholder="e.g. 12" value={configForm.targetedStartDateFieldId} onChange={(e) => setConfigForm((f) => ({ ...f, targetedStartDateFieldId: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">

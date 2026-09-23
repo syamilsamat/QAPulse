@@ -498,7 +498,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       customFields.push({ id: Number(complexityFieldId), value: complexityValue, setting: "Complexity Field ID" });
     }
     if (targetedStartDateFieldId && targetedStartDate) {
-      customFields.push({ id: Number(targetedStartDateFieldId), value: targetedStartDate, setting: "Actual Start Date Field ID" });
+      customFields.push({ id: Number(targetedStartDateFieldId), value: targetedStartDate, setting: "Targeted Start Date Field ID" });
     }
     if (targetedCompletionDateFieldId && targetedCompletionDate) {
       customFields.push({ id: Number(targetedCompletionDateFieldId), value: targetedCompletionDate, setting: "Targeted Completion Date Field ID" });

@@ -998,10 +998,23 @@ const DesktopTableRow = React.memo(
               <span className="px-2 py-2 text-xs text-muted-foreground block">{row.qaPic}</span>
             )
           ) : (
-            <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
-              <option value="">Select QA PIC...</option>
-              {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-            </select>
+            // A lead/HOD/admin can staff anyone, but taking a row themselves
+            // meant finding their own name in a dropdown of every user in the
+            // system. The shortcut the QA members already have, for them too.
+            <div className="px-1 py-1 space-y-1">
+              <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
+                <option value="">Select QA PIC...</option>
+                {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+              </select>
+              {currentUser?.name && row.qaPic !== currentUser.name && (
+                <button
+                  className="text-[10px] text-primary hover:underline whitespace-nowrap"
+                  onClick={() => onUpdate(row.id as string, "qaPic", currentUser.name)}
+                >
+                  + Assign to me
+                </button>
+              )}
+            </div>
           )}
         </td>
         {!readOnly && (
@@ -1356,20 +1369,30 @@ const MobileCardRow = React.memo(
                 </div>
               )
             ) : (
-              <select
-                className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-                value={row.qaPic || ""}
-                onChange={(e) =>
-                  onUpdate(row.id as string, "qaPic", e.target.value)
-                }
-              >
-                <option value="">Select QA PIC...</option>
-                {qaUsers.map((u) => (
-                  <option key={u.id} value={u.name}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-1">
+                <select
+                  className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                  value={row.qaPic || ""}
+                  onChange={(e) =>
+                    onUpdate(row.id as string, "qaPic", e.target.value)
+                  }
+                >
+                  <option value="">Select QA PIC...</option>
+                  {qaUsers.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+                {currentUser?.name && row.qaPic !== currentUser.name && (
+                  <button
+                    className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
+                    onClick={() => onUpdate(row.id as string, "qaPic", currentUser.name)}
+                  >
+                    + Assign to me
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -4966,10 +4989,20 @@ export default function TestCasesExecutionProgressPage() {
                               <span className="text-sm text-muted-foreground">{row.qaPic}</span>
                             )
                           ) : (
-                            <select className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
-                              <option value="">Select QA PIC...</option>
-                              {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                            </select>
+                            <div className="space-y-1.5">
+                              <select className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                <option value="">Select QA PIC...</option>
+                                {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                              </select>
+                              {currentUser?.name && row.qaPic !== currentUser.name && (
+                                <button
+                                  className="text-xs px-2.5 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
+                                  onClick={() => updateCell(row.id as string | number, "qaPic", currentUser.name)}
+                                >
+                                  + Assign to me
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -5219,10 +5252,20 @@ export default function TestCasesExecutionProgressPage() {
                                             <span className="text-xs text-muted-foreground">{row.qaPic}</span>
                                           )
                                         ) : (
-                                          <select className="flex h-7 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
-                                            <option value="">Select QA PIC...</option>
-                                            {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                          </select>
+                                          <div className="space-y-1">
+                                            <select className="flex h-7 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                              <option value="">Select QA PIC...</option>
+                                              {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                            </select>
+                                            {currentUser?.name && row.qaPic !== currentUser.name && (
+                                              <button
+                                                className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
+                                                onClick={() => updateCell(row.id as string | number, "qaPic", currentUser.name)}
+                                              >
+                                                + Assign to me
+                                              </button>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
                                     </div>
