@@ -85,6 +85,7 @@ import {
   deleteExecutionEvidence,
   executionEvidenceUrl,
   reviewExecutionTestCase,
+  editReturnedTestCase,
   fetchTestCaseTrail,
   type ReturnedExecutionTestCase,
   type ExecutionTcTrail,
@@ -1454,6 +1455,12 @@ export default function TestCasesExecutionProgressPage() {
   const [returnRowTarget, setReturnRowTarget] = useState<AppExecutionTestCase | null>(null);
   const [returnRowComment, setReturnRowComment] = useState("");
   const [rowReviewBusy, setRowReviewBusy] = useState(false);
+  // DEF-0022 — inline edit of a returned row's Test Steps / Expected Result,
+  // right from the rework banner (the row is off the main sheet, so there's
+  // no other way to fix it before resubmitting).
+  const [editingReturnedRowId, setEditingReturnedRowId] = useState<number | null>(null);
+  const [returnedEditDraft, setReturnedEditDraft] = useState<{ testSteps: string; expectedResult: string }>({ testSteps: "", expectedResult: "" });
+  const [savingReturnedEdit, setSavingReturnedEdit] = useState(false);
   // CR075 — rolled-up phase timeline (planned dates from the milestone,
   // actual dates rolled up across every requirement this file's test cases
   // link to). Collapsed by default, same convention as RequirementDetail's
@@ -1893,6 +1900,14 @@ export default function TestCasesExecutionProgressPage() {
     [data],
   );
 
+  // DEF-0028 — the rework banner is scoped to the current user's own
+  // returned rows; `returnedRows` itself stays the full list (other code may
+  // still rely on it).
+  const myReturnedRows = useMemo(
+    () => returnedRows.filter((r) => r.addedBy != null && r.addedBy === currentUser?.id),
+    [returnedRows, currentUser?.id],
+  );
+
   // Accept / return one pending row, or resubmit one that was returned to you.
   // Only the row changes — the rest of the run keeps executing either way.
   const handleRowReview = async (
@@ -1919,6 +1934,8 @@ export default function TestCasesExecutionProgressPage() {
             caseName: row.caseName ?? null,
             moduleName: row.moduleName ?? null,
             libraryTcId: row.libraryTcId ?? null,
+            testSteps: row.testSteps ?? null,
+            expectedResult: row.expectedResult ?? null,
             addedBy: row.addedBy ?? null,
             addedByName: row.addedByName ?? null,
             returnedByName: currentUser?.name ?? null,
@@ -1935,6 +1952,28 @@ export default function TestCasesExecutionProgressPage() {
       toast({ variant: "destructive", title: "Action failed", description: String(err?.message ?? err) });
     } finally {
       setRowReviewBusy(false);
+    }
+  };
+
+  // DEF-0022 — open/close the inline editor for one returned row.
+  const startEditReturnedRow = (row: ReturnedExecutionTestCase) => {
+    setEditingReturnedRowId(row.id);
+    setReturnedEditDraft({ testSteps: row.testSteps ?? "", expectedResult: row.expectedResult ?? "" });
+  };
+  const cancelEditReturnedRow = () => setEditingReturnedRowId(null);
+  const saveReturnedRowEdit = async (rowId: number) => {
+    setSavingReturnedEdit(true);
+    try {
+      await editReturnedTestCase(rowId, returnedEditDraft);
+      setReturnedRows((prev) => prev.map((r) =>
+        r.id === rowId ? { ...r, testSteps: returnedEditDraft.testSteps, expectedResult: returnedEditDraft.expectedResult } : r,
+      ));
+      setEditingReturnedRowId(null);
+      toast({ title: "Test case updated", description: "Resubmit it when you're ready." });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Failed to save changes", description: String(err?.message ?? err) });
+    } finally {
+      setSavingReturnedEdit(false);
     }
   };
 
@@ -4150,14 +4189,16 @@ export default function TestCasesExecutionProgressPage() {
       )}
 
       {/* Rows a reviewer sent back. They are off the execution sheet until the
-          person who added them fixes the case and resubmits it. */}
-      {returnedRows.length > 0 && (
+          person who added them fixes the case and resubmits it.
+          DEF-0028 — scoped to the current user's own rows: everyone else's
+          rework is none of a given viewer's business here. */}
+      {myReturnedRows.length > 0 && (
         <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg p-3 space-y-2">
           <div className="flex items-start gap-3">
             <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="font-semibold text-sm text-red-800 dark:text-red-300">
-                {returnedRows.length} test case{returnedRows.length !== 1 ? "s" : ""} returned for rework
+                {myReturnedRows.length} test case{myReturnedRows.length !== 1 ? "s" : ""} returned for rework
               </p>
               <p className="text-xs text-red-700 dark:text-red-400 mt-1">
                 Held off the execution sheet. Fix the test case, then resubmit it for acceptance —
@@ -4166,7 +4207,7 @@ export default function TestCasesExecutionProgressPage() {
             </div>
           </div>
           <div className="space-y-1.5">
-            {returnedRows.map((row) => (
+            {myReturnedRows.map((row) => (
               <div
                 key={row.id}
                 className="bg-white dark:bg-background rounded px-2.5 py-2 border border-red-100 dark:border-red-900 space-y-1.5"
@@ -4179,22 +4220,83 @@ export default function TestCasesExecutionProgressPage() {
                   <span className="text-[11px] text-muted-foreground shrink-0">
                     returned by {row.returnedByName || "a reviewer"}
                   </span>
-                  {row.addedBy != null && row.addedBy === currentUser?.id && (
+                  {/* DEF-0022 — fix Test Steps / Expected Result right here
+                      instead of needing the row back on the main sheet. */}
+                  {editingReturnedRowId !== row.id && (
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs shrink-0"
-                      disabled={rowReviewBusy}
-                      onClick={() => handleRowReview(row.id, "resubmit")}
+                      disabled={rowReviewBusy || savingReturnedEdit}
+                      onClick={() => startEditReturnedRow(row)}
                     >
-                      Resubmit
+                      Edit
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs shrink-0"
+                    disabled={rowReviewBusy || editingReturnedRowId === row.id}
+                    onClick={() => handleRowReview(row.id, "resubmit")}
+                  >
+                    Resubmit
+                  </Button>
                 </div>
                 {row.reviewComment && (
                   <p className="text-xs text-red-800 dark:text-red-300 whitespace-pre-wrap bg-red-50 dark:bg-red-950/50 rounded px-2 py-1.5">
                     <strong>What to fix:</strong> {row.reviewComment}
                   </p>
+                )}
+                {editingReturnedRowId === row.id ? (
+                  <div className="space-y-2 pt-1">
+                    <div>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1">Test Steps</p>
+                      <CopilotTextarea
+                        className="text-xs p-2 border rounded"
+                        value={returnedEditDraft.testSteps}
+                        fieldName="Test Steps"
+                        minHeight="80px"
+                        onChange={(val: string) => setReturnedEditDraft((prev) => ({ ...prev, testSteps: val }))}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1">Expected Result</p>
+                      <CopilotTextarea
+                        className="text-xs p-2 border rounded"
+                        value={returnedEditDraft.expectedResult}
+                        fieldName="Expected Result"
+                        minHeight="60px"
+                        onChange={(val: string) => setReturnedEditDraft((prev) => ({ ...prev, expectedResult: val }))}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                        disabled={savingReturnedEdit}
+                        onClick={() => saveReturnedRowEdit(row.id)}
+                      >
+                        Save Changes
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={savingReturnedEdit}
+                        onClick={cancelEditReturnedRow}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  (row.testSteps || row.expectedResult) && (
+                    <div className="text-[11px] text-muted-foreground space-y-0.5">
+                      {row.testSteps && <p className="truncate"><strong>Steps:</strong> {row.testSteps}</p>}
+                      {row.expectedResult && <p className="truncate"><strong>Expected:</strong> {row.expectedResult}</p>}
+                    </div>
+                  )
                 )}
               </div>
             ))}

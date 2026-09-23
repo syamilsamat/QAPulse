@@ -131,6 +131,22 @@ function AIGenerateDialog({
   const [isSavingGenerated, setIsSavingGenerated] = useState(false);
   const generateMutation = useGenerateTestCasesWithAI();
 
+  // DEF-0021 — "Assign Author" used to list every org user (the unscoped
+  // `users` prop, from listUsers() with no params). Scope it to this
+  // project's members instead, same endpoint the Milestones Team picker
+  // uses, and narrow it to QA-department roles since this dropdown is
+  // specifically about who authors a QA test case.
+  const QA_ROLES = ["qa_member", "qa_lead", "qa_manager", "hod_qa"];
+  const { data: projectAssignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
+    queryKey: ["milestones-assignable-users", form.projectId],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones/assignable-users?projectId=${form.projectId}`, { headers: authHeaders() });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!form.projectId,
+  });
+  const authorOptions = projectAssignableUsers.filter((u) => QA_ROLES.includes(u.role));
+
   const handleGenerate = () => {
     if (selectedReqIds.size === 0 && availableReqs.length === 0) return;
 
@@ -398,7 +414,7 @@ function AIGenerateDialog({
                 <SearchableSelect
                   value={form.authorId ? String(form.authorId) : ""}
                   onValueChange={(v) => setForm({ ...form, authorId: Number(v) })}
-                  options={users.map((u: any) => ({ value: String(u.id), label: u.name }))}
+                  options={authorOptions.map((u) => ({ value: String(u.id), label: u.name }))}
                   placeholder="Current User"
                   searchPlaceholder="Search user..."
                 />

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
@@ -167,6 +167,7 @@ export default function RequirementDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const reqId = params?.id ? parseInt(params.id) : null;
+  const aiEditFlagKey = reqId ? `ai-edited-description-${reqId}` : null;
   // CR030 — dev handoff: Lead-tier+ can assign a developer
   const isLeadTier = ((user as any)?.tierRank ?? 1) >= 2;
 
@@ -180,6 +181,16 @@ export default function RequirementDetail() {
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
+  // DEF-0015 — set when an AI Analysis suggestion was just appended to the
+  // Description field, so the FA gets a reminder to verify it before
+  // submitting for review. sessionStorage (not component state) so it
+  // survives a refresh of this same tab; cleared once the requirement is
+  // actually submitted.
+  const [aiEditedDescription, setAiEditedDescription] = useState(false);
+  useEffect(() => {
+    if (!aiEditFlagKey) return;
+    try { setAiEditedDescription(sessionStorage.getItem(aiEditFlagKey) === "1"); } catch { /* ignore */ }
+  }, [aiEditFlagKey]);
   // Per-item busy index for acceptance-criteria cleanup (remove / move)
   const [acBusyIndex, setAcBusyIndex] = useState<number | null>(null);
   // CR074 — History defaults to collapsed (latest entry only)
@@ -432,6 +443,10 @@ export default function RequirementDetail() {
       const data = await res.json();
       if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Review action failed" }); return; }
       toast({ title: action === "submit" ? "Submitted for review" : action === "approve" ? "Requirement approved" : "Requirement rejected" });
+      if (action === "submit" && aiEditFlagKey) {
+        try { sessionStorage.removeItem(aiEditFlagKey); } catch { /* ignore */ }
+        setAiEditedDescription(false);
+      }
       setReviewAction(null);
       setReviewComment("");
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
@@ -598,27 +613,32 @@ export default function RequirementDetail() {
     }
   };
 
-  // CR071 — accept an AI recommendation (missing item / issue suggestion) by
-  // appending it as a new Acceptance Criteria entry, prefixed with its source
-  // category (e.g. "Missing Items: …") so the origin stays visible. The
-  // acceptanceCriteria column is raw JSON text server-side, so the client owns
-  // the read-append-stringify round trip; PATCH does a full replace.
-  const acceptRecommendation = async (label: string, text: string) => {
+  // DEF-0015 — accept an AI recommendation (missing item / issue suggestion)
+  // by appending it cleanly to the Description, not Acceptance Criteria —
+  // it's context the FA needs to account for, not a testable condition, and
+  // the raw suggestion text was previously dumped into AC with a category
+  // prefix that read like noise. No prefix here; just a blank-line-separated
+  // append, same as a person pasting it in themselves.
+  const acceptRecommendation = async (_label: string, text: string) => {
     if (!reqId || !req) return;
     setAcceptingText(text);
     try {
-      const current: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
-      const updated = [...current, criterionText(label, text)];
+      const current = (req.description ?? "").trim();
+      const updated = current ? `${current}\n\n${text.trim()}` : text.trim();
       const res = await api(`/requirements/${reqId}`, token, {
         method: "PATCH",
-        body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
+        body: JSON.stringify({ description: updated }),
       });
-      if (!res.ok) { toast({ variant: "destructive", title: "Failed to add to acceptance criteria" }); return; }
-      toast({ title: "Added to acceptance criteria" });
+      if (!res.ok) { toast({ variant: "destructive", title: "Failed to add to description" }); return; }
+      toast({ title: "Added to description" });
+      if (aiEditFlagKey) {
+        try { sessionStorage.setItem(aiEditFlagKey, "1"); } catch { /* ignore */ }
+        setAiEditedDescription(true);
+      }
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
     } catch {
-      toast({ variant: "destructive", title: "Failed to add to acceptance criteria" });
+      toast({ variant: "destructive", title: "Failed to add to description" });
     } finally {
       setAcceptingText(null);
     }
@@ -704,6 +724,10 @@ export default function RequirementDetail() {
 
   const role = user?.role ?? "";
   const isAuthor = req?.createdBy === user?.id;
+  // Mirrors the DEF-0024 submit-for-review exemption on the backend: a
+  // requirement with no recorded author (legacy/Redmine-sourced) or an
+  // admin/cto isn't locked out of submitting just because isAuthor is false.
+  const canSubmitForReview = isAuthor || req?.createdBy == null || ["admin", "cto"].includes(role);
 
   // Edit permission mirrors PATCH /requirements/:id on the backend:
   // author/assignee always can; a Redmine-imported requirement can also be
@@ -740,10 +764,13 @@ export default function RequirementDetail() {
   const ac: string[] = Array.isArray(req.acceptanceCriteria) ? req.acceptanceCriteria : [];
   // CR071 — normalized (trim + lowercase) set for "already in requirement" dedup
   const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  // DEF-0015 — recommendations are appended to Description now, so dedup
+  // checks the description text (still also checking legacy AC entries —
+  // prefixed or raw — accepted before this change).
+  const descNormalized = normalize(req.description ?? "");
   const acNormalized = new Set(ac.map(normalize));
-  // A recommendation is "already in requirement" if its prefixed form OR its
-  // raw text (accepted before category prefixes existed) is present.
   const alreadyInAc = (label: string, text: string) =>
+    descNormalized.includes(normalize(text)) ||
     acNormalized.has(normalize(criterionText(label, text))) || acNormalized.has(normalize(text));
   // Accepted questions land in the Discussion thread as comments; dedup a
   // question row against existing comment bodies (substring match tolerates
@@ -808,7 +835,7 @@ export default function RequirementDetail() {
           </Button>
           {canReview && (
             <>
-              {req.reviewStatus === "draft" && (
+              {req.reviewStatus === "draft" && canSubmitForReview && (
                 <Button size="sm" variant="outline" onClick={() => setReviewAction("submit")}>
                   Submit for Review
                 </Button>
@@ -823,7 +850,7 @@ export default function RequirementDetail() {
                   </Button>
                 </>
               )}
-              {req.reviewStatus === "rejected" && isAuthor && (
+              {req.reviewStatus === "rejected" && canSubmitForReview && (
                 <Button size="sm" variant="outline" onClick={() => setReviewAction("submit")}>
                   Re-submit
                 </Button>
@@ -863,6 +890,15 @@ export default function RequirementDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* DEF-0015 — reminder banner: description was last touched by an
+              AI Analysis "Accept", not a person, so it needs a human check
+              before this requirement goes to review. */}
+          {aiEditedDescription && (
+            <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-800 p-3 text-sm">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>This description was last edited by accepting an AI Analysis suggestion. Please review it for accuracy before submitting for review.</span>
+            </div>
+          )}
           {/* Description */}
           {req.description && (
             <Card>

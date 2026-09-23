@@ -123,6 +123,10 @@ export interface ReturnedExecutionTestCase {
   caseName: string | null;
   moduleName: string | null;
   libraryTcId: number | null;
+  // DEF-0022 — the row's own content, editable by its author right from the
+  // rework banner (the row is otherwise off the sheet's normal inline edit).
+  testSteps: string | null;
+  expectedResult: string | null;
   addedBy: number | null;
   addedByName: string | null;
   returnedByName: string | null;
@@ -313,6 +317,27 @@ export const reviewExecutionTestCase = async (
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `Failed to ${action} test case`);
+  }
+  return res.json();
+};
+
+/**
+ * DEF-0022 — fix a returned row's Test Steps / Expected Result from the
+ * rework banner, ahead of resubmitting it. Author-only, only while the row is
+ * actually in rework — enforced server-side.
+ */
+export const editReturnedTestCase = async (
+  rowId: number,
+  fields: { testSteps?: string; expectedResult?: string },
+) => {
+  const res = await fetch(`/api/execution-test-cases/${rowId}/content`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? "Failed to update test case");
   }
   return res.json();
 };

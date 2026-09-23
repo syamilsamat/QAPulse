@@ -149,7 +149,9 @@ router.get("/my-work", async (req, res): Promise<void> => {
       context: contextFor(task.projectId, task.milestoneId),
       reason: overdue ? `Overdue since ${task.dueDate}` : task.blockedByTaskId ? "Blocked by another task" : `Status: ${task.status.replace(/_/g, " ")}`,
       priority: overdue ? "urgent" : task.blockedByTaskId ? "high" : "normal",
-      section: overdue ? "urgent" : "action", actionLabel: "Open task", actionUrl: task.requirementId ? `/tasks?highlight=${task.requirementId}` : "/tasks",
+      // DEF-0025 — a Dev Task's "Open task" took you to the Tasks board
+      // highlighting the linked requirement, not to the requirement itself.
+      section: overdue ? "urgent" : "action", actionLabel: "Open task", actionUrl: task.requirementId ? `/requirements/${task.requirementId}` : "/tasks",
       projectId: task.projectId ?? null, projectName: task.projectId ? projectNameById.get(task.projectId) ?? null : null,
       milestoneName: task.milestoneId ? milestoneNameById.get(task.milestoneId) ?? null : null,
       ownerName, updatedAt: task.updatedAt.toISOString(),
