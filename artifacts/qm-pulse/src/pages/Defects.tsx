@@ -219,6 +219,10 @@ export default function Defects() {
   // CR061 — linking is a shared QA workflow action, not restricted to the
   // reporter/qa_lead like editing the defect's own info.
   const canLinkTc = (user as any)?.department === "qa" || user?.role === "admin" || user?.role === "cto";
+  // DEF-0030 — Root Cause & Resolution are dev's write-up of the fix, so
+  // editing is restricted the same way the server enforces it; a QA viewer
+  // can still see whatever is already filled in, just not change it.
+  const canEditRootCause = (user as any)?.department === "dev" || user?.role === "admin" || user?.role === "cto";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -377,10 +381,37 @@ export default function Defects() {
     .sort()
     .pop();
 
+  // DEF-0031 — silent variant of handleRefreshStatus for the expand-to-view
+  // trigger below: no toasts, no global isRefreshing/checkingId spinner state
+  // (those are for the explicit "Refresh" button), just a best-effort pull of
+  // this one defect's current Redmine state before the FA/dev/QA looks at it.
+  const syncDefectFromRedmineOnOpen = async (defectId: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/refresh-status`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ defectId }),
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data && (data.refreshed > 0 || data.unavailable > 0)) invalidate();
+    } catch {
+      // Best-effort — the defect still opens with its last-known state.
+    }
+  };
+
   const toggleExpand = (id: number) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        // DEF-0031 — pull from Redmine before showing an expanded defect that's
+        // linked there, so a stale local status/title isn't what gets edited.
+        const defect = defects.find((d) => d.id === id);
+        if (defect?.redmineId) syncDefectFromRedmineOnOpen(id);
+      }
       return next;
     });
 
@@ -1059,7 +1090,7 @@ export default function Defects() {
                     </div>
                   )}
                   <Tabs value={detailTabs[d.id] ?? "details"} onValueChange={value => setDetailTabs(prev => ({ ...prev, [d.id]: value }))}>
-                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">Redmine History</TabsTrigger></TabsList>
+                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">History</TabsTrigger></TabsList>
                     <TabsContent value="history"><DefectHistory key={`${user?.id}-${d.id}`} defectId={d.id} redmineId={d.redmineId} /></TabsContent>
                     <TabsContent value="details" className="space-y-3">
                   {/* Status edit — write-through to Redmine */}
@@ -1230,6 +1261,7 @@ export default function Defects() {
                         <Select
                           value={d.rootCauseCategory ?? ""}
                           onValueChange={(v) => handleEscapePatch(d, { rootCauseCategory: v })}
+                          disabled={!canEditRootCause}
                         >
                           <SelectTrigger className="w-56 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
                             <SelectValue placeholder="Root cause category..." />
@@ -1244,6 +1276,7 @@ export default function Defects() {
                           placeholder="Root cause detail — what actually went wrong?"
                           defaultValue={d.rootCause ?? ""}
                           className="text-xs min-h-14"
+                          disabled={!canEditRootCause}
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
                             if (e.target.value !== (d.rootCause ?? "")) handleEscapePatch(d, { rootCause: e.target.value });
@@ -1253,6 +1286,7 @@ export default function Defects() {
                           placeholder="Resolution / fix summary — what was changed to fix it?"
                           defaultValue={d.resolutionSummary ?? ""}
                           className="text-xs min-h-14"
+                          disabled={!canEditRootCause}
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
                             if (e.target.value !== (d.resolutionSummary ?? "")) handleEscapePatch(d, { resolutionSummary: e.target.value });

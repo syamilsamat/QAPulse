@@ -725,7 +725,9 @@ isPipelineFlow: true,
     label: "Inbox",
     icon: HoverBell,
     activeColor: "text-yellow-500",
-    roles: ["qa_member", "qa_lead", "admin"],
+    // DEF-0026 — dev_member/pm_member had no Inbox nav item at all; this is
+    // the fallback for a role row with no nav:inbox permKey grant yet.
+    roles: ["qa_member", "qa_lead", "admin", "dev_member", "pm_member"],
     permKey: "nav:inbox",
     showBadge: true,
     section: "Communication",

@@ -38,6 +38,10 @@ export const executionFilesTable = pgTable("execution_files", {
   rejectedBy: integer("rejected_by"),
   rejectedAt: timestamp("rejected_at", { withTimezone: true }),
   rejectionReason: text("rejection_reason"),
+  // DEF-0024 — who created this file, so submit-for-review can be gated to
+  // the author the same way requirements' review action is. Nullable: rows
+  // created before this column existed have no author on record.
+  createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -97,6 +101,12 @@ export const executionTestCasesTable = pgTable("execution_test_cases", {
   returnedBy: integer("returned_by"),
   returnedAt: timestamp("returned_at", { withTimezone: true }),
   reviewComment: text("review_comment"),
+  // DEF-0029 — when this row was added, so the execution trail can show an
+  // explicit "Added" lifecycle entry instead of a row's arrival only being
+  // inferable from a misleading null -> "Not Executed" history transition.
+  // Rows created before this column existed default to now() on backfill,
+  // same convention as every other createdAt column in this schema.
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   // This is the largest table in the product and previously had no index at
   // all. Both of these columns are the join/filter key for essentially every

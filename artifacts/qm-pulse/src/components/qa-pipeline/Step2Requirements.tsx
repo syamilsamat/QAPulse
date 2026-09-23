@@ -426,8 +426,6 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     }
   };
 
-  const criterionText = (label: string, text: string) => `${label}: ${text.trim()}`;
-
   const patchSuggestionStatus = async (suggestionId: number, status: string) => {
     const res = await api(`/ai/requirement-suggestions/${suggestionId}`, token, {
       method: "PATCH",
@@ -437,25 +435,26 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     setSuggestionStatuses((prev) => ({ ...prev, [suggestionId]: status }));
   };
 
-  // "Accept" on a Missing Item / Issue writes it into the requirement's
-  // Acceptance Criteria (same mechanism as the full Requirement Detail
-  // page), then marks the suggestion accepted so it won't resurface.
-  const acceptIntoCriteria = async (reqId: number, suggestionId: number, label: string, text: string) => {
+  // DEF-0015 — "Accept" on a Missing Item / Issue writes it into the
+  // requirement's Description (same mechanism as the full Requirement Detail
+  // page), cleanly appended with no category prefix, then marks the
+  // suggestion accepted so it won't resurface.
+  const acceptIntoCriteria = async (reqId: number, suggestionId: number, _label: string, text: string) => {
     setSuggestionBusyId(suggestionId);
     try {
       const req = requirements.find((r: any) => r.id === reqId);
-      const current: string[] = Array.isArray(req?.acceptanceCriteria) ? req.acceptanceCriteria : [];
-      const updated = [...current, criterionText(label, text)];
+      const current = (req?.description ?? "").trim();
+      const updated = current ? `${current}\n\n${text.trim()}` : text.trim();
       const res = await api(`/requirements/${reqId}`, token, {
         method: "PATCH",
-        body: JSON.stringify({ acceptanceCriteria: JSON.stringify(updated) }),
+        body: JSON.stringify({ description: updated }),
       });
-      if (!res.ok) throw new Error("Failed to add to acceptance criteria");
+      if (!res.ok) throw new Error("Failed to add to description");
       await patchSuggestionStatus(suggestionId, "accepted");
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
       // Keeps the pipeline rail's per-step icons in step with the work.
       queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      toast({ title: "Added to acceptance criteria" });
+      toast({ title: "Added to description" });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message ?? "Failed to accept suggestion" });
     } finally {

@@ -146,23 +146,48 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
   const handleSubmitForReview = async () => {
     setSubmitting(true);
     try {
+      // DEF-0024 made submit author-only, so a mixed-author milestone (some
+      // files made by the current user, some by a colleague) can legitimately
+      // 403 on a subset. Submit every file independently instead of throwing
+      // on the first failure, so one un-submittable file doesn't block the
+      // rest — then report exactly which ones didn't go through and why.
+      const failures: { title: string; error: string }[] = [];
+      let succeeded = 0;
       for (const f of submittableFiles) {
         const res = await api(`/execution-files/${f.id}/review`, token, {
           method: "PATCH",
           body: JSON.stringify({ action: "submit" }),
         });
-        if (!res.ok) {
+        if (res.ok) {
+          succeeded++;
+        } else {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? "Failed to submit for review");
+          failures.push({ title: f.title ?? f.redmineTicketId ?? `#${f.id}`, error: body.error ?? "Failed to submit for review" });
         }
       }
-      toast({
-        title: "Submitted for review",
-        description: "A reviewer can now review these test cases on the Execution Dashboard.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["execution-files"] });
-      // Keeps the pipeline rail's per-step icons in step with the work.
-      queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
+      if (succeeded > 0) {
+        queryClient.invalidateQueries({ queryKey: ["execution-files"] });
+        // Keeps the pipeline rail's per-step icons in step with the work.
+        queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
+      }
+      if (failures.length === 0) {
+        toast({
+          title: "Submitted for review",
+          description: "A reviewer can now review these test cases on the Execution Dashboard.",
+        });
+      } else if (succeeded > 0) {
+        toast({
+          variant: "destructive",
+          title: `Submitted ${succeeded}, ${failures.length} failed`,
+          description: failures.map((f) => `${f.title}: ${f.error}`).join("; "),
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Submit failed",
+          description: failures.map((f) => `${f.title}: ${f.error}`).join("; "),
+        });
+      }
     } catch (err: any) {
       toast({ variant: "destructive", title: "Submit failed", description: String(err?.message ?? err) });
     } finally {

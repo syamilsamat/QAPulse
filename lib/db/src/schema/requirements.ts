@@ -8,7 +8,7 @@ export const requirementsTable = pgTable("requirements", {
   description: text("description"),
   module: text("module"),
   projectId: integer("project_id"),
-  priority: text("priority").notNull().default("medium"),
+  priority: text("priority").notNull().default("normal"),
   release: text("release"),
   assigneeId: integer("assignee_id"),
   redmineTicketId: text("redmine_ticket_id"),
@@ -102,6 +102,11 @@ export const requirementsTable = pgTable("requirements", {
   // GET /requirements always orders by created_at.
   index("requirements_created_at_idx").on(t.createdAt),
 ]);
+
+// DEF-0014 — priority values in use across the app are low/normal/high/urgent,
+// not the "medium" the column default used to carry.
+export const REQUIREMENT_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+export const requirementPrioritySchema = z.enum(REQUIREMENT_PRIORITIES);
 
 export const insertRequirementSchema = createInsertSchema(requirementsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRequirement = z.infer<typeof insertRequirementSchema>;

@@ -70,7 +70,7 @@ export function DefectHistory({ defectId, redmineId }: { defectId: number; redmi
   const unread = new Set(data?.unreadIds ?? []);
   return <section aria-label="Redmine history" className="rounded-md border bg-background p-4 space-y-4">
     <div className="flex justify-between gap-3 items-center flex-wrap">
-      <div className="flex items-center gap-2"><History className="w-4 h-4" /><h3 className="text-sm font-medium">Redmine History</h3>{data && <Badge variant="secondary">{data.entries.length}</Badge>}</div>
+      <div className="flex items-center gap-2"><History className="w-4 h-4" /><h3 className="text-sm font-medium">History</h3>{data && <Badge variant="secondary">{data.entries.length}</Badge>}</div>
       <div className="flex items-center gap-2 flex-wrap">
         {data && <span className="text-xs text-muted-foreground" title={format(new Date(data.syncedAt), "dd MMM yyyy, HH:mm:ss")}>Last synced {formatDistanceToNow(new Date(data.syncedAt), { addSuffix: true })}</span>}
         <Button variant="outline" size="sm" disabled={query.isFetching} onClick={() => query.refetch()} className="gap-1.5">

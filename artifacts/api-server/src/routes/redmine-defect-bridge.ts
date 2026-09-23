@@ -333,7 +333,10 @@ export async function pushVerificationToRedmine(
 // cache pushDefectToRedmine already uses for creation.
 export async function pushDefectFieldsToRedmine(
   redmineIssueId: string,
-  fields: { title?: string; description?: string; tracker?: string },
+  // DEF-0031 — assigneeId folded in here so Save pushes everything (title/
+  // description/tracker/assignee) to Redmine in one PUT instead of a second
+  // round trip through pushAssigneeToRedmine.
+  fields: { title?: string; description?: string; tracker?: string; assigneeId?: number | null },
   apiKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const issue: Record<string, any> = {};
@@ -343,6 +346,17 @@ export async function pushDefectFieldsToRedmine(
     const trackerId = await findDefectTrackerId(fields.tracker);
     if (trackerId == null) return { ok: false, error: "Unknown tracker — sync trackers first" };
     issue.tracker_id = trackerId;
+  }
+  if (fields.assigneeId !== undefined) {
+    if (fields.assigneeId == null) {
+      issue.assigned_to_id = "";
+    } else {
+      const [user] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, fields.assigneeId));
+      if (!user?.name) return { ok: false, error: "Assignee not found" };
+      const redmineUserId = await resolveRedmineUserIdByName(user.name, apiKey);
+      if (!redmineUserId) return { ok: false, error: `No matching Redmine user for "${user.name}"` };
+      issue.assigned_to_id = redmineUserId;
+    }
   }
   if (Object.keys(issue).length === 0) return { ok: true };
   try {
