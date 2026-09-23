@@ -71,6 +71,7 @@ import {
   activityTable,
   defectsTable,
   defectLinksTable,
+  milestonesTable,
 } from "@workspace/db";
 
 export { normaliseTracker } from "./_document-reference";
@@ -1585,16 +1586,17 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
   const formatRecipients = (arr: Array<{ fullName?: string; name?: string; email: string }>) =>
     arr.map((r) => `"${r.fullName ?? r.name ?? r.email}" <${r.email}>`).join(", ");
 
-  // Resolve environment names from the linked task
-  const ENV_NAMES: Record<number, string> = {
-    1: "Env 1", 2: "Env 2", 3: "Env 3", 4: "Env 4", 5: "Env 5", 6: "Env 6", 7: "Env 7",
-  };
+  // Resolve the environment from the linked task's milestone — the milestone's
+  // `environment` field (set by the PM, e.g. "ENV1") is the only place this is
+  // actually populated; `tasksTable.environmentIds` has no write path anywhere
+  // in the app and is always empty, so reading it here always fell back to
+  // the default label.
   let envLabel = "QA Verdict";
   try {
     const [linkedTask] = await db.select().from(tasksTable).where(eq(tasksTable.redmineId, String(redmineId)));
-    if (linkedTask?.environmentIds && linkedTask.environmentIds.length > 0) {
-      const names = linkedTask.environmentIds.map((id: number) => ENV_NAMES[id] ?? `Env ${id}`).filter(Boolean);
-      if (names.length > 0) envLabel = names.join(", ");
+    if (linkedTask?.milestoneId) {
+      const [milestone] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, linkedTask.milestoneId));
+      if (milestone?.environment) envLabel = milestone.environment;
     }
   } catch {}
 
