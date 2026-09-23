@@ -4,8 +4,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Paperclip } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertTriangle, Paperclip, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Attachment = { id: number; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; createdAt: string; canDelete: boolean };
@@ -19,6 +19,9 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<{ file: Attachment; url: string; text?: string } | null>(null);
+  // Held rather than deleted on click: the confirmation names the file and
+  // spells out that compiled views lose it too but execution evidence doesn't.
+  const [pendingDelete, setPendingDelete] = useState<Attachment | null>(null);
   const key = ["test-case-attachments", testCaseId, user?.id];
   const base = `${getApiUrl()}/test-cases/${testCaseId}/attachments`;
   const headers = { Authorization: `Bearer ${token}` };
@@ -54,9 +57,14 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
     } catch (error) { report(error); }
   }
   async function remove(file: Attachment) {
-    if (!window.confirm(`Delete "${file.fileName}" from this library record and all linked compiled views? Execution evidence will not be affected.`)) return;
     setBusy(true);
-    try { await request(`${base}/${file.id}`, { method: "DELETE" }); if (preview?.file.id === file.id) setPreview(null); await client.invalidateQueries({ queryKey: key }); }
+    try {
+      await request(`${base}/${file.id}`, { method: "DELETE" });
+      if (preview?.file.id === file.id) setPreview(null);
+      setPendingDelete(null);
+      await client.invalidateQueries({ queryKey: key });
+      toast({ title: "Library attachment deleted", description: file.fileName });
+    }
     catch (error) { report(error); } finally { setBusy(false); }
   }
   return <section className="space-y-3 rounded-lg border p-4" onClick={e => e.stopPropagation()}>
@@ -70,9 +78,36 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
     {listing.data?.attachments.map(file => <div key={file.id} className="flex flex-wrap items-center gap-2 border-t pt-2"><div className="flex-1 min-w-0"><p className="text-sm break-words">{file.fileName}</p><p className="text-xs text-muted-foreground">{Math.max(1, Math.ceil(file.sizeBytes / 1024))} KB · {file.uploadedByName || "Former user"} · {new Date(file.createdAt).toLocaleString()}</p></div><div className="flex flex-wrap gap-1">
       {previewTypes.has(file.mimeType) && <Button type="button" size="sm" variant="ghost" onClick={() => void open(file, true)}>Preview</Button>}
       <Button type="button" size="sm" variant="ghost" onClick={() => void open(file, false)}>Download</Button>
-      {!readOnly && file.canDelete && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void remove(file)}>Delete</Button>}
+      {!readOnly && file.canDelete && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(file)}>Delete</Button>}
     </div></div>)}
     {readOnly && <p className="text-xs text-muted-foreground">Live library references. Manage files in the Test Case Library.</p>}
+    <Dialog open={!!pendingDelete} onOpenChange={open => { if (!open && !busy) setPendingDelete(null); }}>
+      <DialogContent className="w-[95vw] sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            Delete this library file?
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <p className="text-sm text-foreground break-words">
+            <span className="font-medium">{pendingDelete?.fileName}</span>
+            <span className="text-muted-foreground"> will be removed from this library test case.</span>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            It disappears from every execution that references this library record, so other testers
+            lose it too. Evidence attached directly to an execution result is not affected. This
+            can&apos;t be undone.
+          </p>
+        </div>
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0 mt-2">
+          <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={busy} onClick={() => setPendingDelete(null)}>Keep it</Button>
+          <Button type="button" variant="destructive" className="w-full sm:w-auto gap-2" disabled={busy} onClick={() => pendingDelete && void remove(pendingDelete)}>
+            <Trash2 className="w-4 h-4" /> {busy ? "Deleting…" : "Delete file"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={!!preview} onOpenChange={open => { if (!open) setPreview(null); }}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle className="break-all">{preview?.file.fileName}</DialogTitle></DialogHeader>{preview && (preview.file.mimeType.startsWith("image/") ? <img src={preview.url} alt={preview.file.fileName} className="max-h-[70vh] object-contain mx-auto" /> : preview.file.mimeType === "text/plain" ? <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-sm">{preview.text}</pre> : <iframe src={preview.url} title={preview.file.fileName} className="w-full h-[65vh] border-0" />)}</DialogContent></Dialog>
   </section>;
 }

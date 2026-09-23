@@ -1640,6 +1640,10 @@ export default function TestCasesExecutionProgressPage() {
   const [passEvidenceMode, setPassEvidenceMode] = useState<"pass" | "attach">("pass");
   const [passEvidenceFiles, setPassEvidenceFiles] = useState<File[]>([]);
   const [isUploadingPassEvidence, setIsUploadingPassEvidence] = useState(false);
+  const [evidenceToDelete, setEvidenceToDelete] = useState<
+    { rowId: number; evidenceId: number; fileName: string; caseLabel: string } | null
+  >(null);
+  const [isDeletingEvidence, setIsDeletingEvidence] = useState(false);
 
   // Overwriting a result that was already recorded is the case the trail exists
   // to explain, so the reason is collected at the moment of the change rather
@@ -2660,8 +2664,22 @@ export default function TestCasesExecutionProgressPage() {
     }
   };
 
-  const removePassEvidence = async (rowId: number, evidenceId: number) => {
-    if (!window.confirm("Delete this evidence attachment? This cannot be undone.")) return;
+  /** Opens the confirmation. The delete itself runs from the dialog, so the
+   *  file's name and the test case it belongs to can be named on screen — a
+   *  bare "are you sure?" gives the tester nothing to check against. */
+  const requestRemovePassEvidence = (row: AppExecutionTestCase, evidence: ExecutionEvidence) => {
+    setEvidenceToDelete({
+      rowId: row.id as number,
+      evidenceId: evidence.id,
+      fileName: evidence.originalFileName ?? evidence.fileName,
+      caseLabel: row.testCaseId || row.caseId || row.caseName || "this test case",
+    });
+  };
+
+  const confirmRemovePassEvidence = async () => {
+    if (!evidenceToDelete) return;
+    const { rowId, evidenceId, fileName } = evidenceToDelete;
+    setIsDeletingEvidence(true);
     try {
       await deleteExecutionEvidence(rowId, evidenceId);
       setData((prev) => {
@@ -2671,9 +2689,12 @@ export default function TestCasesExecutionProgressPage() {
         dataRef.current = updated;
         return updated;
       });
-      toast({ title: "Evidence removed" });
+      setEvidenceToDelete(null);
+      toast({ title: "Attachment deleted", description: fileName });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Failed to remove evidence", description: error?.message });
+      toast({ variant: "destructive", title: "Couldn't delete the attachment", description: error?.message });
+    } finally {
+      setIsDeletingEvidence(false);
     }
   };
 
@@ -2712,7 +2733,7 @@ export default function TestCasesExecutionProgressPage() {
             <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
             <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
             {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
-              <button className="hover:text-destructive" title="Delete attachment" onClick={() => removePassEvidence(row.id as number, file.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+              <button className="hover:text-destructive" title="Delete attachment" onClick={() => requestRemovePassEvidence(row, file)}><Trash2 className="w-3.5 h-3.5" /></button>
             )}
           </div>
         ))}
@@ -3766,6 +3787,53 @@ export default function TestCasesExecutionProgressPage() {
             )}
             <Button variant="outline" size="sm" onClick={() => setCapaOpen(false)}>Close</Button>
             {capaResult && <Button size="sm" onClick={handleCapaAnalysis} variant="secondary" className="gap-2"><Sparkles className="w-3.5 h-3.5" /> Re-analyse</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Evidence delete. In-app rather than window.confirm so it can name the
+          file and the test case, say what does and doesn't change, and stay
+          readable on a phone — the browser dialog could do none of that. */}
+      <Dialog
+        open={evidenceToDelete !== null}
+        onOpenChange={(open) => { if (!open && !isDeletingEvidence) setEvidenceToDelete(null); }}
+      >
+        <DialogContent className="w-[95vw] sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              Delete this attachment?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-foreground break-words">
+              <span className="font-medium">{evidenceToDelete?.fileName}</span>
+              <span className="text-muted-foreground"> will be removed from {evidenceToDelete?.caseLabel}.</span>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              The result stays <span className="font-medium text-foreground">Passed</span> — only the
+              evidence behind it is deleted. You can attach a new file afterwards, but this one can&apos;t
+              be recovered.
+            </p>
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0 mt-2">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              disabled={isDeletingEvidence}
+              onClick={() => setEvidenceToDelete(null)}
+            >
+              Keep it
+            </Button>
+            <Button
+              variant="destructive"
+              className="w-full sm:w-auto gap-2"
+              disabled={isDeletingEvidence}
+              onClick={confirmRemovePassEvidence}
+            >
+              {isDeletingEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete attachment
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
