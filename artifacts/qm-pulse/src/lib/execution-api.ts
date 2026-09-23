@@ -619,6 +619,10 @@ export const createRedmineDefect = async (
   id: number;
   url: string;
   customFieldsDropped?: boolean;
+  /** What Redmine said when it rejected the custom fields. Present only
+   *  alongside customFieldsDropped — names the field that actually objected,
+   *  which is the only clue that a field id is mapped to the wrong one. */
+  customFieldErrors?: string[];
   /** Set when the requested parent issue couldn't be resolved in Redmine and
    *  the defect was filed without one, so the reporter can link it by hand. */
   parentDropped?: string;

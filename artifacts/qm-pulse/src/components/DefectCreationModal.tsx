@@ -329,8 +329,16 @@ export default function DefectCreationModal({
       toast({
         title: `Defect #${result.id} created in Redmine`,
         description: [
+          // Either the project doesn't have those fields enabled, or a field id
+          // in the project's Redmine config points at a different field than
+          // it should. Redmine's own words separate the two, so pass them on
+          // rather than guessing on the reporter's behalf.
           result.customFieldsDropped
-            ? "This Redmine project doesn't have Complexity/Date/Source fields set up — they were skipped."
+            ? [
+                "Redmine rejected Complexity/Date/Source, so the defect was filed without them.",
+                result.customFieldErrors?.length ? `Redmine said: ${result.customFieldErrors.join("; ")}.` : null,
+                "Check the custom field IDs mapped for this project in Module & Project settings.",
+              ].filter(Boolean).join(" ")
             : null,
           // The defect exists but hangs off nothing, so whoever triages it needs
           // to know to parent it by hand rather than assume the link is there.
