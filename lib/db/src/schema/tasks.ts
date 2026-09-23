@@ -27,6 +27,10 @@ export const tasksTable = pgTable("tasks", {
   actualHours: real("actual_hours"),
   completionPercentage: integer("completion_percentage").default(0),
   tracker: text("tracker"),
+  // Surfaced as "Description" on a dev task (DevTasksPanel) — the free-text
+  // detail a Dev Lead writes when breaking a requirement down. Kept under the
+  // existing, previously unused `notes` column rather than adding a second
+  // free-text column that would mean the same thing.
   notes: text("notes"),
   // CR023p4 — requirement-change re-review flow
   requirementRevisedAt: timestamp("requirement_revised_at", { withTimezone: true }),

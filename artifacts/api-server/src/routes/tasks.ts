@@ -84,6 +84,35 @@ async function validateBlocker(
 }
 
 
+// Who may change a dev task (one carrying a requirementId) after the Dev Lead
+// has created it. Creation is Dev-Lead-only, but the dev doing the work has to
+// be able to correct the name or fill in the description — otherwise a typo in
+// someone else's task is unfixable. Reassignment stays with the lead: an
+// assignee handing their task to someone else is a staffing decision, not an
+// edit. Returns null when allowed, or the reason to refuse.
+async function devTaskEditRefusal(
+  task: typeof tasksTable.$inferSelect,
+  ctx: { userId: number; role: string },
+  patch: Partial<typeof tasksTable.$inferInsert>,
+): Promise<string | null> {
+  if (task.requirementId == null) return null; // ad-hoc task — ungated, as before
+
+  if (ctx.role === "admin" || ctx.role === "cto") return null;
+  const [department, tierRank] = await Promise.all([
+    getRoleDepartment(ctx.role),
+    getRoleTierRank(ctx.role),
+  ]);
+  if (department === "dev" && tierRank >= 2) return null; // Dev Lead and above
+
+  if (!(task.assigneeIds ?? []).includes(ctx.userId)) {
+    return "Only the Dev Lead or this task's assignee can edit it";
+  }
+  if (patch.assigneeIds !== undefined) {
+    return "Only the Dev Lead can reassign a dev task";
+  }
+  return null;
+}
+
 async function formatTask(task: typeof tasksTable.$inferSelect) {
   let assigneeNames: string[] = [];
   let projectName = null;
@@ -310,6 +339,11 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
 
   const [prevTask] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
 
+  if (prevTask) {
+    const refusal = await devTaskEditRefusal(prevTask, getAuthContext(req)!, parsed.data);
+    if (refusal) { res.status(403).json({ error: refusal }); return; }
+  }
+
   // Dev Tasks — "in_review" and "done" are only reachable through the
   // reviewed path (submit-review / review below), never a direct field edit,
   // so the code-review gate can't be bypassed by PATCHing status straight in.
@@ -372,6 +406,23 @@ router.delete("/tasks/:id", async (req, res): Promise<void> => {
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
+  }
+
+  // Read first: the permission check needs the row, and deleting a dev task is
+  // the Dev Lead's call alone — an assignee may edit their task but not make
+  // it disappear from the requirement's completion rollup.
+  const [existing] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
+  if (existing?.requirementId != null) {
+    const ctx = getAuthContext(req)!;
+    const isSuperuser = ctx.role === "admin" || ctx.role === "cto";
+    const [department, tierRank] = await Promise.all([
+      getRoleDepartment(ctx.role),
+      getRoleTierRank(ctx.role),
+    ]);
+    if (!isSuperuser && !(department === "dev" && tierRank >= 2)) {
+      res.status(403).json({ error: "Dev Lead role required to delete a dev task" });
+      return;
+    }
   }
 
   const [task] = await db.delete(tasksTable).where(eq(tasksTable.id, params.data.id)).returning();

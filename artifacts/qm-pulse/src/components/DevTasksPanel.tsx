@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle2, Clock, Paperclip, Loader2, Link2 } from "lucide-react";
+import { CheckCircle2, Clock, Paperclip, Loader2, Link2, Pencil, Trash2 } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -55,10 +55,11 @@ interface DevTaskReview {
 interface DevTask {
   id: number;
   name: string;
+  /** Free-text detail from the Dev Lead. Stored server-side in tasks.notes. */
+  description: string | null;
   status: DevTaskStatus;
   assigneeIds: number[];
   assigneeNames: string[];
-  estimatedHours: number | null;
   review: DevTaskReview | null;
 }
 
@@ -100,9 +101,19 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
 
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [newAssigneeId, setNewAssigneeId] = useState<string>("");
-  const [newEstimate, setNewEstimate] = useState("");
   const [addLoading, setAddLoading] = useState(false);
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editAssigneeId, setEditAssigneeId] = useState<string>("");
+  const [editLoading, setEditLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  // Two-step delete: removing a task silently changes whether the requirement
+  // counts as "all dev tasks done", so it shouldn't be one stray click away.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const [reviewOpenFor, setReviewOpenFor] = useState<number | null>(null);
   const [prLinkDraft, setPrLinkDraft] = useState("");
@@ -126,6 +137,7 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
 
   const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
     queryKey: ["users-dev"],
+    // Needed by the add form and by the Dev Lead's edit form (reassignment).
     enabled: isDevLead,
     queryFn: async () => {
       const res = await api(`/users`, token);
@@ -156,18 +168,75 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
           projectId: requirementProjectId,
           assigneeIds: [Number(newAssigneeId)],
           status: "not_started",
-          ...(newEstimate.trim() ? { estimatedHours: Number(newEstimate) } : {}),
+          // Server-side column is `notes` — see the tasks schema comment.
+          ...(newDescription.trim() ? { notes: newDescription.trim() } : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Failed to create task" }); return; }
       toast({ title: "Dev task created" });
-      setNewName(""); setNewAssigneeId(""); setNewEstimate(""); setAddOpen(false);
+      setNewName(""); setNewDescription(""); setNewAssigneeId(""); setAddOpen(false);
       refresh();
     } catch {
       toast({ variant: "destructive", title: "Failed to create task" });
     } finally {
       setAddLoading(false);
+    }
+  };
+
+  const openEdit = (t: DevTask) => {
+    setEditingId(t.id);
+    setEditName(t.name);
+    setEditDescription(t.description ?? "");
+    setEditAssigneeId(t.assigneeIds[0] != null ? String(t.assigneeIds[0]) : "");
+  };
+
+  const saveEdit = async (taskId: number) => {
+    if (!editName.trim()) {
+      toast({ variant: "destructive", title: "Task name is required" });
+      return;
+    }
+    setEditLoading(true);
+    try {
+      const res = await api(`/tasks/${taskId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editName.trim(),
+          notes: editDescription.trim() || null,
+          // Only the lead may reassign, so only the lead sends the field —
+          // the server refuses it from an assignee rather than ignoring it.
+          ...(isDevLead && editAssigneeId ? { assigneeIds: [Number(editAssigneeId)] } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Failed to update task" }); return; }
+      toast({ title: "Dev task updated" });
+      setEditingId(null);
+      refresh();
+    } catch {
+      toast({ variant: "destructive", title: "Failed to update task" });
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const deleteTask = async (taskId: number) => {
+    setDeletingId(taskId);
+    try {
+      const res = await api(`/tasks/${taskId}`, token, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast({ variant: "destructive", title: data.error ?? "Failed to delete task" });
+        return;
+      }
+      toast({ title: "Dev task deleted" });
+      setEditingId(null);
+      setConfirmDeleteId(null);
+      refresh();
+    } catch {
+      toast({ variant: "destructive", title: "Failed to delete task" });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -276,6 +345,10 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
             {tasks.map((t) => {
               const isAssignee = t.assigneeIds.includes(user?.id ?? -1);
               const canSubmit = isAssignee && (t.status === "not_started" || t.status === "in_progress");
+              // The lead who broke the work down and the dev doing it both need
+              // to be able to fix a name or fill in the description. Same rule
+              // the server enforces on PATCH /tasks/:id.
+              const canEditTask = isDevLead || isAssignee;
               const canReview = t.status === "in_review" && !isAssignee && ((user as any)?.department === "dev" || isLeadTier || ["admin", "cto"].includes(user?.role ?? ""));
 
               return (
@@ -285,11 +358,88 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
                       <div className="font-medium truncate">{t.name}</div>
                       <div className="text-xs text-muted-foreground">
                         {t.assigneeNames.join(", ") || "Unassigned"}
-                        {t.estimatedHours ? ` · ${t.estimatedHours}h est.` : ""}
                       </div>
                     </div>
-                    <StatusBadge status={t.status} />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <StatusBadge status={t.status} />
+                      {canEditTask && editingId !== t.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          disabled={isBlocked}
+                          onClick={() => openEdit(t)}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
+
+                  {t.description && editingId !== t.id && (
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{t.description}</p>
+                  )}
+
+                  {editingId === t.id && (
+                    <div className="rounded-md border border-dashed p-3 space-y-2 bg-muted/30">
+                      <p className="text-xs font-medium">Edit task</p>
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Task name"
+                        className="h-8 text-xs"
+                      />
+                      <Textarea
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        placeholder="Description (optional)"
+                        className="text-xs min-h-[60px]"
+                      />
+                      {isDevLead ? (
+                        <Select value={editAssigneeId} onValueChange={setEditAssigneeId}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Assignee…" /></SelectTrigger>
+                          <SelectContent>
+                            {devUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">
+                          Assigned to {t.assigneeNames.join(", ") || "nobody"} — only the Dev Lead can reassign.
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={editLoading} onClick={() => saveEdit(t.id)}>
+                          {editLoading && <Loader2 className="w-3 h-3 mr-1 animate-spin" />} Save
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={editLoading} onClick={() => { setEditingId(null); setConfirmDeleteId(null); }}>Cancel</Button>
+                        {isDevLead && (
+                          confirmDeleteId === t.id ? (
+                            <div className="ml-auto flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground">Delete this task?</span>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={deletingId === t.id}
+                                onClick={() => deleteTask(t.id)}
+                              >
+                                {deletingId === t.id && <Loader2 className="w-3 h-3 mr-1 animate-spin" />} Yes, delete
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(null)}>No</Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="ml-auto text-destructive hover:text-destructive"
+                              onClick={() => setConfirmDeleteId(t.id)}
+                            >
+                              <Trash2 className="w-3 h-3 mr-1" /> Delete
+                            </Button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {(t.review?.prLink || (t.review?.evidence?.length ?? 0) > 0) && (
                     <div className="flex flex-wrap gap-2 text-xs">
@@ -405,15 +555,18 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
         {addOpen && (
           <div className="rounded-md border p-3 space-y-2 bg-muted/30">
             <Input placeholder="Task name" value={newName} onChange={(e) => setNewName(e.target.value)} className="h-8 text-xs" />
-            <div className="flex gap-2">
-              <Select value={newAssigneeId} onValueChange={setNewAssigneeId}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Assignee…" /></SelectTrigger>
-                <SelectContent>
-                  {devUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Input placeholder="hrs" type="number" value={newEstimate} onChange={(e) => setNewEstimate(e.target.value)} className="h-8 text-xs w-20" />
-            </div>
+            <Textarea
+              placeholder="Description (optional)"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              className="text-xs min-h-[60px]"
+            />
+            <Select value={newAssigneeId} onValueChange={setNewAssigneeId}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Assignee…" /></SelectTrigger>
+              <SelectContent>
+                {devUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <div className="flex gap-2">
               <Button size="sm" disabled={addLoading} onClick={addTask}>
                 {addLoading && <Loader2 className="w-3 h-3 mr-1 animate-spin" />} Add

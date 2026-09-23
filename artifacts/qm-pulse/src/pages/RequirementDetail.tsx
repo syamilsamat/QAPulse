@@ -22,6 +22,7 @@ import {
   CheckSquare,
   Square,
   Paperclip,
+  Link2,
   Download,
   Trash2,
   Loader2,
@@ -1050,19 +1051,31 @@ export default function RequirementDetail() {
                 <ul className="space-y-1.5">
                   {attachments.map((a: any) => (
                     <li key={a.id} className="flex items-center gap-2 text-sm group">
-                      <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="flex-1 truncate">{a.filename}</span>
-                      <span className="text-xs text-muted-foreground shrink-0">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ""}</span>
+                      {/* A link row has no bytes behind it: open it, don't
+                          offer a download that would 400. */}
+                      {a.linkUrl
+                        ? <Link2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        : <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                      {a.linkUrl ? (
+                        <a href={a.linkUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-primary hover:underline" title={a.linkUrl}>
+                          {a.filename}
+                        </a>
+                      ) : (
+                        <span className="flex-1 truncate">{a.filename}</span>
+                      )}
+                      <span className="text-xs text-muted-foreground shrink-0">{!a.linkUrl && a.size ? `${(a.size / 1024).toFixed(0)} KB` : ""}</span>
                       {a.redmineAttachmentId && (
                         <span className="text-[10px] px-1 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 shrink-0">Redmine</span>
                       )}
-                      <button
-                        title="Download"
-                        onClick={() => downloadAttachment(a.id, a.filename)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Download className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
-                      </button>
+                      {!a.linkUrl && (
+                        <button
+                          title="Download"
+                          onClick={() => downloadAttachment(a.id, a.filename)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Download className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
+                        </button>
+                      )}
                       <button
                         title="Delete"
                         onClick={() => deleteAttachment(a.id)}

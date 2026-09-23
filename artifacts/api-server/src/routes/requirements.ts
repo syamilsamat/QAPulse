@@ -2001,10 +2001,11 @@ router.get("/requirements/:id/dev-tasks", async (req, res): Promise<void> => {
     return {
       id: t.id,
       name: t.name,
+      // Stored in tasks.notes — see the schema comment there.
+      description: t.notes,
       status: t.status,
       assigneeIds: t.assigneeIds ?? [],
       assigneeNames,
-      estimatedHours: t.estimatedHours,
       createdAt: t.createdAt,
       review,
     };
@@ -2147,6 +2148,9 @@ router.get("/requirements/:id/attachments", async (req, res): Promise<void> => {
     filename: a.filename,
     mimeType: a.mimeType,
     size: a.size,
+    // Non-null marks the row as an external link rather than a stored file:
+    // the client opens it directly instead of hitting /download.
+    linkUrl: a.linkUrl,
     redmineAttachmentId: a.redmineAttachmentId,
     redmineFileUrl: a.redmineFileUrl,
     uploadedBy: a.uploadedBy,
@@ -2172,9 +2176,45 @@ router.post("/requirements/:id/attachments", async (req, res): Promise<void> => 
     res.status(403).json({ error: "Access denied to this project" }); return;
   }
 
-  const { filename, mimeType, data } = req.body ?? {};
+  const { filename, mimeType, data, linkUrl } = req.body ?? {};
+
+  // Link attachment — no bytes, no disk. Kept in the same table as files so
+  // one list, one delete path and one permission check cover both kinds.
+  if (linkUrl) {
+    const raw = String(linkUrl).trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      res.status(400).json({ error: "Enter a full URL, e.g. https://example.com/spec" });
+      return;
+    }
+    // http(s) only. The client renders these straight into an anchor, so a
+    // javascript: or data: URL stored here would execute on click.
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      res.status(400).json({ error: "Only http:// and https:// links are allowed" });
+      return;
+    }
+    if (raw.length > 2000) {
+      res.status(400).json({ error: "Link is too long (max 2000 characters)" });
+      return;
+    }
+    const label = String(filename ?? "").replace(/\s+/g, " ").trim().slice(0, 255) || parsed.hostname;
+    const [attachment] = await db.insert(requirementAttachmentsTable).values({
+      requirementId: id,
+      filename: label,
+      mimeType: "text/uri-list",
+      size: 0,
+      storagePath: "",
+      linkUrl: parsed.toString(),
+      uploadedBy: ctx.userId,
+    }).returning();
+    res.status(201).json(attachment);
+    return;
+  }
+
   if (!filename || !data) {
-    res.status(400).json({ error: "filename and data (base64) are required" });
+    res.status(400).json({ error: "filename and data (base64), or linkUrl, are required" });
     return;
   }
 
@@ -2228,6 +2268,13 @@ router.get("/requirements/attachments/:attachmentId/download", async (req, res):
     res.status(403).json({ error: "Access denied" }); return;
   }
 
+  // A link row has nothing to stream. The client opens linkUrl itself, so
+  // reaching here means a stale page — say so rather than 404 "not on disk".
+  if (attachment.linkUrl) {
+    res.status(400).json({ error: "This attachment is a link — open it directly" });
+    return;
+  }
+
   const filePath = path.join(UPLOADS_DIR, attachment.storagePath);
   try {
     await fs.promises.access(filePath);
@@ -2267,8 +2314,12 @@ router.delete("/requirements/attachments/:attachmentId", async (req, res): Promi
 
   await db.delete(requirementAttachmentsTable).where(eq(requirementAttachmentsTable.id, attachmentId));
 
-  // Best-effort file removal — don't fail if file is missing
-  fs.promises.unlink(path.join(UPLOADS_DIR, attachment.storagePath)).catch(() => {});
+  // Best-effort file removal — don't fail if file is missing. Skipped for a
+  // link row: its storagePath is "", which would resolve to the uploads
+  // directory itself.
+  if (attachment.storagePath) {
+    fs.promises.unlink(path.join(UPLOADS_DIR, attachment.storagePath)).catch(() => {});
+  }
 
   res.sendStatus(204);
 });

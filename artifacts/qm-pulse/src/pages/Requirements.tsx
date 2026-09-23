@@ -74,6 +74,7 @@ import {
   CheckCircle2,
   XCircle as XCircleIcon,
   Paperclip,
+  Link2 as LinkIcon,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -170,6 +171,14 @@ export default function Requirements() {
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
   const [form, setForm] = useState<any & { parentRedmineTicketId?: string; milestoneId?: number | null }>({});
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // Links queued the same way files are: nothing is written until Save, so
+  // Cancel leaves the requirement's attachments exactly as they were.
+  const [pendingLinks, setPendingLinks] = useState<{ url: string; label: string }[]>([]);
+  const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  // Existing attachments the user ticked off in an edit — struck through in
+  // the list and deleted on Save, for the same reason.
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState<number[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [acceptanceCriteria, setAcceptanceCriteria] = useState<string[]>([]);
   const [newCriterion, setNewCriterion] = useState("");
@@ -546,6 +555,31 @@ parentId: number) => {
     }
   };
 
+  // Everything the Attachments section holds, cleared together — a leftover
+  // pending link from the last dialog would otherwise be posted to whichever
+  // requirement is opened next.
+  const resetAttachmentDrafts = () => {
+    setPendingFiles([]);
+    setPendingLinks([]);
+    setNewLinkUrl("");
+    setNewLinkLabel("");
+    setRemovedAttachmentIds([]);
+  };
+
+  // Only an existing requirement has attachments to show; a create dialog has
+  // nothing to fetch until it has been saved.
+  const { data: existingAttachments = [] } = useQuery<any[]>({
+    queryKey: ["requirement-attachments", editingReq?.id],
+    enabled: dialogOpen && !!editingReq?.id,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/requirements/${editingReq!.id}/attachments`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
   const openCreate = () => {
     setEditingReq(null);
     setForm({ priority: "normal", status: "draft" });
@@ -553,7 +587,7 @@ parentId: number) => {
     setNewCriterion("");
     setReqFormModules([]);
     setErrors({});
-    setPendingFiles([]);
+    resetAttachmentDrafts();
     setDialogOpen(true);
   };
 
@@ -582,7 +616,7 @@ parentId: r.parentId ?? undefined,
     setAcceptanceCriteria(Array.isArray(r.acceptanceCriteria) ? r.acceptanceCriteria : []);
     setNewCriterion("");
     setReqFormModules(r.module ? r.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
-    setPendingFiles([]);
+    resetAttachmentDrafts();
     setDialogOpen(true);
   };
 
@@ -604,7 +638,7 @@ tracker: parentReq.tracker ?? undefined,
     setNewCriterion("");
     setReqFormModules(parentReq.module ? parentReq.module.split(",").map((s: string) => s.trim()).filter(Boolean) : []);
     setErrors({});
-    setPendingFiles([]);
+    resetAttachmentDrafts();
     setDialogOpen(true);
   };
 
@@ -642,6 +676,53 @@ tracker: parentReq.tracker ?? undefined,
       reader.onerror = () => reject(new Error("File read failed"));
       reader.readAsDataURL(file);
     });
+
+  const attachLink = async (requirementId: number, link: { url: string; label: string }): Promise<void> => {
+    const res = await fetch(`${getApiUrl()}/requirements/${requirementId}/attachments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ linkUrl: link.url, filename: link.label || undefined }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Link failed");
+  };
+
+  const removeAttachment = async (attachmentId: number): Promise<void> => {
+    const res = await fetch(`${getApiUrl()}/requirements/attachments/${attachmentId}`, {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error("Delete failed");
+  };
+
+  // Accepts what a person actually pastes ("docs.google.com/...") by assuming
+  // https when no scheme is given; the server still rejects anything that
+  // isn't http(s).
+  const normalizeLink = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    try {
+      const parsed = new URL(withScheme);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const addPendingLink = () => {
+    const url = normalizeLink(newLinkUrl);
+    if (!url) {
+      toast({ variant: "destructive", title: "Enter a valid http(s) link" });
+      return;
+    }
+    setPendingLinks((prev) => [...prev, { url, label: newLinkLabel.trim() }]);
+    setNewLinkUrl("");
+    setNewLinkLabel("");
+  };
 
   const handleSubmit = async () => {
     if (!validate()) {
@@ -687,12 +768,20 @@ parentId: finalParentId,
         savedId = created?.id;
       }
 
-      if (savedId && pendingFiles.length > 0) {
+      // Attachment changes are all deferred to here so Cancel is a true
+      // cancel. Settled, not all-or-nothing: one failed upload must not cost
+      // the user the other files, the links, or the saved requirement itself.
+      if (savedId && (pendingFiles.length > 0 || pendingLinks.length > 0 || removedAttachmentIds.length > 0)) {
         setUploadingFiles(true);
-        const results = await Promise.allSettled(pendingFiles.map(f => uploadAttachment(savedId!, f)));
+        const results = await Promise.allSettled([
+          ...pendingFiles.map((f) => uploadAttachment(savedId!, f)),
+          ...pendingLinks.map((l) => attachLink(savedId!, l)),
+          ...removedAttachmentIds.map((id) => removeAttachment(id)),
+        ]);
         setUploadingFiles(false);
         const failed = results.filter(r => r.status === "rejected").length;
-        if (failed > 0) toast({ variant: "destructive", title: `${failed} file(s) failed to upload` });
+        if (failed > 0) toast({ variant: "destructive", title: `${failed} attachment change(s) failed` });
+        queryClient.invalidateQueries({ queryKey: ["requirement-attachments", savedId] });
       }
 
       queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
@@ -700,7 +789,7 @@ parentId: finalParentId,
       setForm({});
       setErrors({});
       setEditingReq(null);
-      setPendingFiles([]);
+      resetAttachmentDrafts();
       toast({ title: editingReq ? "Requirement updated" : "Requirement created" });
     } catch {
       toast({ variant: "destructive", title: "Failed to save requirement" });
@@ -1692,8 +1781,94 @@ tracker: v })}
                   ))}
                 </ul>
               )}
-              {editingReq && (
-                <p className="text-xs text-muted-foreground">Existing attachments can be viewed and managed from the requirement detail page.</p>
+
+              {/* Links live in the same list as files — a spec is just as
+                  often a Confluence page or a Drive doc as an uploaded PDF. */}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  placeholder="Paste a link (https://…)"
+                  value={newLinkUrl}
+                  onChange={(e) => setNewLinkUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPendingLink(); } }}
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="Label (optional)"
+                  value={newLinkLabel}
+                  onChange={(e) => setNewLinkLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPendingLink(); } }}
+                  className="sm:w-40"
+                />
+                <Button type="button" size="sm" variant="outline" onClick={addPendingLink} disabled={!newLinkUrl.trim()}>
+                  <LinkIcon className="w-4 h-4" />
+                </Button>
+              </div>
+              {pendingLinks.length > 0 && (
+                <ul className="space-y-1">
+                  {pendingLinks.map((l, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm bg-muted/50 rounded px-2 py-1">
+                      <LinkIcon className="w-3 h-3 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate" title={l.url}>{l.label || l.url}</span>
+                      <button type="button" onClick={() => setPendingLinks(prev => prev.filter((_, j) => j !== i))}>
+                        <XIcon className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* What's already attached. Removals are marked here and applied
+                  on Save, so closing the dialog undoes them. */}
+              {editingReq && existingAttachments.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-xs font-medium text-muted-foreground">Already attached ({existingAttachments.length})</p>
+                  <ul className="space-y-1">
+                    {existingAttachments.map((a: any) => {
+                      const removed = removedAttachmentIds.includes(a.id);
+                      return (
+                        <li key={a.id} className={`flex items-center gap-2 text-sm rounded px-2 py-1 ${removed ? "bg-destructive/5" : "bg-muted/30"}`}>
+                          {a.linkUrl
+                            ? <LinkIcon className="w-3 h-3 text-muted-foreground shrink-0" />
+                            : <Paperclip className="w-3 h-3 text-muted-foreground shrink-0" />}
+                          {a.linkUrl ? (
+                            <a
+                              href={a.linkUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`flex-1 truncate hover:underline ${removed ? "line-through text-muted-foreground" : "text-primary"}`}
+                              title={a.linkUrl}
+                            >
+                              {a.filename}
+                            </a>
+                          ) : (
+                            <span className={`flex-1 truncate ${removed ? "line-through text-muted-foreground" : ""}`}>{a.filename}</span>
+                          )}
+                          {!a.linkUrl && a.size > 0 && (
+                            <span className="text-xs text-muted-foreground shrink-0">{(a.size / 1024).toFixed(0)} KB</span>
+                          )}
+                          {a.redmineAttachmentId && (
+                            <span className="text-[10px] px-1 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 shrink-0">Redmine</span>
+                          )}
+                          <button
+                            type="button"
+                            title={removed ? "Keep this attachment" : "Remove on save"}
+                            onClick={() => setRemovedAttachmentIds(prev =>
+                              removed ? prev.filter(id => id !== a.id) : [...prev, a.id],
+                            )}
+                            className="text-xs shrink-0"
+                          >
+                            {removed
+                              ? <span className="text-primary hover:underline">Undo</span>
+                              : <XIcon className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {editingReq && existingAttachments.length === 0 && (
+                <p className="text-xs text-muted-foreground">No attachments on this requirement yet.</p>
               )}
             </div>
           </div>

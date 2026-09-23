@@ -8,6 +8,7 @@
     "backfill:case-ids": "tsx ./src/backfill-execution-case-ids.ts",
     "sync:milestone-status": "tsx ./src/sync-milestone-statuses.ts",
     "fix:orphaned-summaries": "tsx ./src/fix-orphaned-summaries.ts",
+    "clear:dev-task-hours": "tsx ./src/clear-dev-task-hours.ts",
     "seed:platform-issues-from-bugmd": "tsx ./src/seed-platform-issues-from-bugmd.ts",
     "check:platform-issues": "node --env-file=.env.platform-issues ./src/check-open-platform-issues.mjs",
     "seed:demo": "tsx ./src/seed-demo-data.ts",

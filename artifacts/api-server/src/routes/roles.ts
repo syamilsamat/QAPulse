@@ -356,6 +356,11 @@ export async function bootstrap() {
     pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS qa_pic_set_by INTEGER`),
     // CR036 — single-blocker task dependency (same-project + cycle guard enforced in tasks.ts)
     pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL`),
+    // Link attachments on a requirement — a row carries either a stored file
+    // or an external URL, never both. IF EXISTS on the table because
+    // requirement_attachments is created by drizzle push, not here, and a
+    // rejection would take the whole Promise.all (and bootstrap) down with it.
+    pool.query(`ALTER TABLE IF EXISTS requirement_attachments ADD COLUMN IF NOT EXISTS link_url TEXT`),
     // CR022 Part 1 — acceptance criteria (JSON array of strings stored as text)
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT`),
     // CR014 Part 4 — FA review workflow
