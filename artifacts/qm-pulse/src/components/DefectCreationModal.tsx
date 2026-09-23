@@ -206,7 +206,7 @@ export default function DefectCreationModal({
   // Source is excluded: it is only rendered when its field id exists.
   const unmappedCustomFields = [
     !projectConfig?.complexityFieldId ? "Complexity" : null,
-    !projectConfig?.targetedStartDateFieldId ? "Targeted Start Date" : null,
+    !projectConfig?.targetedStartDateFieldId ? "Actual Start Date" : null,
     !projectConfig?.targetedCompletionDateFieldId ? "Targeted Completion Date" : null,
   ].filter((label): label is string => label !== null);
 
@@ -295,6 +295,10 @@ export default function DefectCreationModal({
     }
     if (!selectedAssigneeId) {
       toast({ variant: "destructive", title: "Assignee is required" });
+      return;
+    }
+    if (!targetedStartDate) {
+      toast({ variant: "destructive", title: "Actual Start Date is required" });
       return;
     }
     if (!targetedCompletionDate) {
@@ -639,7 +643,11 @@ export default function DefectCreationModal({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Targeted Start Date</Label>
+                {/* Redmine's mandatory start-date field on the QA Defect
+                    tracker. The config slot and payload key still read
+                    "targetedStartDate" — see the note on the setting in
+                    Settings → Redmine Integration. */}
+                <Label>Actual Start Date <span className="text-destructive">*</span></Label>
                 <Input
                   type="date"
                   value={targetedStartDate}

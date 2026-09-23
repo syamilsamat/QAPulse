@@ -591,10 +591,11 @@ export default function Settings() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Targeted Start Date Field ID</Label>
+                    <Label className="text-xs">Actual Start Date Field ID</Label>
                     <Input
                       type="number"
                       placeholder="e.g. 12"
+                      title="Redmine's mandatory Actual Start Date custom field"
                       value={configForm.targetedStartDateFieldId}
                       onChange={(e) => setConfigForm((f) => ({ ...f, targetedStartDateFieldId: e.target.value }))}
                     />

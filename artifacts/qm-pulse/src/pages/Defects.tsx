@@ -2385,7 +2385,7 @@ function NewDefectDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Targeted Start Date</Label>
+                <Label>Actual Start Date <span className="text-destructive">*</span></Label>
                 <Input type="date" value={targetedStartDate} onChange={(e) => setTargetedStartDate(e.target.value)} />
               </div>
               <div className="space-y-1.5">

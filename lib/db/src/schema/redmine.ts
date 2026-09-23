@@ -16,6 +16,10 @@ export const redmineProjectConfigsTable = pgTable("redmine_project_configs", {
     .notNull()
     .unique(),
   complexityFieldId: integer("complexity_field_id"),
+  // Holds the id of Redmine's "Actual Start Date" custom field — that is the
+  // mandatory start-date field on the QA Defect tracker, and what both defect
+  // dialogs now label it. Column and property keep the original name so the
+  // stored config survives; only the meaning of the label changed.
   targetedStartDateFieldId: integer("targeted_start_date_field_id"),
   targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
   // Redmine custom field that holds the reporting department (qa/dev/fa/pm)
@@ -28,6 +32,10 @@ export const redmineProjectConfigsTable = pgTable("redmine_project_configs", {
 export const redmineGlobalConfigTable = pgTable("redmine_global_config", {
   id: serial("id").primaryKey(),
   complexityFieldId: integer("complexity_field_id"),
+  // Holds the id of Redmine's "Actual Start Date" custom field — that is the
+  // mandatory start-date field on the QA Defect tracker, and what both defect
+  // dialogs now label it. Column and property keep the original name so the
+  // stored config survives; only the meaning of the label changed.
   targetedStartDateFieldId: integer("targeted_start_date_field_id"),
   targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
   sourceFieldId: integer("source_field_id"),
