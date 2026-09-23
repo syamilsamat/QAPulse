@@ -1509,6 +1509,10 @@ export default function Defects() {
       <EditDefectDialog
         defect={editingDefect}
         projects={projects}
+        canAssign={canAssign}
+        devUsers={devUsers}
+        handoffUsers={handoffUsers}
+        currentUserId={user?.id}
         onClose={() => setEditingDefect(null)}
         onSaved={() => { setEditingDefect(null); invalidate(); }}
       />
@@ -1740,11 +1744,19 @@ function SyncRedmineDialog({
 function EditDefectDialog({
   defect,
   projects,
+  canAssign,
+  devUsers,
+  handoffUsers,
+  currentUserId,
   onClose,
   onSaved,
 }: {
   defect: DefectRow | null;
   projects: { id: number; name: string }[];
+  canAssign: boolean;
+  devUsers: { id: number; name: string; role: string }[];
+  handoffUsers: { id: number; name: string; role: string }[];
+  currentUserId: number | undefined;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1770,8 +1782,16 @@ function EditDefectDialog({
       stepsToReproduce: (defect as any).stepsToReproduce ?? "",
       expectedResult: (defect as any).expectedResult ?? "",
       actualResult: (defect as any).actualResult ?? "",
+      assigneeId: defect.assigneeId ?? undefined,
     });
   }, [defect]);
+
+  // Same rule as the always-visible Assignee dropdown on the defect card
+  // (CR030/CR031): Lead-tier+ can assign, or the requirement defect's
+  // current assignee can hand it off without a Lead gate.
+  const isSelfHandoff = defect?.source === "requirement" && defect?.assigneeId === currentUserId;
+  const canEditAssignee = canAssign || isSelfHandoff;
+  const assignOptions = defect?.source === "requirement" ? handoffUsers : devUsers;
 
   useEffect(() => {
     if (!defect) return;
@@ -1811,6 +1831,7 @@ function EditDefectDialog({
           defectCategory: form.defectCategory || null,
           expectedResult: form.expectedResult?.trim() || null,
           actualResult: form.actualResult?.trim() || null,
+          ...(canEditAssignee ? { assigneeId: form.assigneeId ?? null } : {}),
         }),
       });
       if (!res.ok) {
@@ -1898,6 +1919,25 @@ function EditDefectDialog({
                   projectId={form.projectId ?? null}
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              {canEditAssignee ? (
+                <Select
+                  value={form.assigneeId ? String(form.assigneeId) : "unassigned"}
+                  onValueChange={(v) => setForm({ ...form, assigneeId: v === "unassigned" ? undefined : Number(v) })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                    {assignOptions.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground">{defect?.assigneeName ?? "Unassigned"}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>QM Pulse Project</Label>
