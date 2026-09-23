@@ -53,6 +53,7 @@ import {
   Paperclip,
   Eye,
   FileText,
+  Lock,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -152,6 +153,40 @@ const isRowAccepted = (row: AppExecutionTestCase) => (row.reviewState ?? "accept
 // requirement over. Enforced server-side too; this is what stops a tester
 // discovering it only from a silently reverted save.
 const isRowInDevelopment = (row: AppExecutionTestCase) => row.requirementInDevelopment === true;
+
+// Recording a result is an act of execution, and an execution needs an owner —
+// the QA PIC is who the trail, the defect and any retest hang off. A row nobody
+// has taken has nobody accountable for its outcome, so the Result control (and
+// the defect/notes that go with it) stays locked until someone takes it.
+// The gate returns the reason rather than a bare boolean: a tester landing on a
+// locked result with no explanation and no way forward is the dead end this
+// exists to prevent.
+export type ExecutionLockCode =
+  | "file_not_approved"
+  | "pending_acceptance"
+  | "in_development"
+  | "unassigned"
+  | "other_qa";
+
+export type ExecutionLock = { code: ExecutionLockCode; reason: string } | null;
+
+const getExecutionLock = (
+  row: AppExecutionTestCase,
+  currentUser: { name: string; role: string } | null | undefined,
+  fileReviewStatus: string | null | undefined,
+): ExecutionLock => {
+  if ((fileReviewStatus || "") !== "approved")
+    return { code: "file_not_approved", reason: "This execution file isn't approved for execution yet." };
+  if (!isRowAccepted(row))
+    return { code: "pending_acceptance", reason: "Awaiting peer acceptance before it can be executed." };
+  if (isRowInDevelopment(row))
+    return { code: "in_development", reason: "The linked requirement is still in development." };
+  if (!row.qaPic)
+    return { code: "unassigned", reason: "Assign a QA PIC first — a result needs an owner." };
+  if (currentUser?.role === "qa_member" && row.qaPic !== currentUser?.name)
+    return { code: "other_qa", reason: `Assigned to ${row.qaPic} — only the QA PIC records the result.` };
+  return null;
+};
 
 // ── Test steps ───────────────────────────────────────────────────────────────
 // splitTestSteps / numberTestSteps live in lib/test-steps.ts — the execution
@@ -679,7 +714,8 @@ const DesktopTableRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+    const executionLock = getExecutionLock(row, currentUser, currentFileReviewStatus);
+    const canEdit = !executionLock;
 
     if (row.rowType === "group") {
       return (
@@ -852,7 +888,16 @@ const DesktopTableRow = React.memo(
           {canEdit ? (
             <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
           ) : (
-            <span className="px-2 py-2 text-xs font-bold block">{row.result || "—"}</span>
+            <div className="px-2 py-2 space-y-1">
+              <span className="text-xs font-bold block">{row.result || "—"}</span>
+              {/* "pending acceptance" and "in development" already get their own
+                  badge below — only the ownership locks need saying here. */}
+              {(executionLock?.code === "unassigned" || executionLock?.code === "other_qa") && (
+                <span className="text-[10px] text-muted-foreground flex items-start gap-1" title={executionLock.reason}>
+                  <Lock className="w-2.5 h-2.5 mt-[2px] shrink-0" /> {executionLock.reason}
+                </span>
+              )}
+            </div>
           )}
           {row.alertRevised && (
             <button
@@ -1033,7 +1078,8 @@ const MobileCardRow = React.memo(
     const isQaMember = currentUser?.role === "qa_member";
     const isAssignedToMe = row.qaPic === currentUser?.name;
     const isUnassigned = !row.qaPic;
-    const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+    const executionLock = getExecutionLock(row, currentUser, currentFileReviewStatus);
+    const canEdit = !executionLock;
 
     return (
       <Card
@@ -1100,8 +1146,17 @@ const MobileCardRow = React.memo(
             {canEdit ? (
               <ResultPills value={row.result || ""} onChange={(v) => onUpdate(row.id as string, "result", v)} disabled={!readOnly} />
             ) : (
-              <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
-                {row.result || "—"}
+              <div className="space-y-1">
+                <div className={`flex min-h-[40px] items-center px-2 rounded-md border text-xs font-bold ${getResultColorClass(row.result)}`}>
+                  {row.result || "—"}
+                </div>
+                {/* The acceptance / in-development locks already carry a badge
+                    below; only the ownership locks are silent without this. */}
+                {(executionLock?.code === "unassigned" || executionLock?.code === "other_qa") && (
+                  <span className="text-[10px] text-muted-foreground flex items-start gap-1">
+                    <Lock className="w-2.5 h-2.5 mt-[2px] shrink-0" /> {executionLock.reason}
+                  </span>
+                )}
               </div>
             )}
             {row.alertRevised && (
@@ -1986,6 +2041,14 @@ export default function TestCasesExecutionProgressPage() {
       // Update ref immediately so blur-save and polling see it without waiting for useEffect
       if (field === "result") {
         const current = dataRef.current.find((r) => r.id === id);
+        // The controls are already hidden when the row is locked, but a stale
+        // render or a keyboard path must not slip a result past the gate — and
+        // a silent no-op would read as a broken button.
+        const lock = current ? getExecutionLock(current, currentUser, currentFileReviewStatus) : null;
+        if (lock) {
+          toast({ variant: "destructive", title: "Result can't be recorded yet", description: lock.reason });
+          return;
+        }
         const previous = normalizeResultValue(current?.result);
         const next = normalizeResultValue(value);
         // Only a genuine overwrite of a recorded outcome needs explaining.
@@ -2010,7 +2073,7 @@ export default function TestCasesExecutionProgressPage() {
       });
       setHasUnsavedChanges(true);
     },
-    [applyResultChange],
+    [applyResultChange, currentUser, currentFileReviewStatus, toast],
   );
 
   /** Stamps the reason onto the row (it rides along on the next save, where
@@ -2383,6 +2446,9 @@ export default function TestCasesExecutionProgressPage() {
     }
     if (result?.unacceptedResultRows?.length) {
       reverted.push(`Still awaiting peer acceptance: ${result.unacceptedResultRows.join(", ")}`);
+    }
+    if (result?.unassignedResultRows?.length) {
+      reverted.push(`No QA PIC assigned: ${result.unassignedResultRows.join(", ")}`);
     }
     if (reverted.length === 0) return;
     toast({
@@ -4496,7 +4562,8 @@ export default function TestCasesExecutionProgressPage() {
               const isQaMember = currentUser?.role === "qa_member";
               const isAssignedToMe = row.qaPic === currentUser?.name;
               const isUnassigned = !row.qaPic;
-              const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+              const executionLock = getExecutionLock(row, currentUser, currentFileReviewStatus);
+              const canEdit = !executionLock;
               const parseLines = (t: string | undefined) => (t || "").split("\n").map(l => l.trim()).filter(Boolean);
               const steps = splitTestSteps(row.testSteps);
               const expectations = parseLines(row.expectedResult);
@@ -4723,9 +4790,20 @@ export default function TestCasesExecutionProgressPage() {
                                 ))}
                               </div>
                             ) : (
-                              <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                {normalizeResultValue(row.result) || "Not Executed"}
-                              </span>
+                              // Locked: say why, instead of a pill that ignores
+                              // every click with no explanation. The action
+                              // that unlocks it is the QA PIC control beside
+                              // this one — no second copy of it here.
+                              <div className="space-y-1.5 max-w-[240px]">
+                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                  {normalizeResultValue(row.result) || "Not Executed"}
+                                </span>
+                                {executionLock && (
+                                  <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                                    <Lock className="w-3 h-3 mt-[2px] shrink-0" /> {executionLock.reason}
+                                  </p>
+                                )}
+                              </div>
                             );
                           })()}
                           {renderPassEvidence(row, canEdit)}
@@ -4830,7 +4908,8 @@ export default function TestCasesExecutionProgressPage() {
                         const isQaMember = currentUser?.role === "qa_member";
                         const isAssignedToMe = row.qaPic === currentUser?.name;
                         const isUnassigned = !row.qaPic;
-                        const canEdit = (!isQaMember || isAssignedToMe) && (currentFileReviewStatus || '') === "approved" && isRowAccepted(row) && !isRowInDevelopment(row);
+                        const executionLock = getExecutionLock(row, currentUser, currentFileReviewStatus);
+                        const canEdit = !executionLock;
                         if (row.rowType === "group") {
                           return (
                             <div key={row.id as string} className="flex items-center gap-2 px-4 py-3 bg-accent/30">
@@ -4970,9 +5049,16 @@ export default function TestCasesExecutionProgressPage() {
                                               ))}
                                             </div>
                                           ) : (
-                                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
-                                              {normalizeResultValue(row.result) || "Not Executed"}
-                                            </span>
+                                            <div className="space-y-1">
+                                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border ${RESULT_PILL_ACTIVE[normalizeResultValue(row.result)] || "bg-slate-100 text-slate-600 border-slate-300"}`}>
+                                                {normalizeResultValue(row.result) || "Not Executed"}
+                                              </span>
+                                              {executionLock && (
+                                                <p className="text-[10px] text-muted-foreground flex items-start gap-1">
+                                                  <Lock className="w-2.5 h-2.5 mt-[2px] shrink-0" /> {executionLock.reason}
+                                                </p>
+                                              )}
+                                            </div>
                                           );
                                         })()}
                                         {renderPassEvidence(row, canEdit, true)}
