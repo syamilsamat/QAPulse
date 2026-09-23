@@ -335,9 +335,15 @@ export default function DefectCreationModal({
           // rather than guessing on the reporter's behalf.
           result.customFieldsDropped
             ? [
-                "Redmine rejected Complexity/Date/Source, so the defect was filed without them.",
-                result.customFieldErrors?.length ? `Redmine said: ${result.customFieldErrors.join("; ")}.` : null,
-                "Check the custom field IDs mapped for this project in Module & Project settings.",
+                "The defect was filed, but some fields couldn't be saved with it.",
+                // When the server pinned it to a specific setting, say which —
+                // "Redmine rejected a field" sends people hunting; a setting
+                // name and the id it holds is a one-line fix.
+                result.misconfiguredFields?.length
+                  ? `${result.misconfiguredFields.join("; ")}. Fix it in Settings → Redmine Integration.`
+                  : result.customFieldErrors?.length
+                    ? `Redmine said: ${result.customFieldErrors.join("; ")}. Check the custom field IDs in Settings → Redmine Integration.`
+                    : "Check the custom field IDs in Settings → Redmine Integration.",
               ].filter(Boolean).join(" ")
             : null,
           // The defect exists but hangs off nothing, so whoever triages it needs
