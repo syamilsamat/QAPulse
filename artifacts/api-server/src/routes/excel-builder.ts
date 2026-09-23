@@ -663,14 +663,28 @@ export async function buildTestCaseExcel(
         // Older templates may not carry a styled M1; the headers still land.
       }
 
-      // Turn on Excel's filter dropdowns across the whole table, so filtering
-      // by Module (or Result, or QA PIC) is one click rather than something
-      // each tester has to set up on their own copy.
+      // Widen the filter range to take in the two appended columns, so Module
+      // is filterable from the dropdown rather than only by hand.
+      //
+      // The template already carries its own <autoFilter ref="A1:M1">, and
+      // xlsx-populate's sheet.autoFilter() APPENDS a second element instead of
+      // replacing it. A worksheet may only have one: two makes the sheet XML
+      // invalid, and Excel responds by discarding the entire part — "we found a
+      // problem with some content", then the test-case sheet opens blank. So
+      // edit the existing node's ref in place and never call autoFilter() when
+      // one is already there.
       try {
-        tcSheet.autoFilter(tcSheet.range(`A1:${MODULE_COLUMN}${testCases.length + 1}`));
+        const sheetNode: any = (tcSheet as any)._node;
+        const existingFilter = sheetNode?.children?.find((c: any) => c?.name === "autoFilter");
+        const filterRef = `A1:${MODULE_COLUMN}${testCases.length + 1}`;
+        if (existingFilter) {
+          existingFilter.attributes = { ...existingFilter.attributes, ref: filterRef };
+        } else {
+          tcSheet.autoFilter(tcSheet.range(filterRef));
+        }
       } catch {
-        // Not worth losing the export over — the column is there either way
-        // and Excel's own Data -> Filter still works.
+        // Cosmetic — the column is there either way, and Data -> Filter still
+        // works. Never risk the export over it.
       }
     }
 
