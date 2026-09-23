@@ -133,7 +133,10 @@ router.get("/requirements", async (req, res): Promise<void> => {
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
 
   const parsed = ListRequirementsQueryParams.safeParse(req.query);
-  let reqs = await db.select().from(requirementsTable).orderBy(requirementsTable.createdAt);
+  // DEF-0027 — newest first. A prior pass claimed this endpoint was already
+  // sorted this way (it wasn't, still ascending) and that claim went
+  // unverified; caught by live re-testing after deploy.
+  let reqs = await db.select().from(requirementsTable).orderBy(desc(requirementsTable.createdAt));
 
   if (parsed.success) {
     const { projectId, milestoneId, assigneeId, status, priority, module, release, search } = parsed.data;
