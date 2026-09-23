@@ -247,7 +247,7 @@ export default function Milestones() {
   const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
     queryKey: ["milestone-assignable", editing?.id],
     queryFn: async () => {
-      const res = await api(`/milestones/${editing!.id}/assignable-users`, token);
+      const res = await api(`/milestones/${editing!.id}/assignable-users?forTeamStaffing=1`, token);
       return res.ok ? res.json() : [];
     },
     enabled: dialogOpen && !!editing && canManageTeam,

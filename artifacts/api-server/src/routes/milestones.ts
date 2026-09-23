@@ -398,7 +398,14 @@ router.get("/milestones/assignable-users", async (req, res): Promise<void> => {
     .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
     .where(eq(projectMembersTable.projectId, projectId));
   const seen = new Set<number>();
-  res.json(rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true))));
+  const deduped = rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  // DEF-0019 — the picker itself should only offer candidates the caller is
+  // actually allowed to staff, not rely on the POST 403 to catch a bad pick
+  // after the fact. checkDepartmentAssignment is a no-op for roles it
+  // doesn't restrict (qa_member, hod_*, cto, admin), so this doesn't affect
+  // DEF-0021's AI Test Case "Assign Author" use of this same endpoint.
+  const deptChecks = await Promise.all(deduped.map((r) => checkDepartmentAssignment(ctx.role, r.role)));
+  res.json(deduped.filter((_, i) => deptChecks[i] === null));
 });
 
 // GET /milestones/:id
@@ -630,7 +637,16 @@ router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> =
     .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
     .where(eq(projectMembersTable.projectId, m.projectId));
   const seen = new Set<number>();
-  res.json(rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true))));
+  let deduped = rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  // DEF-0019 — this endpoint is shared with Step2Requirements' per-requirement
+  // FA/Dev/QA owner picker, which is deliberately cross-department, so the
+  // department filter is opt-in (forTeamStaffing=1) rather than applied
+  // unconditionally. Only the milestone Team section (Milestones.tsx) sets it.
+  if (req.query.forTeamStaffing === "1") {
+    const deptChecks = await Promise.all(deduped.map((r) => checkDepartmentAssignment(ctx.role, r.role)));
+    deduped = deduped.filter((_, i) => deptChecks[i] === null);
+  }
+  res.json(deduped);
 });
 
 // POST /milestones/:id/assignees { userId }

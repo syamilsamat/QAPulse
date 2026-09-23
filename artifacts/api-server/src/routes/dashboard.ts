@@ -1127,7 +1127,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       : [];
   if (milestones.length === 0) return [];
 
-  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
+  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name, role: usersTable.role }).from(usersTable);
   const usersById = new Map(allUsers.map((u) => [u.id, u]));
 
   // DEF-0018 — milestone Team assignments, grouped by the assignee's role
@@ -1390,10 +1390,14 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
       const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
       // DEF-0032 — a dev assigned via a Dev Task, not just the requirement's
-      // own devAssigneeId/devAssignedBy, counts as Dev PIC.
+      // own devAssigneeId/devAssignedBy, counts as Dev PIC. Filtered to
+      // dev-department roles: the Dev Tasks assignee picker isn't
+      // department-restricted, so a QA/FA user occasionally ends up in
+      // tasksTable.assigneeIds and would otherwise show up as "Dev" here.
       const devTaskAssigneeNames = [...(devTaskAssigneeIdsByReq.get(entry.id) ?? new Set<number>())]
-        .map((id) => usersById.get(id)?.name)
-        .filter((n): n is string => !!n);
+        .map((id) => usersById.get(id))
+        .filter((u): u is { id: number; name: string; role: string } => !!u && departmentByRole.get(u.role) === "dev")
+        .map((u) => u.name);
       const devAll = [...new Set([devAssignedByName, devAssigneeName, ...devTaskAssigneeNames].filter((n): n is string => !!n))];
       const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
 
