@@ -297,7 +297,7 @@ function Router() {
       </Route>
 
       <Route path="/platform-issues">
-        <ProtectedRoute component={PlatformIssues} permKey="nav:platform-issues" roles={["admin", "cto"]} />
+        <ProtectedRoute component={PlatformIssues} />
       </Route>
 
       <Route path="/defects">
