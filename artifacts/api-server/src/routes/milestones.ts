@@ -65,6 +65,16 @@ async function checkDepartmentAssignment(actorRole: string, targetRole: string):
   return null;
 }
 
+// Shared by create-time staffing and later assignments.
+async function ensureAssigningLead(milestoneId: number, role: string, leadId: number) {
+  if (!(role in SINGLE_DEPT_LEADS)) return;
+  const existing = await db.select().from(milestoneAssigneesTable)
+    .where(and(eq(milestoneAssigneesTable.milestoneId, milestoneId), eq(milestoneAssigneesTable.userId, leadId)));
+  if (existing.length === 0) {
+    await db.insert(milestoneAssigneesTable).values({ milestoneId, userId: leadId, assignedBy: leadId });
+  }
+}
+
 // QA Pipeline milestones (pipelineEnabled: true) are meant to be owned by the
 // whole QA department, not just leads — qa_member/qa_manager can't create or
 // edit regular milestones via canWrite() above, but must be able to drive
@@ -354,13 +364,11 @@ router.post("/milestones", async (req, res): Promise<void> => {
     actorId: (ctx as any).id ?? ctx.userId,
   }).catch(() => {});
 
-  // Staffing chosen at create time (currently only offered by the dialog for
-  // 'data_prep' milestones — the assignees table just needs a milestoneId,
-  // so nothing here is type-specific). Best-effort per user: an invalid
-  // target shouldn't roll back the milestone that already saved.
+  // Apply the same department and lead-membership rules as later staffing.
+  // Invalid targets are skipped without discarding the saved milestone.
   if (Array.isArray(assigneeUserIds)) {
-    for (const rawId of assigneeUserIds) {
-      const userId = Number(rawId);
+    let staffed = false;
+    for (const userId of new Set<number>(assigneeUserIds.map(Number))) {
       if (!userId) continue;
       const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
       if (!target || !(await canAccessProject(target.id, target.role, m.projectId))) continue;
@@ -368,8 +376,10 @@ router.post("/milestones", async (req, res): Promise<void> => {
       // staffing at create time isn't a separate door around that rule.
       if (await checkDepartmentAssignment(ctx.role, target.role)) continue;
       await db.insert(milestoneAssigneesTable).values({ milestoneId: m.id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
+      staffed = true;
       await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", m.id, (ctx as any).id ?? ctx.userId).catch(() => {});
     }
+    if (staffed) await ensureAssigningLead(m.id, ctx.role, ctx.userId);
   }
 
   res.status(201).json(fmt(m));
@@ -673,21 +683,16 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
 
   const existing = await db.select().from(milestoneAssigneesTable)
     .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
-  if (existing.length > 0) { res.json({ ok: true, already: true }); return; }
+  if (existing.length > 0) {
+    await ensureAssigningLead(id, ctx.role, ctx.userId);
+    res.json({ ok: true, already: true }); return;
+  }
 
   await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
   await logActivity({ type: "milestone_assignee_added", description: `${target.name} assigned to milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", id, (ctx as any).id ?? ctx.userId).catch(() => {});
 
-  // A lead staffing their department onto a milestone should be on it too.
-  if (ctx.role in SINGLE_DEPT_LEADS) {
-    const leadId = (ctx as any).id ?? ctx.userId;
-    const leadExisting = await db.select().from(milestoneAssigneesTable)
-      .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, leadId)));
-    if (leadExisting.length === 0) {
-      await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId: leadId, assignedBy: leadId });
-    }
-  }
+  await ensureAssigningLead(id, ctx.role, ctx.userId);
 
   res.status(201).json({ ok: true });
 });
