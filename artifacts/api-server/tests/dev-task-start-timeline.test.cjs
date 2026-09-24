@@ -88,7 +88,7 @@ test('batch: a dev task moving to In progress in the task activity log starts De
     return q;
   } }) };
   const ctx = { db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
-    eq: () => null, and: () => null, inArray: () => null, like: () => null };
+    eq: () => null, and: () => null, or: () => null, inArray: () => null, like: () => null };
   const m = { exports: {} };
   vm.runInNewContext(code, { module: m, exports: m.exports, ...ctx });
   const entry = (await m.exports.computeRequirementTimelinesBatch([{ id: 1, completedAt: null }])).get(1)[0];
@@ -115,7 +115,59 @@ test('batch: with no dev task activity Development does not start on approval', 
   } }) };
   const m = { exports: {} };
   vm.runInNewContext(code, { module: m, exports: m.exports, db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
-    eq: () => null, and: () => null, inArray: () => null, like: () => null });
+    eq: () => null, and: () => null, or: () => null, inArray: () => null, like: () => null });
   const entry = (await m.exports.computeRequirementTimelinesBatch([{ id: 1, completedAt: null }])).get(1)[0];
   assert.deepEqual(keys(entry.timeline), ['requirements', 'gap']);
+});
+
+function batchWith(activity, tasks = [{ id: 5, requirementId: 10 }]) {
+  const table = (name) => new Proxy({ name }, { get: (t, key) => (key === 'name' ? t.name : key) });
+  const [requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable] =
+    ['requirements', 'activity', 'execution', 'files', 'milestones', 'tasks'].map(table);
+  let requirementReads = 0;
+  const rows = {
+    requirements: [{ id: 10, milestoneId: 1, title: 'Req', createdAt: d(9), reviewStatus: 'approved', devStatus: null, parentId: null }],
+    milestones: [{ id: 1, pipelineEnabled: false, requiresUat: false, signedOffAt: null, completedAt: null }],
+    execution: [], tasks, activity,
+  };
+  const db = { select: () => ({ from: (t) => {
+    const result = t.name === 'requirements' && requirementReads++ > 0 ? [] : rows[t.name];
+    const q = { where: () => q, innerJoin: () => q, orderBy: () => q, then: (resolve, reject) => Promise.resolve(result).then(resolve, reject) };
+    return q;
+  } }) };
+  const m = { exports: {} };
+  vm.runInNewContext(code, { module: m, exports: m.exports, db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
+    eq: () => null, and: () => null, or: () => null, inArray: () => null, like: () => null });
+  return m.exports.computeRequirementTimelinesBatch([{ id: 1, completedAt: null }]).then((r) => r.get(1)[0]);
+}
+
+test('batch: a task submitted for review without ever being moved to In progress starts Development', async () => {
+  // Mirrors live task 39: created -> submitted for review -> approved, no in_progress move.
+  const entry = await batchWith([
+    { entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
+    { entityId: 5, type: 'task_created', createdAt: d(12), newValue: null },
+    { entityId: 5, type: 'task_submitted_for_review', createdAt: d(13), newValue: JSON.stringify({ reviewId: 5, prLink: 'PR001', hasEvidence: true }) },
+    { entityId: 5, type: 'task_review_approved', createdAt: d(14), newValue: JSON.stringify({ reviewId: 5, note: null }) },
+  ]);
+  assert.deepEqual(keys(entry.timeline), ['requirements', 'gap', 'develop']);
+  assert.equal(startOf(entry.timeline, 'develop'), d(13).toISOString());
+});
+
+test('batch: task creation, a review approval or a plain edit alone do not start Development', async () => {
+  const entry = await batchWith([
+    { entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
+    { entityId: 5, type: 'task_created', createdAt: d(12), newValue: null },
+    { entityId: 5, type: 'task_updated', createdAt: d(13), newValue: JSON.stringify({ notes: 'description' }) },
+    { entityId: 5, type: 'task_status_changed', createdAt: d(14), newValue: JSON.stringify({ status: 'blocked' }) },
+  ]);
+  assert.deepEqual(keys(entry.timeline), ['requirements', 'gap']);
+});
+
+test('batch: the earlier of In progress and submit-for-review wins', async () => {
+  const entry = await batchWith([
+    { entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
+    { entityId: 5, type: 'task_submitted_for_review', createdAt: d(15), newValue: JSON.stringify({ reviewId: 1 }) },
+    { entityId: 5, type: 'task_status_changed', createdAt: d(13), newValue: JSON.stringify({ status: 'in_progress' }) },
+  ]);
+  assert.equal(startOf(entry.timeline, 'develop'), d(13).toISOString());
 });

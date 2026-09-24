@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, inArray, isNotNull, like } from "drizzle-orm";
+import { eq, and, or, desc, inArray, isNotNull, like } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, milestoneAssigneesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
@@ -340,8 +340,9 @@ function makeSegment(key: PhaseKey, cycle: number, start: Date, end: Date | null
 }
 
 // Not a stored event: computeRequirementTimelinesBatch synthesizes one at each
-// moment a dev task under the requirement moved to In progress, from the task
-// activity log, and feeds it in next to the stored events below.
+// moment a dev task under the requirement began work (moved to In progress, or
+// was submitted for review), from the task activity log, and feeds it in next
+// to the stored events below.
 const DEV_TASK_START_EVENT = "requirement_dev_task_start";
 
 const RELEVANT_EVENT_TYPES = [
@@ -420,8 +421,8 @@ export function computeTimelineFromEvents(
       // shortcut from approval straight to QA. Whichever comes first, a
       // dev handoff or a resubmit before one ever happened, decides how
       // the gap closes.
-      // A dev handoff, or the first dev task moving to In progress, whichever
-      // comes first — either means development has actually started.
+      // A dev handoff, or the first dev task beginning work, whichever comes
+      // first — either means development has actually started.
       const devAssignEv = nextEventOfType(["requirement_dev_assign", DEV_TASK_START_EVENT], phaseStart);
       const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
       const candidates: { at: Date; kind: "dev" | "submit" }[] = [];
@@ -603,31 +604,37 @@ export async function computeRequirementTimelinesBatch(
   ]);
   const milestoneById = new Map(milestoneRows.map(m => [m.id, m]));
 
-  // Dev tasks (tasks carrying a requirementId) moving to In progress are the
-  // "work has begun" signal for the Development phase. They live in the task
-  // activity log — task_status_changed and task_assigned (which sets
-  // in_progress) — so this reads history rather than needing a stored event.
+  // Dev tasks (tasks carrying a requirementId) are the "work has begun" signal
+  // for the Development phase: a task moving to In progress (task_status_changed
+  // or task_assigned, which sets in_progress), or a task submitted for review —
+  // the app lets a dev submit straight from Not started, so a task can finish
+  // without ever being moved to In progress. Both live in the task activity
+  // log, so this reads history rather than needing a stored event.
   const devTaskRows = await db
     .select({ id: tasksTable.id, requirementId: tasksTable.requirementId })
     .from(tasksTable)
     .where(inArray(tasksTable.requirementId, reqIds));
   const reqIdByTaskId = new Map(devTaskRows.map((t) => [t.id, t.requirementId as number]));
   const taskStartRows = devTaskRows.length === 0 ? [] : await db
-    .select({ entityId: activityTable.entityId, createdAt: activityTable.createdAt, newValue: activityTable.newValue })
+    .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt, newValue: activityTable.newValue })
     .from(activityTable)
     .where(and(
       eq(activityTable.entityType, "task"),
       inArray(activityTable.entityId, [...reqIdByTaskId.keys()]),
-      inArray(activityTable.type, ["task_status_changed", "task_assigned"]),
-      like(activityTable.newValue, "%in_progress%"),
+      or(
+        and(inArray(activityTable.type, ["task_status_changed", "task_assigned"]), like(activityTable.newValue, "%in_progress%")),
+        eq(activityTable.type, "task_submitted_for_review"),
+      ),
     ));
   const devTaskStartsByReq = new Map<number, Date[]>();
   for (const row of taskStartRows) {
     const reqId = row.entityId != null ? reqIdByTaskId.get(row.entityId) : undefined;
     if (reqId == null) continue;
-    let movedToInProgress = false;
-    try { movedToInProgress = JSON.parse(row.newValue ?? "null")?.status === "in_progress"; } catch { /* not JSON — ignore */ }
-    if (!movedToInProgress) continue;
+    let workBegan = row.type === "task_submitted_for_review";
+    if (!workBegan) {
+      try { workBegan = JSON.parse(row.newValue ?? "null")?.status === "in_progress"; } catch { /* not JSON — ignore */ }
+    }
+    if (!workBegan) continue;
     if (!devTaskStartsByReq.has(reqId)) devTaskStartsByReq.set(reqId, []);
     devTaskStartsByReq.get(reqId)!.push(row.createdAt);
   }
