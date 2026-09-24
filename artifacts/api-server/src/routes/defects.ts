@@ -1788,6 +1788,12 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
     // duties gate as the dedicated /assign route: the defect's current
     // assignee can hand it off, everyone else needs Lead-tier+.
     let assigneeName: string | null = null;
+    // A Save that re-sends the assignee unchanged is not a reassignment —
+    // without this, a defect whose assignee exists only in Redmine (no
+    // matching QM Pulse account) had it cleared locally on every Save.
+    if ("assigneeId" in patch && (patch.assigneeId ?? null) === (before.assigneeId ?? null)) {
+      delete patch.assigneeId;
+    }
     if ("assigneeId" in patch) {
       const rawAssigneeId = patch.assigneeId;
       const assigneeId = rawAssigneeId == null ? null : Number(rawAssigneeId);
@@ -1838,6 +1844,8 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       const push = await pushDefectFieldsToRedmine(before.redmineId, {
         title: patch.title,
         description: patch.description,
+        expectedResult: patch.expectedResult,
+        actualResult: patch.actualResult,
         tracker: patch.tracker,
       }, apiKey);
       if (!push.ok) {
