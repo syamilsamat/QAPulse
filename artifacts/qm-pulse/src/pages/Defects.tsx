@@ -261,12 +261,12 @@ export default function Defects() {
   const [verificationFile, setVerificationFile] = useState<File | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // CR061 — title/description/tracker editing: the reporter (they know what
-  // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
-  // server-side canEditDefectInfo gate in defects.ts.
-  const canEditDefectInfo = (d: DefectRow) =>
-    d.reporterId === (user as any)?.id ||
-    (((user as any)?.tierRank ?? 1) >= 2 && (user as any)?.department === "qa");
+  // DEF-0030 follow-up — "everyone can edit the defect but need to include
+  // in history" (the original defect log's own wording). Mirrors the
+  // server, which no longer gates general info-field edits beyond project
+  // access. Root Cause & Resolution keep their own separate, stricter gate
+  // (canEditRootCause below), unaffected by this.
+  const canEditDefectInfo = (_d: DefectRow) => true;
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 

@@ -186,11 +186,15 @@ const ROOT_CAUSE_CATEGORIES = [
 // won't let just anyone edit them once synced, so this is deliberately
 // narrower than the general project-access gate: the original reporter (they
 // know what they meant to type) or a qa_lead+ (tier ≥2, qa department).
-async function canEditDefectInfo(ctx: { userId: number; role: string }, defect: { reporterId: number | null }): Promise<boolean> {
-  if (ctx.role === "admin") return true;
-  if (defect.reporterId != null && defect.reporterId === ctx.userId) return true;
-  const [tierRank, department] = await Promise.all([getRoleTierRank(ctx.role), getRoleDepartment(ctx.role)]);
-  return tierRank >= 2 && department === "qa";
+// DEF-0030 follow-up — the original defect log was explicit: "everyone can
+// edit the defect but need to include in history." General info fields are
+// no longer reporter/qa_lead+-gated; anyone with defect/project access
+// (already checked earlier in the PATCH handler) can edit them, and every
+// change is captured by the diffChanges/logActivity call after the update.
+// Root Cause & Resolution keep their own separate, stricter dev-only gate —
+// see the rootCauseFields check below, unaffected by this function.
+async function canEditDefectInfo(_ctx: { userId: number; role: string }, _defect: { reporterId: number | null }): Promise<boolean> {
+  return true;
 }
 
 // Append the Redmine id to the execution row's defect_number exactly as if the
