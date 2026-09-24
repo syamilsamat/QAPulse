@@ -32,7 +32,12 @@ test('empty or whitespace output is rejected so the caller falls back', () => {
 
 test('runaway output far longer than the input is rejected', () => {
   assert.equal(cleanRephrased('x'.repeat(original.length * 3 + 400), original), null);
-  assert.notEqual(cleanRephrased('x'.repeat(original.length * 2), original), null);
+  assert.notEqual(cleanRephrased('x'.repeat(original.length * 2 - 1) + '.', original), null);
+});
+
+test('output cut off mid-sentence is rejected so the caller falls back', () => {
+  assert.equal(cleanRephrased('The specific methods customers can use to raise a dispute, such as through a user interface, API, or', original), null);
+  assert.equal(cleanRephrased('The system must lock the account after failed attempts (see policy)', original), 'The system must lock the account after failed attempts (see policy)');
 });
 
 test('the prompt carries the title, current description and suggestion, and forbids labels', () => {
