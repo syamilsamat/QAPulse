@@ -292,17 +292,6 @@ export default function RequirementDetail() {
     enabled: !!reqId,
   });
 
-  const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
-    queryKey: ["users-dev"],
-    enabled: isLeadTier,
-    queryFn: async () => {
-      const res = await api(`/users`, token);
-      if (!res.ok) return [];
-      const all: { id: number; name: string; role: string }[] = await res.json();
-      return all.filter((u) => ["dev_member", "dev_lead", "hod_dev"].includes(u.role));
-    },
-  });
-
   // Dev Tasks — shares the ["dev-tasks", reqId] query key with DevTasksPanel
   // (react-query dedupes identical keys), so both read the same cached list
   // without prop-drilling it down.
@@ -1416,31 +1405,6 @@ export default function RequirementDetail() {
                     <span className="text-muted-foreground">Status</span>
                     <DevStatusBadge status={req.devStatus} />
                   </div>
-
-                  {isLeadTier ? (
-                    <div className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">Assignee</span>
-                      <Select
-                        value={req.devAssigneeId ? String(req.devAssigneeId) : ""}
-                        onValueChange={(v) => doDevAction("assign", Number(v))}
-                        disabled={devLoading}
-                      >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Assign a developer…" /></SelectTrigger>
-                        <SelectContent>
-                          {devUsers.map((u) => (
-                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : (
-                    req.devAssigneeName && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Assignee</span>
-                        <span className="font-medium">{req.devAssigneeName}</span>
-                      </div>
-                    )
-                  )}
 
                   {req.devAssigneeId && (isLeadTier || req.devAssigneeId === user?.id) && req.devStatus !== "ready_for_qa" && (
                     <div className="flex gap-2 items-center flex-wrap">

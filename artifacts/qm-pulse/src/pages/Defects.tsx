@@ -222,7 +222,7 @@ function formatFileSize(sizeBytes: number) {
 
 export default function Defects() {
   const { token, user } = useAuth();
-  const canAssign = ((user as any)?.tierRank ?? 1) >= 2;
+  const canAssign = !!user; // Assignment follows project access, like general defect edits.
   const canVerify = QA_VERIFY_ROLES.has(user?.role ?? "");
   // CR061 — linking is a shared QA workflow action, not restricted to the
   // reporter/qa_lead like editing the defect's own info.
@@ -1212,12 +1212,9 @@ export default function Defects() {
                     </div>
                   )}
 
-                  {/* Dev assignment — Lead-tier+ only (CR030), plus a CR031 self-handoff
-                      exception: a requirement defect's current assignee can hand it off
-                      to dev or QA without a Lead gate. */}
+                  {/* Assignment is available to every user with project access. */}
                   {(() => {
-                    const isSelfHandoff = d.source === "requirement" && d.assigneeId === user?.id;
-                    const canEditAssignee = canAssign || isSelfHandoff;
+                    const canEditAssignee = canAssign;
                     const assignOptions = d.source === "requirement" ? handoffUsers : devUsers;
                     return (
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1232,7 +1229,7 @@ export default function Defects() {
                               <SelectValue placeholder="Unassigned" />
                             </SelectTrigger>
                             <SelectContent>
-                              {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                              <SelectItem value="unassigned">Unassigned</SelectItem>
                               {assignOptions.map((u) => (
                                 <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                               ))}
@@ -1528,7 +1525,6 @@ export default function Defects() {
         canAssign={canAssign}
         devUsers={devUsers}
         handoffUsers={handoffUsers}
-        currentUserId={user?.id}
         onClose={() => setEditingDefect(null)}
         onSaved={() => { setEditingDefect(null); invalidate(); }}
       />
@@ -1763,7 +1759,6 @@ function EditDefectDialog({
   canAssign,
   devUsers,
   handoffUsers,
-  currentUserId,
   onClose,
   onSaved,
 }: {
@@ -1772,7 +1767,6 @@ function EditDefectDialog({
   canAssign: boolean;
   devUsers: { id: number; name: string; role: string }[];
   handoffUsers: { id: number; name: string; role: string }[];
-  currentUserId: number | undefined;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1802,11 +1796,8 @@ function EditDefectDialog({
     });
   }, [defect]);
 
-  // Same rule as the always-visible Assignee dropdown on the defect card
-  // (CR030/CR031): Lead-tier+ can assign, or the requirement defect's
-  // current assignee can hand it off without a Lead gate.
-  const isSelfHandoff = defect?.source === "requirement" && defect?.assigneeId === currentUserId;
-  const canEditAssignee = canAssign || isSelfHandoff;
+  // Match the project-access assignment rule on the defect card.
+  const canEditAssignee = canAssign;
   const assignOptions = defect?.source === "requirement" ? handoffUsers : devUsers;
 
   useEffect(() => {
@@ -1945,7 +1936,7 @@ function EditDefectDialog({
                 >
                   <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
                   <SelectContent>
-                    {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
                     {assignOptions.map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                     ))}

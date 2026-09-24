@@ -1,5 +1,6 @@
+import { isDevelopmentTaskStart, DEVELOPMENT_TASK_EVENT_TYPES } from "./development-task-events";
 import { Router, type IRouter } from "express";
-import { eq, and, or, desc, inArray, isNotNull, like } from "drizzle-orm";
+import { eq, and, or, desc, inArray, isNotNull } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, milestoneAssigneesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
@@ -604,12 +605,9 @@ export async function computeRequirementTimelinesBatch(
   ]);
   const milestoneById = new Map(milestoneRows.map(m => [m.id, m]));
 
-  // Dev tasks (tasks carrying a requirementId) are the "work has begun" signal
-  // for the Development phase: a task moving to In progress (task_status_changed
-  // or task_assigned, which sets in_progress), or a task submitted for review —
-  // the app lets a dev submit straight from Not started, so a task can finish
-  // without ever being moved to In progress. Both live in the task activity
-  // log, so this reads history rather than needing a stored event.
+  // Creation and assignment are development work, even before the task moves
+  // to In progress. Read the original audit timestamps so existing tasks and
+  // later requirement review cycles retain their actual start dates.
   const devTaskRows = await db
     .select({ id: tasksTable.id, requirementId: tasksTable.requirementId })
     .from(tasksTable)
@@ -621,20 +619,13 @@ export async function computeRequirementTimelinesBatch(
     .where(and(
       eq(activityTable.entityType, "task"),
       inArray(activityTable.entityId, [...reqIdByTaskId.keys()]),
-      or(
-        and(inArray(activityTable.type, ["task_status_changed", "task_assigned"]), like(activityTable.newValue, "%in_progress%")),
-        eq(activityTable.type, "task_submitted_for_review"),
-      ),
+      inArray(activityTable.type, DEVELOPMENT_TASK_EVENT_TYPES),
     ));
   const devTaskStartsByReq = new Map<number, Date[]>();
   for (const row of taskStartRows) {
     const reqId = row.entityId != null ? reqIdByTaskId.get(row.entityId) : undefined;
     if (reqId == null) continue;
-    let workBegan = row.type === "task_submitted_for_review";
-    if (!workBegan) {
-      try { workBegan = JSON.parse(row.newValue ?? "null")?.status === "in_progress"; } catch { /* not JSON — ignore */ }
-    }
-    if (!workBegan) continue;
+    if (!isDevelopmentTaskStart(row)) continue;
     if (!devTaskStartsByReq.has(reqId)) devTaskStartsByReq.set(reqId, []);
     devTaskStartsByReq.get(reqId)!.push(row.createdAt);
   }
