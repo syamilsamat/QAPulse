@@ -332,7 +332,7 @@ async function main() {
       const tc = TEST_CASES.find((t) => t.key === row.tcKey)!;
       const req = requirementByKey.get(tc.requirementKey)!;
       return {
-        testCaseId: row.tcKey, // client-supplied stable id, so we can look the row back up by key
+        testCaseId: row.tcKey, // the server overwrites this with TC-<ticket>-NNN; rows are found again via libraryTcId below
         moduleName: req.module,
         libraryTcId: tcIdByKey.get(row.tcKey),
         requirementId: requirementIdByKey.get(tc.requirementKey),
@@ -350,11 +350,17 @@ async function main() {
       method: "POST", body: { testCases: rows, isFullSync: true },
     });
 
-    const savedRows = await api<{ testCases: { id: number; testCaseId: string }[] }>(
+    const savedRows = await api<{ testCases: { id: number; libraryTcId: number | null }[] }>(
       `/execution-files/${file.redmineTicketId}/test-cases`, adminToken,
     );
+    // Keyed by the library TC id the seed itself supplied, not testCaseId:
+    // the server renumbers testCaseId on save, so a lookup by the seed's own
+    // tcKey never matched and every defect below was created with no
+    // execution-test-case link.
+    const tcKeyByLibraryId = new Map<number, string>([...tcIdByKey].map(([key, id]) => [id, key]));
     for (const row of savedRows.testCases) {
-      execRowIdByKey.set(`${ef.key}:${row.testCaseId}`, row.id);
+      const tcKey = row.libraryTcId != null ? tcKeyByLibraryId.get(row.libraryTcId) : undefined;
+      if (tcKey) execRowIdByKey.set(`${ef.key}:${tcKey}`, row.id);
     }
     console.log(`  + ${ef.title} (${ef.rows.length} rows)`);
   }
