@@ -48,7 +48,18 @@ function parsePositiveId(value: string): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-function fmt(i: typeof platformIssuesTable.$inferSelect, reporterName: string | null = null) {
+// The attachment is rendered as <img src>, so only image data URIs are accepted.
+function screenshotProblem(value: unknown): { status: number; error: string } | null {
+  if (value == null) return null;
+  if (typeof value !== "string" || !value.startsWith("data:image/")) return { status: 400, error: "screenshotUrl must be an image data URI" };
+  if (value.length > MAX_SCREENSHOT_BYTES) return { status: 413, error: "Screenshot too large" };
+  return null;
+}
+
+// The screenshot is a base64 data URI (up to ~8MB), so it is only included when
+// a single issue is fetched. Lists carry `hasScreenshot` instead — every
+// signed-in user reads the list now, and it shouldn't drag every attachment.
+function fmt(i: typeof platformIssuesTable.$inferSelect, reporterName: string | null = null, withScreenshot = false) {
   return {
     id: i.id,
     title: i.title,
@@ -60,7 +71,8 @@ function fmt(i: typeof platformIssuesTable.$inferSelect, reporterName: string | 
     reporterName,
     pagePath: i.pagePath ?? null,
     browserInfo: i.browserInfo ?? null,
-    screenshotUrl: i.screenshotUrl ?? null,
+    hasScreenshot: !!i.screenshotUrl,
+    screenshotUrl: withScreenshot ? (i.screenshotUrl ?? null) : null,
     promotedCr: i.promotedCr ?? null,
     resolvedAt: i.resolvedAt?.toISOString() ?? null,
     createdAt: i.createdAt.toISOString(),
@@ -151,6 +163,18 @@ router.get("/platform-issues", async (req, res): Promise<void> => {
   res.json(rows.map((r) => fmt(r, r.reporterId != null ? (nameById.get(r.reporterId) ?? null) : null)));
 });
 
+// GET /platform-issues/:id — one issue including its attachment.
+router.get("/platform-issues/:id", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid issue ID" }); return; }
+  const [issue] = await db.select().from(platformIssuesTable).where(eq(platformIssuesTable.id, id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  const nameById = await reporterNameLookup([issue]);
+  res.json(fmt(issue, issue.reporterId != null ? (nameById.get(issue.reporterId) ?? null) : null, true));
+});
+
 // POST /platform-issues — any authenticated user can report one.
 router.post("/platform-issues", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
@@ -160,9 +184,8 @@ router.post("/platform-issues", async (req, res): Promise<void> => {
   if (!title?.trim()) { res.status(400).json({ error: "title is required" }); return; }
   if (type != null && !VALID_TYPES.includes(type)) { res.status(400).json({ error: `type must be one of ${VALID_TYPES.join(", ")}` }); return; }
   if (severity != null && !VALID_SEVERITIES.includes(severity)) { res.status(400).json({ error: `severity must be one of ${VALID_SEVERITIES.join(", ")}` }); return; }
-  if (typeof screenshotUrl === "string" && screenshotUrl.length > MAX_SCREENSHOT_BYTES) {
-    res.status(413).json({ error: "Screenshot too large" }); return;
-  }
+  const attachmentProblem = screenshotProblem(screenshotUrl);
+  if (attachmentProblem) { res.status(attachmentProblem.status).json({ error: attachmentProblem.error }); return; }
 
   const [issue] = await db.insert(platformIssuesTable).values({
     title: title.trim(),
@@ -195,9 +218,11 @@ router.post("/platform-issues", async (req, res): Promise<void> => {
   res.status(201).json(fmt(issue, reporterName));
 });
 
-// PATCH /platform-issues/:id — admin triages: status, promotedCr, severity/type corrections.
+// PATCH /platform-issues/:id — the reporter can edit the content of their own
+// issue (title, description, type, severity, attachment); an admin can edit any
+// issue and is the only one who can triage it (status, promotedCr).
 router.patch("/platform-issues/:id", async (req, res): Promise<void> => {
-  const ctx = requireAdmin(req, res);
+  const ctx = requireAuth(req, res);
   if (!ctx) return;
 
   const id = parsePositiveId(req.params.id);
@@ -205,9 +230,25 @@ router.patch("/platform-issues/:id", async (req, res): Promise<void> => {
   const [existing] = await db.select().from(platformIssuesTable).where(eq(platformIssuesTable.id, id));
   if (!existing) { res.status(404).json({ error: "Issue not found" }); return; }
 
+  const isAdmin = ctx.role === "admin";
+  const isReporter = existing.reporterId != null && existing.reporterId === ctx.userId;
+  if (!isAdmin && !isReporter) { res.status(403).json({ error: "Only an admin or the person who reported this can edit it" }); return; }
+  if (!isAdmin && (req.body.status !== undefined || req.body.promotedCr !== undefined)) {
+    res.status(403).json({ error: "Only an admin can change the status" }); return;
+  }
+
   const update: Partial<typeof platformIssuesTable.$inferInsert> = {};
-  if (req.body.title !== undefined) update.title = req.body.title.trim();
+  if (req.body.title !== undefined) {
+    const title = typeof req.body.title === "string" ? req.body.title.trim() : "";
+    if (!title) { res.status(400).json({ error: "title is required" }); return; }
+    update.title = title;
+  }
   if (req.body.description !== undefined) update.description = req.body.description;
+  if (req.body.screenshotUrl !== undefined) {
+    const attachmentProblem = screenshotProblem(req.body.screenshotUrl);
+    if (attachmentProblem) { res.status(attachmentProblem.status).json({ error: attachmentProblem.error }); return; }
+    update.screenshotUrl = req.body.screenshotUrl;
+  }
   if (req.body.type !== undefined) {
     if (!VALID_TYPES.includes(req.body.type)) { res.status(400).json({ error: `type must be one of ${VALID_TYPES.join(", ")}` }); return; }
     update.type = req.body.type;
@@ -229,7 +270,9 @@ router.patch("/platform-issues/:id", async (req, res): Promise<void> => {
 
   const [updated] = await db.update(platformIssuesTable).set(update).where(eq(platformIssuesTable.id, id)).returning();
 
-  const diff = diffChanges(existing, updated);
+  // The attachment is a base64 blob; log that it changed, not the blob itself.
+  const forLog = (i: typeof existing) => ({ ...i, screenshotUrl: i.screenshotUrl ? "[image]" : null });
+  const diff = diffChanges(forLog(existing), forLog(updated));
   await logActivity({
     type: req.body.status !== undefined && req.body.status !== existing.status ? "platform_issue_status_changed" : "platform_issue_updated",
     description: `Platform issue "${updated.title}" updated`,
