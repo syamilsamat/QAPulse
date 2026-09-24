@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { rephraseSuggestion, markDescriptionAiEdited } from "@/lib/rephrase-suggestion";
 import { useToast } from "@/hooks/use-toast";
 import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import {
@@ -614,27 +615,28 @@ export default function RequirementDetail() {
   };
 
   // DEF-0015 — accept an AI recommendation (missing item / issue suggestion)
-  // by appending it cleanly to the Description, not Acceptance Criteria —
-  // it's context the FA needs to account for, not a testable condition, and
-  // the raw suggestion text was previously dumped into AC with a category
-  // prefix that read like noise. No prefix here; just a blank-line-separated
-  // append, same as a person pasting it in themselves.
+  // by merging it into the Description, not Acceptance Criteria — it's
+  // context the FA needs to account for, not a testable condition. The
+  // suggestion is reworded into prose first (no category prefix); if that
+  // fails it is appended as written. Either way the FA is prompted to verify.
   const acceptRecommendation = async (_label: string, text: string) => {
     if (!reqId || !req) return;
     setAcceptingText(text);
     try {
+      const { text: prose, rephrased } = await rephraseSuggestion(reqId, text);
       const current = (req.description ?? "").trim();
-      const updated = current ? `${current}\n\n${text.trim()}` : text.trim();
+      const updated = current ? `${current}\n\n${prose}` : prose;
       const res = await api(`/requirements/${reqId}`, token, {
         method: "PATCH",
         body: JSON.stringify({ description: updated }),
       });
       if (!res.ok) { toast({ variant: "destructive", title: "Failed to add to description" }); return; }
-      toast({ title: "Added to description" });
-      if (aiEditFlagKey) {
-        try { sessionStorage.setItem(aiEditFlagKey, "1"); } catch { /* ignore */ }
-        setAiEditedDescription(true);
-      }
+      toast({
+        title: rephrased ? "Added to description (reworded by AI)" : "Added to description",
+        description: rephrased ? undefined : "AI rewording was unavailable, so it was added as written.",
+      });
+      markDescriptionAiEdited(reqId);
+      if (aiEditFlagKey) setAiEditedDescription(true);
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
     } catch {

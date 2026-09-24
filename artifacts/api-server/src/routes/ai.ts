@@ -25,6 +25,7 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import * as XLSX from "xlsx";
 import { logActivity } from "./_audit";
+import { MAX_SUGGESTION_CHARS, REPHRASE_SYSTEM_PROMPT, buildRephrasePrompt, cleanRephrased } from "./ai-rephrase";
 import { actorFromReq } from "./auth";
 import { getAuthContext, canAccessProject, scopeToUserProjects } from "../middleware/access";
 import { computeRequirementTimelines, summarizeTimelines, computeKpiMetrics, rollupExecutionByMilestone } from "./dashboard";
@@ -276,6 +277,41 @@ async function reconcileSuggestions<T>(
 // ==========================================
 // 1. ANALYZE REQUIREMENT
 // ==========================================
+router.post("/ai/rephrase-suggestion", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { requirementId, suggestion } = req.body ?? {};
+  const text = typeof suggestion === "string" ? suggestion.trim() : "";
+  if (!text || text.length > MAX_SUGGESTION_CHARS) {
+    res.status(400).json({ error: `suggestion is required (max ${MAX_SUGGESTION_CHARS} characters)` });
+    return;
+  }
+
+  let title = "";
+  let description: string | null = null;
+  if (requirementId != null) {
+    const [requirement] = await db.select().from(requirementsTable).where(eq(requirementsTable.id, Number(requirementId)));
+    if (!requirement) { res.status(404).json({ error: "Requirement not found" }); return; }
+    if (requirement.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, requirement.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+    title = requirement.title;
+    description = requirement.description;
+  }
+
+  // A failed or unusable rewrite must never block Accept — the caller falls
+  // back to the suggestion as written.
+  try {
+    const output = await executeAiTask(REPHRASE_SYSTEM_PROMPT, buildRephrasePrompt(title, description, text), 512, false);
+    const cleaned = cleanRephrased(output, text);
+    res.json({ text: cleaned ?? text, rephrased: cleaned != null });
+  } catch {
+    res.json({ text, rephrased: false });
+  }
+});
+
 router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
   const fallback = {
     score: 0,
