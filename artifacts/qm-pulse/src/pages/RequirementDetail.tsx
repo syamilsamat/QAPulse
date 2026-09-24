@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { rephraseSuggestion, markDescriptionAiEdited } from "@/lib/rephrase-suggestion";
 import { useToast } from "@/hooks/use-toast";
 import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import {
@@ -181,6 +182,9 @@ export default function RequirementDetail() {
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
+  // Suggestions accepted in this view. Accepted text is reworded before it
+  // lands in the Description, so the raw-text dedup below can't recognise it.
+  const [acceptedTexts, setAcceptedTexts] = useState<Set<string>>(new Set());
   // DEF-0015 — set when an AI Analysis suggestion was just appended to the
   // Description field, so the FA gets a reminder to verify it before
   // submitting for review. sessionStorage (not component state) so it
@@ -286,17 +290,6 @@ export default function RequirementDetail() {
       return res.json();
     },
     enabled: !!reqId,
-  });
-
-  const { data: devUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
-    queryKey: ["users-dev"],
-    enabled: isLeadTier,
-    queryFn: async () => {
-      const res = await api(`/users`, token);
-      if (!res.ok) return [];
-      const all: { id: number; name: string; role: string }[] = await res.json();
-      return all.filter((u) => ["dev_member", "dev_lead", "hod_dev"].includes(u.role));
-    },
   });
 
   // Dev Tasks — shares the ["dev-tasks", reqId] query key with DevTasksPanel
@@ -614,26 +607,37 @@ export default function RequirementDetail() {
   };
 
   // DEF-0015 — accept an AI recommendation (missing item / issue suggestion)
-  // by appending it cleanly to the Description, not Acceptance Criteria —
-  // it's context the FA needs to account for, not a testable condition, and
-  // the raw suggestion text was previously dumped into AC with a category
-  // prefix that read like noise. No prefix here; just a blank-line-separated
-  // append, same as a person pasting it in themselves.
+  // by merging it into the Description, not Acceptance Criteria — it's
+  // context the FA needs to account for, not a testable condition. The
+  // suggestion is reworded into prose first (no category prefix); if that
+  // fails it is appended as written. Either way the FA is prompted to verify.
   const acceptRecommendation = async (_label: string, text: string) => {
     if (!reqId || !req) return;
     setAcceptingText(text);
     try {
+      const { text: prose, rephrased } = await rephraseSuggestion(reqId, text);
       const current = (req.description ?? "").trim();
-      const updated = current ? `${current}\n\n${text.trim()}` : text.trim();
+      const updated = current ? `${current}\n\n${prose}` : prose;
       const res = await api(`/requirements/${reqId}`, token, {
         method: "PATCH",
         body: JSON.stringify({ description: updated }),
       });
       if (!res.ok) { toast({ variant: "destructive", title: "Failed to add to description" }); return; }
-      toast({ title: "Added to description" });
-      if (aiEditFlagKey) {
-        try { sessionStorage.setItem(aiEditFlagKey, "1"); } catch { /* ignore */ }
-        setAiEditedDescription(true);
+      toast({
+        title: rephrased ? "Added to description (reworded by AI)" : "Added to description",
+        description: rephrased ? undefined : "AI rewording was unavailable, so it was added as written.",
+      });
+      markDescriptionAiEdited(reqId);
+      if (aiEditFlagKey) setAiEditedDescription(true);
+      setAcceptedTexts((prev) => new Set(prev).add(text));
+      // Record the decision server-side so a re-run of the analysis doesn't
+      // suggest it again (best-effort; the Description is already updated).
+      const statuses = (aiResult as any)?.suggestionStatus;
+      const sid = _label === "Missing Items"
+        ? statuses?.missingItems?.[(aiResult as any)?.missingItems?.indexOf(text)]?.id
+        : statuses?.issues?.[(aiResult as any)?.issues?.findIndex((x: any) => x.suggestion === text)]?.id;
+      if (sid) {
+        api(`/ai/requirement-suggestions/${sid}`, token, { method: "PATCH", body: JSON.stringify({ status: "accepted" }) }).catch(() => {});
       }
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
@@ -946,7 +950,8 @@ export default function RequirementDetail() {
                           icon={<XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />}
                           text={item}
                           showAction={canEditReq}
-                          isDuplicate={alreadyInAc("Missing Items", item)}
+                          isDuplicate={acceptedTexts.has(item) || alreadyInAc("Missing Items", item)}
+                          duplicateLabel={acceptedTexts.has(item) ? "Accepted" : undefined}
                           isAccepting={acceptingText === item}
                           onAccept={() => acceptRecommendation("Missing Items", item)}
                         />
@@ -967,7 +972,8 @@ export default function RequirementDetail() {
                           text={issue.suggestion}
                           secondary={issue.description}
                           showAction={canEditReq}
-                          isDuplicate={alreadyInAc("Issue Suggestions", issue.suggestion)}
+                          isDuplicate={acceptedTexts.has(issue.suggestion) || alreadyInAc("Issue Suggestions", issue.suggestion)}
+                          duplicateLabel={acceptedTexts.has(issue.suggestion) ? "Accepted" : undefined}
                           isAccepting={acceptingText === issue.suggestion}
                           onAccept={() => acceptRecommendation("Issue Suggestions", issue.suggestion)}
                         />
@@ -1399,31 +1405,6 @@ export default function RequirementDetail() {
                     <span className="text-muted-foreground">Status</span>
                     <DevStatusBadge status={req.devStatus} />
                   </div>
-
-                  {isLeadTier ? (
-                    <div className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">Assignee</span>
-                      <Select
-                        value={req.devAssigneeId ? String(req.devAssigneeId) : ""}
-                        onValueChange={(v) => doDevAction("assign", Number(v))}
-                        disabled={devLoading}
-                      >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Assign a developer…" /></SelectTrigger>
-                        <SelectContent>
-                          {devUsers.map((u) => (
-                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : (
-                    req.devAssigneeName && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Assignee</span>
-                        <span className="font-medium">{req.devAssigneeName}</span>
-                      </div>
-                    )
-                  )}
 
                   {req.devAssigneeId && (isLeadTier || req.devAssigneeId === user?.id) && req.devStatus !== "ready_for_qa" && (
                     <div className="flex gap-2 items-center flex-wrap">

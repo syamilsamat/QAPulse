@@ -53,10 +53,11 @@ test('batch report routes pipeline records correctly and excludes execution from
   const table = name => new Proxy({ name }, { get: (t, key) => key === 'name' ? t.name : key });
   const requirementsTable = table('requirements'), activityTable = table('activity');
   const executionTestCasesTable = table('execution'), executionFilesTable = table('files'), milestonesTable = table('milestones');
+  const tasksTable = table('tasks');
   let reqReads = 0;
   const rows = {
     requirements: [{ id: 10, milestoneId: 1, title: 'Worker Inquiry', createdAt: d('09'), reviewStatus: 'draft', parentId: null }],
-    activity: [], milestones: [milestone],
+    activity: [], milestones: [milestone], tasks: [],
     execution: [
       { requirementId: 10, milestoneId: 99, fileType: 'qa', executedAt: d('01') },
       { requirementId: 10, milestoneId: 1, fileType: 'qa', executedAt: d('10') },
@@ -67,8 +68,8 @@ test('batch report routes pipeline records correctly and excludes execution from
     const q = { where: () => q, innerJoin: () => q, orderBy: () => q, then: (resolve, reject) => Promise.resolve(result).then(resolve, reject) };
     return q;
   } }) };
-  const f = load({ db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable,
-    eq: () => null, and: () => null, inArray: () => null });
+  const f = load({ db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
+    eq: () => null, and: () => null, inArray: () => null, like: () => null });
   const result = (await f.computeRequirementTimelinesBatch([{ id: 1, completedAt: d('17') }])).get(1)[0];
   assert.equal(result.status, 'Completed');
   assert.equal(result.timeline[0].key, 'qa');

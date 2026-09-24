@@ -1346,7 +1346,7 @@ router.post("/defects/:id/review", async (req, res): Promise<void> => {
   res.json(updatedReview);
 });
 
-// ─── CR030: native dev assignment (Lead-tier+ gate) ──────────────────────────
+// ─── Native defect assignment (project access required) ──────────────────────────
 // assigneeId is the source of truth going forward; assigneeName stays in sync
 // so existing display code (and the Redmine-cache fallback) keeps working.
 
@@ -1365,18 +1365,6 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
     const [defect] = await db.select().from(defectsTable).where(eq(defectsTable.id, id));
     if (!defect) {
       res.status(404).json({ error: "Defect not found" });
-      return;
-    }
-
-    // CR031 (extended by CR054 follow-up) — a defect's CURRENT assignee can
-    // hand it off without a Lead gate, whatever the defect's source: the dev
-    // who fixed a QA-raised defect passes it back to the reporting tester to
-    // verify, exactly like a requirement defect's auto-routed assignee.
-    // Mirrors CR030's precedent of letting the dev assignee self-drive
-    // start/ready_for_qa. Everyone else needs the Lead-tier gate.
-    const isSelfHandoff = defect.assigneeId === ctx.userId;
-    if (!isSelfHandoff && (await getRoleTierRank(ctx.role)) < 2) {
-      res.status(403).json({ error: "Lead-tier role required to assign a defect" });
       return;
     }
 
@@ -1782,22 +1770,19 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       }
     }
 
-    // DEF-0031 — assignee is now editable through this same PATCH (previously
-    // only PATCH /defects/:id/assign), so a Save that changes both info and
-    // assignee pushes to Redmine once instead of twice. Same segregation-of-
-    // duties gate as the dedicated /assign route: the defect's current
-    // assignee can hand it off, everyone else needs Lead-tier+.
+    // Any user with access to the defect may edit its assignee.
     let assigneeName: string | null = null;
+    // A Save that re-sends the assignee unchanged is not a reassignment —
+    // without this, a defect whose assignee exists only in Redmine (no
+    // matching QM Pulse account) had it cleared locally on every Save.
+    if ("assigneeId" in patch && (patch.assigneeId ?? null) === (before.assigneeId ?? null)) {
+      delete patch.assigneeId;
+    }
     if ("assigneeId" in patch) {
       const rawAssigneeId = patch.assigneeId;
       const assigneeId = rawAssigneeId == null ? null : Number(rawAssigneeId);
       if (assigneeId != null && !Number.isInteger(assigneeId)) {
         res.status(400).json({ error: "assigneeId must be an integer or null" });
-        return;
-      }
-      const isSelfHandoff = before.assigneeId === ctx.userId;
-      if (!isSelfHandoff && (await getRoleTierRank(ctx.role)) < 2) {
-        res.status(403).json({ error: "Lead-tier role required to assign a defect" });
         return;
       }
       if (assigneeId != null) {
@@ -1838,6 +1823,8 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       const push = await pushDefectFieldsToRedmine(before.redmineId, {
         title: patch.title,
         description: patch.description,
+        expectedResult: patch.expectedResult,
+        actualResult: patch.actualResult,
         tracker: patch.tracker,
       }, apiKey);
       if (!push.ok) {

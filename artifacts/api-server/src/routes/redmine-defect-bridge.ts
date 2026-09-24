@@ -1,5 +1,6 @@
 import { eq, ilike, inArray, isNotNull } from "drizzle-orm";
 import { db, defectsTable, trackersTable, redmineStatusesTable, requirementsTable, redmineProjectConfigsTable, usersTable, type Defect } from "@workspace/db";
+import { mergeRedmineDescription } from "./defect-description";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CR019/CR020 Redmine defect bridge — DELIBERATELY the only file that knows
@@ -336,12 +337,29 @@ export async function pushDefectFieldsToRedmine(
   // DEF-0031 — assigneeId folded in here so Save pushes everything (title/
   // description/tracker/assignee) to Redmine in one PUT instead of a second
   // round trip through pushAssigneeToRedmine.
-  fields: { title?: string; description?: string; tracker?: string; assigneeId?: number | null },
+  fields: { title?: string; description?: string; expectedResult?: string | null; actualResult?: string | null; tracker?: string; assigneeId?: number | null },
   apiKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const issue: Record<string, any> = {};
   if (fields.title !== undefined) issue.subject = fields.title;
-  if (fields.description !== undefined) issue.description = fields.description;
+  if (fields.description !== undefined || fields.expectedResult !== undefined || fields.actualResult !== undefined) {
+    // The Redmine body also carries steps/expected/actual/test-case-id
+    // sections; merge into the live body instead of replacing all of it, and
+    // fail closed if it can't be read rather than risk overwriting it blind.
+    let current: string;
+    try {
+      const res = await redmineFetch(`/issues/${encodeURIComponent(redmineIssueId)}.json`, apiKey);
+      if (!res.ok) return { ok: false, error: `Couldn't read the current Redmine description (Redmine ${res.status})` };
+      current = String(((await res.json()) as any)?.issue?.description ?? "");
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? "Redmine unreachable" };
+    }
+    issue.description = mergeRedmineDescription(current, {
+      description: fields.description,
+      expectedResult: fields.expectedResult,
+      actualResult: fields.actualResult,
+    });
+  }
   if (fields.tracker !== undefined) {
     const trackerId = await findDefectTrackerId(fields.tracker);
     if (trackerId == null) return { ok: false, error: "Unknown tracker — sync trackers first" };
