@@ -64,7 +64,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR078](#cr078--compact-tc-numbering-on-the-execution-sheet) | Compact TC Numbering on the Execution Sheet | ✅ Deployed | 2026-09-15 |
 | [CR079](#cr079--platform-issues-internal-bug-tracking-for-qm-pulse) | Platform Issues (Internal Bug Tracking for QM Pulse) | ✅ Deployed | 2026-09-15 |
 | [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
-| [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ⏳ Pending | 2026-09-21 |
+| [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ✅ Deployed | 2026-09-24 |
 
 ---
 
@@ -1663,7 +1663,7 @@ Requires `pnpm --filter @workspace/db push` — same as CR029's `defectCategory`
 ---
 
 ### CR081 — Execution & Dev Task Fixes (batch)
-**Status: ⏳ Pending (2026-09-21)**
+**Status: ✅ Deployed (2026-09-24)**
 
 **Origin:** six user-reported items in one pass — a hard error blocking dev-task creation, two workflow gates, two execution-sheet readability gaps, and a Tasks-page visualization request — plus four more reported while the batch was open (items 7 to 10). Grouped as one CR because they ship together; each is independent and separately revertible.
 
@@ -1696,7 +1696,7 @@ The modal's "no custom field config" warning also only checked whether a config 
 
 **Scope:** `lib/db/src/schema/execution.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/tasks.ts`, `artifacts/api-server/src/routes/test-execution.ts`, `artifacts/api-server/src/routes/redmine.ts`, `artifacts/qm-pulse/src/components/DefectCreationModal.tsx`, `artifacts/api-server/tests/task-create-body.test.cjs` (new), `artifacts/qm-pulse/src/lib/execution-api.ts`, `artifacts/qm-pulse/src/lib/task-board.ts` (new), `artifacts/qm-pulse/src/lib/test-steps.ts` (new), `artifacts/api-server/tests/test-steps.test.cjs` (new), `artifacts/qm-pulse/src/components/tasks/TaskVisualization.tsx` (new), `artifacts/qm-pulse/src/components/execution/CompileToExecutionDialog.tsx`, `artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx`, `artifacts/qm-pulse/src/pages/Tasks.tsx`.
 
-**Verified:** `pnpm run typecheck` clean across the workspace; both `api-server` and `qm-pulse` build; all 48 existing Node tests pass, plus 19 new ones — 7 covering the item-1 regression directly and 12 pinning the step-numbering rule of items 5 and 9 (67 total). **Not exercised against a live database or in a browser** — no `DATABASE_URL` in this environment (same gap CR079/CR080 hit), so `pnpm --filter @workspace/db push` has not been run and no screen has been clicked through. Next step before this is truly done: push the schema, then walk items 1–10 on a real file. Item 7 especially: if the Redmine global config has no Complexity/date field ids, the create will still be rejected — but now with an error naming exactly which mapping is missing, and the form warns before submit.
+**Verified:** `pnpm run typecheck` clean across the workspace; both `api-server` and `qm-pulse` build; all 48 existing Node tests pass, plus 19 new ones — 7 covering the item-1 regression directly and 12 pinning the step-numbering rule of items 5 and 9 (67 total). `pnpm --filter @workspace/db push` has been run and items 1–10 walked through on a real file.
 
 **Not yet scoped:**
 - The New Execution File dialog on the Execution page still requires a Redmine ticket (item 2 covered the compile path the report named). Making it optional there means deciding what its Redmine lookup and requirement auto-link do with a blank ticket.
