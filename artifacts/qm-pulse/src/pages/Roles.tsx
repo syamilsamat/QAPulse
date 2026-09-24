@@ -66,6 +66,7 @@ const DEPARTMENTS = [
 const TIER_OPTIONS = [
   { value: "1", label: "1 — Member" },
   { value: "2", label: "2 — Lead" },
+  { value: "3", label: "3 — Manager" },
   { value: "4", label: "4 — HOD" },
   { value: "5", label: "5 — CTO" },
 ];
@@ -105,6 +106,7 @@ const NAV_PERMISSION_ITEMS = [
   { key: "nav:defects",        label: "Defects" },
   { key: "nav:resources",      label: "Resources" },
   { key: "nav:risk-register",  label: "Risk Register" },
+  { key: "nav:uat-signoffs",   label: "UAT Sign-offs" }, // CR054 — was missing from this map since that CR never touched Roles.tsx
 ];
 
 const NAV_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(
@@ -122,6 +124,10 @@ function labelForNavKey(key: string): string {
 // that admins need to edit in-app. Roles absent from a key's entry (and
 // custom roles like a hand-added devops) simply have no RACI stake there.
 // Utility pages (inbox, team-hangouts, admin-search) carry no RACI at all.
+// nav:uat-signoffs (CR054, 2026-07-17) is NOT deliberately excluded like the
+// utility pages above — that CR never touched this file, so the key has no
+// RACI designation yet. Pending an access-review call on who's R/A for it
+// (PM family owns the registry per CR054, QA leads/managers can also upload).
 type RaciLetter = "R" | "A" | "C" | "I";
 
 const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
