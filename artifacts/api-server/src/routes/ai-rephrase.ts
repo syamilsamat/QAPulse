@@ -21,8 +21,8 @@ export function buildRephrasePrompt(title: string, description: string | null | 
 }
 
 // Returns the cleaned rewrite, or null when the model output can't be trusted
-// (empty, or wildly longer than what it was asked to reword) so the caller can
-// fall back to the original text.
+// (empty, wildly longer than what it was asked to reword, or cut off
+// mid-sentence) so the caller can fall back to the original text.
 export function cleanRephrased(output: string | null | undefined, original: string): string | null {
   let text = (output ?? "")
     .replace(/```[a-z]*\n?/gi, "")
@@ -32,5 +32,6 @@ export function cleanRephrased(output: string | null | undefined, original: stri
   text = text.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
   if (!text) return null;
   if (text.length > original.length * 3 + 300) return null;
+  if (!/[.!?)]$/.test(text)) return null;
   return text;
 }

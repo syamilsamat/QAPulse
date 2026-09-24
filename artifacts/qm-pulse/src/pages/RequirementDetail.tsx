@@ -182,6 +182,9 @@ export default function RequirementDetail() {
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
+  // Suggestions accepted in this view. Accepted text is reworded before it
+  // lands in the Description, so the raw-text dedup below can't recognise it.
+  const [acceptedTexts, setAcceptedTexts] = useState<Set<string>>(new Set());
   // DEF-0015 — set when an AI Analysis suggestion was just appended to the
   // Description field, so the FA gets a reminder to verify it before
   // submitting for review. sessionStorage (not component state) so it
@@ -637,6 +640,16 @@ export default function RequirementDetail() {
       });
       markDescriptionAiEdited(reqId);
       if (aiEditFlagKey) setAiEditedDescription(true);
+      setAcceptedTexts((prev) => new Set(prev).add(text));
+      // Record the decision server-side so a re-run of the analysis doesn't
+      // suggest it again (best-effort; the Description is already updated).
+      const statuses = (aiResult as any)?.suggestionStatus;
+      const sid = _label === "Missing Items"
+        ? statuses?.missingItems?.[(aiResult as any)?.missingItems?.indexOf(text)]?.id
+        : statuses?.issues?.[(aiResult as any)?.issues?.findIndex((x: any) => x.suggestion === text)]?.id;
+      if (sid) {
+        api(`/ai/requirement-suggestions/${sid}`, token, { method: "PATCH", body: JSON.stringify({ status: "accepted" }) }).catch(() => {});
+      }
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
     } catch {
@@ -948,7 +961,8 @@ export default function RequirementDetail() {
                           icon={<XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />}
                           text={item}
                           showAction={canEditReq}
-                          isDuplicate={alreadyInAc("Missing Items", item)}
+                          isDuplicate={acceptedTexts.has(item) || alreadyInAc("Missing Items", item)}
+                          duplicateLabel={acceptedTexts.has(item) ? "Accepted" : undefined}
                           isAccepting={acceptingText === item}
                           onAccept={() => acceptRecommendation("Missing Items", item)}
                         />
@@ -969,7 +983,8 @@ export default function RequirementDetail() {
                           text={issue.suggestion}
                           secondary={issue.description}
                           showAction={canEditReq}
-                          isDuplicate={alreadyInAc("Issue Suggestions", issue.suggestion)}
+                          isDuplicate={acceptedTexts.has(issue.suggestion) || alreadyInAc("Issue Suggestions", issue.suggestion)}
+                          duplicateLabel={acceptedTexts.has(issue.suggestion) ? "Accepted" : undefined}
                           isAccepting={acceptingText === issue.suggestion}
                           onAccept={() => acceptRecommendation("Issue Suggestions", issue.suggestion)}
                         />

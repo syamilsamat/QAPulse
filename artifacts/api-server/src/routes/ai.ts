@@ -304,7 +304,7 @@ router.post("/ai/rephrase-suggestion", async (req, res): Promise<void> => {
   // A failed or unusable rewrite must never block Accept — the caller falls
   // back to the suggestion as written.
   try {
-    const output = await executeAiTask(REPHRASE_SYSTEM_PROMPT, buildRephrasePrompt(title, description, text), 512, false);
+    const output = await executeAiTask(REPHRASE_SYSTEM_PROMPT, buildRephrasePrompt(title, description, text), 2048, false);
     const cleaned = cleanRephrased(output, text);
     res.json({ text: cleaned ?? text, rephrased: cleaned != null });
   } catch {
