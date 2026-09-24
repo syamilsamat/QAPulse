@@ -16,6 +16,7 @@ import {
   RefreshCw,
   CloudUpload,
   CloudDownload,
+  CloudOff,
   AlertTriangle,
   RotateCw,
   CheckCircle2,
@@ -145,6 +146,13 @@ interface DefectRow {
     createdAt: string;
   }>;
 }
+
+// Prefix of the message pushDefectToRedmine (redmine-defect-bridge.ts) stores
+// in sync_error when a defect has no Redmine project to push to. Retry can't
+// fix that (POST /defects/:id/retry-sync sends no project), so it isn't a
+// pending sync.
+const isNotLinkedToRedmine = (d: Pick<DefectRow, "redmineId" | "syncError">) =>
+  !d.redmineId && !!d.syncError?.startsWith("No Redmine project could be resolved");
 
 interface Metrics {
   total: number;
@@ -1015,6 +1023,14 @@ export default function Defects() {
                     ) : d.source === "requirement" ? (
                       <Badge variant="outline" className="text-[10px]" title="Requirement defects are QM Pulse-native — no Redmine tracker equivalent">
                         QM Pulse-native
+                      </Badge>
+                    ) : isNotLinkedToRedmine(d) ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 text-muted-foreground"
+                        title="No Redmine project is on record for this defect, so there is nothing to sync. It stays in QM Pulse only."
+                      >
+                        <CloudOff className="w-2.5 h-2.5" /> Not linked to Redmine
                       </Badge>
                     ) : (
                       <Badge
