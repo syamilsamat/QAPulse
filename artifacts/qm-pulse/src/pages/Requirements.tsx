@@ -823,6 +823,30 @@ parentId: finalParentId,
     );
   };
 
+  // DEF-0023 — review status badge (draft/in_review/approved/rejected, per
+  // requirements.reviewStatus). Draft was otherwise invisible in the list —
+  // it read identically to any other unsubmitted requirement.
+  const REVIEW_STATUS_LABEL: Record<string, string> = {
+    draft: "Draft",
+    in_review: "In Review",
+    approved: "Approved",
+    rejected: "Rejected",
+  };
+  const reviewStatusBadge = (reviewStatus?: string | null) => {
+    const status = reviewStatus || "draft";
+    const cls: Record<string, string> = {
+      draft: "bg-muted text-muted-foreground border-border",
+      in_review: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800",
+      approved: "bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800",
+      rejected: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800",
+    };
+    return (
+      <span className={`text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${cls[status] ?? cls.draft}`}>
+        {REVIEW_STATUS_LABEL[status] ?? status}
+      </span>
+    );
+  };
+
   // CR030 — dev handoff status, only rendered once a requirement has been
   // handed to dev (devStatus is null until then)
   const devStatusBadge = (devStatus?: string | null) => {
@@ -1383,6 +1407,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                                   <span className="text-xs text-muted-foreground">#{r.redmineTicketId}</span>
                                 )}
                                 {trackerBadge(r.tracker)}
+                                {reviewStatusBadge(r.reviewStatus)}
                                 {devStatusBadge(r.devStatus)}
                                 {blockedBadge(r.isBlocked, r.blockedReason)}
                                 {reqDefectBadge(r.id)}
@@ -1419,6 +1444,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                                     </a>
                                   )}
                                   {trackerBadge(r.tracker)}
+                                {reviewStatusBadge(r.reviewStatus)}
                                 {devStatusBadge(r.devStatus)}
                                 {blockedBadge(r.isBlocked, r.blockedReason)}
                                 {reqDefectBadge(r.id)}

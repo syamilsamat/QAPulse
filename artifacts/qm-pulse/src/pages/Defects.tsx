@@ -219,6 +219,10 @@ export default function Defects() {
   // CR061 — linking is a shared QA workflow action, not restricted to the
   // reporter/qa_lead like editing the defect's own info.
   const canLinkTc = (user as any)?.department === "qa" || user?.role === "admin" || user?.role === "cto";
+  // DEF-0030 — Root Cause & Resolution are dev's write-up of the fix, so
+  // editing is restricted the same way the server enforces it; a QA viewer
+  // can still see whatever is already filled in, just not change it.
+  const canEditRootCause = (user as any)?.department === "dev" || user?.role === "admin" || user?.role === "cto";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -257,12 +261,12 @@ export default function Defects() {
   const [verificationFile, setVerificationFile] = useState<File | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // CR061 — title/description/tracker editing: the reporter (they know what
-  // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
-  // server-side canEditDefectInfo gate in defects.ts.
-  const canEditDefectInfo = (d: DefectRow) =>
-    d.reporterId === (user as any)?.id ||
-    (((user as any)?.tierRank ?? 1) >= 2 && (user as any)?.department === "qa");
+  // DEF-0030 follow-up — "everyone can edit the defect but need to include
+  // in history" (the original defect log's own wording). Mirrors the
+  // server, which no longer gates general info-field edits beyond project
+  // access. Root Cause & Resolution keep their own separate, stricter gate
+  // (canEditRootCause below), unaffected by this.
+  const canEditDefectInfo = (_d: DefectRow) => true;
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -377,10 +381,37 @@ export default function Defects() {
     .sort()
     .pop();
 
+  // DEF-0031 — silent variant of handleRefreshStatus for the expand-to-view
+  // trigger below: no toasts, no global isRefreshing/checkingId spinner state
+  // (those are for the explicit "Refresh" button), just a best-effort pull of
+  // this one defect's current Redmine state before the FA/dev/QA looks at it.
+  const syncDefectFromRedmineOnOpen = async (defectId: number) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/defects/refresh-status`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ defectId }),
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data && (data.refreshed > 0 || data.unavailable > 0)) invalidate();
+    } catch {
+      // Best-effort — the defect still opens with its last-known state.
+    }
+  };
+
   const toggleExpand = (id: number) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        // DEF-0031 — pull from Redmine before showing an expanded defect that's
+        // linked there, so a stale local status/title isn't what gets edited.
+        const defect = defects.find((d) => d.id === id);
+        if (defect?.redmineId) syncDefectFromRedmineOnOpen(id);
+      }
       return next;
     });
 
@@ -1059,7 +1090,7 @@ export default function Defects() {
                     </div>
                   )}
                   <Tabs value={detailTabs[d.id] ?? "details"} onValueChange={value => setDetailTabs(prev => ({ ...prev, [d.id]: value }))}>
-                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">Redmine History</TabsTrigger></TabsList>
+                    <TabsList aria-label="Defect detail sections"><TabsTrigger value="details">Details</TabsTrigger><TabsTrigger value="history">History</TabsTrigger></TabsList>
                     <TabsContent value="history"><DefectHistory key={`${user?.id}-${d.id}`} defectId={d.id} redmineId={d.redmineId} /></TabsContent>
                     <TabsContent value="details" className="space-y-3">
                   {/* Status edit — write-through to Redmine */}
@@ -1230,6 +1261,7 @@ export default function Defects() {
                         <Select
                           value={d.rootCauseCategory ?? ""}
                           onValueChange={(v) => handleEscapePatch(d, { rootCauseCategory: v })}
+                          disabled={!canEditRootCause}
                         >
                           <SelectTrigger className="w-56 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
                             <SelectValue placeholder="Root cause category..." />
@@ -1244,6 +1276,7 @@ export default function Defects() {
                           placeholder="Root cause detail — what actually went wrong?"
                           defaultValue={d.rootCause ?? ""}
                           className="text-xs min-h-14"
+                          disabled={!canEditRootCause}
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
                             if (e.target.value !== (d.rootCause ?? "")) handleEscapePatch(d, { rootCause: e.target.value });
@@ -1253,6 +1286,7 @@ export default function Defects() {
                           placeholder="Resolution / fix summary — what was changed to fix it?"
                           defaultValue={d.resolutionSummary ?? ""}
                           className="text-xs min-h-14"
+                          disabled={!canEditRootCause}
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
                             if (e.target.value !== (d.resolutionSummary ?? "")) handleEscapePatch(d, { resolutionSummary: e.target.value });
@@ -1475,6 +1509,10 @@ export default function Defects() {
       <EditDefectDialog
         defect={editingDefect}
         projects={projects}
+        canAssign={canAssign}
+        devUsers={devUsers}
+        handoffUsers={handoffUsers}
+        currentUserId={user?.id}
         onClose={() => setEditingDefect(null)}
         onSaved={() => { setEditingDefect(null); invalidate(); }}
       />
@@ -1706,11 +1744,19 @@ function SyncRedmineDialog({
 function EditDefectDialog({
   defect,
   projects,
+  canAssign,
+  devUsers,
+  handoffUsers,
+  currentUserId,
   onClose,
   onSaved,
 }: {
   defect: DefectRow | null;
   projects: { id: number; name: string }[];
+  canAssign: boolean;
+  devUsers: { id: number; name: string; role: string }[];
+  handoffUsers: { id: number; name: string; role: string }[];
+  currentUserId: number | undefined;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1736,8 +1782,16 @@ function EditDefectDialog({
       stepsToReproduce: (defect as any).stepsToReproduce ?? "",
       expectedResult: (defect as any).expectedResult ?? "",
       actualResult: (defect as any).actualResult ?? "",
+      assigneeId: defect.assigneeId ?? undefined,
     });
   }, [defect]);
+
+  // Same rule as the always-visible Assignee dropdown on the defect card
+  // (CR030/CR031): Lead-tier+ can assign, or the requirement defect's
+  // current assignee can hand it off without a Lead gate.
+  const isSelfHandoff = defect?.source === "requirement" && defect?.assigneeId === currentUserId;
+  const canEditAssignee = canAssign || isSelfHandoff;
+  const assignOptions = defect?.source === "requirement" ? handoffUsers : devUsers;
 
   useEffect(() => {
     if (!defect) return;
@@ -1777,6 +1831,7 @@ function EditDefectDialog({
           defectCategory: form.defectCategory || null,
           expectedResult: form.expectedResult?.trim() || null,
           actualResult: form.actualResult?.trim() || null,
+          ...(canEditAssignee ? { assigneeId: form.assigneeId ?? null } : {}),
         }),
       });
       if (!res.ok) {
@@ -1864,6 +1919,25 @@ function EditDefectDialog({
                   projectId={form.projectId ?? null}
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              {canEditAssignee ? (
+                <Select
+                  value={form.assigneeId ? String(form.assigneeId) : "unassigned"}
+                  onValueChange={(v) => setForm({ ...form, assigneeId: v === "unassigned" ? undefined : Number(v) })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                    {assignOptions.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground">{defect?.assigneeName ?? "Unassigned"}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>QM Pulse Project</Label>

@@ -214,16 +214,22 @@ export default function Team() {
     onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
   });
 
-  const filtered = users.filter((u) => {
-    if (filterRole !== "all" && u.role !== filterRole) return false;
-    if (
-      search &&
-      !u.name.toLowerCase().includes(search.toLowerCase()) &&
-      !u.email.toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
-    return true;
-  });
+  const filtered = users
+    .filter((u) => {
+      if (filterRole !== "all" && u.role !== filterRole) return false;
+      if (
+        search &&
+        !u.name.toLowerCase().includes(search.toLowerCase()) &&
+        !u.email.toLowerCase().includes(search.toLowerCase())
+      )
+        return false;
+      return true;
+    })
+    // DEF-0027 — GET /users now sorts newest-first like every other list
+    // endpoint, but this admin management table is a lookup-by-name surface
+    // (search box, alphabetically-scanned list) — explicit client-side
+    // override keeps it alphabetical.
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const openCreate = () => {
     setEditingUser(null);

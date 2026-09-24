@@ -3,7 +3,7 @@ import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { verifyToken, actorFromReq } from "./auth";
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
-import { canReview, reviewRoleNames } from "../lib/review-eligibility";
+import { canReview, reviewRoleNames, departmentRoleNames } from "../lib/review-eligibility";
 import { syncMilestoneStatus } from "../lib/milestone-status";
 import { getNameDirectory } from "../lib/lookups";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
@@ -28,6 +28,7 @@ import {
   tasksTable,
   requirementEventsTable,
   reviewEvidenceTable,
+  requirementPrioritySchema,
 } from "@workspace/db";
 import path from "path";
 import fs from "fs";
@@ -132,7 +133,10 @@ router.get("/requirements", async (req, res): Promise<void> => {
   const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
 
   const parsed = ListRequirementsQueryParams.safeParse(req.query);
-  let reqs = await db.select().from(requirementsTable).orderBy(requirementsTable.createdAt);
+  // DEF-0027 — newest first. A prior pass claimed this endpoint was already
+  // sorted this way (it wasn't, still ascending) and that claim went
+  // unverified; caught by live re-testing after deploy.
+  let reqs = await db.select().from(requirementsTable).orderBy(desc(requirementsTable.createdAt));
 
   if (parsed.success) {
     const { projectId, milestoneId, assigneeId, status, priority, module, release, search } = parsed.data;
@@ -235,6 +239,15 @@ router.post("/requirements", async (req, res): Promise<void> => {
   const parsed = insertRequirementSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  // DEF-0014 — "medium" was the old default before the enum tightened to
+  // low/normal/high/urgent; treat it as an alias for "normal" rather than
+  // rejecting it, so a client that still has "medium" cached (or the DB
+  // backfill hasn't run yet) doesn't get a 400 on an otherwise-valid save.
+  if (parsed.data.priority === "medium") (parsed.data as any).priority = "normal";
+  if (parsed.data.priority != null && !requirementPrioritySchema.safeParse(parsed.data.priority).success) {
+    res.status(400).json({ error: `priority must be one of ${requirementPrioritySchema.options.join(", ")}` });
     return;
   }
 
@@ -531,6 +544,12 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  // DEF-0014 — see the same normalization on POST /requirements above.
+  if (parsed.data.priority === "medium") (parsed.data as any).priority = "normal";
+  if (parsed.data.priority != null && !requirementPrioritySchema.safeParse(parsed.data.priority).success) {
+    res.status(400).json({ error: `priority must be one of ${requirementPrioritySchema.options.join(", ")}` });
+    return;
+  }
 
   // CR063/CR065 — isBlocked/blockedReason/blockedAt/blockedBy are only
   // settable through PATCH /requirements/:id/block (FA/PM-only, mandatory
@@ -807,6 +826,18 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
 
   const createdBy = (req_ as any).createdBy;
 
+  // DEF-0024 — only the author can submit their own requirement for review;
+  // canReview("fa", ...) above just says the caller is FA-tier, not that
+  // they wrote this particular requirement. Rows with no recorded author
+  // (legacy data, or a Redmine-sourced requirement whose author is
+  // unreliable — same exemption the edit path already makes at
+  // isFaOnRedmineSourced above) and admin/cto are exempt, same shape as the
+  // equivalent check on execution-file submit.
+  const isUnrestrictedReviewer = ctx.role === "admin" || ctx.role === "cto";
+  if (action === "submit" && createdBy != null && createdBy !== ctx.userId && !isUnrestrictedReviewer) {
+    res.status(403).json({ error: "Only the author can submit this requirement for review" }); return;
+  }
+
   // Segregation of duties: author cannot review (approve or reject) their own requirement
   if ((action === "approve" || action === "reject") && createdBy === ctx.userId) {
     res.status(403).json({ error: `You cannot ${action} a requirement you authored` }); return;
@@ -847,8 +878,11 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
   // can't even open the requirement, so they aren't pinged about it.
   // Whole-project and tier-3+ reviewers are unaffected.
   if (action === "submit" && req_.projectId != null) {
+    // DEF-0017 — submit should page the FA department itself, not
+    // reviewRoleNames("fa")'s QA-lead-tier oversight fallback (that's meant
+    // for who's allowed to click Approve, not who gets paged on submit).
     await notifyRolesInProject({
-      roles: await reviewRoleNames("fa"),
+      roles: await departmentRoleNames("fa"),
       projectId: req_.projectId,
       module: req_.module,
       title: "Requirement submitted for review",
@@ -884,6 +918,24 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
         notifyUser(uid, title, msg, notifType, "requirement", id, ctx.userId).catch(() => {})
       )
     );
+
+    // DEF-0017 — QA Lead should learn a requirement was approved as soon as
+    // it happens, same as author/assignee, not only implicitly once dev
+    // picks it up.
+    if (action === "approve") {
+      await notifyRolesInProject({
+        roles: ["qa_lead"],
+        projectId: req_.projectId,
+        module: req_.module,
+        title,
+        message: msg,
+        type: notifType,
+        entityType: "requirement",
+        entityId: id,
+        actorId: ctx.userId,
+        excludeUserIds: recipients,
+      }).catch(() => {});
+    }
 
     // CR045 — approval means the requirement is ready for dev assignment, so
     // Dev Leads on this project (module-scoped per CR044; HODs excluded per

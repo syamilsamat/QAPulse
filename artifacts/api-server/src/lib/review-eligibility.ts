@@ -76,6 +76,27 @@ export async function reviewRoleNames(domain: ReviewDomain): Promise<string[]> {
   return rows.filter((r) => eligible(domain, r)).map((r) => r.name);
 }
 
+/** Departmentless roles kept out of the "own department only" fallback below
+ *  — the FA-oversight extension in FALLBACK.fa is QA leadership acting as a
+ *  reviewer, not FA's own department. */
+const DEPARTMENT_ONLY_FALLBACK: Record<ReviewDomain, string[]> = {
+  qa: FALLBACK.qa,
+  fa: ["fa_member", "fa_lead", "hod_fa"],
+};
+
+/**
+ * Every role slug in `domain`'s own department (plus admin/cto) — narrower
+ * than reviewRoleNames(), which also pulls in QA leadership's standing
+ * FA-oversight fallback. Used where a notification should reach the record's
+ * actual owning department, not everyone who happens to be eligible to
+ * review it (DEF-0017 — a requirement submission shouldn't page QA Lead).
+ */
+export async function departmentRoleNames(domain: ReviewDomain): Promise<string[]> {
+  const rows = await loadRoles();
+  if (rows.length === 0) return [...DEPARTMENT_ONLY_FALLBACK[domain], ...UNRESTRICTED_ROLES];
+  return rows.filter((r) => r.department === domain || UNRESTRICTED_ROLES.includes(r.name)).map((r) => r.name);
+}
+
 /** True when `role` may approve/reject `domain` work authored by someone else. */
 export async function canReview(domain: ReviewDomain, role: string | null | undefined): Promise<boolean> {
   if (!role) return false;

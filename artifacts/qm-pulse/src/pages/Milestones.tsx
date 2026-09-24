@@ -206,6 +206,9 @@ export default function Milestones() {
   });
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
+  // dev_lead gets Team access only (DEF-0012) — not create/edit-other-fields/delete,
+  // which stays behind the full canWrite gate above and its backend counterpart.
+  const canManageTeam = canWrite || user?.role === "dev_lead";
   const { roleLabel } = useRoleLabels();
 
   const [exportingLessons, setExportingLessons] = useState(false);
@@ -244,10 +247,10 @@ export default function Milestones() {
   const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
     queryKey: ["milestone-assignable", editing?.id],
     queryFn: async () => {
-      const res = await api(`/milestones/${editing!.id}/assignable-users`, token);
+      const res = await api(`/milestones/${editing!.id}/assignable-users?forTeamStaffing=1`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: dialogOpen && !!editing && canWrite,
+    enabled: dialogOpen && !!editing && canManageTeam,
   });
   const refreshAssignees = () => queryClient.invalidateQueries({ queryKey: ["milestone-assignees", editing?.id] });
   const addAssignee = async (userId: string) => {
@@ -279,7 +282,7 @@ export default function Milestones() {
       const res = await api(`/milestones/assignable-users?projectId=${filterProject}`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: dialogOpen && !editing && form.type === "data_prep" && filterProject !== "all",
+    enabled: dialogOpen && !editing && filterProject !== "all",
   });
   const addPendingAssignee = (userId: string) => {
     setPendingAssigneePick("");
@@ -338,7 +341,8 @@ export default function Milestones() {
         type: form.type,
         status: form.status,
         priority: form.priority === "none" ? null : form.priority,
-        targetDate: form.targetDate || null,
+        // DEF-0013 — targetDate is no longer a client-facing field; the
+        // server derives it from goLiveDate.
         startDate: form.startDate || null,
         reqTargetDate: form.reqTargetDate || null,
         devTargetDate: form.devTargetDate || null,
@@ -485,14 +489,16 @@ export default function Milestones() {
                     </div>
                   </div>
                 )}
-                {canWrite && (
+                {canManageTeam && (
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
                       <Pencil className="w-3.5 h-3.5" /> Edit
                     </Button>
-                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(m.id)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {canWrite && (
+                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(m.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -550,14 +556,6 @@ export default function Milestones() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Target Date</Label>
-                <Input
-                  type="date"
-                  value={form.targetDate}
-                  onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-                />
               </div>
               <div className="space-y-1.5">
                 <Label>Environment</Label>
@@ -618,10 +616,10 @@ export default function Milestones() {
                 />
               </div>
             )}
-            {!editing && form.type === "data_prep" && canWrite && (
+            {!editing && canWrite && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5" /> QA assigned to prepare this data
+                  <Users className="w-3.5 h-3.5" /> {form.type === "data_prep" ? "QA assigned to prepare this data" : "Team"}
                 </Label>
                 <div className="flex flex-wrap gap-1.5">
                   {pendingAssignees.map((a) => (

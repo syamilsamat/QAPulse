@@ -64,9 +64,9 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register", "nav:defects"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
   dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
-  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:team-hangouts", "nav:defects"],
+  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:defects"],
   pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
-  pm_member:  ["nav:milestones", "nav:pm-dashboard", "nav:risk-register", "nav:report", "nav:uat-signoffs"],
+  pm_member:  ["nav:milestones", "nav:pm-dashboard", "nav:risk-register", "nav:report", "nav:inbox", "nav:uat-signoffs"],
 };
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
@@ -771,6 +771,11 @@ export async function bootstrap() {
     // FA authors since CR031, but the FA department couldn't open the Defects
     // page at all) — narrow single-key backfill, same pattern as above.
     backfillNavKey(["fa_lead", "fa_member"], "nav:defects"),
+    // DEF-0026 — nav:inbox for dev_member/pm_member, who had no Inbox at all
+    // despite the rest of their department getting it — narrow single-key
+    // backfill so existing installs pick it up without touching their other
+    // customized keys.
+    backfillNavKey(["dev_member", "pm_member"], "nav:inbox"),
   ]);
 
   bootstrapped = true;

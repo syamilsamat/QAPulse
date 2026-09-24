@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, inArray, isNotNull } from "drizzle-orm";
-import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
+import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, milestoneAssigneesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
@@ -1043,12 +1043,21 @@ export function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestone
   return groups.filter(g => !m.pipelineEnabled || g.key === "qa" || (g.key === "uat" && m.requiresUat)).map((g) => {
     const segs = segments.filter((s) => g.segKeys.includes(s.key));
     const lastSeg = segs[segs.length - 1];
+    // DEF-0016 — the Development phase groups the "gap" (approved, awaiting
+    // dev handoff) and "develop" (actual dev work) segments under one planned
+    // window, but its *actual* start should read from when dev work actually
+    // began (requirement_dev_assign, the "develop" segment) — not from
+    // approval (requirement_approve, the "gap" segment), which just stamped
+    // when the requirement became eligible for handoff.
+    const actualStart = g.key === "development"
+      ? (segs.find((s) => s.key === "develop")?.start ?? null)
+      : (segs.length > 0 ? segs[0].start : null);
     return {
       key: g.key,
       label: g.label,
       plannedStart: g.plannedStart?.toISOString() ?? null,
       plannedEnd: g.plannedEnd?.toISOString() ?? null,
-      actualStart: segs.length > 0 ? segs[0].start : null,
+      actualStart,
       actualEnd: lastSeg?.end ?? null,
     };
   });
@@ -1118,8 +1127,33 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       : [];
   if (milestones.length === 0) return [];
 
-  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
+  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name, role: usersTable.role }).from(usersTable);
   const usersById = new Map(allUsers.map((u) => [u.id, u]));
+
+  // DEF-0018 — milestone Team assignments, grouped by the assignee's role
+  // department, as the last-resort PIC source for a department that has no
+  // per-requirement signal (no FA author/approver, no dev handoff, no QA PIC).
+  const milestoneIds = milestones.map((m) => m.id);
+  const [assigneeRows, allRoles] = await Promise.all([
+    milestoneIds.length
+      ? db
+          .select({ milestoneId: milestoneAssigneesTable.milestoneId, userId: milestoneAssigneesTable.userId, role: usersTable.role })
+          .from(milestoneAssigneesTable)
+          .innerJoin(usersTable, eq(usersTable.id, milestoneAssigneesTable.userId))
+          .where(inArray(milestoneAssigneesTable.milestoneId, milestoneIds))
+      : [],
+    db.select({ name: rolesTable.name, department: rolesTable.department }).from(rolesTable),
+  ]);
+  const departmentByRole = new Map(allRoles.map((r) => [r.name, r.department]));
+  const milestoneAssigneeNamesByDept = new Map<number, { fa: string[]; dev: string[]; qa: string[] }>();
+  for (const row of assigneeRows) {
+    const dept = departmentByRole.get(row.role);
+    if (dept !== "fa" && dept !== "dev" && dept !== "qa") continue;
+    const name = usersById.get(row.userId)?.name;
+    if (!name) continue;
+    if (!milestoneAssigneeNamesByDept.has(row.milestoneId)) milestoneAssigneeNamesByDept.set(row.milestoneId, { fa: [], dev: [], qa: [] });
+    milestoneAssigneeNamesByDept.get(row.milestoneId)![dept].push(name);
+  }
 
   const rows: any[] = [];
 
@@ -1164,9 +1198,12 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
     // dev tasks" annotation. Additive alongside devStatusProgress's 33/66/100
     // bucket below (that bucket stays as-is for zero-task requirements -
     // this is display-only, it does not change progress math).
+    // DEF-0032 — assigneeIds also read here now, so a dev assigned via a Dev
+    // Task (but with no requirement-level devAssigneeId) still shows up as
+    // Dev PIC below.
     allReqIds.length
       ? db
-          .select({ requirementId: tasksTable.requirementId, status: tasksTable.status })
+          .select({ requirementId: tasksTable.requirementId, status: tasksTable.status, assigneeIds: tasksTable.assigneeIds })
           .from(tasksTable)
           .where(inArray(tasksTable.requirementId, allReqIds))
       : [],
@@ -1214,12 +1251,19 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
   const extraById = new Map(extra.map((e) => [e.id, e]));
 
   const devTaskCountsByReq = new Map<number, { done: number; total: number }>();
+  // DEF-0032 — every user assigned to any Dev Task under a requirement,
+  // folded into that requirement's Dev PIC set below.
+  const devTaskAssigneeIdsByReq = new Map<number, Set<number>>();
   for (const t of devTaskRows) {
     if (t.requirementId == null) continue;
     const counts = devTaskCountsByReq.get(t.requirementId) ?? { done: 0, total: 0 };
     counts.total += 1;
     if (t.status === "done") counts.done += 1;
     devTaskCountsByReq.set(t.requirementId, counts);
+    for (const assigneeId of t.assigneeIds ?? []) {
+      if (!devTaskAssigneeIdsByReq.has(t.requirementId)) devTaskAssigneeIdsByReq.set(t.requirementId, new Set());
+      devTaskAssigneeIdsByReq.get(t.requirementId)!.add(assigneeId);
+    }
   }
 
   const qaPicNamesByReq = new Map<number, Set<string>>();
@@ -1345,7 +1389,16 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       // three departments' completion states differ.
       const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
       const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
-      const devAll = [...new Set([devAssignedByName, devAssigneeName].filter((n): n is string => !!n))];
+      // DEF-0032 — a dev assigned via a Dev Task, not just the requirement's
+      // own devAssigneeId/devAssignedBy, counts as Dev PIC. Filtered to
+      // dev-department roles: the Dev Tasks assignee picker isn't
+      // department-restricted, so a QA/FA user occasionally ends up in
+      // tasksTable.assigneeIds and would otherwise show up as "Dev" here.
+      const devTaskAssigneeNames = [...(devTaskAssigneeIdsByReq.get(entry.id) ?? new Set<number>())]
+        .map((id) => usersById.get(id))
+        .filter((u): u is { id: number; name: string; role: string } => !!u && departmentByRole.get(u.role) === "dev")
+        .map((u) => u.name);
+      const devAll = [...new Set([devAssignedByName, devAssigneeName, ...devTaskAssigneeNames].filter((n): n is string => !!n))];
       const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
 
       // A QA Pipeline milestone names its FA/Dev/QA owners up front in Step 2,
@@ -1369,16 +1422,24 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       //
       // QA keeps its fallback: those names come from the execution files' QA
       // PIC, which IS a pipeline artifact (steps 3–4), not an inference.
+      // DEF-0018 — last resort when the above still leaves a department empty:
+      // the milestone's Team assignments, grouped by the assignee's role
+      // department.
+      const msAssignees = milestoneAssigneeNamesByDept.get(m.id) ?? { fa: [], dev: [], qa: [] };
+      const resolveDept = (...lists: string[][]) => {
+        for (const list of lists) if (list.length > 0) return [...new Set(list)];
+        return [];
+      };
       const picByDepartment = m.pipelineEnabled
         ? {
-            FA: [...new Set(pipelineFa)],
-            Dev: [...new Set(pipelineDev)],
-            QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+            FA: resolveDept(pipelineFa, msAssignees.fa),
+            Dev: resolveDept(pipelineDev, msAssignees.dev),
+            QA: resolveDept(pipelineQa, qaAll, msAssignees.qa),
           }
         : {
-            FA: [...new Set(pipelineFa.length > 0 ? pipelineFa : faAll)],
-            Dev: [...new Set(pipelineDev.length > 0 ? pipelineDev : devAll)],
-            QA: [...new Set(pipelineQa.length > 0 ? pipelineQa : qaAll)],
+            FA: resolveDept(pipelineFa, faAll, msAssignees.fa),
+            Dev: resolveDept(pipelineDev, devAll, msAssignees.dev),
+            QA: resolveDept(pipelineQa, qaAll, msAssignees.qa),
           };
       const assignee = [
         `FA: ${fmtNames(picByDepartment.FA)}`,

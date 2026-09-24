@@ -186,11 +186,15 @@ const ROOT_CAUSE_CATEGORIES = [
 // won't let just anyone edit them once synced, so this is deliberately
 // narrower than the general project-access gate: the original reporter (they
 // know what they meant to type) or a qa_lead+ (tier ≥2, qa department).
-async function canEditDefectInfo(ctx: { userId: number; role: string }, defect: { reporterId: number | null }): Promise<boolean> {
-  if (ctx.role === "admin") return true;
-  if (defect.reporterId != null && defect.reporterId === ctx.userId) return true;
-  const [tierRank, department] = await Promise.all([getRoleTierRank(ctx.role), getRoleDepartment(ctx.role)]);
-  return tierRank >= 2 && department === "qa";
+// DEF-0030 follow-up — the original defect log was explicit: "everyone can
+// edit the defect but need to include in history." General info fields are
+// no longer reporter/qa_lead+-gated; anyone with defect/project access
+// (already checked earlier in the PATCH handler) can edit them, and every
+// change is captured by the diffChanges/logActivity call after the update.
+// Root Cause & Resolution keep their own separate, stricter dev-only gate —
+// see the rootCauseFields check below, unaffected by this function.
+async function canEditDefectInfo(_ctx: { userId: number; role: string }, _defect: { reporterId: number | null }): Promise<boolean> {
+  return true;
 }
 
 // Append the Redmine id to the execution row's defect_number exactly as if the
@@ -1745,7 +1749,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     const patch: Record<string, any> = {};
-    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker", "expectedResult", "actualResult", "foundIn", "milestoneId", "rootCause", "rootCauseCategory", "resolutionSummary"]) {
+    for (const key of ["escapeStatus", "escapeClass", "escapeNotes", "severity", "module", "projectId", "source", "defectCategory", "title", "description", "tracker", "expectedResult", "actualResult", "foundIn", "milestoneId", "rootCause", "rootCauseCategory", "resolutionSummary", "assigneeId"]) {
       if (key in (req.body ?? {})) patch[key] = req.body[key];
     }
     if ("defectCategory" in patch) {
@@ -1760,12 +1764,12 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
       return;
     }
     // CR061 — the defect's own "info" fields (everything the New Defect
-    // dialog collects, minus Redmine-creation-only bits like assignee/
-    // complexity/dates, which have their own flows or aren't stored at all):
-    // reporter or qa_lead+ only. If already synced to Redmine, push
-    // title/description/tracker there first (fail-closed, same pattern as
-    // status write-through) before the local row changes — severity/module/
-    // expectedResult/actualResult/foundIn/milestoneId are QM Pulse-local only.
+    // dialog collects, minus Redmine-creation-only bits like complexity/dates,
+    // which have their own flows or aren't stored at all): reporter or
+    // qa_lead+ only. If already synced to Redmine, push title/description/
+    // tracker there first (fail-closed, same pattern as status write-through)
+    // before the local row changes — severity/module/expectedResult/
+    // actualResult/foundIn/milestoneId are QM Pulse-local only.
     const infoFields = ["title", "description", "tracker", "severity", "module", "expectedResult", "actualResult", "foundIn", "milestoneId"].filter((k) => k in patch);
     if (infoFields.length > 0) {
       if (!(await canEditDefectInfo(ctx, before))) {
@@ -1776,18 +1780,79 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
         res.status(400).json({ error: "Title cannot be empty" });
         return;
       }
-      if (before.redmineId) {
-        if (await blockUnavailable(req, res, ctx.userId, before)) return;
-        const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
-        const push = await pushDefectFieldsToRedmine(before.redmineId, {
-          title: patch.title,
-          description: patch.description,
-          tracker: patch.tracker,
-        }, apiKey);
-        if (!push.ok) {
-          res.status(502).json({ error: push.error ?? "Redmine rejected the update" });
+    }
+
+    // DEF-0031 — assignee is now editable through this same PATCH (previously
+    // only PATCH /defects/:id/assign), so a Save that changes both info and
+    // assignee pushes to Redmine once instead of twice. Same segregation-of-
+    // duties gate as the dedicated /assign route: the defect's current
+    // assignee can hand it off, everyone else needs Lead-tier+.
+    let assigneeName: string | null = null;
+    if ("assigneeId" in patch) {
+      const rawAssigneeId = patch.assigneeId;
+      const assigneeId = rawAssigneeId == null ? null : Number(rawAssigneeId);
+      if (assigneeId != null && !Number.isInteger(assigneeId)) {
+        res.status(400).json({ error: "assigneeId must be an integer or null" });
+        return;
+      }
+      const isSelfHandoff = before.assigneeId === ctx.userId;
+      if (!isSelfHandoff && (await getRoleTierRank(ctx.role)) < 2) {
+        res.status(403).json({ error: "Lead-tier role required to assign a defect" });
+        return;
+      }
+      if (assigneeId != null) {
+        const [assignee] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, assigneeId));
+        if (!assignee) {
+          res.status(400).json({ error: "Assignee not found" });
           return;
         }
+        assigneeName = assignee.name;
+      }
+      patch.assigneeId = assigneeId;
+      patch.assigneeName = assigneeName;
+      patch.assigneeAssignedAt = assigneeId != null ? new Date() : null;
+    }
+
+    // DEF-0030 — Root Cause & Resolution are dev's own write-up of the fix;
+    // anyone with defect access (including QA, who is the usual reporter)
+    // could otherwise set them despite having no authority to say what
+    // caused or fixed the bug. Checked before the Redmine push below so a
+    // 403 here can't leave Redmine and the local row disagreeing about the
+    // OTHER fields bundled in the same request.
+    const rootCauseFields = ["rootCause", "rootCauseCategory", "resolutionSummary"].filter((k) => k in patch);
+    if (rootCauseFields.length > 0) {
+      const isDevOrAdmin = ["admin", "cto"].includes(ctx.role) || (await getRoleDepartment(ctx.role)) === "dev";
+      if (!isDevOrAdmin) {
+        res.status(403).json({ error: "Only a developer or admin can set Root Cause / Resolution" });
+        return;
+      }
+    }
+
+    // title/description/tracker push — fail-closed: if Redmine rejects it,
+    // none of the local changes apply (same guarantee this push always had,
+    // kept scoped to infoFields only — see below for why assigneeId isn't
+    // bundled into this same fail-closed push).
+    if (infoFields.length > 0 && before.redmineId) {
+      if (await blockUnavailable(req, res, ctx.userId, before)) return;
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      const push = await pushDefectFieldsToRedmine(before.redmineId, {
+        title: patch.title,
+        description: patch.description,
+        tracker: patch.tracker,
+      }, apiKey);
+      if (!push.ok) {
+        res.status(502).json({ error: push.error ?? "Redmine rejected the update" });
+        return;
+      }
+    }
+    // Assignee push is deliberately best-effort, matching the dedicated
+    // PATCH /defects/:id/assign route's existing semantics exactly — an
+    // assignee whose name has no Redmine match shouldn't roll back unrelated
+    // field edits (title, severity, etc.) bundled in the same Save.
+    if ("assigneeId" in patch && before.redmineId) {
+      const apiKey = await resolveApiKeyFromToken(req.headers.authorization);
+      if (patch.assigneeId != null) {
+        await pushAssigneeToRedmine(before.redmineId, patch.assigneeId, apiKey).catch(() => {});
       }
     }
     if (Object.keys(patch).length === 0) {
@@ -1810,6 +1875,17 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
         entityType: "defect",
         ...diff,
       });
+    }
+    if ("assigneeId" in patch && patch.assigneeId != null) {
+      await notifyUser(
+        patch.assigneeId,
+        "Defect assigned",
+        `${updated.defectCode ?? `Defect #${id}`} "${updated.title}" has been assigned to you.`,
+        "defect_assigned",
+        "defect",
+        id,
+        ctx.userId,
+      ).catch(() => {});
     }
     res.json(updated);
   } catch (err: any) {
