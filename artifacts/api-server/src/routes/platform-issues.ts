@@ -11,10 +11,9 @@ try {
 } catch {}
 
 // CR079 — Platform Issues: bugs/ideas/questions about QM Pulse itself,
-// reported by anyone using it. Admin-only for list/triage in v1 (mirrors
-// Audit Log's precedent — a single-owner internal tool, not department-
-// scoped like Defects) — reporters find out what happened via notification,
-// not by being granted read access to the page.
+// reported by anyone using it. Any signed-in user can list and file them
+// (so everyone can see what's already been reported); only triage — status,
+// severity/type corrections, delete — is admin-only.
 
 const VALID_TYPES = ["bug", "idea", "question"];
 const VALID_SEVERITIES = ["blocking", "major", "minor"];
@@ -141,7 +140,7 @@ async function notifyAdmins(issue: typeof platformIssuesTable.$inferSelect, acto
 
 // GET /platform-issues?status=open
 router.get("/platform-issues", async (req, res): Promise<void> => {
-  const ctx = requireAdmin(req, res);
+  const ctx = requireAuth(req, res);
   if (!ctx) return;
 
   const status = typeof req.query.status === "string" ? req.query.status : null;

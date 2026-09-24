@@ -47,7 +47,6 @@ export const ALL_NAV_KEYS = [
   "nav:resources", // CR034 — lead+ resourcing view (active/idle/closed-history milestone focus)
   "nav:risk-register", // CR040 — standalone Risk Register page, split out of nav:pm-dashboard
   "nav:uat-signoffs", // CR054 — UAT sign-off registry (upload + project-scoped listing)
-  "nav:platform-issues", // CR079 — admin-only Platform Issues triage page (backfilled to admin/cto below, same as every other key)
 ];
 
 // Default nav access per built-in role (mirrors the hardcoded roles arrays in Layout.tsx)

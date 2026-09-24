@@ -15,9 +15,10 @@ import {
 } from "@/components/ui/select";
 import { Wrench, Loader2, ImageIcon } from "lucide-react";
 
-// CR079 — admin triage view for bugs/ideas/questions reported about QM Pulse
-// itself (via the ReportIssueTrigger widget on every page). Distinct from
-// /defects, which tracks bugs in the client projects QM Pulse tests.
+// CR079 — bugs/ideas/questions reported about QM Pulse itself (via the
+// ReportIssueTrigger widget on every page), visible to every signed-in user;
+// only admins can change an issue's status. Distinct from /defects, which
+// tracks bugs in the client projects QM Pulse tests.
 
 interface PlatformIssue {
   id: number;
@@ -79,7 +80,8 @@ function api(path: string, token: string | null) {
 }
 
 export default function PlatformIssues() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canTriage = user?.role === "admin";
   const { toast } = useToast();
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("all");
@@ -182,20 +184,24 @@ export default function PlatformIssues() {
                 </p>
               </div>
 
-              <Select
-                value={issue.status}
-                onValueChange={(v) => changeStatus(issue, v as PlatformIssue["status"])}
-                disabled={updatingId === issue.id}
-              >
-                <SelectTrigger className="w-full sm:w-40 shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {canTriage ? (
+                <Select
+                  value={issue.status}
+                  onValueChange={(v) => changeStatus(issue, v as PlatformIssue["status"])}
+                  disabled={updatingId === issue.id}
+                >
+                  <SelectTrigger className="w-full sm:w-40 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Badge variant="outline" className="shrink-0 self-start sm:self-center">{STATUS_LABELS[issue.status]}</Badge>
+              )}
             </div>
           ))}
         </div>
