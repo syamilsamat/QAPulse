@@ -124,10 +124,6 @@ function labelForNavKey(key: string): string {
 // that admins need to edit in-app. Roles absent from a key's entry (and
 // custom roles like a hand-added devops) simply have no RACI stake there.
 // Utility pages (inbox, team-hangouts, admin-search) carry no RACI at all.
-// nav:uat-signoffs (CR054, 2026-07-17) is NOT deliberately excluded like the
-// utility pages above — that CR never touched this file, so the key has no
-// RACI designation yet. Pending an access-review call on who's R/A for it
-// (PM family owns the registry per CR054, QA leads/managers can also upload).
 type RaciLetter = "R" | "A" | "C" | "I";
 
 const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
@@ -147,6 +143,10 @@ const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
   "nav:qa-pipeline":    { qa_lead: "R", qa_manager: "A", hod_qa: "C", qa_member: "C", admin: "C", cto: "I" },
   "nav:team":           { qa_lead: "R", fa_lead: "R", dev_lead: "R", pm_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", cto: "I" },
   "nav:audit-log":      { admin: "R", cto: "I" },
+  // CR054 — PM family owns the sign-off registry; QA leads/managers can also
+  // upload (lead-tier+, same gate as PM). fa/dev have no access at all here,
+  // so they carry no stake, not even Informed.
+  "nav:uat-signoffs":   { pm_lead: "R", hod_pm: "A", qa_lead: "C", qa_manager: "C", pm_member: "C", hod_qa: "I", cto: "I" },
 };
 
 const RACI_CELL_CLASS: Record<RaciLetter, string> = {
