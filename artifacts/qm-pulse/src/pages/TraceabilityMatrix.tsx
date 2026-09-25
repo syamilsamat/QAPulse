@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CornerDownRight,
   Download,
+  FileSpreadsheet,
   AlertTriangle,
   CheckCircle2,
   XCircle,
@@ -16,6 +17,7 @@ import {
   Clock,
   Loader2,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -168,11 +170,13 @@ function tcOutlineLabel(index: number): string {
 
 export default function TraceabilityMatrix() {
   const { token } = useAuth();
+  const { toast } = useToast();
   const [expandedReqs, setExpandedReqs] = useState<Set<number>>(new Set());
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterMilestone, setFilterMilestone] = useState<string>("all");
+  const [exportingBsb, setExportingBsb] = useState(false);
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -426,6 +430,36 @@ export default function TraceabilityMatrix() {
     URL.revokeObjectURL(url);
   };
 
+  // ─── BSB-template RTM export ───────────────────────────────────────────────
+  // Server-generated (GET /traceability/export-bsb), unlike handleExport
+  // above which builds its file client-side from the already-loaded tree.
+  // Needs one specific project + milestone (the endpoint requires both), so
+  // it's only enabled once the filters narrow down to exactly that.
+  const handleExportBsb = async () => {
+    setExportingBsb(true);
+    try {
+      const res = await fetch(
+        `${getApiUrl()}/traceability/export-bsb?projectId=${filterProject}&milestoneId=${filterMilestone}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to export RTM");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `RTM_BSB_${format(new Date(), "yyyyMMdd")}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast({ variant: "destructive", title: "BSB RTM export failed", description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setExportingBsb(false);
+    }
+  };
+
   // ─── Recursive requirement rows ───────────────────────────────────────────
   const renderReqRows = (req: TraceabilityRow, depth: number, index: number): React.ReactNode => {
     // CR017 target #3 — an out-of-milestone ancestor exists purely to show
@@ -555,10 +589,22 @@ export default function TraceabilityMatrix() {
             Requirements → Test Cases → Execution Results
           </p>
         </div>
-        <Button onClick={handleExport} variant="outline" className="gap-2" disabled={rows.length === 0}>
-          <Download className="w-4 h-4" />
-          Export Excel
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleExport} variant="outline" className="gap-2" disabled={rows.length === 0}>
+            <Download className="w-4 h-4" />
+            Export Excel
+          </Button>
+          <Button
+            onClick={handleExportBsb}
+            variant="outline"
+            className="gap-2"
+            disabled={filterProject === "all" || filterMilestone === "all" || exportingBsb}
+            title={filterProject === "all" || filterMilestone === "all" ? "Pick a project and a milestone first" : undefined}
+          >
+            {exportingBsb ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            Export RTM (BSB)
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
