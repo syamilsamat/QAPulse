@@ -340,6 +340,232 @@ router.get("/traceability/export", async (req, res): Promise<void> => {
   }
 });
 
+// ── BSB-template RTM export ─────────────────────────────────────────────────
+// A client-supplied sign-off template (BSB-PS-TEM–30–V1.0) with a fixed
+// column layout that doesn't match /traceability/export's own shape. Five of
+// its columns (SRS section, Design section, User Manual, Unit Test, Build
+// Number) have no corresponding data anywhere in this schema — QM Pulse only
+// tracks QA/system-level test cases, not dev unit tests or doc section refs
+// — so those stay blank for manual entry, same as the template's own
+// "Ref. No." doc-control code. Change Request (CR No.) piggybacks on the
+// existing parentId link: a requirement created to amend another one is
+// shown as its own row with only the CR column filled, mirroring how BSB's
+// own sample data lists a CR as a standalone row rather than repeating the
+// original BRS number. Release Number only has a real source when the
+// requirement's own milestone is itself a 'release'-type milestone —
+// milestones don't nest (a 'phase' milestone has no link back to the
+// 'release' milestone that contains it), so a phase-scoped export (the
+// common case) leaves it blank rather than guessing.
+router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
+  try {
+    const ctx = getAuthContext(req);
+    if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (!XlsxPopulate) {
+      res.status(500).json({ error: "Excel generator unavailable on the server" });
+      return;
+    }
+
+    const projectId = Number(req.query.projectId);
+    const milestoneId = Number(req.query.milestoneId);
+    if (!projectId || Number.isNaN(projectId)) { res.status(400).json({ error: "projectId is required" }); return; }
+    if (!milestoneId || Number.isNaN(milestoneId)) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (accessible !== null && !accessible.includes(projectId)) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    const { rows: scopeRows } = await pool.query(
+      `SELECT m.id, m.name AS milestone_name, m.type AS milestone_type, p.name AS project_name
+       FROM milestones m JOIN projects p ON p.id = m.project_id
+       WHERE m.id = $1 AND m.project_id = $2`,
+      [milestoneId, projectId],
+    );
+    if (scopeRows.length === 0) { res.status(404).json({ error: "Milestone not found in this project" }); return; }
+    const { milestone_name: milestoneName, milestone_type: milestoneType, project_name: projectName } = scopeRows[0];
+    const releaseNumber = milestoneType === "release" ? milestoneName : "";
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        r.id                       AS req_id,
+        r.redmine_ticket_id        AS req_redmine_id,
+        r.module                   AS req_module,
+        r.parent_id                AS parent_id,
+        tc.case_id                 AS tc_case_id,
+        latest_etc.etc_case_id
+      FROM requirements r
+      LEFT JOIN test_cases tc ON tc.requirement_id = r.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(e.test_case_id, e.case_id) AS etc_case_id
+        FROM execution_test_cases e
+        JOIN execution_files ef ON ef.id = e.execution_file_id
+        WHERE e.library_tc_id = tc.id
+        ORDER BY e.id DESC
+        LIMIT 1
+      ) latest_etc ON true
+      WHERE r.project_id = $1 AND r.milestone_id = $2
+      ORDER BY r.id, tc.id
+      `,
+      [projectId, milestoneId],
+    );
+
+    // One row per requirement — collapse the per-test-case join rows above
+    // into a single comma-joined, de-duplicated case-ID list per requirement.
+    const byReq = new Map<number, { redmineId: string | null; module: string | null; parentId: number | null; caseIds: Set<string> }>();
+    for (const r of rows) {
+      let entry = byReq.get(r.req_id);
+      if (!entry) {
+        entry = { redmineId: r.req_redmine_id ?? null, module: r.req_module ?? null, parentId: r.parent_id ?? null, caseIds: new Set() };
+        byReq.set(r.req_id, entry);
+      }
+      const caseId = r.etc_case_id ?? r.tc_case_id;
+      if (caseId) entry.caseIds.add(caseId);
+    }
+
+    // ── Document Information (revision history) ─────────────────────────────
+    // One row per approved requirement and one per approved execution file —
+    // nothing still in draft/in-review has an approvedAt to log against, so
+    // those are simply absent rather than shown with a blank date.
+    const { rows: reqRevisions } = await pool.query(
+      `
+      SELECT r.title, r.approved_at, author.name AS author_name, approver.name AS approver_name
+      FROM requirements r
+      LEFT JOIN users author ON author.id = r.created_by
+      LEFT JOIN users approver ON approver.id = r.approved_by
+      WHERE r.project_id = $1 AND r.milestone_id = $2 AND r.review_status = 'approved' AND r.approved_at IS NOT NULL
+      `,
+      [projectId, milestoneId],
+    );
+    const { rows: fileRevisions } = await pool.query(
+      `
+      SELECT ef.title, ef.approved_at, creator.name AS creator_name, approver.name AS approver_name
+      FROM execution_files ef
+      LEFT JOIN users creator ON creator.id = ef.created_by
+      LEFT JOIN users approver ON approver.id = ef.approved_by
+      WHERE ef.project_id = $1 AND ef.milestone_id = $2 AND ef.review_status = 'approved' AND ef.approved_at IS NOT NULL
+      `,
+      [projectId, milestoneId],
+    );
+
+    interface RevisionRow { date: Date; updatedBy: string; summary: string; reviewedBy: string; reviewedDate: Date }
+    const revisions: RevisionRow[] = [
+      ...reqRevisions.map((r): RevisionRow => ({
+        date: r.approved_at, updatedBy: r.author_name ?? "", summary: `Update BRS for ${r.title}`,
+        reviewedBy: r.approver_name ?? "", reviewedDate: r.approved_at,
+      })),
+      ...fileRevisions.map((f): RevisionRow => ({
+        date: f.approved_at, updatedBy: f.creator_name ?? "", summary: `Update TC for ${f.title}`,
+        reviewedBy: f.approver_name ?? "", reviewedDate: f.approved_at,
+      })),
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const wb = await XlsxPopulate.fromBlankAsync();
+
+    // Single sheet, not two: xlsx-populate@1.21.0's addSheet() (the version
+    // pinned for this whole workspace) omits the second sheet's required
+    // Content_Types override, producing genuinely invalid OOXML — confirmed
+    // by unzipping the output and inspecting the XML directly. Nothing else
+    // in this codebase calls addSheet today, so this isn't a regression,
+    // just a latent bug this export would otherwise be the first to
+    // trigger. A stacked single-sheet layout gets the same information
+    // across without depending on that code path.
+    const sheet = wb.sheet(0);
+    sheet.name("RTM");
+
+    // ── Doc Info header block ───────────────────────────────────────────────
+    sheet.range("B1:F1").merged(true);
+    sheet.cell("B1").value("Requirements").style({ bold: true, fontSize: 11 });
+    sheet.range("B2:F2").merged(true);
+    sheet.cell("B2").value("Requirement Traceability Matrix").style({ bold: true, fontSize: 14 });
+    sheet.cell("H1").value("Ref. No.: BSB-PS-TEM–30–V1.0").style({ italic: true, fontSize: 9 });
+    sheet.range("B3:C3").merged(true);
+    sheet.cell("B3").value("Project Name").style({ bold: true });
+    sheet.range("D3:F3").merged(true);
+    // BSB's own template fills this field with the phase/workstream name
+    // ("FWe Approval"), not the top-level system name ("eQuota") — that
+    // only ever appears in their file-naming convention, never inside the
+    // sheet. milestoneName is the QM Pulse equivalent of what they actually
+    // put here; projectName has no slot in this template at all.
+    sheet.cell("D3").value(milestoneName ?? "");
+
+    // ── Document Information (revision history) ─────────────────────────────
+    const DOC_INFO_ROW = 5;
+    sheet.range(`B${DOC_INFO_ROW}:G${DOC_INFO_ROW}`).merged(true);
+    sheet.cell(`B${DOC_INFO_ROW}`).value("Document Information").style({ bold: true, fill: "D9E2F3" });
+    const REV_HEADER_ROW = DOC_INFO_ROW + 1;
+    ["Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"].forEach((h, i) => {
+      sheet.row(REV_HEADER_ROW).cell(i + 2).value(h).style({ bold: true, border: true, wrapText: true });
+    });
+    revisions.forEach((rev, i) => {
+      const r = REV_HEADER_ROW + 1 + i;
+      const values = [i + 1, rev.date, rev.updatedBy, rev.summary, rev.reviewedBy, rev.reviewedDate];
+      values.forEach((v, j) => {
+        const cell = sheet.row(r).cell(j + 2).value(v).style({ border: true, verticalAlignment: "top", fontSize: 10, wrapText: j === 3 });
+        if (j === 1 || j === 5) cell.style("numberFormat", "dd-mmm-yy");
+      });
+    });
+
+    // ── Traceability Matrix ──────────────────────────────────────────────────
+    const TITLE_ROW = REV_HEADER_ROW + revisions.length + 2;
+    const HEADER_ROW = TITLE_ROW + 1;
+    sheet.range(`B${TITLE_ROW}:K${TITLE_ROW}`).merged(true);
+    sheet.cell(`B${TITLE_ROW}`).value("Requirement Traceability Matrix").style({
+      bold: true, fontSize: 14, fontColor: "FFFFFF", fill: "1F4E79",
+      horizontalAlignment: "center", verticalAlignment: "center",
+    });
+    sheet.row(TITLE_ROW).height(24);
+
+    const HEADERS = [
+      "BRS (Req ID, No.)", " Change Request \n(CR No.)", "SRS \n(Section Number)",
+      "Software Design \n(Section Number)", "Source Code (Module Name) ", "User Manual",
+      "Unit Test \n(Test Case Number)", "System/\nIntegration Test \n(Test Case Number)",
+      "Build Number", "Release Number",
+    ];
+    HEADERS.forEach((h, i) => {
+      sheet.row(HEADER_ROW).cell(i + 2).value(h).style({
+        bold: true, fontColor: "FFFFFF", fill: "2E75B6",
+        horizontalAlignment: "center", verticalAlignment: "center", wrapText: true, border: true,
+      });
+    });
+    sheet.row(HEADER_ROW).height(34);
+    [12, 14, 16, 16, 20, 14, 16, 24, 12, 14].forEach((w, i) => sheet.column(i + 2).width(w));
+
+    let rowNum = HEADER_ROW + 1;
+    for (const entry of byReq.values()) {
+      const isChangeRequest = entry.parentId != null;
+      const values = [
+        isChangeRequest ? "" : entry.redmineId ?? "",  // B — BRS
+        isChangeRequest ? entry.redmineId ?? "" : "",  // C — CR No.
+        "",                                            // D — SRS section (no source)
+        "",                                            // E — Design section (no source)
+        entry.module ?? "",                            // F — Module
+        "",                                            // G — User Manual (no source)
+        "",                                            // H — Unit Test (no source)
+        [...entry.caseIds].sort().join(", "),           // I — System/Integration Test
+        "",                                            // J — Build Number (no source)
+        releaseNumber,                                  // K — Release Number
+      ];
+      values.forEach((v, i) => {
+        sheet.row(rowNum).cell(i + 2).value(v).style({ border: true, verticalAlignment: "top", wrapText: i === 7, fontSize: 10 });
+      });
+      rowNum++;
+    }
+
+    sheet.freezePanes(0, HEADER_ROW);
+
+    const buf = await wb.outputAsync("nodebuffer");
+    const safeName = (milestoneName ?? projectName ?? "RTM").replace(/[^\w-]+/g, "_").slice(0, 60);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="RTM_BSB_${safeName}.xlsx"`);
+    res.send(Buffer.isBuffer(buf) ? buf : Buffer.from(buf));
+  } catch (err: any) {
+    console.error("[GET /traceability/export-bsb]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to export BSB-template RTM" });
+  }
+});
+
 router.get("/traceability", async (req, res): Promise<void> => {
   try {
     const ctx = getAuthContext(req);
