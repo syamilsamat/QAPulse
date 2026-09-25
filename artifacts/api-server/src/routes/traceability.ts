@@ -481,36 +481,40 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
     // ever appears in their file-naming convention, never inside the sheet.
     // milestoneName is the QM Pulse equivalent of what they actually put
     // here; projectName has no slot in this template at all.
+    // Row numbers below match the uploaded template exactly (verified cell by
+    // cell against a cleared copy of it): B1, B3, G4, B5/D5, B7, B8:G8, data
+    // from row 9. Getting this off by even one row was a real bug in an
+    // earlier version of this route — the sheet still opened fine, so it
+    // wasn't visible without diffing against the real file.
     const docInfoAoa: any[][] = [
-      [],
-      ["", "Requirements"],
-      [],
-      ["", "Requirement Traceability Matrix", "", "", "", "", "Ref. No.: BSB-PS-TEM–30–V1.0"],
-      [],
-      ["", "Project Name", "", milestoneName ?? ""],
-      [],
-      ["", "Document Information"],
-      ["", "Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"],
-      ...revisions.map((rev, i) => ["", i + 1, fmtDate(rev.date), rev.updatedBy, rev.summary, rev.reviewedBy, fmtDate(rev.reviewedDate)]),
+      ["", "Requirements"],                                                  // row 1
+      [],                                                                    // row 2
+      ["", "Requirement Traceability Matrix"],                               // row 3
+      ["", "", "", "", "", "", "Ref. No.: BSB-PS-TEM–30–V1.0"],              // row 4 — G4
+      ["", "Project Name", "", milestoneName ?? ""],                         // row 5
+      [],                                                                    // row 6
+      ["", "Document Information"],                                         // row 7
+      ["", "Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"], // row 8
+      ...revisions.map((rev, i) => ["", i + 1, fmtDate(rev.date), rev.updatedBy, rev.summary, rev.reviewedBy, fmtDate(rev.reviewedDate)]), // row 9+
     ];
     const docInfoWs = XLSXJS.utils.aoa_to_sheet(docInfoAoa);
     docInfoWs["!merges"] = [
-      { s: { r: 1, c: 1 }, e: { r: 1, c: 5 } },  // B2:F2 "Requirements"
-      { s: { r: 3, c: 1 }, e: { r: 3, c: 5 } },  // B4:F4 title
-      { s: { r: 5, c: 1 }, e: { r: 5, c: 2 } },  // B6:C6 "Project Name" label
-      { s: { r: 5, c: 3 }, e: { r: 5, c: 5 } },  // D6:F6 value
-      { s: { r: 7, c: 1 }, e: { r: 7, c: 6 } },  // B8:G8 "Document Information" banner
+      { s: { r: 0, c: 1 }, e: { r: 0, c: 5 } },  // B1:F1 "Requirements"
+      { s: { r: 2, c: 1 }, e: { r: 2, c: 5 } },  // B3:F3 title
+      { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },  // B5:C5 "Project Name" label
+      { s: { r: 4, c: 3 }, e: { r: 4, c: 5 } },  // D5:F5 value
+      { s: { r: 6, c: 1 }, e: { r: 6, c: 6 } },  // B7:G7 "Document Information" banner
     ];
     docInfoWs["!cols"] = [{ wch: 3 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 46 }, { wch: 18 }, { wch: 14 }];
 
-    setStyle(docInfoWs, "B2", { font: { bold: true, sz: 11 } });
-    setStyle(docInfoWs, "B4", { font: { bold: true, sz: 14 } });
+    setStyle(docInfoWs, "B1", { font: { bold: true, sz: 11 } });
+    setStyle(docInfoWs, "B3", { font: { bold: true, sz: 14 } });
     setStyle(docInfoWs, "G4", { font: { italic: true, sz: 9 } });
-    setStyle(docInfoWs, "B6", { font: { bold: true } });
-    setStyle(docInfoWs, "B8", { font: { bold: true }, fill: { fgColor: { rgb: "D9E2F3" } } });
-    "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}9`, { font: { bold: true }, border: THIN_BORDER }));
+    setStyle(docInfoWs, "B5", { font: { bold: true } });
+    setStyle(docInfoWs, "B7", { font: { bold: true }, fill: { fgColor: { rgb: "D9E2F3" } } });
+    "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}8`, { font: { bold: true }, border: THIN_BORDER }));
     for (let i = 0; i < revisions.length; i++) {
-      const r = 10 + i;
+      const r = 9 + i;
       "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}${r}`, { border: THIN_BORDER, alignment: { vertical: "top" } }));
     }
 
@@ -522,9 +526,8 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
       "Build Number", "Release Number",
     ];
     const matrixAoa: any[][] = [
-      [],
-      ["", "Requirement Traceability Matrix"],
-      ["", ...HEADERS],
+      ["", "Requirement Traceability Matrix"],  // row 1
+      ["", ...HEADERS],                         // row 2
     ];
     for (const entry of byReq.values()) {
       const isChangeRequest = entry.parentId != null;
@@ -543,10 +546,10 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
       ]);
     }
     const matrixWs = XLSXJS.utils.aoa_to_sheet(matrixAoa);
-    matrixWs["!merges"] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 10 } }];
+    matrixWs["!merges"] = [{ s: { r: 0, c: 1 }, e: { r: 0, c: 10 } }];  // B1:K1
     matrixWs["!cols"] = [{ wch: 3 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 14 }];
 
-    setStyle(matrixWs, "B2", {
+    setStyle(matrixWs, "B1", {
       font: { bold: true, sz: 14, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "1F4E79" } },
       alignment: { horizontal: "center", vertical: "center" },
     });
@@ -554,10 +557,10 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
       font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "2E75B6" } },
       alignment: { horizontal: "center", vertical: "center", wrapText: true }, border: THIN_BORDER,
     };
-    "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}3`, headerCellStyle));
+    "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}2`, headerCellStyle));
 
     const dataCellStyle = { border: THIN_BORDER, alignment: { vertical: "top" } };
-    for (let r = 4; r < 4 + byReq.size; r++) {
+    for (let r = 3; r < 3 + byReq.size; r++) {
       "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}${r}`, dataCellStyle));
     }
 
