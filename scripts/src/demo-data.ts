@@ -121,7 +121,12 @@ export const PROJECTS: DemoProject[] = [
     name: "Mobile Banking App — DEMO",
     description: "Mobile banking app covering fund transfers, bill payment, biometric login, and rewards.",
     teamKey: "banking-squad",
-    directMemberKeys: ["amir", "siti", "devan", "hafiz"],
+    // banking-squad's only QA member is weiling (qa_member) — no one there
+    // can sign off an execution file (that needs qa_lead+). Nadia (qa_lead,
+    // portal-squad) is added here as a cross-project member so she can
+    // approve banking's execution files too, same as she already does for
+    // banking's requirement reviews.
+    directMemberKeys: ["amir", "siti", "devan", "hafiz", "nadia"],
     moduleNames: ["Authentication", "Fund Transfer", "Statements", "Bill Payment", "Biometrics", "Rewards"],
   },
 ];
