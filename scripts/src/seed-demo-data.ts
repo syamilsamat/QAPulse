@@ -362,7 +362,19 @@ async function main() {
       const tcKey = row.libraryTcId != null ? tcKeyByLibraryId.get(row.libraryTcId) : undefined;
       if (tcKey) execRowIdByKey.set(`${ef.key}:${tcKey}`, row.id);
     }
-    console.log(`  + ${ef.title} (${ef.rows.length} rows)`);
+
+    // A file where every row has a real result (nothing left "Not Executed")
+    // is done — in a real QA process it would already have been submitted
+    // and signed off, not sitting untouched in Draft. Files still mid-run
+    // are left as Draft, which is the accurate state for unfinished work.
+    // Nadia (qa_lead) approves as someone other than the admin account that
+    // authored/submitted the file, since a submitter can't approve their own.
+    const fullyExecuted = ef.rows.every((row) => row.result !== "Not Executed");
+    if (fullyExecuted) {
+      await api(`/execution-files/${file.id}/review`, adminToken, { method: "PATCH", body: { action: "submit" } });
+      await api(`/execution-files/${file.id}/review`, tokenByKey.get("nadia")!, { method: "PATCH", body: { action: "approve" } });
+    }
+    console.log(`  + ${ef.title} (${ef.rows.length} rows)${fullyExecuted ? " — approved" : ""}`);
   }
 
   // ── 9. Defects ─────────────────────────────────────────────────────────────

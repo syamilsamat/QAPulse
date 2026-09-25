@@ -37,6 +37,12 @@ results, 6 defects (including a production escape with root-cause
 classification and an auto-created regression test case), and 12 tasks
 spread across the team with a couple deliberately overdue.
 
+Execution files also go through the real submit → approve workflow: any
+file where every row has a result (nothing left "Not Executed") is
+submitted and approved by Nadia (QA Lead) after creation, so it shows
+**Approved** rather than sitting in **Draft** forever. Files still mid-run
+are left as **Draft**, which is the accurate state for unfinished work.
+
 This is enough to make every major page — Requirements, Traceability
 Matrix, TC Library, Execution, Defects, Tasks, PM Dashboard, Milestones —
 show something real instead of empty states.
