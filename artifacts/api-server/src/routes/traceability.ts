@@ -427,13 +427,13 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
     const wb = await XlsxPopulate.fromBlankAsync();
 
     // Single sheet, not two: xlsx-populate@1.21.0's addSheet() (the version
-    // pinned for this whole workspace) omits the second sheet's Content_Types
-    // override, producing a workbook neither Excel-compatible parser opens
-    // (verified against openpyxl and LibreOffice) — confirmed nothing else in
-    // this codebase calls addSheet today, so this isn't a regression, just a
-    // latent bug this export would otherwise be the first to trigger. A
-    // stacked single-sheet layout gets the same information across without
-    // depending on that code path.
+    // pinned for this whole workspace) omits the second sheet's required
+    // Content_Types override, producing genuinely invalid OOXML — confirmed
+    // by unzipping the output and inspecting the XML directly. Nothing else
+    // in this codebase calls addSheet today, so this isn't a regression,
+    // just a latent bug this export would otherwise be the first to
+    // trigger. A stacked single-sheet layout gets the same information
+    // across without depending on that code path.
     const sheet = wb.sheet(0);
     sheet.name("RTM");
 
@@ -446,7 +446,12 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
     sheet.range("B3:C3").merged(true);
     sheet.cell("B3").value("Project Name").style({ bold: true });
     sheet.range("D3:F3").merged(true);
-    sheet.cell("D3").value(projectName ?? "");
+    // BSB's own template fills this field with the phase/workstream name
+    // ("FWe Approval"), not the top-level system name ("eQuota") — that
+    // only ever appears in their file-naming convention, never inside the
+    // sheet. milestoneName is the QM Pulse equivalent of what they actually
+    // put here; projectName has no slot in this template at all.
+    sheet.cell("D3").value(milestoneName ?? "");
     // Document Information's revision-history table is left out entirely —
     // QM Pulse has no single combined change log to source it from (see
     // comment above the route), and an empty table with no rows would just
