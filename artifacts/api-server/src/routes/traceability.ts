@@ -424,6 +424,43 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
       if (caseId) entry.caseIds.add(caseId);
     }
 
+    // ── Document Information (revision history) ─────────────────────────────
+    // One row per approved requirement and one per approved execution file —
+    // nothing still in draft/in-review has an approvedAt to log against, so
+    // those are simply absent rather than shown with a blank date.
+    const { rows: reqRevisions } = await pool.query(
+      `
+      SELECT r.title, r.approved_at, author.name AS author_name, approver.name AS approver_name
+      FROM requirements r
+      LEFT JOIN users author ON author.id = r.created_by
+      LEFT JOIN users approver ON approver.id = r.approved_by
+      WHERE r.project_id = $1 AND r.milestone_id = $2 AND r.review_status = 'approved' AND r.approved_at IS NOT NULL
+      `,
+      [projectId, milestoneId],
+    );
+    const { rows: fileRevisions } = await pool.query(
+      `
+      SELECT ef.title, ef.approved_at, creator.name AS creator_name, approver.name AS approver_name
+      FROM execution_files ef
+      LEFT JOIN users creator ON creator.id = ef.created_by
+      LEFT JOIN users approver ON approver.id = ef.approved_by
+      WHERE ef.project_id = $1 AND ef.milestone_id = $2 AND ef.review_status = 'approved' AND ef.approved_at IS NOT NULL
+      `,
+      [projectId, milestoneId],
+    );
+
+    interface RevisionRow { date: Date; updatedBy: string; summary: string; reviewedBy: string; reviewedDate: Date }
+    const revisions: RevisionRow[] = [
+      ...reqRevisions.map((r): RevisionRow => ({
+        date: r.approved_at, updatedBy: r.author_name ?? "", summary: `Update BRS for ${r.title}`,
+        reviewedBy: r.approver_name ?? "", reviewedDate: r.approved_at,
+      })),
+      ...fileRevisions.map((f): RevisionRow => ({
+        date: f.approved_at, updatedBy: f.creator_name ?? "", summary: `Update TC for ${f.title}`,
+        reviewedBy: f.approver_name ?? "", reviewedDate: f.approved_at,
+      })),
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+
     const wb = await XlsxPopulate.fromBlankAsync();
 
     // Single sheet, not two: xlsx-populate@1.21.0's addSheet() (the version
@@ -452,14 +489,27 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
     // sheet. milestoneName is the QM Pulse equivalent of what they actually
     // put here; projectName has no slot in this template at all.
     sheet.cell("D3").value(milestoneName ?? "");
-    // Document Information's revision-history table is left out entirely —
-    // QM Pulse has no single combined change log to source it from (see
-    // comment above the route), and an empty table with no rows would just
-    // be dead weight in a generated file.
+
+    // ── Document Information (revision history) ─────────────────────────────
+    const DOC_INFO_ROW = 5;
+    sheet.range(`B${DOC_INFO_ROW}:G${DOC_INFO_ROW}`).merged(true);
+    sheet.cell(`B${DOC_INFO_ROW}`).value("Document Information").style({ bold: true, fill: "D9E2F3" });
+    const REV_HEADER_ROW = DOC_INFO_ROW + 1;
+    ["Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"].forEach((h, i) => {
+      sheet.row(REV_HEADER_ROW).cell(i + 2).value(h).style({ bold: true, border: true, wrapText: true });
+    });
+    revisions.forEach((rev, i) => {
+      const r = REV_HEADER_ROW + 1 + i;
+      const values = [i + 1, rev.date, rev.updatedBy, rev.summary, rev.reviewedBy, rev.reviewedDate];
+      values.forEach((v, j) => {
+        const cell = sheet.row(r).cell(j + 2).value(v).style({ border: true, verticalAlignment: "top", fontSize: 10, wrapText: j === 3 });
+        if (j === 1 || j === 5) cell.style("numberFormat", "dd-mmm-yy");
+      });
+    });
 
     // ── Traceability Matrix ──────────────────────────────────────────────────
-    const TITLE_ROW = 5;
-    const HEADER_ROW = 6;
+    const TITLE_ROW = REV_HEADER_ROW + revisions.length + 2;
+    const HEADER_ROW = TITLE_ROW + 1;
     sheet.range(`B${TITLE_ROW}:K${TITLE_ROW}`).merged(true);
     sheet.cell(`B${TITLE_ROW}`).value("Requirement Traceability Matrix").style({
       bold: true, fontSize: 14, fontColor: "FFFFFF", fill: "1F4E79",
