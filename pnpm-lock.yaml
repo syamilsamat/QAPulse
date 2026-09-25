@@ -425,6 +425,9 @@ importers:
       xlsx:
         specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
         version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
+      xlsx-js-style:
+        specifier: ^1.2.0
+        version: 1.2.0
       xlsx-populate:
         specifier: ^1.21.0
         version: 1.21.0

@@ -2,13 +2,12 @@ import { useState, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
-import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
 import {
   ChevronDown,
   ChevronRight,
   CornerDownRight,
-  Download,
+  FileSpreadsheet,
   AlertTriangle,
   CheckCircle2,
   XCircle,
@@ -16,6 +15,7 @@ import {
   Clock,
   Loader2,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -168,11 +168,13 @@ function tcOutlineLabel(index: number): string {
 
 export default function TraceabilityMatrix() {
   const { token } = useAuth();
+  const { toast } = useToast();
   const [expandedReqs, setExpandedReqs] = useState<Set<number>>(new Set());
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterMilestone, setFilterMilestone] = useState<string>("all");
+  const [exportingBsb, setExportingBsb] = useState(false);
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -333,97 +335,36 @@ export default function TraceabilityMatrix() {
     noTcs: rows.filter((r) => r.overallStatus === "no-tcs").length,
   };
 
-  // ─── Excel export ─────────────────────────────────────────────────────────
-  const handleExport = () => {
-    const sheetData: any[][] = [
-      [
-        "Project", "Redmine ID", "Requirement", "Module", "Milestone", "Test Case ID", "TC Title",
-        "Result", "Defect #", "Executed At",
-      ],
-    ];
-
-    const pushReqRows = (req: TraceabilityRow, depth: number) => {
-      const title = depth > 0 ? `${"    ".repeat(depth)}↳ ${req.reqTitle}` : req.reqTitle;
-      const milestone = req.milestoneName ?? "—";
-
-      if (req.children.length > 0) {
-        sheetData.push([
-          "", req.reqRedmineId ?? req.reqId, title, req.reqModule ?? "", milestone, "", "",
-          `${req.passed}/${req.tcCount} passed (rolled up)`, "", "",
-        ]);
+  // ─── RTM export (BSB template) ───────────────────────────────────────────
+  // Server-generated (GET /traceability/export-bsb) — needs one specific
+  // project + milestone (the endpoint requires both), so it's only enabled
+  // once the filters narrow down to exactly that. This is the RTM's only
+  // Doc Info "Project Name" slot: it's inherently a per-milestone/phase
+  // sign-off document, not a project-wide rollup, so there's no meaningful
+  // export without picking a milestone.
+  const handleExportBsb = async () => {
+    setExportingBsb(true);
+    try {
+      const res = await fetch(
+        `${getApiUrl()}/traceability/export-bsb?projectId=${filterProject}&milestoneId=${filterMilestone}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to export RTM");
       }
-
-      if (req.testCases.length === 0 && req.children.length === 0) {
-        sheetData.push(["", req.reqRedmineId ?? req.reqId, title, req.reqModule ?? "", milestone, "", "", "No TCs", "", ""]);
-      } else {
-        for (const tc of req.testCases) {
-          const latest = tc.results[tc.results.length - 1];
-          sheetData.push([
-            "",
-            req.reqRedmineId ?? req.reqId,
-            title,
-            req.reqModule ?? "",
-            milestone,
-            tc.displayCaseId,
-            tc.tcTitle ?? "",
-            latest?.result ?? "Not Run",
-            latest?.defectNumber ?? "",
-            latest?.executedAt ? format(new Date(latest.executedAt), "yyyy-MM-dd HH:mm") : "",
-          ]);
-        }
-      }
-
-      for (const child of req.children) pushReqRows(child, depth + 1);
-    };
-
-    for (const group of groupedByProject) {
-      // Project group header row
-      sheetData.push([group.projectName ?? "No Project", "", "", "", "", "", "", "", "", ""]);
-      for (const req of group.rows) pushReqRows(req, 0);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `RTM_BSB_${format(new Date(), "yyyyMMdd")}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast({ variant: "destructive", title: "BSB RTM export failed", description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setExportingBsb(false);
     }
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-    // Style header row
-    const headerStyle = {
-      font: { bold: true, color: { rgb: "FFFFFF" } },
-      fill: { fgColor: { rgb: "274AB3" } },
-      alignment: { horizontal: "center" },
-    };
-    const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const cellRef = XLSX.utils.encode_cell({ r: 0, c });
-      if (ws[cellRef]) ws[cellRef].s = headerStyle;
-    }
-
-    // Color result cells
-    const resultCol = 7; // column H (0-indexed) — after adding Project and Milestone columns
-    for (let r = 1; r <= sheetData.length - 1; r++) {
-      const cellRef = XLSX.utils.encode_cell({ r, c: resultCol });
-      if (!ws[cellRef]) continue;
-      const val = (ws[cellRef].v ?? "").toString().toLowerCase();
-      let rgb = "D1D5DB"; // gray = not run
-      if (val === "passed" || val === "pass") rgb = "BBF7D0";
-      else if (val === "failed" || val === "fail") rgb = "FECACA";
-      else if (val === "blocked") rgb = "FED7AA";
-      ws[cellRef].s = { fill: { fgColor: { rgb } } };
-    }
-
-    ws["!cols"] = [
-      { wch: 25 }, { wch: 12 }, { wch: 40 }, { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 40 },
-      { wch: 12 }, { wch: 14 }, { wch: 20 },
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Traceability Matrix");
-    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([buf], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Traceability_Matrix_${format(new Date(), "yyyyMMdd")}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   // ─── Recursive requirement rows ───────────────────────────────────────────
@@ -555,9 +496,15 @@ export default function TraceabilityMatrix() {
             Requirements → Test Cases → Execution Results
           </p>
         </div>
-        <Button onClick={handleExport} variant="outline" className="gap-2" disabled={rows.length === 0}>
-          <Download className="w-4 h-4" />
-          Export Excel
+        <Button
+          onClick={handleExportBsb}
+          variant="outline"
+          className="gap-2"
+          disabled={filterProject === "all" || filterMilestone === "all" || exportingBsb}
+          title={filterProject === "all" || filterMilestone === "all" ? "Pick a project and a milestone first" : undefined}
+        >
+          {exportingBsb ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+          Export RTM
         </Button>
       </div>
 

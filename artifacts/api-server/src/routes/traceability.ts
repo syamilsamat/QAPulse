@@ -9,6 +9,16 @@ try {
   XlsxPopulate = require("xlsx-populate");
 } catch {}
 
+// xlsx-js-style, not xlsx-populate, for the BSB export below — that one needs
+// two real sheets, and xlsx-populate@1.21.0's addSheet() writes genuinely
+// invalid OOXML (confirmed by inspecting the raw XML: it omits the second
+// sheet's required Content_Types override). xlsx-js-style is the same
+// library the frontend's own client-side export already uses successfully.
+let XLSXJS: any = null;
+try {
+  XLSXJS = require("xlsx-js-style");
+} catch {}
+
 const router: IRouter = Router();
 
 interface TcResult {
@@ -337,6 +347,261 @@ router.get("/traceability/export", async (req, res): Promise<void> => {
   } catch (err: any) {
     console.error("[GET /traceability/export]", err);
     res.status(500).json({ error: err?.message ?? "Failed to export RTM" });
+  }
+});
+
+// ── BSB-template RTM export ─────────────────────────────────────────────────
+// A client-supplied sign-off template (BSB-PS-TEM–30–V1.0) with a fixed
+// column layout that doesn't match /traceability/export's own shape. Five of
+// its columns (SRS section, Design section, User Manual, Unit Test, Build
+// Number) have no corresponding data anywhere in this schema — QM Pulse only
+// tracks QA/system-level test cases, not dev unit tests or doc section refs
+// — so those stay blank for manual entry, same as the template's own
+// "Ref. No." doc-control code. Change Request (CR No.) piggybacks on the
+// existing parentId link: a requirement created to amend another one is
+// shown as its own row with only the CR column filled, mirroring how BSB's
+// own sample data lists a CR as a standalone row rather than repeating the
+// original BRS number. Release Number only has a real source when the
+// requirement's own milestone is itself a 'release'-type milestone —
+// milestones don't nest (a 'phase' milestone has no link back to the
+// 'release' milestone that contains it), so a phase-scoped export (the
+// common case) leaves it blank rather than guessing.
+router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
+  try {
+    const ctx = getAuthContext(req);
+    if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (!XLSXJS) {
+      res.status(500).json({ error: "Excel generator unavailable on the server" });
+      return;
+    }
+
+    const projectId = Number(req.query.projectId);
+    const milestoneId = Number(req.query.milestoneId);
+    if (!projectId || Number.isNaN(projectId)) { res.status(400).json({ error: "projectId is required" }); return; }
+    if (!milestoneId || Number.isNaN(milestoneId)) { res.status(400).json({ error: "milestoneId is required" }); return; }
+
+    const accessible = await scopeToUserProjects(ctx.userId, ctx.role);
+    if (accessible !== null && !accessible.includes(projectId)) {
+      res.status(403).json({ error: "Access denied to this project" });
+      return;
+    }
+
+    const { rows: scopeRows } = await pool.query(
+      `SELECT m.id, m.name AS milestone_name, m.type AS milestone_type, p.name AS project_name
+       FROM milestones m JOIN projects p ON p.id = m.project_id
+       WHERE m.id = $1 AND m.project_id = $2`,
+      [milestoneId, projectId],
+    );
+    if (scopeRows.length === 0) { res.status(404).json({ error: "Milestone not found in this project" }); return; }
+    const { milestone_name: milestoneName, milestone_type: milestoneType, project_name: projectName } = scopeRows[0];
+    const releaseNumber = milestoneType === "release" ? milestoneName : "";
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        r.id                       AS req_id,
+        r.redmine_ticket_id        AS req_redmine_id,
+        r.module                   AS req_module,
+        r.parent_id                AS parent_id,
+        tc.case_id                 AS tc_case_id,
+        latest_etc.etc_case_id
+      FROM requirements r
+      LEFT JOIN test_cases tc ON tc.requirement_id = r.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(e.test_case_id, e.case_id) AS etc_case_id
+        FROM execution_test_cases e
+        JOIN execution_files ef ON ef.id = e.execution_file_id
+        WHERE e.library_tc_id = tc.id
+        ORDER BY e.id DESC
+        LIMIT 1
+      ) latest_etc ON true
+      WHERE r.project_id = $1 AND r.milestone_id = $2
+      ORDER BY r.id, tc.id
+      `,
+      [projectId, milestoneId],
+    );
+
+    // One row per requirement — collapse the per-test-case join rows above
+    // into a single comma-joined, de-duplicated case-ID list per requirement.
+    const byReq = new Map<number, { redmineId: string | null; module: string | null; parentId: number | null; caseIds: Set<string> }>();
+    for (const r of rows) {
+      let entry = byReq.get(r.req_id);
+      if (!entry) {
+        entry = { redmineId: r.req_redmine_id ?? null, module: r.req_module ?? null, parentId: r.parent_id ?? null, caseIds: new Set() };
+        byReq.set(r.req_id, entry);
+      }
+      const caseId = r.etc_case_id ?? r.tc_case_id;
+      if (caseId) entry.caseIds.add(caseId);
+    }
+
+    // ── Document Information (revision history) ─────────────────────────────
+    // One row per approved requirement and one per approved execution file —
+    // nothing still in draft/in-review has an approvedAt to log against, so
+    // those are simply absent rather than shown with a blank date.
+    const { rows: reqRevisions } = await pool.query(
+      `
+      SELECT r.title, r.approved_at, author.name AS author_name, approver.name AS approver_name
+      FROM requirements r
+      LEFT JOIN users author ON author.id = r.created_by
+      LEFT JOIN users approver ON approver.id = r.approved_by
+      WHERE r.project_id = $1 AND r.milestone_id = $2 AND r.review_status = 'approved' AND r.approved_at IS NOT NULL
+      `,
+      [projectId, milestoneId],
+    );
+    const { rows: fileRevisions } = await pool.query(
+      `
+      SELECT ef.title, ef.approved_at, creator.name AS creator_name, approver.name AS approver_name
+      FROM execution_files ef
+      LEFT JOIN users creator ON creator.id = ef.created_by
+      LEFT JOIN users approver ON approver.id = ef.approved_by
+      WHERE ef.project_id = $1 AND ef.milestone_id = $2 AND ef.review_status = 'approved' AND ef.approved_at IS NOT NULL
+      `,
+      [projectId, milestoneId],
+    );
+
+    interface RevisionRow { date: Date; updatedBy: string; summary: string; reviewedBy: string; reviewedDate: Date }
+    const revisions: RevisionRow[] = [
+      ...reqRevisions.map((r): RevisionRow => ({
+        date: r.approved_at, updatedBy: r.author_name ?? "", summary: `Update BRS for ${r.title}`,
+        reviewedBy: r.approver_name ?? "", reviewedDate: r.approved_at,
+      })),
+      ...fileRevisions.map((f): RevisionRow => ({
+        date: f.approved_at, updatedBy: f.creator_name ?? "", summary: `Update TC for ${f.title}`,
+        reviewedBy: f.approver_name ?? "", reviewedDate: f.approved_at,
+      })),
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+    const setStyle = (ws: any, addr: string, style: any) => { if (ws[addr]) ws[addr].s = style; };
+    const THIN_BORDER = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
+    const MEDIUM_BORDER = { top: { style: "medium" }, bottom: { style: "medium" }, left: { style: "medium" }, right: { style: "medium" } };
+    // Matches the real template exactly (confirmed cell-by-cell against a
+    // copy of it): Arial throughout, a neutral gray banner fill — not the
+    // blue scheme an earlier version of this route invented — and every
+    // table cell bordered, not just the ones with a value.
+    const GRAY_FILL = { fgColor: { rgb: "D9D9D9" } };
+    const ARIAL = "Arial";
+
+    // ── Doc Info sheet ───────────────────────────────────────────────────────
+    // BSB's own template fills "Project Name" with the phase/workstream name
+    // ("FWe Approval"), not the top-level system name ("eQuota") — that only
+    // ever appears in their file-naming convention, never inside the sheet.
+    // milestoneName is the QM Pulse equivalent of what they actually put
+    // here; projectName has no slot in this template at all.
+    // Row numbers below match the uploaded template exactly (verified cell by
+    // cell against a cleared copy of it): B1, B3, G4, B5/D5, B7, B8:G8, data
+    // from row 9. Getting this off by even one row was a real bug in an
+    // earlier version of this route — the sheet still opened fine, so it
+    // wasn't visible without diffing against the real file.
+    const docInfoAoa: any[][] = [
+      ["", "Requirements"],                                                  // row 1
+      [],                                                                    // row 2
+      ["", "Requirement Traceability Matrix"],                               // row 3
+      ["", "", "", "", "", "", "Ref. No.: BSB-PS-TEM–30–V1.0"],              // row 4 — G4
+      ["", "Project Name", "", milestoneName ?? ""],                         // row 5
+      [],                                                                    // row 6
+      ["", "Document Information"],                                         // row 7
+      ["", "Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"], // row 8
+      ...revisions.map((rev, i) => ["", i + 1, fmtDate(rev.date), rev.updatedBy, rev.summary, rev.reviewedBy, fmtDate(rev.reviewedDate)]), // row 9+
+    ];
+    const docInfoWs = XLSXJS.utils.aoa_to_sheet(docInfoAoa);
+    docInfoWs["!merges"] = [
+      { s: { r: 0, c: 1 }, e: { r: 0, c: 5 } },  // B1:F1 "Requirements"
+      { s: { r: 2, c: 1 }, e: { r: 2, c: 5 } },  // B3:F3 title
+      { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },  // B5:C5 "Project Name" label
+      { s: { r: 4, c: 3 }, e: { r: 4, c: 5 } },  // D5:F5 value
+      { s: { r: 6, c: 1 }, e: { r: 6, c: 6 } },  // B7:G7 "Document Information" banner
+    ];
+    docInfoWs["!cols"] = [{ wch: 2.5 }, { wch: 6 }, { wch: 12.7 }, { wch: 16.3 }, { wch: 46 }, { wch: 16.3 }, { wch: 24 }];
+    docInfoWs["!rows"] = [{ hpt: 28.5 }, {}, { hpt: 26.25 }, {}, {}, {}, { hpt: 18 }];
+
+    const labelBannerStyle = { font: { name: ARIAL, bold: true, sz: 14 }, fill: GRAY_FILL, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top" } };
+    setStyle(docInfoWs, "B1", labelBannerStyle);
+    setStyle(docInfoWs, "B3", labelBannerStyle);
+    setStyle(docInfoWs, "G4", { font: { name: ARIAL, sz: 10 }, alignment: { horizontal: "right", vertical: "top" } });
+    setStyle(docInfoWs, "B5", { font: { name: ARIAL, bold: true, sz: 10 }, fill: GRAY_FILL, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top" } });
+    setStyle(docInfoWs, "D5", { font: { name: ARIAL, sz: 10 }, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top" } });
+    setStyle(docInfoWs, "B7", labelBannerStyle);
+    "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}8`, {
+      font: { name: ARIAL, bold: true, sz: 10 }, fill: GRAY_FILL, border: THIN_BORDER,
+      alignment: { horizontal: "center", vertical: "top", wrapText: true },
+    }));
+    for (let i = 0; i < revisions.length; i++) {
+      const r = 9 + i;
+      "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}${r}`, {
+        font: { name: ARIAL, sz: 10 }, border: THIN_BORDER,
+        alignment: { horizontal: col === "B" || col === "C" || col === "G" ? "center" : "left", vertical: "top", wrapText: true },
+      }));
+    }
+
+    // ── Traceability Matrix sheet ────────────────────────────────────────────
+    const HEADERS = [
+      "BRS (Req ID, No.)", " Change Request \n(CR No.)", "SRS \n(Section Number)",
+      "Software Design \n(Section Number)", "Source Code (Module Name) ", "User Manual",
+      "Unit Test \n(Test Case Number)", "System/\nIntegration Test \n(Test Case Number)",
+      "Build Number", "Release Number",
+    ];
+    const matrixAoa: any[][] = [
+      ["", "Requirement Traceability Matrix"],  // row 1
+      ["", ...HEADERS],                         // row 2
+    ];
+    for (const entry of byReq.values()) {
+      const isChangeRequest = entry.parentId != null;
+      matrixAoa.push([
+        "",
+        isChangeRequest ? "" : entry.redmineId ?? "",   // B — BRS
+        isChangeRequest ? entry.redmineId ?? "" : "",   // C — CR No.
+        "",                                             // D — SRS section (no source)
+        "",                                             // E — Design section (no source)
+        entry.module ?? "",                             // F — Module
+        "",                                             // G — User Manual (no source)
+        "",                                             // H — Unit Test (no source)
+        [...entry.caseIds].sort().join(", "),            // I — System/Integration Test
+        "",                                             // J — Build Number (no source)
+        releaseNumber,                                   // K — Release Number
+      ]);
+    }
+    const matrixWs = XLSXJS.utils.aoa_to_sheet(matrixAoa);
+    matrixWs["!merges"] = [{ s: { r: 0, c: 1 }, e: { r: 0, c: 10 } }];  // B1:K1
+    matrixWs["!cols"] = [{ wch: 1.8 }, { wch: 10.7 }, { wch: 17 }, { wch: 19 }, { wch: 17 }, { wch: 17.7 }, { wch: 13.5 }, { wch: 16 }, { wch: 31.3 }, { wch: 18.5 }, { wch: 15.7 }];
+    matrixWs["!rows"] = [{ hpt: 31 }, { hpt: 42.75 }];
+
+    setStyle(matrixWs, "B1", {
+      font: { name: ARIAL, bold: true, sz: 24 }, fill: GRAY_FILL, border: MEDIUM_BORDER,
+      alignment: { horizontal: "center", vertical: "top" },
+    });
+    "CDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}1`, { border: { top: { style: "medium" }, bottom: { style: "medium" } } }));
+
+    const headerCellStyle = {
+      font: { name: ARIAL, bold: true, sz: 10 }, fill: GRAY_FILL,
+      alignment: { horizontal: "center", vertical: "top", wrapText: true },
+      border: { top: { style: "medium" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } },
+    };
+    "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}2`, headerCellStyle));
+    // Outer box edges of the header row are medium, matching the template.
+    setStyle(matrixWs, "B2", { ...headerCellStyle, border: { ...headerCellStyle.border, left: { style: "medium" } } });
+    setStyle(matrixWs, "K2", { ...headerCellStyle, border: { ...headerCellStyle.border, right: { style: "medium" } } });
+
+    const dataCellStyle = { font: { name: ARIAL, sz: 10 }, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top", wrapText: true } };
+    for (let r = 3; r < 3 + byReq.size; r++) {
+      "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}${r}`, dataCellStyle));
+      // Outer left/right box edges of the whole table are medium.
+      setStyle(matrixWs, `B${r}`, { ...dataCellStyle, alignment: { horizontal: "center", vertical: "top", wrapText: true }, border: { ...dataCellStyle.border, left: { style: "medium" } } });
+      setStyle(matrixWs, `K${r}`, { ...dataCellStyle, border: { ...dataCellStyle.border, right: { style: "medium" } } });
+    }
+
+    const wb = XLSXJS.utils.book_new();
+    XLSXJS.utils.book_append_sheet(wb, docInfoWs, "Doc Info");
+    XLSXJS.utils.book_append_sheet(wb, matrixWs, "Traceability Matrix");
+    const buf = XLSXJS.write(wb, { bookType: "xlsx", type: "buffer" });
+
+    const safeName = (milestoneName ?? projectName ?? "RTM").replace(/[^\w-]+/g, "_").slice(0, 60);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="RTM_BSB_${safeName}.xlsx"`);
+    res.send(buf);
+  } catch (err: any) {
+    console.error("[GET /traceability/export-bsb]", err);
+    res.status(500).json({ error: err?.message ?? "Failed to export BSB-template RTM" });
   }
 });
 
