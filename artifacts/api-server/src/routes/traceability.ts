@@ -9,6 +9,16 @@ try {
   XlsxPopulate = require("xlsx-populate");
 } catch {}
 
+// xlsx-js-style, not xlsx-populate, for the BSB export below — that one needs
+// two real sheets, and xlsx-populate@1.21.0's addSheet() writes genuinely
+// invalid OOXML (confirmed by inspecting the raw XML: it omits the second
+// sheet's required Content_Types override). xlsx-js-style is the same
+// library the frontend's own client-side export already uses successfully.
+let XLSXJS: any = null;
+try {
+  XLSXJS = require("xlsx-js-style");
+} catch {}
+
 const router: IRouter = Router();
 
 interface TcResult {
@@ -360,7 +370,7 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
   try {
     const ctx = getAuthContext(req);
     if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-    if (!XlsxPopulate) {
+    if (!XLSXJS) {
       res.status(500).json({ error: "Excel generator unavailable on the server" });
       return;
     }
@@ -461,105 +471,105 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
       })),
     ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    const wb = await XlsxPopulate.fromBlankAsync();
+    const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+    const setStyle = (ws: any, addr: string, style: any) => { if (ws[addr]) ws[addr].s = style; };
+    const THIN_BORDER = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
 
-    // Single sheet, not two: xlsx-populate@1.21.0's addSheet() (the version
-    // pinned for this whole workspace) omits the second sheet's required
-    // Content_Types override, producing genuinely invalid OOXML — confirmed
-    // by unzipping the output and inspecting the XML directly. Nothing else
-    // in this codebase calls addSheet today, so this isn't a regression,
-    // just a latent bug this export would otherwise be the first to
-    // trigger. A stacked single-sheet layout gets the same information
-    // across without depending on that code path.
-    const sheet = wb.sheet(0);
-    sheet.name("RTM");
+    // ── Doc Info sheet ───────────────────────────────────────────────────────
+    // BSB's own template fills "Project Name" with the phase/workstream name
+    // ("FWe Approval"), not the top-level system name ("eQuota") — that only
+    // ever appears in their file-naming convention, never inside the sheet.
+    // milestoneName is the QM Pulse equivalent of what they actually put
+    // here; projectName has no slot in this template at all.
+    const docInfoAoa: any[][] = [
+      [],
+      ["", "Requirements"],
+      [],
+      ["", "Requirement Traceability Matrix", "", "", "", "", "Ref. No.: BSB-PS-TEM–30–V1.0"],
+      [],
+      ["", "Project Name", "", milestoneName ?? ""],
+      [],
+      ["", "Document Information"],
+      ["", "Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"],
+      ...revisions.map((rev, i) => ["", i + 1, fmtDate(rev.date), rev.updatedBy, rev.summary, rev.reviewedBy, fmtDate(rev.reviewedDate)]),
+    ];
+    const docInfoWs = XLSXJS.utils.aoa_to_sheet(docInfoAoa);
+    docInfoWs["!merges"] = [
+      { s: { r: 1, c: 1 }, e: { r: 1, c: 5 } },  // B2:F2 "Requirements"
+      { s: { r: 3, c: 1 }, e: { r: 3, c: 5 } },  // B4:F4 title
+      { s: { r: 5, c: 1 }, e: { r: 5, c: 2 } },  // B6:C6 "Project Name" label
+      { s: { r: 5, c: 3 }, e: { r: 5, c: 5 } },  // D6:F6 value
+      { s: { r: 7, c: 1 }, e: { r: 7, c: 6 } },  // B8:G8 "Document Information" banner
+    ];
+    docInfoWs["!cols"] = [{ wch: 3 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 46 }, { wch: 18 }, { wch: 14 }];
 
-    // ── Doc Info header block ───────────────────────────────────────────────
-    sheet.range("B1:F1").merged(true);
-    sheet.cell("B1").value("Requirements").style({ bold: true, fontSize: 11 });
-    sheet.range("B2:F2").merged(true);
-    sheet.cell("B2").value("Requirement Traceability Matrix").style({ bold: true, fontSize: 14 });
-    sheet.cell("H1").value("Ref. No.: BSB-PS-TEM–30–V1.0").style({ italic: true, fontSize: 9 });
-    sheet.range("B3:C3").merged(true);
-    sheet.cell("B3").value("Project Name").style({ bold: true });
-    sheet.range("D3:F3").merged(true);
-    // BSB's own template fills this field with the phase/workstream name
-    // ("FWe Approval"), not the top-level system name ("eQuota") — that
-    // only ever appears in their file-naming convention, never inside the
-    // sheet. milestoneName is the QM Pulse equivalent of what they actually
-    // put here; projectName has no slot in this template at all.
-    sheet.cell("D3").value(milestoneName ?? "");
+    setStyle(docInfoWs, "B2", { font: { bold: true, sz: 11 } });
+    setStyle(docInfoWs, "B4", { font: { bold: true, sz: 14 } });
+    setStyle(docInfoWs, "G4", { font: { italic: true, sz: 9 } });
+    setStyle(docInfoWs, "B6", { font: { bold: true } });
+    setStyle(docInfoWs, "B8", { font: { bold: true }, fill: { fgColor: { rgb: "D9E2F3" } } });
+    "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}9`, { font: { bold: true }, border: THIN_BORDER }));
+    for (let i = 0; i < revisions.length; i++) {
+      const r = 10 + i;
+      "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}${r}`, { border: THIN_BORDER, alignment: { vertical: "top" } }));
+    }
 
-    // ── Document Information (revision history) ─────────────────────────────
-    const DOC_INFO_ROW = 5;
-    sheet.range(`B${DOC_INFO_ROW}:G${DOC_INFO_ROW}`).merged(true);
-    sheet.cell(`B${DOC_INFO_ROW}`).value("Document Information").style({ bold: true, fill: "D9E2F3" });
-    const REV_HEADER_ROW = DOC_INFO_ROW + 1;
-    ["Sl #", "Date", "Updated By", "Update Summary ", "Reviewed By", "Reviewed Date"].forEach((h, i) => {
-      sheet.row(REV_HEADER_ROW).cell(i + 2).value(h).style({ bold: true, border: true, wrapText: true });
-    });
-    revisions.forEach((rev, i) => {
-      const r = REV_HEADER_ROW + 1 + i;
-      const values = [i + 1, rev.date, rev.updatedBy, rev.summary, rev.reviewedBy, rev.reviewedDate];
-      values.forEach((v, j) => {
-        const cell = sheet.row(r).cell(j + 2).value(v).style({ border: true, verticalAlignment: "top", fontSize: 10, wrapText: j === 3 });
-        if (j === 1 || j === 5) cell.style("numberFormat", "dd-mmm-yy");
-      });
-    });
-
-    // ── Traceability Matrix ──────────────────────────────────────────────────
-    const TITLE_ROW = REV_HEADER_ROW + revisions.length + 2;
-    const HEADER_ROW = TITLE_ROW + 1;
-    sheet.range(`B${TITLE_ROW}:K${TITLE_ROW}`).merged(true);
-    sheet.cell(`B${TITLE_ROW}`).value("Requirement Traceability Matrix").style({
-      bold: true, fontSize: 14, fontColor: "FFFFFF", fill: "1F4E79",
-      horizontalAlignment: "center", verticalAlignment: "center",
-    });
-    sheet.row(TITLE_ROW).height(24);
-
+    // ── Traceability Matrix sheet ────────────────────────────────────────────
     const HEADERS = [
       "BRS (Req ID, No.)", " Change Request \n(CR No.)", "SRS \n(Section Number)",
       "Software Design \n(Section Number)", "Source Code (Module Name) ", "User Manual",
       "Unit Test \n(Test Case Number)", "System/\nIntegration Test \n(Test Case Number)",
       "Build Number", "Release Number",
     ];
-    HEADERS.forEach((h, i) => {
-      sheet.row(HEADER_ROW).cell(i + 2).value(h).style({
-        bold: true, fontColor: "FFFFFF", fill: "2E75B6",
-        horizontalAlignment: "center", verticalAlignment: "center", wrapText: true, border: true,
-      });
-    });
-    sheet.row(HEADER_ROW).height(34);
-    [12, 14, 16, 16, 20, 14, 16, 24, 12, 14].forEach((w, i) => sheet.column(i + 2).width(w));
-
-    let rowNum = HEADER_ROW + 1;
+    const matrixAoa: any[][] = [
+      [],
+      ["", "Requirement Traceability Matrix"],
+      ["", ...HEADERS],
+    ];
     for (const entry of byReq.values()) {
       const isChangeRequest = entry.parentId != null;
-      const values = [
-        isChangeRequest ? "" : entry.redmineId ?? "",  // B — BRS
-        isChangeRequest ? entry.redmineId ?? "" : "",  // C — CR No.
-        "",                                            // D — SRS section (no source)
-        "",                                            // E — Design section (no source)
-        entry.module ?? "",                            // F — Module
-        "",                                            // G — User Manual (no source)
-        "",                                            // H — Unit Test (no source)
-        [...entry.caseIds].sort().join(", "),           // I — System/Integration Test
-        "",                                            // J — Build Number (no source)
-        releaseNumber,                                  // K — Release Number
-      ];
-      values.forEach((v, i) => {
-        sheet.row(rowNum).cell(i + 2).value(v).style({ border: true, verticalAlignment: "top", wrapText: i === 7, fontSize: 10 });
-      });
-      rowNum++;
+      matrixAoa.push([
+        "",
+        isChangeRequest ? "" : entry.redmineId ?? "",   // B — BRS
+        isChangeRequest ? entry.redmineId ?? "" : "",   // C — CR No.
+        "",                                             // D — SRS section (no source)
+        "",                                             // E — Design section (no source)
+        entry.module ?? "",                             // F — Module
+        "",                                             // G — User Manual (no source)
+        "",                                             // H — Unit Test (no source)
+        [...entry.caseIds].sort().join(", "),            // I — System/Integration Test
+        "",                                             // J — Build Number (no source)
+        releaseNumber,                                   // K — Release Number
+      ]);
+    }
+    const matrixWs = XLSXJS.utils.aoa_to_sheet(matrixAoa);
+    matrixWs["!merges"] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 10 } }];
+    matrixWs["!cols"] = [{ wch: 3 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 14 }];
+
+    setStyle(matrixWs, "B2", {
+      font: { bold: true, sz: 14, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "1F4E79" } },
+      alignment: { horizontal: "center", vertical: "center" },
+    });
+    const headerCellStyle = {
+      font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "2E75B6" } },
+      alignment: { horizontal: "center", vertical: "center", wrapText: true }, border: THIN_BORDER,
+    };
+    "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}3`, headerCellStyle));
+
+    const dataCellStyle = { border: THIN_BORDER, alignment: { vertical: "top" } };
+    for (let r = 4; r < 4 + byReq.size; r++) {
+      "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}${r}`, dataCellStyle));
     }
 
-    sheet.freezePanes(0, HEADER_ROW);
+    const wb = XLSXJS.utils.book_new();
+    XLSXJS.utils.book_append_sheet(wb, docInfoWs, "Doc Info");
+    XLSXJS.utils.book_append_sheet(wb, matrixWs, "Traceability Matrix");
+    const buf = XLSXJS.write(wb, { bookType: "xlsx", type: "buffer" });
 
-    const buf = await wb.outputAsync("nodebuffer");
     const safeName = (milestoneName ?? projectName ?? "RTM").replace(/[^\w-]+/g, "_").slice(0, 60);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="RTM_BSB_${safeName}.xlsx"`);
-    res.send(Buffer.isBuffer(buf) ? buf : Buffer.from(buf));
+    res.send(buf);
   } catch (err: any) {
     console.error("[GET /traceability/export-bsb]", err);
     res.status(500).json({ error: err?.message ?? "Failed to export BSB-template RTM" });

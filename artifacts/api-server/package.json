@@ -37,6 +37,7 @@
     "pino-http": "^10",
     "puppeteer": "^25.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "xlsx-js-style": "^1.2.0",
     "xlsx-populate": "^1.21.0"
   },
   "devDependencies": {
