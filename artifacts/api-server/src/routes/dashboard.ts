@@ -1,6 +1,6 @@
 import { isDevelopmentTaskStart, DEVELOPMENT_TASK_EVENT_TYPES } from "./development-task-events";
 import { Router, type IRouter } from "express";
-import { eq, and, or, desc, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, inArray, notInArray, isNotNull } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, milestoneAssigneesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
 import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
@@ -2158,7 +2158,12 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
   const limit = parsed.success && parsed.data.limit ? parsed.data.limit : 20;
   const userId = parsed.success ? parsed.data.userId : undefined;
 
-  const query = db.select().from(activityTable).orderBy(desc(activityTable.createdAt)).limit(limit);
+  // Keep authentication events in the audit log, but don't let them consume
+  // the Recent Activity slots on the dashboard.
+  const query = db.select().from(activityTable)
+    .where(notInArray(activityTable.type, ["user_login", "user_logout"]))
+    .orderBy(desc(activityTable.createdAt))
+    .limit(limit);
 
   const activities = await query;
 
