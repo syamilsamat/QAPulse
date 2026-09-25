@@ -474,6 +474,13 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
     const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
     const setStyle = (ws: any, addr: string, style: any) => { if (ws[addr]) ws[addr].s = style; };
     const THIN_BORDER = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
+    const MEDIUM_BORDER = { top: { style: "medium" }, bottom: { style: "medium" }, left: { style: "medium" }, right: { style: "medium" } };
+    // Matches the real template exactly (confirmed cell-by-cell against a
+    // copy of it): Arial throughout, a neutral gray banner fill — not the
+    // blue scheme an earlier version of this route invented — and every
+    // table cell bordered, not just the ones with a value.
+    const GRAY_FILL = { fgColor: { rgb: "D9D9D9" } };
+    const ARIAL = "Arial";
 
     // ── Doc Info sheet ───────────────────────────────────────────────────────
     // BSB's own template fills "Project Name" with the phase/workstream name
@@ -505,17 +512,26 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
       { s: { r: 4, c: 3 }, e: { r: 4, c: 5 } },  // D5:F5 value
       { s: { r: 6, c: 1 }, e: { r: 6, c: 6 } },  // B7:G7 "Document Information" banner
     ];
-    docInfoWs["!cols"] = [{ wch: 3 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 46 }, { wch: 18 }, { wch: 14 }];
+    docInfoWs["!cols"] = [{ wch: 2.5 }, { wch: 6 }, { wch: 12.7 }, { wch: 16.3 }, { wch: 46 }, { wch: 16.3 }, { wch: 24 }];
+    docInfoWs["!rows"] = [{ hpt: 28.5 }, {}, { hpt: 26.25 }, {}, {}, {}, { hpt: 18 }];
 
-    setStyle(docInfoWs, "B1", { font: { bold: true, sz: 11 } });
-    setStyle(docInfoWs, "B3", { font: { bold: true, sz: 14 } });
-    setStyle(docInfoWs, "G4", { font: { italic: true, sz: 9 } });
-    setStyle(docInfoWs, "B5", { font: { bold: true } });
-    setStyle(docInfoWs, "B7", { font: { bold: true }, fill: { fgColor: { rgb: "D9E2F3" } } });
-    "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}8`, { font: { bold: true }, border: THIN_BORDER }));
+    const labelBannerStyle = { font: { name: ARIAL, bold: true, sz: 14 }, fill: GRAY_FILL, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top" } };
+    setStyle(docInfoWs, "B1", labelBannerStyle);
+    setStyle(docInfoWs, "B3", labelBannerStyle);
+    setStyle(docInfoWs, "G4", { font: { name: ARIAL, sz: 10 }, alignment: { horizontal: "right", vertical: "top" } });
+    setStyle(docInfoWs, "B5", { font: { name: ARIAL, bold: true, sz: 10 }, fill: GRAY_FILL, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top" } });
+    setStyle(docInfoWs, "D5", { font: { name: ARIAL, sz: 10 }, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top" } });
+    setStyle(docInfoWs, "B7", labelBannerStyle);
+    "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}8`, {
+      font: { name: ARIAL, bold: true, sz: 10 }, fill: GRAY_FILL, border: THIN_BORDER,
+      alignment: { horizontal: "center", vertical: "top", wrapText: true },
+    }));
     for (let i = 0; i < revisions.length; i++) {
       const r = 9 + i;
-      "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}${r}`, { border: THIN_BORDER, alignment: { vertical: "top" } }));
+      "BCDEFG".split("").forEach((col) => setStyle(docInfoWs, `${col}${r}`, {
+        font: { name: ARIAL, sz: 10 }, border: THIN_BORDER,
+        alignment: { horizontal: col === "B" || col === "C" || col === "G" ? "center" : "left", vertical: "top", wrapText: true },
+      }));
     }
 
     // ── Traceability Matrix sheet ────────────────────────────────────────────
@@ -547,21 +563,31 @@ router.get("/traceability/export-bsb", async (req, res): Promise<void> => {
     }
     const matrixWs = XLSXJS.utils.aoa_to_sheet(matrixAoa);
     matrixWs["!merges"] = [{ s: { r: 0, c: 1 }, e: { r: 0, c: 10 } }];  // B1:K1
-    matrixWs["!cols"] = [{ wch: 3 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 14 }];
+    matrixWs["!cols"] = [{ wch: 1.8 }, { wch: 10.7 }, { wch: 17 }, { wch: 19 }, { wch: 17 }, { wch: 17.7 }, { wch: 13.5 }, { wch: 16 }, { wch: 31.3 }, { wch: 18.5 }, { wch: 15.7 }];
+    matrixWs["!rows"] = [{ hpt: 31 }, { hpt: 42.75 }];
 
     setStyle(matrixWs, "B1", {
-      font: { bold: true, sz: 14, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "1F4E79" } },
-      alignment: { horizontal: "center", vertical: "center" },
+      font: { name: ARIAL, bold: true, sz: 24 }, fill: GRAY_FILL, border: MEDIUM_BORDER,
+      alignment: { horizontal: "center", vertical: "top" },
     });
+    "CDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}1`, { border: { top: { style: "medium" }, bottom: { style: "medium" } } }));
+
     const headerCellStyle = {
-      font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "2E75B6" } },
-      alignment: { horizontal: "center", vertical: "center", wrapText: true }, border: THIN_BORDER,
+      font: { name: ARIAL, bold: true, sz: 10 }, fill: GRAY_FILL,
+      alignment: { horizontal: "center", vertical: "top", wrapText: true },
+      border: { top: { style: "medium" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } },
     };
     "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}2`, headerCellStyle));
+    // Outer box edges of the header row are medium, matching the template.
+    setStyle(matrixWs, "B2", { ...headerCellStyle, border: { ...headerCellStyle.border, left: { style: "medium" } } });
+    setStyle(matrixWs, "K2", { ...headerCellStyle, border: { ...headerCellStyle.border, right: { style: "medium" } } });
 
-    const dataCellStyle = { border: THIN_BORDER, alignment: { vertical: "top" } };
+    const dataCellStyle = { font: { name: ARIAL, sz: 10 }, border: THIN_BORDER, alignment: { horizontal: "left", vertical: "top", wrapText: true } };
     for (let r = 3; r < 3 + byReq.size; r++) {
       "BCDEFGHIJK".split("").forEach((col) => setStyle(matrixWs, `${col}${r}`, dataCellStyle));
+      // Outer left/right box edges of the whole table are medium.
+      setStyle(matrixWs, `B${r}`, { ...dataCellStyle, alignment: { horizontal: "center", vertical: "top", wrapText: true }, border: { ...dataCellStyle.border, left: { style: "medium" } } });
+      setStyle(matrixWs, `K${r}`, { ...dataCellStyle, border: { ...dataCellStyle.border, right: { style: "medium" } } });
     }
 
     const wb = XLSXJS.utils.book_new();
