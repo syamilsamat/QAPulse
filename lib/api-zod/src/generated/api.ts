@@ -198,7 +198,11 @@ export const GetUserStatsResponse = zod.object({
   "userName": zod.string().nullish(),
   "entityId": zod.number().nullish(),
   "entityType": zod.string().nullish(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "projectId": zod.number().optional(),
+  "projectName": zod.string().optional(),
+  "href": zod.string().nullish(),
+  "cursor": zod.string().optional()
 })).optional()
 })
 
@@ -1137,11 +1141,43 @@ export const GetWeeklyTrendResponse = zod.array(GetWeeklyTrendResponseItem)
 
 
 /**
- * @summary Get recent activity feed
+ * @summary List accessible activity projects and permitted member filters
  */
+
+
+
+export const GetRecentActivityOptionsQueryParams = zod.object({
+  "projectId": zod.coerce.number().min(1).optional()
+})
+
+export const GetRecentActivityOptionsResponse = zod.object({
+  "projects": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "members": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+}))
+})
+
+
+/**
+ * Login/logout and unresolved or deleted resources are excluded. Descriptions contain safe action summaries, not audit comments. Filters apply before pagination.
+ * @summary Get work activity within current project and module grants
+ */
+
+
+export const getRecentActivityQueryLimitDefault = 20;
+export const getRecentActivityQueryLimitMax = 100;
+
+
+
 export const GetRecentActivityQueryParams = zod.object({
-  "userId": zod.coerce.number().optional(),
-  "limit": zod.coerce.number().optional()
+  "userId": zod.coerce.number().min(1).optional(),
+  "projectId": zod.coerce.number().min(1).optional(),
+  "cursor": zod.coerce.string().optional().describe('Cursor from the last displayed item on the preceding page'),
+  "limit": zod.coerce.number().min(1).max(getRecentActivityQueryLimitMax).default(getRecentActivityQueryLimitDefault)
 })
 
 export const GetRecentActivityResponseItem = zod.object({
@@ -1152,7 +1188,11 @@ export const GetRecentActivityResponseItem = zod.object({
   "userName": zod.string().nullish(),
   "entityId": zod.number().nullish(),
   "entityType": zod.string().nullish(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "projectId": zod.number().optional(),
+  "projectName": zod.string().optional(),
+  "href": zod.string().nullish(),
+  "cursor": zod.string().optional()
 })
 export const GetRecentActivityResponse = zod.array(GetRecentActivityResponseItem)
 

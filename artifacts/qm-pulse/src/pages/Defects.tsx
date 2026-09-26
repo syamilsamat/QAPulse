@@ -251,7 +251,10 @@ export default function Defects() {
       setTab(deepLinkedTab);
     }
     const highlight = Number(new URLSearchParams(searchString).get("highlight"));
-    if (Number.isInteger(highlight) && highlight > 0) setExpanded(new Set([highlight]));
+    if (Number.isInteger(highlight) && highlight > 0) {
+      setExpanded(new Set([highlight]));
+      setView("all");
+    }
   }, [deepLinkedTab, searchString]);
   const [onlyUnavailable, setOnlyUnavailable] = useState(false);
   const [checkingId, setCheckingId] = useState<number | null>(null);

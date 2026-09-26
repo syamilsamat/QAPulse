@@ -1,8 +1,9 @@
+import recentActivityRouter from "./recent-activity";
 import { isDevelopmentTaskStart, DEVELOPMENT_TASK_EVENT_TYPES } from "./development-task-events";
 import { Router, type IRouter } from "express";
-import { eq, and, or, desc, inArray, notInArray, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, inArray, isNotNull } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, milestoneAssigneesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
-import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
+import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
 const router: IRouter = Router();
@@ -2153,37 +2154,7 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
   res.json(trendData);
 });
 
-router.get("/dashboard/activity", async (req, res): Promise<void> => {
-  const parsed = GetRecentActivityQueryParams.safeParse(req.query);
-  const limit = parsed.success && parsed.data.limit ? parsed.data.limit : 20;
-  const userId = parsed.success ? parsed.data.userId : undefined;
-
-  // Keep authentication events in the audit log, but don't let them consume
-  // the Recent Activity slots on the dashboard.
-  const query = db.select().from(activityTable)
-    .where(notInArray(activityTable.type, ["user_login", "user_logout"]))
-    .orderBy(desc(activityTable.createdAt))
-    .limit(limit);
-
-  const activities = await query;
-
-  const usersMap: Record<number, string> = {};
-  const users = await db.select().from(usersTable);
-  users.forEach(u => { usersMap[u.id] = u.name; });
-
-  const filtered = userId ? activities.filter(a => a.userId === userId) : activities;
-
-  res.json(filtered.map(a => ({
-    id: a.id,
-    type: a.type,
-    description: a.description,
-    userId: a.userId,
-    userName: a.userId ? (usersMap[a.userId] ?? null) : null,
-    entityId: a.entityId,
-    entityType: a.entityType,
-    createdAt: a.createdAt.toISOString(),
-  })));
-});
+router.use(recentActivityRouter);
 
 // ── CR026: QA Analytics Dashboard ────────────────────────────────────────────
 

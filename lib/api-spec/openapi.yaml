@@ -1032,29 +1032,87 @@ paths:
                 items:
                   $ref: "#/components/schemas/WeeklyTrendPoint"
 
+  /dashboard/activity/options:
+    get:
+      operationId: getRecentActivityOptions
+      tags: [dashboard]
+      summary: List accessible activity projects and permitted member filters
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Projects and members allowed for the current user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects, members]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityChoice"
+                  members:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityChoice"
+        "401":
+          description: Authentication required
+        "403":
+          description: Project access denied
+        "503":
+          description: Access scope could not be resolved
+
   /dashboard/activity:
     get:
       operationId: getRecentActivity
       tags: [dashboard]
-      summary: Get recent activity feed
+      summary: Get work activity within current project and module grants
+      description: Login/logout and unresolved or deleted resources are excluded. Descriptions contain safe action summaries, not audit comments. Filters apply before pagination.
       parameters:
         - name: userId
           in: query
           schema:
             type: integer
+            minimum: 1
+        - name: projectId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: cursor
+          in: query
+          description: Cursor from the last displayed item on the preceding page
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
       responses:
         "200":
-          description: Activity feed
+          description: Activity feed ordered by creation time and ID descending
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/ActivityItem"
+        "400":
+          description: Invalid filter or cursor
+        "401":
+          description: Authentication required
+        "403":
+          description: Project or member filter access denied
+        "503":
+          description: Activity unavailable; access fails closed
 
 components:
   schemas:
@@ -1771,6 +1829,15 @@ components:
         testCases:
           type: integer
 
+    ActivityChoice:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
     ActivityItem:
       type: object
       required: [id, type, description, createdAt]
@@ -1790,6 +1857,15 @@ components:
         entityType:
           type: ["string", "null"]
         createdAt:
+          type: string
+
+        projectId:
+          type: integer
+        projectName:
+          type: string
+        href:
+          type: ["string", "null"]
+        cursor:
           type: string
 
     AssignTaskBody:
