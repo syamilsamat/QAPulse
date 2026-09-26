@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, and, ne, inArray, sql } from "drizzle-orm";
+import { eq, and, ne, inArray, sql, desc } from "drizzle-orm";
 import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, executionTestCasesTable, uatSignoffsTable, dataPrepFilesTable, risksTable } from "@workspace/db";
-import { getAuthContext, canAccessProject } from "../middleware/access";
+import { getAuthContext, canAccessProject, getRoleDepartment } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyRolesInProject, notifyUser } from "./_notify";
@@ -29,7 +29,7 @@ function canWrite(role: string) {
   // pm_lead/pm_member were missing here even though dashboard.ts's PM_ROLES
   // already treats them as legitimate PM roles for reading milestone data —
   // without them a PM couldn't create, edit, or close their own milestones.
-  return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(role);
+  return ["admin", "qa_lead", "fa_lead", "dev_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(role);
 }
 
 // QA Pipeline milestones (pipelineEnabled: true) are meant to be owned by the
@@ -178,7 +178,7 @@ router.get("/milestones", async (req, res): Promise<void> => {
 
   const rows = await db.select().from(milestonesTable)
     .where(eq(milestonesTable.projectId, projectId))
-    .orderBy(milestonesTable.targetDate);
+    .orderBy(desc(milestonesTable.createdAt));
 
   const ids = rows.map(m => m.id);
   const reqs = ids.length
@@ -286,7 +286,9 @@ router.post("/milestones", async (req, res): Promise<void> => {
     type,
     status,
     priority: priority ?? null,
-    targetDate: targetDate ? new Date(targetDate) : null,
+    // DEF-0013 — Target Date is no longer a client-facing field; it tracks
+    // Go-Live Date automatically so the two never drift apart.
+    targetDate: goLiveDate ? new Date(goLiveDate) : (targetDate ? new Date(targetDate) : null),
     startDate: startDate ? new Date(startDate) : null,
     reqTargetDate: reqTargetDate ? new Date(reqTargetDate) : null,
     devTargetDate: devTargetDate ? new Date(devTargetDate) : null,
@@ -465,7 +467,12 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.devTargetDate !== undefined) update.devTargetDate = req.body.devTargetDate ? new Date(req.body.devTargetDate) : null;
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
   if (req.body.uatTargetDate !== undefined) update.uatTargetDate = req.body.uatTargetDate ? new Date(req.body.uatTargetDate) : null;
-  if (req.body.goLiveDate !== undefined) update.goLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
+  if (req.body.goLiveDate !== undefined) {
+    update.goLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
+    // DEF-0013 — Target Date is no longer a client-facing field; keep it in
+    // sync with Go-Live Date whenever the latter changes.
+    update.targetDate = update.goLiveDate;
+  }
   if (req.body.environment !== undefined) {
     if (req.body.environment != null && !VALID_ENVIRONMENTS.includes(req.body.environment)) {
       res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
@@ -596,6 +603,24 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
     res.status(400).json({ error: "User has no access to this project — grant project membership first" }); return;
   }
 
+  // DEF-0019 — department-restricted staffing: a department lead can only
+  // staff their own department, PM-tier can staff qa/dev/fa, and HOD/CTO/admin
+  // are unrestricted.
+  const SINGLE_DEPT_LEADS: Record<string, string> = { qa_lead: "qa", dev_lead: "dev", fa_lead: "fa" };
+  const PM_TIER = ["pm_lead", "pm_member"];
+  if (ctx.role in SINGLE_DEPT_LEADS) {
+    const targetDept = await getRoleDepartment(target.role);
+    if (targetDept !== SINGLE_DEPT_LEADS[ctx.role]) {
+      res.status(403).json({ error: `${ctx.role.replace("_lead", "").toUpperCase()} Lead can only assign ${SINGLE_DEPT_LEADS[ctx.role]} department members` }); return;
+    }
+  } else if (PM_TIER.includes(ctx.role)) {
+    const targetDept = await getRoleDepartment(target.role);
+    if (!targetDept || !["qa", "dev", "fa"].includes(targetDept)) {
+      res.status(403).json({ error: "PM roles can only assign QA, Dev, or FA department members" }); return;
+    }
+  }
+  // hod_*/cto/admin fall through unrestricted.
+
   const existing = await db.select().from(milestoneAssigneesTable)
     .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
   if (existing.length > 0) { res.json({ ok: true, already: true }); return; }
@@ -603,6 +628,17 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
   await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
   await logActivity({ type: "milestone_assignee_added", description: `${target.name} assigned to milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", id, (ctx as any).id ?? ctx.userId).catch(() => {});
+
+  // A lead staffing their department onto a milestone should be on it too.
+  if (ctx.role in SINGLE_DEPT_LEADS) {
+    const leadId = (ctx as any).id ?? ctx.userId;
+    const leadExisting = await db.select().from(milestoneAssigneesTable)
+      .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, leadId)));
+    if (leadExisting.length === 0) {
+      await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId: leadId, assignedBy: leadId });
+    }
+  }
+
   res.status(201).json({ ok: true });
 });
 

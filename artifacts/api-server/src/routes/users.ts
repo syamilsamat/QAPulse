@@ -52,7 +52,8 @@ function formatUser(u: typeof usersTable.$inferSelect, includeSecrets = false) {
 router.get("/users", async (req, res): Promise<void> => {
   if (!requireAuth(req, res)) return;
   const parsed = ListUsersQueryParams.safeParse(req.query);
-  let users = await db.select().from(usersTable).orderBy(usersTable.name);
+  // DEF-0027 — newest-first, like every other list endpoint; was alphabetical.
+  let users = await db.select().from(usersTable).orderBy(desc(usersTable.createdAt));
 
   if (parsed.success) {
     const { role, search } = parsed.data;

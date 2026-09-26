@@ -279,7 +279,7 @@ export default function Milestones() {
       const res = await api(`/milestones/assignable-users?projectId=${filterProject}`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: dialogOpen && !editing && form.type === "data_prep" && filterProject !== "all",
+    enabled: dialogOpen && !editing && filterProject !== "all",
   });
   const addPendingAssignee = (userId: string) => {
     setPendingAssigneePick("");
@@ -338,7 +338,8 @@ export default function Milestones() {
         type: form.type,
         status: form.status,
         priority: form.priority === "none" ? null : form.priority,
-        targetDate: form.targetDate || null,
+        // DEF-0013 — targetDate is no longer a client-facing field; the
+        // server derives it from goLiveDate.
         startDate: form.startDate || null,
         reqTargetDate: form.reqTargetDate || null,
         devTargetDate: form.devTargetDate || null,
@@ -552,14 +553,6 @@ export default function Milestones() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Target Date</Label>
-                <Input
-                  type="date"
-                  value={form.targetDate}
-                  onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
                 <Label>Environment</Label>
                 <Select value={form.environment} onValueChange={(v) => setForm({ ...form, environment: v })}>
                   <SelectTrigger>
@@ -618,10 +611,10 @@ export default function Milestones() {
                 />
               </div>
             )}
-            {!editing && form.type === "data_prep" && canWrite && (
+            {!editing && canWrite && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5" /> QA assigned to prepare this data
+                  <Users className="w-3.5 h-3.5" /> {form.type === "data_prep" ? "QA assigned to prepare this data" : "Team"}
                 </Label>
                 <div className="flex flex-wrap gap-1.5">
                   {pendingAssignees.map((a) => (

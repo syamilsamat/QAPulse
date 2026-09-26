@@ -591,6 +591,9 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       milestoneId: milestoneId ? Number(milestoneId) : null,
       fileType: fileType || "qa",
       qaPicSetBy: ctx.userId,
+      // DEF-0024 — author of record, so submit-for-review can be restricted
+      // to whoever actually created this file.
+      createdBy: ctx.userId,
     };
 
     let file: typeof executionFilesTable.$inferSelect | undefined;
@@ -667,6 +670,7 @@ router.post("/execution-files", async (req, res): Promise<void> => {
       requirementId: file.requirementId,
       milestoneId: (file as any).milestoneId ?? null,
       fileType: (file as any).fileType ?? "qa",
+      createdBy: (file as any).createdBy ?? null,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     });
@@ -983,6 +987,14 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Access denied to this project" }); return;
     }
 
+    // DEF-0024 — only the file's author can submit it for review. canReview
+    // above just confirms the caller is QA-tier, not that they created this
+    // particular file. Rows created before the createdBy column existed have
+    // no author on record and stay open to any QA role, same as before.
+    if (action === "submit" && (file_ as any).createdBy != null && (file_ as any).createdBy !== ctx.userId) {
+      res.status(403).json({ error: "Only the author can submit this execution file for review" }); return;
+    }
+
     // Segregation of duties: the submitter can't approve or reject their own
     // file. executionFilesTable has no authorId — qaPicSetBy is stamped with
     // the submitter on "submit" below, so it is the accountable party here.
@@ -1114,6 +1126,60 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
   } catch (error) {
     console.error("Execution file review action failed:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /execution-test-cases/:id/content — DEF-0022: a row that was
+// returned for rework is held off the main sheet, so its author has no other
+// way to fix its Test Steps / Expected Result before resubmitting. Narrowly
+// scoped: author-only, and only while the row is actually in rework — general
+// row editing on the sheet goes through the bulk upsert endpoint below.
+router.patch("/execution-test-cases/:id/content", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const id = parseInt(req.params.id);
+  if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  try {
+    const [row] = await db.select().from(executionTestCasesTable).where(eq(executionTestCasesTable.id, id));
+    if (!row) { res.status(404).json({ error: "Test case row not found" }); return; }
+    const [file] = await db.select().from(executionFilesTable).where(eq(executionFilesTable.id, row.executionFileId));
+    if (!file) { res.status(404).json({ error: "Execution file not found" }); return; }
+    if (!(await canAccessFileProject(ctx, file.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+    // Same author-only gate as resubmit.
+    if ((row as any).addedBy !== ctx.userId) {
+      res.status(403).json({ error: "Only the person who added this test case can edit it" }); return;
+    }
+    if (((row as any).reviewState ?? "accepted") !== "rejected") {
+      res.status(409).json({ error: "Only a returned test case can be edited here" }); return;
+    }
+
+    const { testSteps, expectedResult } = req.body as { testSteps?: string; expectedResult?: string };
+    const update: Record<string, unknown> = {};
+    if (testSteps !== undefined) update.testSteps = testSteps;
+    if (expectedResult !== undefined) update.expectedResult = expectedResult;
+    if (Object.keys(update).length === 0) { res.status(400).json({ error: "Nothing to update" }); return; }
+
+    const [updated] = await db
+      .update(executionTestCasesTable)
+      .set(update)
+      .where(eq(executionTestCasesTable.id, id))
+      .returning();
+
+    await logActivity({
+      type: "execution_tc_edited",
+      description: `Test case "${row.testCaseId || row.caseName || `row ${row.id}`}" edited while in rework`,
+      userId: ctx.userId,
+      entityId: id,
+      entityType: "execution_test_case",
+    });
+
+    res.json(updated);
+  } catch {
+    res.status(500).json({ error: "Failed to update test case" });
   }
 });
 
@@ -1626,6 +1692,11 @@ router.get(
           caseName: t.caseName,
           moduleName: t.moduleName,
           libraryTcId: t.libraryTcId,
+          // DEF-0022 — the row's own content, so its author can fix it
+          // straight from the rework banner instead of needing it back on
+          // the (inaccessible while returned) main sheet.
+          testSteps: t.testSteps,
+          expectedResult: t.expectedResult,
           addedBy: (t as any).addedBy ?? null,
           addedByName: nameOf((t as any).addedBy),
           returnedByName: nameOf((t as any).returnedBy),
@@ -1759,6 +1830,22 @@ router.get(
           toStatus: null,
           label: "Returned for rework",
           reason: (row as any).reviewComment ?? null,
+        });
+      }
+      // DEF-0029 — the row's arrival itself is a lifecycle event distinct
+      // from any result change; without it, a freshly-added row that hasn't
+      // been executed yet had nothing in its trail explaining how it got
+      // there. reviewState "pending" means it's still awaiting the peer
+      // acceptance a file approved after this row was added requires.
+      if ((row as any).addedBy != null) {
+        entries.push({
+          kind: "lifecycle",
+          at: row.createdAt.toISOString(),
+          actorName: nameOf((row as any).addedBy),
+          fromStatus: null,
+          toStatus: null,
+          label: (row as any).reviewState === "pending" ? "Added — draft, pending peer acceptance" : "Added",
+          reason: null,
         });
       }
 
@@ -2074,6 +2161,12 @@ router.post(
           const oldResult = existing?.result ?? null;
           const newResult = (t.result?.trim() || null) as string | null;
           if (oldResult === newResult || (!oldResult && !newResult)) return [];
+          // DEF-0029 — a row's result defaults to the display string "Not
+          // Executed" rather than empty, so a brand-new row otherwise reads
+          // as a real null -> "Not Executed" transition. That's not a change
+          // anyone made; skip it (the "Added" entry below covers the row's
+          // actual arrival).
+          if (oldResult === null && newResult === "Not Executed") return [];
           const reason = typeof t.resultChangeReason === "string" ? t.resultChangeReason.trim() : "";
           return [{
             executionFileId: file.id,
