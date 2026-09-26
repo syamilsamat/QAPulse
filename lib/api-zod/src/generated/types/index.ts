@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './activityChoice';
 export * from './activityItem';
 export * from './aIGeneratedTestCase';
 export * from './aIGenerateInput';
@@ -20,6 +21,8 @@ export * from './calendarEventUpdate';
 export * from './changePasswordInput';
 export * from './dashboardSummary';
 export * from './getDashboardSummaryParams';
+export * from './getRecentActivityOptions200';
+export * from './getRecentActivityOptionsParams';
 export * from './getRecentActivityParams';
 export * from './getTeamDashboardParams';
 export * from './getWeeklyTrendParams';

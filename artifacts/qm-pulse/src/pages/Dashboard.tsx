@@ -1,7 +1,7 @@
+import { RecentActivity } from "@/components/recent-activity";
 import { useState, useMemo, useRef } from "react";
 import {
   useGetDashboardSummary, getGetDashboardSummaryQueryKey,
-  useGetRecentActivity, getGetRecentActivityQueryKey,
   useGetWeeklyTrend, getGetWeeklyTrendQueryKey,
   listUsers, getListUsersQueryKey,
   listCalendarEvents, getListCalendarEventsQueryKey,
@@ -848,11 +848,6 @@ export default function Dashboard() {
     query: { queryKey: getGetDashboardSummaryQueryKey(summaryParams) },
   });
 
-  const activityParams = viewingUserId ? { userId: viewingUserId, limit: 5 } : { limit: 5 };
-  const { data: recentActivity, isLoading: isLoadingActivity } = useGetRecentActivity(activityParams, {
-    query: { queryKey: getGetRecentActivityQueryKey(activityParams) },
-  });
-
   const trendUserId = viewingUserId ?? (user?.role === "qa_member" ? user?.id : undefined);
   const trendParams = trendUserId ? { weeks: 8, userId: trendUserId } : { weeks: 8 };
   const { data: weeklyTrend, isLoading: isLoadingTrend } = useGetWeeklyTrend(trendParams, {
@@ -1061,54 +1056,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="col-span-1">
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>
-              {selectedMember ? `${selectedMember.name}'s activity` : "Latest updates across projects"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoadingActivity ? (
-              <div className="space-y-4">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="flex gap-3">
-                    <Skeleton className="h-8 w-8 rounded-full" />
-                    <div className="space-y-2 flex-1"><Skeleton className="h-4 w-full" /><Skeleton className="h-3 w-1/2" /></div>
-                  </div>
-                ))}
-              </div>
-            ) : recentActivity && recentActivity.length > 0 ? (
-              <div className="space-y-4">
-                {recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-start gap-3">
-                    <div className="mt-0.5 p-1.5 rounded-full bg-muted text-muted-foreground shrink-0">
-                      <Activity className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground leading-snug">
-                        {!selectedMember && activity.userName && (
-                          <span className="font-medium">{activity.userName} </span>
-                        )}
-                        <span className="text-muted-foreground">{activity.description}</span>
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {format(new Date(activity.createdAt), "MMM d, h:mm a")}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">
-                  {selectedMember ? `No activity for ${selectedMember.name}` : "No recent activity"}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <RecentActivity key={user?.id} />
       </div>
 
       {/* Team Calendar */}

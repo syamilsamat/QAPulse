@@ -72,6 +72,11 @@ export interface ActivityItem {
   /** @nullable */
   entityType?: string | null;
   createdAt: string;
+  projectId?: number;
+  projectName?: string;
+  /** @nullable */
+  href?: string | null;
+  cursor?: string;
 }
 
 export interface UserStats {
@@ -427,6 +432,11 @@ export interface WeeklyTrendPoint {
   testCases: number;
 }
 
+export interface ActivityChoice {
+  id: number;
+  name: string;
+}
+
 export interface AssignTaskBody {
   assigneeId: number;
 }
@@ -590,8 +600,35 @@ weeks?: number;
 userId?: number;
 };
 
+export type GetRecentActivityOptionsParams = {
+/**
+ * @minimum 1
+ */
+projectId?: number;
+};
+
+export type GetRecentActivityOptions200 = {
+  projects: ActivityChoice[];
+  members: ActivityChoice[];
+};
+
 export type GetRecentActivityParams = {
+/**
+ * @minimum 1
+ */
 userId?: number;
+/**
+ * @minimum 1
+ */
+projectId?: number;
+/**
+ * Cursor from the last displayed item on the preceding page
+ */
+cursor?: string;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
 limit?: number;
 };
 

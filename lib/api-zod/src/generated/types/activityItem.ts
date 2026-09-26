@@ -19,4 +19,9 @@ export interface ActivityItem {
   /** @nullable */
   entityType?: string | null;
   createdAt: string;
+  projectId?: number;
+  projectName?: string;
+  /** @nullable */
+  href?: string | null;
+  cursor?: string;
 }

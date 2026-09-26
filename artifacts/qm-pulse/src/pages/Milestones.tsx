@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useSearch } from "wouter";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -179,7 +180,12 @@ export default function Milestones() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [filterProject, setFilterProject] = useState<string>("all");
+  const activitySearch = useSearch();
+  const linkedProject = new URLSearchParams(activitySearch).get("projectId");
+  const [filterProject, setFilterProject] = useState<string>(linkedProject ?? "all");
+  useEffect(() => {
+    if (linkedProject && /^[1-9]\d*$/.test(linkedProject)) setFilterProject(linkedProject);
+  }, [linkedProject]);
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
