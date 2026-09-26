@@ -31,6 +31,8 @@ import type {
   ChangePasswordInput,
   DashboardSummary,
   GetDashboardSummaryParams,
+  GetRecentActivityOptions200,
+  GetRecentActivityOptionsParams,
   GetRecentActivityParams,
   GetTeamDashboardParams,
   GetWeeklyTrendParams,
@@ -3573,6 +3575,90 @@ export function useGetWeeklyTrend<TData = Awaited<ReturnType<typeof getWeeklyTre
 
 
 
+export const getGetRecentActivityOptionsUrl = (params?: GetRecentActivityOptionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/dashboard/activity/options?${stringifiedParams}` : `/api/dashboard/activity/options`
+}
+
+/**
+ * @summary List accessible activity projects and permitted member filters
+ */
+export const getRecentActivityOptions = async (params?: GetRecentActivityOptionsParams, options?: RequestInit): Promise<GetRecentActivityOptions200> => {
+
+  return customFetch<GetRecentActivityOptions200>(getGetRecentActivityOptionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetRecentActivityOptionsQueryKey = (params?: GetRecentActivityOptionsParams,) => {
+    return [
+    `/api/dashboard/activity/options`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetRecentActivityOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getRecentActivityOptions>>, TError = ErrorType<void>>(params?: GetRecentActivityOptionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRecentActivityOptions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRecentActivityOptionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRecentActivityOptions>>> = ({ signal }) => getRecentActivityOptions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRecentActivityOptions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetRecentActivityOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getRecentActivityOptions>>>
+export type GetRecentActivityOptionsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List accessible activity projects and permitted member filters
+ */
+
+export function useGetRecentActivityOptions<TData = Awaited<ReturnType<typeof getRecentActivityOptions>>, TError = ErrorType<void>>(
+ params?: GetRecentActivityOptionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRecentActivityOptions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetRecentActivityOptionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getGetRecentActivityUrl = (params?: GetRecentActivityParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -3589,7 +3675,8 @@ export const getGetRecentActivityUrl = (params?: GetRecentActivityParams,) => {
 }
 
 /**
- * @summary Get recent activity feed
+ * Login/logout and unresolved or deleted resources are excluded. Descriptions contain safe action summaries, not audit comments. Filters apply before pagination.
+ * @summary Get work activity within current project and module grants
  */
 export const getRecentActivity = async (params?: GetRecentActivityParams, options?: RequestInit): Promise<ActivityItem[]> => {
 
@@ -3613,7 +3700,7 @@ export const getGetRecentActivityQueryKey = (params?: GetRecentActivityParams,) 
     }
 
 
-export const getGetRecentActivityQueryOptions = <TData = Awaited<ReturnType<typeof getRecentActivity>>, TError = ErrorType<unknown>>(params?: GetRecentActivityParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRecentActivity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetRecentActivityQueryOptions = <TData = Awaited<ReturnType<typeof getRecentActivity>>, TError = ErrorType<void>>(params?: GetRecentActivityParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRecentActivity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -3632,14 +3719,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetRecentActivityQueryResult = NonNullable<Awaited<ReturnType<typeof getRecentActivity>>>
-export type GetRecentActivityQueryError = ErrorType<unknown>
+export type GetRecentActivityQueryError = ErrorType<void>
 
 
 /**
- * @summary Get recent activity feed
+ * @summary Get work activity within current project and module grants
  */
 
-export function useGetRecentActivity<TData = Awaited<ReturnType<typeof getRecentActivity>>, TError = ErrorType<unknown>>(
+export function useGetRecentActivity<TData = Awaited<ReturnType<typeof getRecentActivity>>, TError = ErrorType<void>>(
  params?: GetRecentActivityParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRecentActivity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {

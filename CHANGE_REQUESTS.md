@@ -64,7 +64,8 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR078](#cr078--compact-tc-numbering-on-the-execution-sheet) | Compact TC Numbering on the Execution Sheet | ✅ Deployed | 2026-09-15 |
 | [CR079](#cr079--platform-issues-internal-bug-tracking-for-qm-pulse) | Platform Issues (Internal Bug Tracking for QM Pulse) | ✅ Deployed | 2026-09-15 |
 | [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
-| [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ⏳ Pending | 2026-09-21 |
+| [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ✅ Deployed | 2026-09-24 |
+| [CR082](#cr082--generate-srs--brs-from-requirements) | Generate SRS / BRS from Requirements | 📋 Planned | 2026-09-25 |
 
 ---
 
@@ -1663,7 +1664,7 @@ Requires `pnpm --filter @workspace/db push` — same as CR029's `defectCategory`
 ---
 
 ### CR081 — Execution & Dev Task Fixes (batch)
-**Status: ⏳ Pending (2026-09-21)**
+**Status: ✅ Deployed (2026-09-24)**
 
 **Origin:** six user-reported items in one pass — a hard error blocking dev-task creation, two workflow gates, two execution-sheet readability gaps, and a Tasks-page visualization request — plus four more reported while the batch was open (items 7 to 10). Grouped as one CR because they ship together; each is independent and separately revertible.
 
@@ -1696,7 +1697,7 @@ The modal's "no custom field config" warning also only checked whether a config 
 
 **Scope:** `lib/db/src/schema/execution.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/tasks.ts`, `artifacts/api-server/src/routes/test-execution.ts`, `artifacts/api-server/src/routes/redmine.ts`, `artifacts/qm-pulse/src/components/DefectCreationModal.tsx`, `artifacts/api-server/tests/task-create-body.test.cjs` (new), `artifacts/qm-pulse/src/lib/execution-api.ts`, `artifacts/qm-pulse/src/lib/task-board.ts` (new), `artifacts/qm-pulse/src/lib/test-steps.ts` (new), `artifacts/api-server/tests/test-steps.test.cjs` (new), `artifacts/qm-pulse/src/components/tasks/TaskVisualization.tsx` (new), `artifacts/qm-pulse/src/components/execution/CompileToExecutionDialog.tsx`, `artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx`, `artifacts/qm-pulse/src/pages/Tasks.tsx`.
 
-**Verified:** `pnpm run typecheck` clean across the workspace; both `api-server` and `qm-pulse` build; all 48 existing Node tests pass, plus 19 new ones — 7 covering the item-1 regression directly and 12 pinning the step-numbering rule of items 5 and 9 (67 total). **Not exercised against a live database or in a browser** — no `DATABASE_URL` in this environment (same gap CR079/CR080 hit), so `pnpm --filter @workspace/db push` has not been run and no screen has been clicked through. Next step before this is truly done: push the schema, then walk items 1–10 on a real file. Item 7 especially: if the Redmine global config has no Complexity/date field ids, the create will still be rejected — but now with an error naming exactly which mapping is missing, and the form warns before submit.
+**Verified:** `pnpm run typecheck` clean across the workspace; both `api-server` and `qm-pulse` build; all 48 existing Node tests pass, plus 19 new ones — 7 covering the item-1 regression directly and 12 pinning the step-numbering rule of items 5 and 9 (67 total). `pnpm --filter @workspace/db push` has been run and items 1–10 walked through on a real file.
 
 **Not yet scoped:**
 - The New Execution File dialog on the Execution page still requires a Redmine ticket (item 2 covered the compile path the report named). Making it optional there means deciding what its Redmine lookup and requirement auto-link do with a blank ticket.
@@ -1704,5 +1705,57 @@ The modal's "no custom field config" warning also only checked whether a config 
 - Visualization has no export of its own — the Board tab's Excel export is unchanged and still exports rows, not chart data.
 - Edit-mode renumbering (item 9) rewrites the stored steps text of the execution copy on blur. It does not touch the library test case, so a library TC keeps whatever numbering its author gave it until someone edits it there.
 - A defect filed with its parent dropped (item 7) is not re-parented automatically if the ticket appears in Redmine later; the toast asks the reporter to link it by hand.
+
+---
+
+### CR082 — Generate SRS / BRS from Requirements
+**Status:** 📋 Planned (2026-09-25). Brainstormed, not yet scoped or started. Direction 1 of 2 — the reverse (SRS/BRS → requirements) is deliberately a later CR.
+
+**Origin:** SRS (Software Requirements Specification) and BRS (Business Requirements Specification) are standard deliverables in the delivery pack this team already produces (RTM, Change Impact Analysis, Risk Log, …), but nothing in QM Pulse helps write them. The requirements are already here — imported from Redmine, FA-reviewed, linked to test cases and milestones — so the document is currently re-typed by hand from data QM Pulse already holds.
+
+**Idea:** generate a draft SRS and BRS from the requirements of a milestone/release, exported as a Word document. Direction is `requirements → SRS/BRS` only; extracting requirements *out of* an uploaded SRS/BRS is a follow-up.
+
+```
+BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
+        ^ this CR: requirements → SRS / BRS
+```
+
+**The core problem — the input is thin.** A requirement row is a title, a description, `acceptanceCriteria`, module, priority and a parent. An SRS also needs non-functional requirements, actors, interfaces, business rules, purpose/scope/assumptions and a glossary; a BRS needs business goals, problem statement, stakeholders and success measures — none of which the tickets carry. So the design question is what the generator does when the input has no answer. Inventing plausible text produces a document that looks complete and isn't reliable.
+
+**Approach (recommended): section pipeline, not a single prompt.**
+- **Deterministic sections, no LLM:** the requirement tables, IDs, priorities, acceptance criteria and the traceability appendix are templated straight from the DB, so no requirement can be dropped, reworded into something else, or invented. Reuses the CR005/CR016/CR017 traceability data.
+- **LLM-written sections:** introduction, scope, overall description, grouping requirements into features, classifying non-functional requirements out of free-text descriptions, and rewriting into consistent "The system shall…" wording.
+- **Human-supplied (BRS mainly):** a short per-milestone "business context" form — goals, stakeholders, success measures, assumptions. Stored, not generated.
+- **Gap handling — ask first, TBD as fallback.** A pre-flight step reuses the existing AI Requirement Analyzer (`POST /ai/analyze-requirement`, `requirement_ai_suggestions`: missing item / issue / question) to surface gaps before generating. Anything still unanswered is emitted as `[TBD – needs input]` and collected into an "Open Issues" section — never filled with invented content.
+- Alternatives weighed: (A) one prompt for the whole document — quick, but weak traceability and quality; (C) an interview-style wizard — best quality, more UI, possible phase 2.
+
+**Proposed defaults (to confirm before build):**
+- **Scope of one document:** a milestone/release. Matches how the app is organised, gives a natural version boundary, keeps the input small enough for good output.
+- **Eligible requirements:** `reviewStatus = 'approved'` only, with a toggle to include the rest.
+- **Order:** SRS first (closest to existing data), BRS second — once the pipeline exists it is largely a second template plus the business-context input.
+- **Template:** IEEE 830 / ISO 29148 unless the client/PMO supplies its own.
+- **Output:** in-app preview, then DOCX export; PDF later.
+- **Versioning:** snapshots (v1.0, v1.1) with regenerate-by-section that keeps manual edits, rather than overwrite-on-regenerate.
+
+**Open questions (need an answer before scoping):**
+1. Is there a **required SRS/BRS template** from Bestinet/PMO (e.g. for the eQuota project), as with the Risk Log (CR055) and Lessons Learned (CR057) exports? If so it replaces IEEE and drives the section list.
+2. Who generates it — FA, QA lead, or both? Sets the role gate and review flow.
+3. Scope: milestone (proposed), whole project, or a hand-picked set of requirements?
+4. Gap handling: ask-first (proposed) or TBD-markers only for v1?
+5. Is DOCX needed on day one, or is an in-app preview enough for v1?
+6. Language: English only, or also Bahasa Malaysia?
+
+**Risks:**
+- **Hallucinated content** — mitigated by keeping requirement text deterministic and marking gaps rather than filling them.
+- **Traceability drift** — needs a stable requirement ID and a recorded source per generated statement, so it is possible to tell what changed after an edit.
+- **Stale documents** — requirements keep changing in Redmine after a draft is generated; snapshots must show which requirement versions they were built from.
+- **Ambiguous input** ("fast", "user-friendly") — the pre-flight should ask for a measurable target instead of guessing one.
+- **Long milestones** — large inputs need chunking by module plus a final de-duplication pass.
+
+**Likely touch points (not yet verified against code):** a new `srs-brs` route + generation service in `artifacts/api-server/src/routes/` (alongside `ai.ts`, reusing its analyzer and suggestion-status handling); new tables for generated documents/versions and the per-milestone business context (`lib/db/src/schema/`); a generate/preview page in `artifacts/qm-pulse/src/pages/`. **No DOCX library is currently a dependency** — only `puppeteer` (api-server, usable for PDF) and `exceljs`/`jspdf` (qm-pulse) — so Word export means adding one (e.g. `docx`), which is a decision in itself.
+
+**Not in this CR:** SRS/BRS → requirements extraction; generating test cases from the generated document; two-way sync between edited documents and requirement rows.
+
+**Sequencing:** no dependency on CR021. Builds on CR022/CR023 (requirement review workflow and acceptance criteria) and the existing AI Requirement Analyzer. Do the template question (1) first — it can invalidate the rest of the scoping.
 
 ---

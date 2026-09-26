@@ -648,6 +648,10 @@ export const createRedmineDefect = async (
    *  alongside customFieldsDropped — names the field that actually objected,
    *  which is the only clue that a field id is mapped to the wrong one. */
   customFieldErrors?: string[];
+  /** Which QM Pulse field-ID setting points at the wrong Redmine field, in
+   *  words the reporter can act on. Present only when the server could match
+   *  Redmine's complaint to one of the ids it sent. */
+  misconfiguredFields?: string[];
   /** Set when the requested parent issue couldn't be resolved in Redmine and
    *  the defect was filed without one, so the reporter can link it by hand. */
   parentDropped?: string;

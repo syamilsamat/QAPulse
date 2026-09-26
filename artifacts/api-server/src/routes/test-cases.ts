@@ -688,6 +688,9 @@ router.post("/test-cases/export", express.json(), async (req, res): Promise<void
     defectNumber:   tc.defectNumber ?? tc.redmineDefectId ?? "",
     comments:       tc.comments ?? "",
     qaPic:          tc.qaPic ?? tc.authorName ?? "",
+    // Feeds the sheet's Module column — library test cases carry it as
+    // `module`, execution rows as `moduleName`.
+    moduleName:     tc.moduleName ?? tc.module ?? "",
   }));
 
   const buf = await buildTestCaseExcel(rows, { senderName: senderName || undefined });

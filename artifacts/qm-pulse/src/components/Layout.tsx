@@ -743,6 +743,18 @@ isPipelineFlow: true,
     section: "Communication",
   },
   {
+    // CR079 — bugs/ideas/questions about QM Pulse itself, distinct from the
+    // client-project "Defects" item. Readable by every signed-in user (only
+    // triage is admin-only), so it skips the permission matrix like Account.
+    href: "/platform-issues",
+    label: "Platform Issues",
+    icon: Wrench,
+    activeColor: "text-slate-500",
+    roles: [],
+    alwaysVisible: true,
+    section: "Communication",
+  },
+  {
     href: "/team",
     label: "Team",
     icon: HoverUsers,
@@ -793,17 +805,6 @@ isPipelineFlow: true,
     activeColor: "text-slate-500",
     roles: ["admin"],
     permKey: "nav:audit-log",
-    section: "Administration",
-  },
-  {
-    // CR079 — bugs/ideas/questions about QM Pulse itself, distinct from the
-    // client-project "Defects" item above. Admin-only, same shape as Audit Log.
-    href: "/platform-issues",
-    label: "Platform Issues",
-    icon: Wrench,
-    activeColor: "text-slate-500",
-    roles: ["admin", "cto"],
-    permKey: "nav:platform-issues",
     section: "Administration",
   },
   {

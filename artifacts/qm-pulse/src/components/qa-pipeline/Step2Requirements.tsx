@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { rephraseSuggestion, markDescriptionAiEdited } from "@/lib/rephrase-suggestion";
 import { useToast } from "@/hooks/use-toast";
 import { useRoleLabels } from "@/hooks/use-role-labels";
 import { Button } from "@/components/ui/button";
@@ -191,6 +192,9 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   // last /ai/analyze-requirement response reported.
   const [suggestionStatuses, setSuggestionStatuses] = useState<Record<number, string>>({});
   const [suggestionBusyId, setSuggestionBusyId] = useState<number | null>(null);
+  // Requirements whose description was just edited by accepting an AI
+  // suggestion — drives the "please verify" notice on that row.
+  const [aiEditedReqIds, setAiEditedReqIds] = useState<Set<number>>(new Set());
 
   // Fetch requirements linked to this milestone
   const { data: requirements = [], isLoading: loadingReqs } = useQuery<any[]>({
@@ -437,14 +441,16 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
 
   // DEF-0015 — "Accept" on a Missing Item / Issue writes it into the
   // requirement's Description (same mechanism as the full Requirement Detail
-  // page), cleanly appended with no category prefix, then marks the
-  // suggestion accepted so it won't resurface.
+  // page): the suggestion is reworded into prose (appended as written if that
+  // fails), with no category prefix, then marked accepted so it won't
+  // resurface.
   const acceptIntoCriteria = async (reqId: number, suggestionId: number, _label: string, text: string) => {
     setSuggestionBusyId(suggestionId);
     try {
       const req = requirements.find((r: any) => r.id === reqId);
+      const { text: prose, rephrased } = await rephraseSuggestion(reqId, text);
       const current = (req?.description ?? "").trim();
-      const updated = current ? `${current}\n\n${text.trim()}` : text.trim();
+      const updated = current ? `${current}\n\n${prose}` : prose;
       const res = await api(`/requirements/${reqId}`, token, {
         method: "PATCH",
         body: JSON.stringify({ description: updated }),
@@ -454,7 +460,12 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
       // Keeps the pipeline rail's per-step icons in step with the work.
       queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
-      toast({ title: "Added to description" });
+      markDescriptionAiEdited(reqId);
+      setAiEditedReqIds((prev) => new Set(prev).add(reqId));
+      toast({
+        title: rephrased ? "Added to description (reworded by AI)" : "Added to description",
+        description: rephrased ? undefined : "AI rewording was unavailable, so it was added as written.",
+      });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message ?? "Failed to accept suggestion" });
     } finally {
@@ -673,6 +684,12 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
                                 <RiskBadge level={result.riskLevel} />
                               </div>
                             </div>
+                            {aiEditedReqIds.has(req.id) && (
+                              <div className="flex items-start gap-1.5 rounded border border-yellow-200 bg-yellow-50 text-yellow-800 p-2 text-xs">
+                                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                <span>This description was edited by accepting an AI suggestion. Please review it for accuracy before submitting for review.</span>
+                              </div>
+                            )}
                             {result.summary && (
                               <p className="text-xs text-muted-foreground bg-background rounded p-2">{result.summary}</p>
                             )}

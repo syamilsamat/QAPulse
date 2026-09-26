@@ -89,6 +89,7 @@ import {
   fetchTestCaseTrail,
   type ReturnedExecutionTestCase,
   type ExecutionTcTrail,
+  type ExecutionEvidence,
 } from "@/lib/execution-api";
 import { getAllDescendants } from "@/lib/utils";
 import { splitTestSteps, numberTestSteps, isAlreadyNumbered } from "@/lib/test-steps";
@@ -998,10 +999,23 @@ const DesktopTableRow = React.memo(
               <span className="px-2 py-2 text-xs text-muted-foreground block">{row.qaPic}</span>
             )
           ) : (
-            <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
-              <option value="">Select QA PIC...</option>
-              {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-            </select>
+            // A lead/HOD/admin can staff anyone, but taking a row themselves
+            // meant finding their own name in a dropdown of every user in the
+            // system. The shortcut the QA members already have, for them too.
+            <div className="px-1 py-1 space-y-1">
+              <select className={`${tableSelectClass}`} value={row.qaPic || ""} onChange={(e) => onUpdate(row.id as string, "qaPic", e.target.value)}>
+                <option value="">Select QA PIC...</option>
+                {qaUsers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+              </select>
+              {currentUser?.name && row.qaPic !== currentUser.name && (
+                <button
+                  className="text-[10px] text-primary hover:underline whitespace-nowrap"
+                  onClick={() => onUpdate(row.id as string, "qaPic", currentUser.name)}
+                >
+                  + Assign to me
+                </button>
+              )}
+            </div>
           )}
         </td>
         {!readOnly && (
@@ -1356,20 +1370,30 @@ const MobileCardRow = React.memo(
                 </div>
               )
             ) : (
-              <select
-                className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
-                value={row.qaPic || ""}
-                onChange={(e) =>
-                  onUpdate(row.id as string, "qaPic", e.target.value)
-                }
-              >
-                <option value="">Select QA PIC...</option>
-                {qaUsers.map((u) => (
-                  <option key={u.id} value={u.name}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-1">
+                <select
+                  className="flex min-h-[40px] w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1"
+                  value={row.qaPic || ""}
+                  onChange={(e) =>
+                    onUpdate(row.id as string, "qaPic", e.target.value)
+                  }
+                >
+                  <option value="">Select QA PIC...</option>
+                  {qaUsers.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+                {currentUser?.name && row.qaPic !== currentUser.name && (
+                  <button
+                    className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
+                    onClick={() => onUpdate(row.id as string, "qaPic", currentUser.name)}
+                  >
+                    + Assign to me
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1644,8 +1668,12 @@ export default function TestCasesExecutionProgressPage() {
   const [passEvidenceDialogOpen, setPassEvidenceDialogOpen] = useState(false);
   const [pendingPassRowId, setPendingPassRowId] = useState<string | number | null>(null);
   const [passEvidenceMode, setPassEvidenceMode] = useState<"pass" | "attach">("pass");
-  const [passEvidenceFile, setPassEvidenceFile] = useState<File | null>(null);
+  const [passEvidenceFiles, setPassEvidenceFiles] = useState<File[]>([]);
   const [isUploadingPassEvidence, setIsUploadingPassEvidence] = useState(false);
+  const [evidenceToDelete, setEvidenceToDelete] = useState<
+    { rowId: number; evidenceId: number; fileName: string; caseLabel: string } | null
+  >(null);
+  const [isDeletingEvidence, setIsDeletingEvidence] = useState(false);
 
   // Overwriting a result that was already recorded is the case the trail exists
   // to explain, so the reason is collected at the moment of the change rather
@@ -2055,7 +2083,7 @@ export default function TestCasesExecutionProgressPage() {
       // explicit. Cancel therefore preserves the previous result.
       setPendingPassRowId(id);
       setPassEvidenceMode("pass");
-      setPassEvidenceFile(null);
+      setPassEvidenceFiles([]);
       setPassEvidenceDialogOpen(true);
       return;
     }
@@ -2575,16 +2603,33 @@ export default function TestCasesExecutionProgressPage() {
   const openAddPassEvidence = (rowId: string | number) => {
     setPendingPassRowId(rowId);
     setPassEvidenceMode("attach");
-    setPassEvidenceFile(null);
+    setPassEvidenceFiles([]);
     setPassEvidenceDialogOpen(true);
   };
 
-  const handleSavePassEvidence = async () => {
-    if (pendingPassRowId == null || !passEvidenceFile) return;
-    if (passEvidenceFile.size > 10 * 1024 * 1024) {
-      toast({ variant: "destructive", title: "Attachment too large", description: "Maximum file size is 10 MB." });
-      return;
+  const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
+
+  /** Adds a picked batch to the queue, rejecting oversized files by name and
+   *  skipping ones already queued — picking twice from the file dialog should
+   *  add to the selection, not replace it or duplicate it. */
+  const addPassEvidenceFiles = (picked: File[]) => {
+    const tooBig = picked.filter((f) => f.size > MAX_EVIDENCE_BYTES);
+    if (tooBig.length > 0) {
+      toast({
+        variant: "destructive",
+        title: tooBig.length === 1 ? "Attachment too large" : `${tooBig.length} attachments too large`,
+        description: `${tooBig.map((f) => f.name).join(", ")} — maximum file size is 10 MB.`,
+      });
     }
+    setPassEvidenceFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const fresh = picked.filter((f) => f.size <= MAX_EVIDENCE_BYTES && !seen.has(`${f.name}:${f.size}`));
+      return [...prev, ...fresh];
+    });
+  };
+
+  const handleSavePassEvidence = async () => {
+    if (pendingPassRowId == null || passEvidenceFiles.length === 0) return;
     const originalId = pendingPassRowId;
     setIsUploadingPassEvidence(true);
     try {
@@ -2605,11 +2650,22 @@ export default function TestCasesExecutionProgressPage() {
       const dbRowId = typeof originalId === "number" ? originalId : inserted?.id;
       if (typeof dbRowId !== "number") throw new Error("Test case must be saved before evidence can be attached");
       if (saved?.testCases) applyReturnedRows(saved.testCases);
-      const evidence = await uploadExecutionEvidence(dbRowId, passEvidenceFile);
+      // Sequential, not parallel: the server derives each stored filename from
+      // the names already on the row, so concurrent uploads would all read the
+      // same "taken" set and collide once the export ZIP is extracted.
+      const uploaded: ExecutionEvidence[] = [];
+      const failed: File[] = [];
+      for (const file of passEvidenceFiles) {
+        try {
+          uploaded.push(await uploadExecutionEvidence(dbRowId, file));
+        } catch {
+          failed.push(file);
+        }
+      }
       setData((prev) => {
         const updated = prev.map((item) =>
           item.id === originalId || item.id === dbRowId
-            ? { ...item, id: dbRowId, result: "Passed", executedAt: passedRow.executedAt, passEvidence: [...(item.passEvidence ?? []), evidence] }
+            ? { ...item, id: dbRowId, result: "Passed", executedAt: passedRow.executedAt, passEvidence: [...(item.passEvidence ?? []), ...uploaded] }
             : item,
         );
         dataRef.current = updated;
@@ -2620,10 +2676,26 @@ export default function TestCasesExecutionProgressPage() {
       setHasUnsavedChanges(dirtyRowIdsRef.current.size > 0 || deletedDbIdsRef.current.size > 0);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
-      setPassEvidenceDialogOpen(false);
-      setPendingPassRowId(null);
-      setPassEvidenceFile(null);
-      toast({ title: "Evidence attached", description: passEvidenceFile.name });
+
+      // The result is already Passed on the server by this point, so a failed
+      // upload is not a failed pass. Keep the dialog open holding only what
+      // didn't make it, so retrying doesn't re-upload what already landed.
+      if (failed.length > 0) {
+        setPassEvidenceFiles(failed);
+        toast({
+          variant: "destructive",
+          title: `${failed.length} attachment${failed.length === 1 ? "" : "s"} failed to upload`,
+          description: `${failed.map((f) => f.name).join(", ")}. The test case is saved as Passed — try these again.`,
+        });
+      } else {
+        setPassEvidenceDialogOpen(false);
+        setPendingPassRowId(null);
+        setPassEvidenceFiles([]);
+        toast({
+          title: uploaded.length === 1 ? "Evidence attached" : `${uploaded.length} attachments added`,
+          description: uploaded.map((e) => e.originalFileName ?? e.fileName).join(", "),
+        });
+      }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to attach evidence", description: error?.message });
     } finally {
@@ -2654,8 +2726,22 @@ export default function TestCasesExecutionProgressPage() {
     }
   };
 
-  const removePassEvidence = async (rowId: number, evidenceId: number) => {
-    if (!window.confirm("Delete this evidence attachment? This cannot be undone.")) return;
+  /** Opens the confirmation. The delete itself runs from the dialog, so the
+   *  file's name and the test case it belongs to can be named on screen — a
+   *  bare "are you sure?" gives the tester nothing to check against. */
+  const requestRemovePassEvidence = (row: AppExecutionTestCase, evidence: ExecutionEvidence) => {
+    setEvidenceToDelete({
+      rowId: row.id as number,
+      evidenceId: evidence.id,
+      fileName: evidence.originalFileName ?? evidence.fileName,
+      caseLabel: row.testCaseId || row.caseId || row.caseName || "this test case",
+    });
+  };
+
+  const confirmRemovePassEvidence = async () => {
+    if (!evidenceToDelete) return;
+    const { rowId, evidenceId, fileName } = evidenceToDelete;
+    setIsDeletingEvidence(true);
     try {
       await deleteExecutionEvidence(rowId, evidenceId);
       setData((prev) => {
@@ -2665,9 +2751,12 @@ export default function TestCasesExecutionProgressPage() {
         dataRef.current = updated;
         return updated;
       });
-      toast({ title: "Evidence removed" });
+      setEvidenceToDelete(null);
+      toast({ title: "Attachment deleted", description: fileName });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Failed to remove evidence", description: error?.message });
+      toast({ variant: "destructive", title: "Couldn't delete the attachment", description: error?.message });
+    } finally {
+      setIsDeletingEvidence(false);
     }
   };
 
@@ -2706,7 +2795,7 @@ export default function TestCasesExecutionProgressPage() {
             <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
             <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
             {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
-              <button className="hover:text-destructive" title="Delete attachment" onClick={() => removePassEvidence(row.id as number, file.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+              <button className="hover:text-destructive" title="Delete attachment" onClick={() => requestRemovePassEvidence(row, file)}><Trash2 className="w-3.5 h-3.5" /></button>
             )}
           </div>
         ))}
@@ -3505,7 +3594,7 @@ export default function TestCasesExecutionProgressPage() {
       <Dialog open={passEvidenceDialogOpen} onOpenChange={(open) => {
         if (!isUploadingPassEvidence) {
           setPassEvidenceDialogOpen(open);
-          if (!open) { setPendingPassRowId(null); setPassEvidenceFile(null); }
+          if (!open) { setPendingPassRowId(null); setPassEvidenceFiles([]); }
         }
       }}>
         <DialogContent className="sm:max-w-[500px]">
@@ -3523,16 +3612,42 @@ export default function TestCasesExecutionProgressPage() {
             </p>
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/60 hover:bg-muted/30">
               <Upload className="w-6 h-6 text-muted-foreground" />
-              <span className="text-sm font-medium max-w-full break-words px-2">{passEvidenceFile ? passEvidenceFile.name : "Choose screenshot or document"}</span>
-              <span className="text-xs text-muted-foreground">Images, PDF, Word or Excel · maximum 10 MB</span>
+              <span className="text-sm font-medium max-w-full break-words px-2">
+                {passEvidenceFiles.length > 0 ? "Add more files" : "Choose screenshots or documents"}
+              </span>
+              <span className="text-xs text-muted-foreground">Images, PDF, Word or Excel · select several at once · maximum 10 MB each</span>
               <input
                 type="file"
+                multiple
                 className="hidden"
                 accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                onChange={(event) => setPassEvidenceFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                  addPassEvidenceFiles(Array.from(event.target.files ?? []));
+                  // Reset so re-picking the same file fires onChange again.
+                  event.target.value = "";
+                }}
                 disabled={isUploadingPassEvidence}
               />
             </label>
+            {passEvidenceFiles.length > 0 && (
+              <ul className="space-y-1 max-h-48 overflow-y-auto">
+                {passEvidenceFiles.map((file, i) => (
+                  <li key={`${file.name}:${file.size}:${i}`} className="flex items-center gap-2 rounded bg-muted/50 px-2 py-1 text-sm">
+                    <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate" title={file.name}>{file.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
+                    <button
+                      type="button"
+                      title="Remove"
+                      disabled={isUploadingPassEvidence}
+                      onClick={() => setPassEvidenceFiles((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             <Button variant="outline" onClick={() => setPassEvidenceDialogOpen(false)} disabled={isUploadingPassEvidence}>Cancel</Button>
@@ -3540,9 +3655,11 @@ export default function TestCasesExecutionProgressPage() {
               {passEvidenceMode === "pass" && (
                 <Button variant="secondary" onClick={handlePassWithoutEvidence} disabled={isUploadingPassEvidence}>Pass without attachment</Button>
               )}
-              <Button onClick={handleSavePassEvidence} disabled={!passEvidenceFile || isUploadingPassEvidence} className="gap-2">
+              <Button onClick={handleSavePassEvidence} disabled={passEvidenceFiles.length === 0 || isUploadingPassEvidence} className="gap-2">
                 {isUploadingPassEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                {passEvidenceMode === "pass" ? "Save as Passed" : "Upload attachment"}
+                {passEvidenceMode === "pass"
+                  ? "Save as Passed"
+                  : `Upload ${passEvidenceFiles.length > 1 ? `${passEvidenceFiles.length} attachments` : "attachment"}`}
               </Button>
             </div>
           </DialogFooter>
@@ -3732,6 +3849,53 @@ export default function TestCasesExecutionProgressPage() {
             )}
             <Button variant="outline" size="sm" onClick={() => setCapaOpen(false)}>Close</Button>
             {capaResult && <Button size="sm" onClick={handleCapaAnalysis} variant="secondary" className="gap-2"><Sparkles className="w-3.5 h-3.5" /> Re-analyse</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Evidence delete. In-app rather than window.confirm so it can name the
+          file and the test case, say what does and doesn't change, and stay
+          readable on a phone — the browser dialog could do none of that. */}
+      <Dialog
+        open={evidenceToDelete !== null}
+        onOpenChange={(open) => { if (!open && !isDeletingEvidence) setEvidenceToDelete(null); }}
+      >
+        <DialogContent className="w-[95vw] sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              Delete this attachment?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-foreground break-words">
+              <span className="font-medium">{evidenceToDelete?.fileName}</span>
+              <span className="text-muted-foreground"> will be removed from {evidenceToDelete?.caseLabel}.</span>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              The result stays <span className="font-medium text-foreground">Passed</span> — only the
+              evidence behind it is deleted. You can attach a new file afterwards, but this one can&apos;t
+              be recovered.
+            </p>
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0 mt-2">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              disabled={isDeletingEvidence}
+              onClick={() => setEvidenceToDelete(null)}
+            >
+              Keep it
+            </Button>
+            <Button
+              variant="destructive"
+              className="w-full sm:w-auto gap-2"
+              disabled={isDeletingEvidence}
+              onClick={confirmRemovePassEvidence}
+            >
+              {isDeletingEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete attachment
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -4927,10 +5091,20 @@ export default function TestCasesExecutionProgressPage() {
                               <span className="text-sm text-muted-foreground">{row.qaPic}</span>
                             )
                           ) : (
-                            <select className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
-                              <option value="">Select QA PIC...</option>
-                              {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                            </select>
+                            <div className="space-y-1.5">
+                              <select className="flex h-9 w-full rounded-md border border-input bg-popover text-popover-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                <option value="">Select QA PIC...</option>
+                                {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                              </select>
+                              {currentUser?.name && row.qaPic !== currentUser.name && (
+                                <button
+                                  className="text-xs px-2.5 py-1 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
+                                  onClick={() => updateCell(row.id as string | number, "qaPic", currentUser.name)}
+                                >
+                                  + Assign to me
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -5180,10 +5354,20 @@ export default function TestCasesExecutionProgressPage() {
                                             <span className="text-xs text-muted-foreground">{row.qaPic}</span>
                                           )
                                         ) : (
-                                          <select className="flex h-7 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
-                                            <option value="">Select QA PIC...</option>
-                                            {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                          </select>
+                                          <div className="space-y-1">
+                                            <select className="flex h-7 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none" value={row.qaPic || ""} onChange={e => updateCell(row.id as string | number, "qaPic", e.target.value)}>
+                                              <option value="">Select QA PIC...</option>
+                                              {qaUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                            </select>
+                                            {currentUser?.name && row.qaPic !== currentUser.name && (
+                                              <button
+                                                className="text-[10px] px-2 py-0.5 rounded-full border border-primary text-primary hover:bg-primary/10 transition"
+                                                onClick={() => updateCell(row.id as string | number, "qaPic", currentUser.name)}
+                                              >
+                                                + Assign to me
+                                              </button>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
                                     </div>

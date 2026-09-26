@@ -7,6 +7,21 @@
  */
 
 export type GetRecentActivityParams = {
+/**
+ * @minimum 1
+ */
 userId?: number;
+/**
+ * @minimum 1
+ */
+projectId?: number;
+/**
+ * Cursor from the last displayed item on the preceding page
+ */
+cursor?: string;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
 limit?: number;
 };

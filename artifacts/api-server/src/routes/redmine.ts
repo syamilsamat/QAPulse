@@ -490,20 +490,24 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       }
     }
 
-    // Build custom fields array
-    const customFields: { id: number; value: string }[] = [];
+    // Build custom fields array. `setting` is the name of the QM Pulse config
+    // slot each id came from, kept so a rejection can name the setting to fix
+    // rather than the Redmine field that happened to receive the value.
+    const customFields: { id: number; value: string; setting: string }[] = [];
     if (complexityFieldId && complexityValue) {
-      customFields.push({ id: Number(complexityFieldId), value: complexityValue });
+      customFields.push({ id: Number(complexityFieldId), value: complexityValue, setting: "Complexity Field ID" });
     }
     if (targetedStartDateFieldId && targetedStartDate) {
-      customFields.push({ id: Number(targetedStartDateFieldId), value: targetedStartDate });
+      customFields.push({ id: Number(targetedStartDateFieldId), value: targetedStartDate, setting: "Targeted Start Date Field ID" });
     }
     if (targetedCompletionDateFieldId && targetedCompletionDate) {
-      customFields.push({ id: Number(targetedCompletionDateFieldId), value: targetedCompletionDate });
+      customFields.push({ id: Number(targetedCompletionDateFieldId), value: targetedCompletionDate, setting: "Targeted Completion Date Field ID" });
     }
     if (sourceFieldId && sourceValue) {
-      customFields.push({ id: Number(sourceFieldId), value: sourceValue });
+      customFields.push({ id: Number(sourceFieldId), value: sourceValue, setting: "Source Field ID" });
     }
+    // Redmine takes {id, value} only — `setting` is ours and must not be sent.
+    const toRedmine = (fields: typeof customFields) => fields.map(({ id, value }) => ({ id, value }));
 
     // A parent Redmine cannot resolve fails the whole create with "Parent task
     // is invalid", and callers do not always supply a real issue id. The
@@ -551,12 +555,39 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       return [body];
     };
 
+    // Maps the custom field ids this Redmine actually has to their names, so a
+    // validation error naming a field can be traced back to the id we sent.
+    // /custom_fields.json is admin-only, so fall back to reading the fields off
+    // any one issue in the project — an ordinary issue's JSON carries the same
+    // id+name pairs and needs no special permission.
+    const loadCustomFieldNames = async (): Promise<Map<number, string>> => {
+      const names = new Map<number, string>();
+      const collect = (fields: any) => {
+        if (!Array.isArray(fields)) return;
+        for (const f of fields) {
+          if (typeof f?.id === "number" && typeof f?.name === "string") names.set(f.id, f.name);
+        }
+      };
+      try {
+        const res = await redmineRead("/custom_fields.json", apiKey);
+        if (res.ok) collect(((await res.json()) as any)?.custom_fields);
+      } catch { /* admin-only — fall through */ }
+      if (names.size === 0) {
+        try {
+          const res = await redmineRead(`/issues.json?project_id=${encodeURIComponent(String(projectId))}&limit=1&status_id=*`, apiKey);
+          if (res.ok) collect(((await res.json()) as any)?.issues?.[0]?.custom_fields);
+        } catch { /* best effort — diagnosis is optional, creating the issue is not */ }
+      }
+      return names;
+    };
+
     let response = await postIssue({
       ...baseIssue,
-      ...(customFields.length > 0 && { custom_fields: customFields }),
+      ...(customFields.length > 0 && { custom_fields: toRedmine(customFields) }),
     });
 
     let customFieldsDropped = false;
+    let misconfiguredFields: string[] = [];
     let firstErrors: string[] = [];
     if (!response.ok) {
       firstErrors = await readErrors(response);
@@ -579,8 +610,42 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       // the weaker payload (the retry strips fields the tracker requires, so
       // its errors describe what we removed, not what the reporter got wrong).
       if (customFields.length > 0 && response.status === 422) {
-        response = await postIssue(baseIssue);
-        customFieldsDropped = response.ok;
+        // Work out which id Redmine was actually complaining about. A field id
+        // pointing at the wrong Redmine field fails under THAT field's name
+        // ("Actual Start Date is not a valid date" for an id that should have
+        // been Source), so matching the error text against the real names is
+        // the only way to tell which QM Pulse setting is wrong.
+        const fieldNames = await loadCustomFieldNames();
+        const blamed = customFields.filter((f) => {
+          const name = fieldNames.get(f.id);
+          return !!name && firstErrors.some((m) => m.toLowerCase().includes(name.toLowerCase()));
+        });
+
+        if (blamed.length > 0 && blamed.length < customFields.length) {
+          // Drop only the offending field. Dropping all of them would fail
+          // again whenever the tracker requires the others — which is exactly
+          // the case that was leaving reporters with no way to file at all.
+          const keep = customFields.filter((f) => !blamed.includes(f));
+          response = await postIssue({ ...baseIssue, custom_fields: toRedmine(keep) });
+          if (response.ok) {
+            customFieldsDropped = true;
+            misconfiguredFields = blamed.map((f) =>
+              `"${f.setting}" is set to ${f.id}, which is Redmine's "${fieldNames.get(f.id)}" field`,
+            );
+          }
+        }
+
+        // Nothing identified (or the targeted retry failed anyway) — fall back
+        // to the blunt retry without any custom fields.
+        if (!response.ok) {
+          response = await postIssue(baseIssue);
+          customFieldsDropped = response.ok;
+          if (response.ok && blamed.length > 0) {
+            misconfiguredFields = blamed.map((f) =>
+              `"${f.setting}" is set to ${f.id}, which is Redmine's "${fieldNames.get(f.id)}" field`,
+            );
+          }
+        }
       }
     }
 
@@ -589,6 +654,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       // weaker payload, so its complaints describe what we removed, not what
       // the reporter got wrong.
       throw new Error(`Redmine returned ${response.status}: ${firstErrors.join("; ")}`);
+
     }
 
     const data: any = await response.json();
@@ -601,6 +667,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       // is invisible otherwise — the reporter only ever sees metadata quietly
       // going missing, with no clue which id to correct.
       ...(customFieldsDropped && firstErrors.length > 0 ? { customFieldErrors: firstErrors } : {}),
+      ...(misconfiguredFields.length > 0 ? { misconfiguredFields } : {}),
       ...(parentDropped ? { parentDropped } : {}),
     });
   } catch (err: any) {

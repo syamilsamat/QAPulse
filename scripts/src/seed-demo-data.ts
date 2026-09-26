@@ -332,7 +332,7 @@ async function main() {
       const tc = TEST_CASES.find((t) => t.key === row.tcKey)!;
       const req = requirementByKey.get(tc.requirementKey)!;
       return {
-        testCaseId: row.tcKey, // client-supplied stable id, so we can look the row back up by key
+        testCaseId: row.tcKey, // the server overwrites this with TC-<ticket>-NNN; rows are found again via libraryTcId below
         moduleName: req.module,
         libraryTcId: tcIdByKey.get(row.tcKey),
         requirementId: requirementIdByKey.get(tc.requirementKey),
@@ -350,13 +350,31 @@ async function main() {
       method: "POST", body: { testCases: rows, isFullSync: true },
     });
 
-    const savedRows = await api<{ testCases: { id: number; testCaseId: string }[] }>(
+    const savedRows = await api<{ testCases: { id: number; libraryTcId: number | null }[] }>(
       `/execution-files/${file.redmineTicketId}/test-cases`, adminToken,
     );
+    // Keyed by the library TC id the seed itself supplied, not testCaseId:
+    // the server renumbers testCaseId on save, so a lookup by the seed's own
+    // tcKey never matched and every defect below was created with no
+    // execution-test-case link.
+    const tcKeyByLibraryId = new Map<number, string>([...tcIdByKey].map(([key, id]) => [id, key]));
     for (const row of savedRows.testCases) {
-      execRowIdByKey.set(`${ef.key}:${row.testCaseId}`, row.id);
+      const tcKey = row.libraryTcId != null ? tcKeyByLibraryId.get(row.libraryTcId) : undefined;
+      if (tcKey) execRowIdByKey.set(`${ef.key}:${tcKey}`, row.id);
     }
-    console.log(`  + ${ef.title} (${ef.rows.length} rows)`);
+
+    // A file where every row has a real result (nothing left "Not Executed")
+    // is done — in a real QA process it would already have been submitted
+    // and signed off, not sitting untouched in Draft. Files still mid-run
+    // are left as Draft, which is the accurate state for unfinished work.
+    // Nadia (qa_lead) approves as someone other than the admin account that
+    // authored/submitted the file, since a submitter can't approve their own.
+    const fullyExecuted = ef.rows.every((row) => row.result !== "Not Executed");
+    if (fullyExecuted) {
+      await api(`/execution-files/${file.id}/review`, adminToken, { method: "PATCH", body: { action: "submit" } });
+      await api(`/execution-files/${file.id}/review`, tokenByKey.get("nadia")!, { method: "PATCH", body: { action: "approve" } });
+    }
+    console.log(`  + ${ef.title} (${ef.rows.length} rows)${fullyExecuted ? " — approved" : ""}`);
   }
 
   // ── 9. Defects ─────────────────────────────────────────────────────────────

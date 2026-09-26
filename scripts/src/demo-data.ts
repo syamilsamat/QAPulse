@@ -39,6 +39,35 @@ export const USERS: DemoUser[] = [
   // purely to demonstrate the "project + module" scope on the new Project
   // Access panel — not used anywhere else in the seed flow.
   { key: "aisyah", name: "Aisyah Rahim", email: "aisyah.rahim@demo.qmpulse.local", role: "qa_member" },
+
+  // Role-coverage users — added so every system role (see DEFAULT_ROLES in
+  // artifacts/api-server/src/routes/roles.ts) has at least two users. Not
+  // part of the project/defect/risk narrative above; they exist purely so
+  // role-based UI (nav permissions, Roles page, etc.) has real accounts to
+  // demo against for roles the story cast above doesn't touch.
+  { key: "izwan", name: "Izwan Hashim", email: "izwan.hashim@demo.qmpulse.local", role: "pm_lead" },
+  { key: "melissa", name: "Melissa Wong", email: "melissa.wong@demo.qmpulse.local", role: "qa_lead" },
+  { key: "ravi", name: "Ravi Chandran", email: "ravi.chandran@demo.qmpulse.local", role: "fa_lead" },
+  { key: "jaslyn", name: "Jaslyn Ooi", email: "jaslyn.ooi@demo.qmpulse.local", role: "dev_lead" },
+  { key: "azman", name: "Azman Yusof", email: "azman.yusof@demo.qmpulse.local", role: "dev_member" },
+  { key: "syafiq", name: "Syafiq Anuar", email: "syafiq.anuar@demo.qmpulse.local", role: "admin" },
+  { key: "priya", name: "Priya Nathan", email: "priya.nathan@demo.qmpulse.local", role: "admin" },
+  { key: "hafizan", name: "Hafizan Zulkifli", email: "hafizan.zulkifli@demo.qmpulse.local", role: "cto" },
+  { key: "cheryl", name: "Cheryl Lim", email: "cheryl.lim@demo.qmpulse.local", role: "cto" },
+  { key: "zulaikha", name: "Zulaikha Mansor", email: "zulaikha.mansor@demo.qmpulse.local", role: "hod_qa" },
+  { key: "kenneth", name: "Kenneth Tan", email: "kenneth.tan@demo.qmpulse.local", role: "hod_qa" },
+  { key: "faridah", name: "Faridah Ismail", email: "faridah.ismail@demo.qmpulse.local", role: "hod_pm" },
+  { key: "arjun", name: "Arjun Pillai", email: "arjun.pillai@demo.qmpulse.local", role: "hod_pm" },
+  { key: "nurul", name: "Nurul Aina", email: "nurul.aina@demo.qmpulse.local", role: "hod_fa" },
+  { key: "benjamin", name: "Benjamin Goh", email: "benjamin.goh@demo.qmpulse.local", role: "hod_fa" },
+  { key: "farah", name: "Farah Zainal", email: "farah.zainal@demo.qmpulse.local", role: "hod_dev" },
+  { key: "samuel", name: "Samuel Raj", email: "samuel.raj@demo.qmpulse.local", role: "hod_dev" },
+  { key: "aiman", name: "Aiman Rashid", email: "aiman.rashid@demo.qmpulse.local", role: "qa_manager" },
+  { key: "michelle", name: "Michelle Cheah", email: "michelle.cheah@demo.qmpulse.local", role: "qa_manager" },
+  { key: "haziq", name: "Haziq Fitri", email: "haziq.fitri@demo.qmpulse.local", role: "fa_member" },
+  { key: "shalini", name: "Shalini Devi", email: "shalini.devi@demo.qmpulse.local", role: "fa_member" },
+  { key: "afiq", name: "Afiq Rosman", email: "afiq.rosman@demo.qmpulse.local", role: "pm_member" },
+  { key: "grace", name: "Grace Lau", email: "grace.lau@demo.qmpulse.local", role: "pm_member" },
 ];
 
 export interface DemoTeam {
@@ -92,7 +121,12 @@ export const PROJECTS: DemoProject[] = [
     name: "Mobile Banking App — DEMO",
     description: "Mobile banking app covering fund transfers, bill payment, biometric login, and rewards.",
     teamKey: "banking-squad",
-    directMemberKeys: ["amir", "siti", "devan", "hafiz"],
+    // banking-squad's only QA member is weiling (qa_member) — no one there
+    // can sign off an execution file (that needs qa_lead+). Nadia (qa_lead,
+    // portal-squad) is added here as a cross-project member so she can
+    // approve banking's execution files too, same as she already does for
+    // banking's requirement reviews.
+    directMemberKeys: ["amir", "siti", "devan", "hafiz", "nadia"],
     moduleNames: ["Authentication", "Fund Transfer", "Statements", "Bill Payment", "Biometrics", "Rewards"],
   },
 ];

@@ -29,7 +29,50 @@ function canWrite(role: string) {
   // pm_lead/pm_member were missing here even though dashboard.ts's PM_ROLES
   // already treats them as legitimate PM roles for reading milestone data —
   // without them a PM couldn't create, edit, or close their own milestones.
-  return ["admin", "qa_lead", "fa_lead", "dev_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(role);
+  return ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(role);
+}
+
+// DEF-0012 — dev_lead needs the Team section, not full milestone CRUD.
+// Kept narrower than canWrite() on purpose: dev_lead can staff/unstaff a
+// milestone's team but can't create, edit other fields, or delete it.
+function canManageTeam(role: string) {
+  return canWrite(role) || role === "dev_lead";
+}
+
+// DEF-0019 — department-restricted staffing: a department lead can only
+// staff/unstaff their own department, PM-tier can staff qa/dev/fa, and
+// HOD/CTO/admin are unrestricted. Shared by the milestone-create staffing
+// loop and the POST/DELETE assignee endpoints so none of them can drift out
+// of sync with each other again.
+const SINGLE_DEPT_LEADS: Record<string, string> = { qa_lead: "qa", dev_lead: "dev", fa_lead: "fa" };
+const PM_TIER = ["pm_lead", "pm_member"];
+async function checkDepartmentAssignment(actorRole: string, targetRole: string): Promise<string | null> {
+  if (actorRole in SINGLE_DEPT_LEADS) {
+    const targetDept = await getRoleDepartment(targetRole);
+    if (targetDept !== SINGLE_DEPT_LEADS[actorRole]) {
+      return `${actorRole.replace("_lead", "").toUpperCase()} Lead can only assign ${SINGLE_DEPT_LEADS[actorRole]} department members`;
+    }
+    return null;
+  }
+  if (PM_TIER.includes(actorRole)) {
+    const targetDept = await getRoleDepartment(targetRole);
+    if (!targetDept || !["qa", "dev", "fa"].includes(targetDept)) {
+      return "PM roles can only assign QA, Dev, or FA department members";
+    }
+    return null;
+  }
+  // hod_*/cto/admin are unrestricted.
+  return null;
+}
+
+// Shared by create-time staffing and later assignments.
+async function ensureAssigningLead(milestoneId: number, role: string, leadId: number) {
+  if (!(role in SINGLE_DEPT_LEADS)) return;
+  const existing = await db.select().from(milestoneAssigneesTable)
+    .where(and(eq(milestoneAssigneesTable.milestoneId, milestoneId), eq(milestoneAssigneesTable.userId, leadId)));
+  if (existing.length === 0) {
+    await db.insert(milestoneAssigneesTable).values({ milestoneId, userId: leadId, assignedBy: leadId });
+  }
 }
 
 // QA Pipeline milestones (pipelineEnabled: true) are meant to be owned by the
@@ -321,19 +364,22 @@ router.post("/milestones", async (req, res): Promise<void> => {
     actorId: (ctx as any).id ?? ctx.userId,
   }).catch(() => {});
 
-  // Staffing chosen at create time (currently only offered by the dialog for
-  // 'data_prep' milestones — the assignees table just needs a milestoneId,
-  // so nothing here is type-specific). Best-effort per user: an invalid
-  // target shouldn't roll back the milestone that already saved.
+  // Apply the same department and lead-membership rules as later staffing.
+  // Invalid targets are skipped without discarding the saved milestone.
   if (Array.isArray(assigneeUserIds)) {
-    for (const rawId of assigneeUserIds) {
-      const userId = Number(rawId);
+    let staffed = false;
+    for (const userId of new Set<number>(assigneeUserIds.map(Number))) {
       if (!userId) continue;
       const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
       if (!target || !(await canAccessProject(target.id, target.role, m.projectId))) continue;
+      // DEF-0019 — same department restriction as POST /milestones/:id/assignees;
+      // staffing at create time isn't a separate door around that rule.
+      if (await checkDepartmentAssignment(ctx.role, target.role)) continue;
       await db.insert(milestoneAssigneesTable).values({ milestoneId: m.id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
+      staffed = true;
       await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", m.id, (ctx as any).id ?? ctx.userId).catch(() => {});
     }
+    if (staffed) await ensureAssigningLead(m.id, ctx.role, ctx.userId);
   }
 
   res.status(201).json(fmt(m));
@@ -347,7 +393,11 @@ router.post("/milestones", async (req, res): Promise<void> => {
 router.get("/milestones/assignable-users", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  // No canWrite gate here on purpose: this is a read-only project-roster
+  // lookup (also used by DEF-0021's AI Test Case "Assign Author" picker,
+  // which qa_member needs to use), not a staffing action — the
+  // canAccessProject check below is the real boundary, same names/roles a
+  // project member can already see on the Team page.
   const projectId = req.query.projectId ? Number(req.query.projectId) : null;
   if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, projectId))) { res.status(403).json({ error: "Access denied" }); return; }
@@ -358,7 +408,14 @@ router.get("/milestones/assignable-users", async (req, res): Promise<void> => {
     .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
     .where(eq(projectMembersTable.projectId, projectId));
   const seen = new Set<number>();
-  res.json(rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true))));
+  const deduped = rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  // DEF-0019 — the picker itself should only offer candidates the caller is
+  // actually allowed to staff, not rely on the POST 403 to catch a bad pick
+  // after the fact. checkDepartmentAssignment is a no-op for roles it
+  // doesn't restrict (qa_member, hod_*, cto, admin), so this doesn't affect
+  // DEF-0021's AI Test Case "Assign Author" use of this same endpoint.
+  const deptChecks = await Promise.all(deduped.map((r) => checkDepartmentAssignment(ctx.role, r.role)));
+  res.json(deduped.filter((_, i) => deptChecks[i] === null));
 });
 
 // GET /milestones/:id
@@ -468,10 +525,19 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
   if (req.body.uatTargetDate !== undefined) update.uatTargetDate = req.body.uatTargetDate ? new Date(req.body.uatTargetDate) : null;
   if (req.body.goLiveDate !== undefined) {
-    update.goLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
+    const newGoLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
+    update.goLiveDate = newGoLiveDate;
     // DEF-0013 — Target Date is no longer a client-facing field; keep it in
-    // sync with Go-Live Date whenever the latter changes.
-    update.targetDate = update.goLiveDate;
+    // sync with Go-Live Date, but only when Go-Live is actually changing.
+    // The edit form always resends the current goLiveDate on every save
+    // (even one that only touches, say, the name), so syncing unconditionally
+    // would silently null out an existing targetDate on any milestone that
+    // has one but has never had a goLiveDate set.
+    const currentGoLiveTime = m.goLiveDate ? new Date(m.goLiveDate).getTime() : null;
+    const newGoLiveTime = newGoLiveDate ? newGoLiveDate.getTime() : null;
+    if (newGoLiveTime !== currentGoLiveTime) {
+      update.targetDate = newGoLiveDate;
+    }
   }
   if (req.body.environment !== undefined) {
     if (req.body.environment != null && !VALID_ENVIRONMENTS.includes(req.body.environment)) {
@@ -581,14 +647,23 @@ router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> =
     .innerJoin(usersTable, eq(usersTable.id, projectMembersTable.userId))
     .where(eq(projectMembersTable.projectId, m.projectId));
   const seen = new Set<number>();
-  res.json(rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true))));
+  let deduped = rows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  // DEF-0019 — this endpoint is shared with Step2Requirements' per-requirement
+  // FA/Dev/QA owner picker, which is deliberately cross-department, so the
+  // department filter is opt-in (forTeamStaffing=1) rather than applied
+  // unconditionally. Only the milestone Team section (Milestones.tsx) sets it.
+  if (req.query.forTeamStaffing === "1") {
+    const deptChecks = await Promise.all(deduped.map((r) => checkDepartmentAssignment(ctx.role, r.role)));
+    deduped = deduped.filter((_, i) => deptChecks[i] === null);
+  }
+  res.json(deduped);
 });
 
 // POST /milestones/:id/assignees { userId }
 router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!canManageTeam(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
   const id = parsePositiveId(req.params.id);
   if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const userId = Number(req.body.userId);
@@ -603,41 +678,21 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
     res.status(400).json({ error: "User has no access to this project — grant project membership first" }); return;
   }
 
-  // DEF-0019 — department-restricted staffing: a department lead can only
-  // staff their own department, PM-tier can staff qa/dev/fa, and HOD/CTO/admin
-  // are unrestricted.
-  const SINGLE_DEPT_LEADS: Record<string, string> = { qa_lead: "qa", dev_lead: "dev", fa_lead: "fa" };
-  const PM_TIER = ["pm_lead", "pm_member"];
-  if (ctx.role in SINGLE_DEPT_LEADS) {
-    const targetDept = await getRoleDepartment(target.role);
-    if (targetDept !== SINGLE_DEPT_LEADS[ctx.role]) {
-      res.status(403).json({ error: `${ctx.role.replace("_lead", "").toUpperCase()} Lead can only assign ${SINGLE_DEPT_LEADS[ctx.role]} department members` }); return;
-    }
-  } else if (PM_TIER.includes(ctx.role)) {
-    const targetDept = await getRoleDepartment(target.role);
-    if (!targetDept || !["qa", "dev", "fa"].includes(targetDept)) {
-      res.status(403).json({ error: "PM roles can only assign QA, Dev, or FA department members" }); return;
-    }
-  }
-  // hod_*/cto/admin fall through unrestricted.
+  const deptError = await checkDepartmentAssignment(ctx.role, target.role);
+  if (deptError) { res.status(403).json({ error: deptError }); return; }
 
   const existing = await db.select().from(milestoneAssigneesTable)
     .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
-  if (existing.length > 0) { res.json({ ok: true, already: true }); return; }
+  if (existing.length > 0) {
+    await ensureAssigningLead(id, ctx.role, ctx.userId);
+    res.json({ ok: true, already: true }); return;
+  }
 
   await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId, assignedBy: (ctx as any).id ?? ctx.userId });
   await logActivity({ type: "milestone_assignee_added", description: `${target.name} assigned to milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   await notifyUser(userId, "Assigned to milestone", `You've been assigned to milestone "${m.name}".`, "milestone", "milestone", id, (ctx as any).id ?? ctx.userId).catch(() => {});
 
-  // A lead staffing their department onto a milestone should be on it too.
-  if (ctx.role in SINGLE_DEPT_LEADS) {
-    const leadId = (ctx as any).id ?? ctx.userId;
-    const leadExisting = await db.select().from(milestoneAssigneesTable)
-      .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, leadId)));
-    if (leadExisting.length === 0) {
-      await db.insert(milestoneAssigneesTable).values({ milestoneId: id, userId: leadId, assignedBy: leadId });
-    }
-  }
+  await ensureAssigningLead(id, ctx.role, ctx.userId);
 
   res.status(201).json({ ok: true });
 });
@@ -646,13 +701,18 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
 router.delete("/milestones/:id/assignees/:userId", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canWrite(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!canManageTeam(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
   const id = parsePositiveId(req.params.id);
   if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const userId = parseInt(req.params.userId);
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (target) {
+    const deptError = await checkDepartmentAssignment(ctx.role, target.role);
+    if (deptError) { res.status(403).json({ error: deptError }); return; }
+  }
   await db.delete(milestoneAssigneesTable)
     .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
   await logActivity({ type: "milestone_assignee_removed", description: `User #${userId} removed from milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });

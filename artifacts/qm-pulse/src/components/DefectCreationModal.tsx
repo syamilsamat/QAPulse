@@ -297,6 +297,10 @@ export default function DefectCreationModal({
       toast({ variant: "destructive", title: "Assignee is required" });
       return;
     }
+    if (!targetedStartDate) {
+      toast({ variant: "destructive", title: "Targeted Start Date is required" });
+      return;
+    }
     if (!targetedCompletionDate) {
       toast({ variant: "destructive", title: "Targeted Completion Date is required" });
       return;
@@ -335,9 +339,15 @@ export default function DefectCreationModal({
           // rather than guessing on the reporter's behalf.
           result.customFieldsDropped
             ? [
-                "Redmine rejected Complexity/Date/Source, so the defect was filed without them.",
-                result.customFieldErrors?.length ? `Redmine said: ${result.customFieldErrors.join("; ")}.` : null,
-                "Check the custom field IDs mapped for this project in Module & Project settings.",
+                "The defect was filed, but some fields couldn't be saved with it.",
+                // When the server pinned it to a specific setting, say which —
+                // "Redmine rejected a field" sends people hunting; a setting
+                // name and the id it holds is a one-line fix.
+                result.misconfiguredFields?.length
+                  ? `${result.misconfiguredFields.join("; ")}. Fix it in Configuration → Redmine Integration.`
+                  : result.customFieldErrors?.length
+                    ? `Redmine said: ${result.customFieldErrors.join("; ")}. Check the custom field IDs in Configuration → Redmine Integration.`
+                    : "Check the custom field IDs in Configuration → Redmine Integration.",
               ].filter(Boolean).join(" ")
             : null,
           // The defect exists but hangs off nothing, so whoever triages it needs
@@ -633,7 +643,10 @@ export default function DefectCreationModal({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Targeted Start Date</Label>
+                {/* Required by QA's own flow, not just by Redmine: both
+                    Targeted dates are filled on every QA defect. Actual
+                    Start/Completion Date are dev-side and stay empty here. */}
+                <Label>Targeted Start Date <span className="text-destructive">*</span></Label>
                 <Input
                   type="date"
                   value={targetedStartDate}
@@ -660,7 +673,7 @@ export default function DefectCreationModal({
                 {unmappedCustomFields.join(", ")} {unmappedCustomFields.length === 1 ? "has" : "have"} no
                 Redmine field mapping, so {unmappedCustomFields.length === 1 ? "it won't be" : "they won't be"} sent.
                 If the tracker requires {unmappedCustomFields.length === 1 ? "it" : "them"}, Redmine will reject
-                this issue — map {unmappedCustomFields.length === 1 ? "it" : "them"} in Settings → Redmine Integration.
+                this issue — map {unmappedCustomFields.length === 1 ? "it" : "them"} in Configuration → Redmine Integration.
               </p>
             )}
           </div>

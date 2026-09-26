@@ -41,9 +41,9 @@ const SEVERITY_OPTIONS: { value: IssueSeverity; label: string }[] = [
 
 // Raw file cap — base64 inflates ~33%, kept safely under the API's 8mb
 // screenshotUrl limit (platform-issues.ts, MAX_SCREENSHOT_BYTES).
-const MAX_SCREENSHOT_FILE_BYTES = 5 * 1024 * 1024;
+export const MAX_SCREENSHOT_FILE_BYTES = 5 * 1024 * 1024;
 
-function readFileAsDataUrl(file: File): Promise<string> {
+export function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

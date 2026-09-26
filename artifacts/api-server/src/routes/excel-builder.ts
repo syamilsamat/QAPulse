@@ -234,6 +234,8 @@ export interface ExcelEvidenceLink {
 
 export interface TestCaseRow {
   caseId?: string;
+  /** Feeds the Module column so the sheet can be filtered by module in Excel. */
+  moduleName?: string;
   // The execution grid never writes caseId — it stores the visible id in
   // testCaseId (caseId only ever arrives from a clone or a linked library
   // case), so column A has to fall back to it the same way the UI does.
@@ -428,6 +430,15 @@ function resultFill(result: string | null | undefined): { fill: string; font: st
 const EVIDENCE_COLUMN = "N";
 const EVIDENCE_HEADER = "Evidence";
 
+// ── Module column ─────────────────────────────────────────────────────────────
+// Appended after Evidence for the same reason that one was appended after M:
+// the template's own layout ends at M, and inserting a column further left
+// would shift every hardcoded cell reference below and any merged ranges or
+// formulas the template carries. Position doesn't matter for filtering, and an
+// autofilter is set over the header row so the sheet opens ready to filter.
+const MODULE_COLUMN = "O";
+const MODULE_HEADER = "Module";
+
 function evidenceCell(links: ExcelEvidenceLink[]): { label: string; target: string; tooltip: string } | null {
   if (!links || links.length === 0) return null;
   const name = (link: ExcelEvidenceLink) => link.originalFileName || link.fileName;
@@ -460,7 +471,7 @@ function buildTestCaseExcelFallback(
   ]), "Doc Info");
 
   // Test cases sheet
-  const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC", EVIDENCE_HEADER];
+  const tcHeaders = ["Case ID", "User Story", "Tracker", "Scenario", "Pre-Condition", "Case Name", "Test Steps", "Test Data", "Expected Result", "Result", "Defect No.", "Comments", "QA PIC", EVIDENCE_HEADER, MODULE_HEADER];
   const tcRows = testCases.map((tc) => {
     const ids = resolveIdColumns(tc, { redmineId, issueType });
     return [
@@ -468,6 +479,7 @@ function buildTestCaseExcelFallback(
       tc.preCondition ?? "", tc.caseName ?? "", tc.testSteps ?? "", tc.testData ?? "",
       tc.expectedResult ?? "", tc.result ?? "", tc.defectNumber ?? "", tc.comments ?? "", tc.qaPic ?? "",
       evidenceCell(tc.evidence ?? [])?.label ?? "",
+      tc.moduleName ?? "",
     ];
   });
   const tcSheetFallback = XlsxSheetJS.utils.aoa_to_sheet([tcHeaders, ...tcRows]);
@@ -618,6 +630,8 @@ export async function buildTestCaseExcel(
         if (tc.comments)       tcSheet.cell(`L${row}`).value(String(tc.comments));
         if (tc.qaPic)          tcSheet.cell(`M${row}`).value(String(tc.qaPic));
 
+        if (tc.moduleName) tcSheet.cell(`${MODULE_COLUMN}${row}`).value(String(tc.moduleName));
+
         const link = evidenceCell(tc.evidence ?? []);
         if (link) {
           const cell = tcSheet.cell(`${EVIDENCE_COLUMN}${row}`);
@@ -638,13 +652,39 @@ export async function buildTestCaseExcel(
       // Header for the evidence column, matched to the template's own header
       // row so it doesn't read as a stray addition.
       tcSheet.cell(`${EVIDENCE_COLUMN}1`).value(EVIDENCE_HEADER);
+      tcSheet.cell(`${MODULE_COLUMN}1`).value(MODULE_HEADER);
       try {
-        tcSheet.cell(`${EVIDENCE_COLUMN}1`).style(
-          tcSheet.cell("M1").style(["bold", "fill", "border", "fontColor", "fontSize", "fontFamily", "horizontalAlignment", "verticalAlignment"]),
-        );
+        const headerStyle = tcSheet.cell("M1").style(["bold", "fill", "border", "fontColor", "fontSize", "fontFamily", "horizontalAlignment", "verticalAlignment"]);
+        tcSheet.cell(`${EVIDENCE_COLUMN}1`).style(headerStyle);
+        tcSheet.cell(`${MODULE_COLUMN}1`).style(headerStyle);
         tcSheet.column(EVIDENCE_COLUMN).width(32);
+        tcSheet.column(MODULE_COLUMN).width(24);
       } catch {
-        // Older templates may not carry a styled M1; the header still lands.
+        // Older templates may not carry a styled M1; the headers still land.
+      }
+
+      // Widen the filter range to take in the two appended columns, so Module
+      // is filterable from the dropdown rather than only by hand.
+      //
+      // The template already carries its own <autoFilter ref="A1:M1">, and
+      // xlsx-populate's sheet.autoFilter() APPENDS a second element instead of
+      // replacing it. A worksheet may only have one: two makes the sheet XML
+      // invalid, and Excel responds by discarding the entire part — "we found a
+      // problem with some content", then the test-case sheet opens blank. So
+      // edit the existing node's ref in place and never call autoFilter() when
+      // one is already there.
+      try {
+        const sheetNode: any = (tcSheet as any)._node;
+        const existingFilter = sheetNode?.children?.find((c: any) => c?.name === "autoFilter");
+        const filterRef = `A1:${MODULE_COLUMN}${testCases.length + 1}`;
+        if (existingFilter) {
+          existingFilter.attributes = { ...existingFilter.attributes, ref: filterRef };
+        } else {
+          tcSheet.autoFilter(tcSheet.range(filterRef));
+        }
+      } catch {
+        // Cosmetic — the column is there either way, and Data -> Filter still
+        // works. Never risk the export over it.
       }
     }
 

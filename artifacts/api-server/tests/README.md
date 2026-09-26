@@ -70,3 +70,19 @@ so anything that is not a fixed point produces "1. 1. Open statements".
 Coverage also includes stripping the author's own numbering in its several
 forms, renumbering from position after a deleted step, CRLF from pasted Word
 content, and the decimal guard that keeps "1.5x zoom" intact.
+
+# Recent activity access and pagination
+
+This suite runs the actual route SQL against an isolated PostgreSQL WASM engine.
+It never connects to the application database. Install the test-only runtime outside
+this repository and run from the repository root:
+
+```sh
+npm install --prefix /tmp/qmpulse-activity-tests --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.3.14
+PGLITE_PATH=/tmp/qmpulse-activity-tests/node_modules/@electric-sql/pglite node --test artifacts/api-server/tests/recent-activity.test.cjs
+```
+
+Covers authentication, project/module grants, department and PM member choices,
+manager/admin/CTO scope, unauthorized filters, filtering before limits,
+microsecond cursor ordering, safe summaries, login/logout exclusion, deleted
+resources, invalid inputs, and fail-closed database errors.

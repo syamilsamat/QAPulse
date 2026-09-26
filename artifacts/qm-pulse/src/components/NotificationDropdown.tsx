@@ -56,6 +56,7 @@ export function resolveNotifRoute(entityType: string | null, entityId: number | 
     case "milestone":      return `/milestones?highlight=${entityId}`;
     case "test_case":      return `/test-cases?tc=${entityId}`;
     case "audit_log":      return `/audit-log?entityId=${entityId}`;
+    case "platform_issue": return `/platform-issues?highlight=${entityId}`;
     default:               return null;
   }
 }

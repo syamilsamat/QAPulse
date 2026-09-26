@@ -1438,6 +1438,11 @@ router.post("/execution-files/:ticketId/clone", async (req, res): Promise<void> 
       projectId: resolvedProjectId ?? null,
       requirementId: requirementId ?? null,
       milestoneId: resolvedMilestoneId,
+      // DEF-0024 — the person doing the cloning is this file's author, not
+      // a carry-over from the source file. Without this, createdBy stays
+      // null and the clone is open to submit-for-review by any QA (the
+      // null-author exemption is meant for legacy rows, not new ones).
+      createdBy: actorFromReq(req) ?? null,
     }).returning();
 
     if (sourceTcs.length > 0) {

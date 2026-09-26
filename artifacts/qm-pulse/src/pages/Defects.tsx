@@ -16,6 +16,7 @@ import {
   RefreshCw,
   CloudUpload,
   CloudDownload,
+  CloudOff,
   AlertTriangle,
   RotateCw,
   CheckCircle2,
@@ -146,6 +147,13 @@ interface DefectRow {
   }>;
 }
 
+// Prefix of the message pushDefectToRedmine (redmine-defect-bridge.ts) stores
+// in sync_error when a defect has no Redmine project to push to. Retry can't
+// fix that (POST /defects/:id/retry-sync sends no project), so it isn't a
+// pending sync.
+const isNotLinkedToRedmine = (d: Pick<DefectRow, "redmineId" | "syncError">) =>
+  !d.redmineId && !!d.syncError?.startsWith("No Redmine project could be resolved");
+
 interface Metrics {
   total: number;
   qaCount: number;
@@ -214,7 +222,7 @@ function formatFileSize(sizeBytes: number) {
 
 export default function Defects() {
   const { token, user } = useAuth();
-  const canAssign = ((user as any)?.tierRank ?? 1) >= 2;
+  const canAssign = !!user; // Assignment follows project access, like general defect edits.
   const canVerify = QA_VERIFY_ROLES.has(user?.role ?? "");
   // CR061 — linking is a shared QA workflow action, not restricted to the
   // reporter/qa_lead like editing the defect's own info.
@@ -243,7 +251,10 @@ export default function Defects() {
       setTab(deepLinkedTab);
     }
     const highlight = Number(new URLSearchParams(searchString).get("highlight"));
-    if (Number.isInteger(highlight) && highlight > 0) setExpanded(new Set([highlight]));
+    if (Number.isInteger(highlight) && highlight > 0) {
+      setExpanded(new Set([highlight]));
+      setView("all");
+    }
   }, [deepLinkedTab, searchString]);
   const [onlyUnavailable, setOnlyUnavailable] = useState(false);
   const [checkingId, setCheckingId] = useState<number | null>(null);
@@ -261,12 +272,12 @@ export default function Defects() {
   const [verificationFile, setVerificationFile] = useState<File | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // CR061 — title/description/tracker editing: the reporter (they know what
-  // they meant to type) or a qa_lead+ (tier ≥2, qa department) — mirrors the
-  // server-side canEditDefectInfo gate in defects.ts.
-  const canEditDefectInfo = (d: DefectRow) =>
-    d.reporterId === (user as any)?.id ||
-    (((user as any)?.tierRank ?? 1) >= 2 && (user as any)?.department === "qa");
+  // DEF-0030 follow-up — "everyone can edit the defect but need to include
+  // in history" (the original defect log's own wording). Mirrors the
+  // server, which no longer gates general info-field edits beyond project
+  // access. Root Cause & Resolution keep their own separate, stricter gate
+  // (canEditRootCause below), unaffected by this.
+  const canEditDefectInfo = (_d: DefectRow) => true;
 
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -1016,6 +1027,14 @@ export default function Defects() {
                       <Badge variant="outline" className="text-[10px]" title="Requirement defects are QM Pulse-native — no Redmine tracker equivalent">
                         QM Pulse-native
                       </Badge>
+                    ) : isNotLinkedToRedmine(d) ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 text-muted-foreground"
+                        title="No Redmine project is on record for this defect, so there is nothing to sync. It stays in QM Pulse only."
+                      >
+                        <CloudOff className="w-2.5 h-2.5" /> Not linked to Redmine
+                      </Badge>
                     ) : (
                       <Badge
                         className="bg-amber-100 text-amber-700 hover:bg-amber-200 text-[10px] cursor-pointer gap-1"
@@ -1196,12 +1215,9 @@ export default function Defects() {
                     </div>
                   )}
 
-                  {/* Dev assignment — Lead-tier+ only (CR030), plus a CR031 self-handoff
-                      exception: a requirement defect's current assignee can hand it off
-                      to dev or QA without a Lead gate. */}
+                  {/* Assignment is available to every user with project access. */}
                   {(() => {
-                    const isSelfHandoff = d.source === "requirement" && d.assigneeId === user?.id;
-                    const canEditAssignee = canAssign || isSelfHandoff;
+                    const canEditAssignee = canAssign;
                     const assignOptions = d.source === "requirement" ? handoffUsers : devUsers;
                     return (
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1216,7 +1232,7 @@ export default function Defects() {
                               <SelectValue placeholder="Unassigned" />
                             </SelectTrigger>
                             <SelectContent>
-                              {!isSelfHandoff && <SelectItem value="unassigned">Unassigned</SelectItem>}
+                              <SelectItem value="unassigned">Unassigned</SelectItem>
                               {assignOptions.map((u) => (
                                 <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                               ))}
@@ -1509,6 +1525,9 @@ export default function Defects() {
       <EditDefectDialog
         defect={editingDefect}
         projects={projects}
+        canAssign={canAssign}
+        devUsers={devUsers}
+        handoffUsers={handoffUsers}
         onClose={() => setEditingDefect(null)}
         onSaved={() => { setEditingDefect(null); invalidate(); }}
       />
@@ -1740,11 +1759,17 @@ function SyncRedmineDialog({
 function EditDefectDialog({
   defect,
   projects,
+  canAssign,
+  devUsers,
+  handoffUsers,
   onClose,
   onSaved,
 }: {
   defect: DefectRow | null;
   projects: { id: number; name: string }[];
+  canAssign: boolean;
+  devUsers: { id: number; name: string; role: string }[];
+  handoffUsers: { id: number; name: string; role: string }[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1770,8 +1795,13 @@ function EditDefectDialog({
       stepsToReproduce: (defect as any).stepsToReproduce ?? "",
       expectedResult: (defect as any).expectedResult ?? "",
       actualResult: (defect as any).actualResult ?? "",
+      assigneeId: defect.assigneeId ?? undefined,
     });
   }, [defect]);
+
+  // Match the project-access assignment rule on the defect card.
+  const canEditAssignee = canAssign;
+  const assignOptions = defect?.source === "requirement" ? handoffUsers : devUsers;
 
   useEffect(() => {
     if (!defect) return;
@@ -1811,6 +1841,7 @@ function EditDefectDialog({
           defectCategory: form.defectCategory || null,
           expectedResult: form.expectedResult?.trim() || null,
           actualResult: form.actualResult?.trim() || null,
+          ...(canEditAssignee ? { assigneeId: form.assigneeId ?? null } : {}),
         }),
       });
       if (!res.ok) {
@@ -1898,6 +1929,25 @@ function EditDefectDialog({
                   projectId={form.projectId ?? null}
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              {canEditAssignee ? (
+                <Select
+                  value={form.assigneeId ? String(form.assigneeId) : "unassigned"}
+                  onValueChange={(v) => setForm({ ...form, assigneeId: v === "unassigned" ? undefined : Number(v) })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {assignOptions.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground">{defect?.assigneeName ?? "Unassigned"}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>QM Pulse Project</Label>
@@ -2419,7 +2469,7 @@ function NewDefectDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Targeted Start Date</Label>
+                <Label>Targeted Start Date <span className="text-destructive">*</span></Label>
                 <Input type="date" value={targetedStartDate} onChange={(e) => setTargetedStartDate(e.target.value)} />
               </div>
               <div className="space-y-1.5">
@@ -2430,7 +2480,7 @@ function NewDefectDialog({
 
             {!projectConfig && form.redmineProjectId && (
               <p className="text-xs text-amber-600">
-                No custom field config for this project. Complexity and dates won't be set. Configure in Settings → Redmine Integration.
+                No custom field config for this project. Complexity and dates won't be set. Configure in Configuration → Redmine Integration.
               </p>
             )}
           </div>

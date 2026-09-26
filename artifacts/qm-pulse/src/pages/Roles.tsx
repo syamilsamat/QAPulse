@@ -66,6 +66,7 @@ const DEPARTMENTS = [
 const TIER_OPTIONS = [
   { value: "1", label: "1 — Member" },
   { value: "2", label: "2 — Lead" },
+  { value: "3", label: "3 — Manager" },
   { value: "4", label: "4 — HOD" },
   { value: "5", label: "5 — CTO" },
 ];
@@ -105,6 +106,7 @@ const NAV_PERMISSION_ITEMS = [
   { key: "nav:defects",        label: "Defects" },
   { key: "nav:resources",      label: "Resources" },
   { key: "nav:risk-register",  label: "Risk Register" },
+  { key: "nav:uat-signoffs",   label: "UAT Sign-offs" }, // CR054 — was missing from this map since that CR never touched Roles.tsx
 ];
 
 const NAV_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(
@@ -141,6 +143,10 @@ const RACI_MAP: Record<string, Record<string, RaciLetter>> = {
   "nav:qa-pipeline":    { qa_lead: "R", qa_manager: "A", hod_qa: "C", qa_member: "C", admin: "C", cto: "I" },
   "nav:team":           { qa_lead: "R", fa_lead: "R", dev_lead: "R", pm_lead: "R", hod_qa: "A", hod_fa: "A", hod_dev: "A", hod_pm: "A", qa_manager: "C", cto: "I" },
   "nav:audit-log":      { admin: "R", cto: "I" },
+  // CR054 — PM family owns the sign-off registry; QA leads/managers can also
+  // upload (lead-tier+, same gate as PM). fa/dev have no access at all here,
+  // so they carry no stake, not even Informed.
+  "nav:uat-signoffs":   { pm_lead: "R", hod_pm: "A", qa_lead: "C", qa_manager: "C", pm_member: "C", hod_qa: "I", cto: "I" },
 };
 
 const RACI_CELL_CLASS: Record<RaciLetter, string> = {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:defects": "node --test tests/defect-recheck-regression.test.cjs",
     "test:excel": "TZ=UTC node --test tests/excel-review-regression.test.cjs",
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
@@ -36,6 +37,7 @@
     "pino-http": "^10",
     "puppeteer": "^25.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "xlsx-js-style": "^1.2.0",
     "xlsx-populate": "^1.21.0"
   },
   "devDependencies": {

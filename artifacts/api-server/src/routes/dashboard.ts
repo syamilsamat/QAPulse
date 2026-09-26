@@ -1,7 +1,9 @@
+import recentActivityRouter from "./recent-activity";
+import { isDevelopmentTaskStart, DEVELOPMENT_TASK_EVENT_TYPES } from "./development-task-events";
 import { Router, type IRouter } from "express";
-import { eq, and, desc, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, inArray, isNotNull } from "drizzle-orm";
 import { db, tasksTable, testCasesTable, requirementsTable, usersTable, projectsTable, activityTable, milestonesTable, milestoneAssigneesTable, executionFilesTable, executionTestCasesTable, defectsTable, defectLinksTable, rolesTable, uatSignoffsTable } from "@workspace/db";
-import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams, GetRecentActivityQueryParams } from "@workspace/api-zod";
+import { GetDashboardSummaryQueryParams, GetTeamDashboardQueryParams, GetWeeklyTrendQueryParams } from "@workspace/api-zod";
 import { getAuthContext, scopeToUserProjects, canAccessProject } from "../middleware/access";
 
 const router: IRouter = Router();
@@ -339,6 +341,12 @@ function makeSegment(key: PhaseKey, cycle: number, start: Date, end: Date | null
   };
 }
 
+// Not a stored event: computeRequirementTimelinesBatch synthesizes one at each
+// moment a dev task under the requirement began work (moved to In progress, or
+// was submitted for review), from the task activity log, and feeds it in next
+// to the stored events below.
+const DEV_TASK_START_EVENT = "requirement_dev_task_start";
+
 const RELEVANT_EVENT_TYPES = [
   "requirement_submit",
   "requirement_approve",
@@ -415,7 +423,9 @@ export function computeTimelineFromEvents(
       // shortcut from approval straight to QA. Whichever comes first, a
       // dev handoff or a resubmit before one ever happened, decides how
       // the gap closes.
-      const devAssignEv = nextEventOfType(["requirement_dev_assign"], phaseStart);
+      // A dev handoff, or the first dev task beginning work, whichever comes
+      // first — either means development has actually started.
+      const devAssignEv = nextEventOfType(["requirement_dev_assign", DEV_TASK_START_EVENT], phaseStart);
       const submitEv = nextEventOfType(["requirement_submit", "requirement_return_to_fa"], phaseStart); // CR053 — a Dev/QA return-to-FA is also a "back to Requirements" boundary
       const candidates: { at: Date; kind: "dev" | "submit" }[] = [];
       if (devAssignEv) candidates.push({ at: devAssignEv.createdAt, kind: "dev" });
@@ -596,6 +606,31 @@ export async function computeRequirementTimelinesBatch(
   ]);
   const milestoneById = new Map(milestoneRows.map(m => [m.id, m]));
 
+  // Creation and assignment are development work, even before the task moves
+  // to In progress. Read the original audit timestamps so existing tasks and
+  // later requirement review cycles retain their actual start dates.
+  const devTaskRows = await db
+    .select({ id: tasksTable.id, requirementId: tasksTable.requirementId })
+    .from(tasksTable)
+    .where(inArray(tasksTable.requirementId, reqIds));
+  const reqIdByTaskId = new Map(devTaskRows.map((t) => [t.id, t.requirementId as number]));
+  const taskStartRows = devTaskRows.length === 0 ? [] : await db
+    .select({ entityId: activityTable.entityId, type: activityTable.type, createdAt: activityTable.createdAt, newValue: activityTable.newValue })
+    .from(activityTable)
+    .where(and(
+      eq(activityTable.entityType, "task"),
+      inArray(activityTable.entityId, [...reqIdByTaskId.keys()]),
+      inArray(activityTable.type, DEVELOPMENT_TASK_EVENT_TYPES),
+    ));
+  const devTaskStartsByReq = new Map<number, Date[]>();
+  for (const row of taskStartRows) {
+    const reqId = row.entityId != null ? reqIdByTaskId.get(row.entityId) : undefined;
+    if (reqId == null) continue;
+    if (!isDevelopmentTaskStart(row)) continue;
+    if (!devTaskStartsByReq.has(reqId)) devTaskStartsByReq.set(reqId, []);
+    devTaskStartsByReq.get(reqId)!.push(row.createdAt);
+  }
+
   // Actual work excludes record creation/import and assignment-only events.
   const workEventTypes = new Set(["requirement_submit", "requirement_approve", "requirement_reject", "requirement_dev_start", "requirement_dev_ready_for_qa", "requirement_dev_return_to_dev", "requirement_return_to_fa"]);
   const workStartedByReq = new Map<number, Date>();
@@ -614,6 +649,14 @@ export async function computeRequirementTimelinesBatch(
     if (row.entityId == null || !RELEVANT_EVENT_TYPES.includes(row.type)) continue;
     if (!activityByReq.has(row.entityId)) activityByReq.set(row.entityId, []);
     activityByReq.get(row.entityId)!.push({ type: row.type, createdAt: row.createdAt });
+  }
+  // Every start, not just the first: a later cycle (re-approval after a reject
+  // or return) looks for its own first start after its own phase boundary.
+  for (const [reqId, starts] of devTaskStartsByReq) {
+    if (!activityByReq.has(reqId)) activityByReq.set(reqId, []);
+    const events = activityByReq.get(reqId)!;
+    for (const createdAt of starts) events.push({ type: DEV_TASK_START_EVENT, createdAt });
+    events.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
   const execByReq = new Map<number, { qa: Date[]; uat: Date[] }>();
   for (const row of execRows) {
@@ -1127,7 +1170,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       : [];
   if (milestones.length === 0) return [];
 
-  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
+  const allUsers = await db.select({ id: usersTable.id, name: usersTable.name, role: usersTable.role }).from(usersTable);
   const usersById = new Map(allUsers.map((u) => [u.id, u]));
 
   // DEF-0018 — milestone Team assignments, grouped by the assignee's role
@@ -1390,10 +1433,14 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       const fmtNames = (names: string[]) => (names.length > 0 ? names.join(", ") : "—");
       const faAll = [...new Set([faOwnerName, faApproverName].filter((n): n is string => !!n))];
       // DEF-0032 — a dev assigned via a Dev Task, not just the requirement's
-      // own devAssigneeId/devAssignedBy, counts as Dev PIC.
+      // own devAssigneeId/devAssignedBy, counts as Dev PIC. Filtered to
+      // dev-department roles: the Dev Tasks assignee picker isn't
+      // department-restricted, so a QA/FA user occasionally ends up in
+      // tasksTable.assigneeIds and would otherwise show up as "Dev" here.
       const devTaskAssigneeNames = [...(devTaskAssigneeIdsByReq.get(entry.id) ?? new Set<number>())]
-        .map((id) => usersById.get(id)?.name)
-        .filter((n): n is string => !!n);
+        .map((id) => usersById.get(id))
+        .filter((u): u is { id: number; name: string; role: string } => !!u && departmentByRole.get(u.role) === "dev")
+        .map((u) => u.name);
       const devAll = [...new Set([devAssignedByName, devAssigneeName, ...devTaskAssigneeNames].filter((n): n is string => !!n))];
       const qaAll = [...new Set([...qaSetterNames, ...qaNames])];
 
@@ -2107,32 +2154,7 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
   res.json(trendData);
 });
 
-router.get("/dashboard/activity", async (req, res): Promise<void> => {
-  const parsed = GetRecentActivityQueryParams.safeParse(req.query);
-  const limit = parsed.success && parsed.data.limit ? parsed.data.limit : 20;
-  const userId = parsed.success ? parsed.data.userId : undefined;
-
-  const query = db.select().from(activityTable).orderBy(desc(activityTable.createdAt)).limit(limit);
-
-  const activities = await query;
-
-  const usersMap: Record<number, string> = {};
-  const users = await db.select().from(usersTable);
-  users.forEach(u => { usersMap[u.id] = u.name; });
-
-  const filtered = userId ? activities.filter(a => a.userId === userId) : activities;
-
-  res.json(filtered.map(a => ({
-    id: a.id,
-    type: a.type,
-    description: a.description,
-    userId: a.userId,
-    userName: a.userId ? (usersMap[a.userId] ?? null) : null,
-    entityId: a.entityId,
-    entityType: a.entityType,
-    createdAt: a.createdAt.toISOString(),
-  })));
-});
+router.use(recentActivityRouter);
 
 // ── CR026: QA Analytics Dashboard ────────────────────────────────────────────
 

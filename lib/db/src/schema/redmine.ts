@@ -16,6 +16,9 @@ export const redmineProjectConfigsTable = pgTable("redmine_project_configs", {
     .notNull()
     .unique(),
   complexityFieldId: integer("complexity_field_id"),
+  // Redmine's "Targeted Start Date" custom field. Distinct from that
+  // tracker's "Actual Start Date", which is dev-side and which QM Pulse
+  // deliberately never writes.
   targetedStartDateFieldId: integer("targeted_start_date_field_id"),
   targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
   // Redmine custom field that holds the reporting department (qa/dev/fa/pm)
@@ -28,6 +31,9 @@ export const redmineProjectConfigsTable = pgTable("redmine_project_configs", {
 export const redmineGlobalConfigTable = pgTable("redmine_global_config", {
   id: serial("id").primaryKey(),
   complexityFieldId: integer("complexity_field_id"),
+  // Redmine's "Targeted Start Date" custom field. Distinct from that
+  // tracker's "Actual Start Date", which is dev-side and which QM Pulse
+  // deliberately never writes.
   targetedStartDateFieldId: integer("targeted_start_date_field_id"),
   targetedCompletionDateFieldId: integer("targeted_completion_date_field_id"),
   sourceFieldId: integer("source_field_id"),

@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useSearch } from "wouter";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -179,7 +180,12 @@ export default function Milestones() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [filterProject, setFilterProject] = useState<string>("all");
+  const activitySearch = useSearch();
+  const linkedProject = new URLSearchParams(activitySearch).get("projectId");
+  const [filterProject, setFilterProject] = useState<string>(linkedProject ?? "all");
+  useEffect(() => {
+    if (linkedProject && /^[1-9]\d*$/.test(linkedProject)) setFilterProject(linkedProject);
+  }, [linkedProject]);
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
@@ -206,6 +212,9 @@ export default function Milestones() {
   });
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
+  // dev_lead gets Team access only (DEF-0012) — not create/edit-other-fields/delete,
+  // which stays behind the full canWrite gate above and its backend counterpart.
+  const canManageTeam = canWrite || user?.role === "dev_lead";
   const { roleLabel } = useRoleLabels();
 
   const [exportingLessons, setExportingLessons] = useState(false);
@@ -244,10 +253,10 @@ export default function Milestones() {
   const { data: assignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
     queryKey: ["milestone-assignable", editing?.id],
     queryFn: async () => {
-      const res = await api(`/milestones/${editing!.id}/assignable-users`, token);
+      const res = await api(`/milestones/${editing!.id}/assignable-users?forTeamStaffing=1`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: dialogOpen && !!editing && canWrite,
+    enabled: dialogOpen && !!editing && canManageTeam,
   });
   const refreshAssignees = () => queryClient.invalidateQueries({ queryKey: ["milestone-assignees", editing?.id] });
   const addAssignee = async (userId: string) => {
@@ -486,14 +495,16 @@ export default function Milestones() {
                     </div>
                   </div>
                 )}
-                {canWrite && (
+                {canManageTeam && (
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
                       <Pencil className="w-3.5 h-3.5" /> Edit
                     </Button>
-                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(m.id)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {canWrite && (
+                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(m.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>

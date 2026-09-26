@@ -24,9 +24,11 @@ These are two separate code paths with different levels of completeness — note
 | Sprint | Yes | **Not sent at all** — no field, no custom-field-ID config slot exists for it | ❌ **Highest-risk gap** — see note below |
 | Story Points | No | Not present anywhere in QM Pulse | ❌ Not built |
 | Roadblock Reason | No | Not present anywhere in QM Pulse | ❌ Not built |
-| Targeted Start Date | Yes | Date picker → custom field | ✅ Mapped, both paths |
+| Targeted Start Date | Yes | Date picker → custom field, **required in both dialogs** (QA fills this on every defect) | ✅ Mapped, both paths |
 | Targeted Completion Date | Yes | Date picker → custom field. **Required-checked** in the fail-pill modal; **not required-checked** in the "New Defect" dialog (only Title is validated there) | ⚠️ Inconsistent between the two paths |
-| Actual Start Date | No | Not present | ❌ Not built |
+| Include in Master Task List | ? | Not sent | ❌ Not built — present on the tracker (seen on #41178), no config slot |
+| Code Review | No | Not sent | ❌ Not built — present on the tracker (seen on #41178) |
+| Actual Start Date | No | Not present | ✅ Deliberately not sent — dev-side field, left empty by QA (confirmed against QA Defect #41178, 2026-09-23) |
 | Actual Completion Date | No | Not present | ❌ Not built |
 | Files | No | Uploaded as Redmine attachments in the fail-pill modal | ⚠️ **Silently dropped** in the "New Defect" dialog — collected in UI state, never sent to Redmine or stored locally |
 
