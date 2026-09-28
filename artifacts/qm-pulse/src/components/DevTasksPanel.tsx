@@ -1,3 +1,4 @@
+import { openAttachmentResponse } from "@/lib/attachment-download";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -294,19 +295,14 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
     }
   };
 
-  // Evidence download needs the Bearer token, which a plain <a href> can't send
-  // (this app authenticates via JWT-in-localStorage, not cookies) — same fix
-  // RequirementDetail.tsx's downloadAttachment already uses for attachments:
-  // fetch with the header, then open the blob instead of navigating directly.
+  // Open the preview synchronously; unsupported formats download by name.
   const viewEvidence = async (evidenceId: number, filename: string) => {
+    const previewWindow = window.open("", "_blank");
     try {
       const res = await api(`/requirements/dev-tasks/evidence/${evidenceId}/download`, token);
-      if (!res.ok) throw new Error();
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      await openAttachmentResponse(res, filename, true, previewWindow);
     } catch {
+      previewWindow?.close();
       toast({ variant: "destructive", title: `Failed to open ${filename}` });
     }
   };

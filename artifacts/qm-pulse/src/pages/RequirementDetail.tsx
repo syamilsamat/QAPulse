@@ -1,3 +1,4 @@
+import { openAttachmentResponse } from "@/lib/attachment-download";
 import { useEffect, useMemo, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -392,18 +393,13 @@ export default function RequirementDetail() {
     }
   };
 
-  const downloadAttachment = (attachmentId: number, filename: string) => {
-    const url = `${getApiUrl()}/requirements/attachments/${attachmentId}/download`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    fetch(url, { headers }).then(res => res.blob()).then(blob => {
-      const objectUrl = URL.createObjectURL(blob);
-      a.href = objectUrl;
-      a.click();
-      URL.revokeObjectURL(objectUrl);
-    }).catch(() => toast({ variant: "destructive", title: "Download failed" }));
+  const downloadAttachment = async (attachmentId: number, filename: string) => {
+    try {
+      const res = await api(`/requirements/attachments/${attachmentId}/download`, token);
+      await openAttachmentResponse(res, filename, false, null);
+    } catch {
+      toast({ variant: "destructive", title: "Download failed" });
+    }
   };
 
   const submitComment = async () => {

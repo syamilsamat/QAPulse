@@ -2588,8 +2588,13 @@ router.get("/execution-test-cases/:rowId/evidence/:evidenceId/download", async (
   if (!evidence) { res.status(404).json({ error: "Evidence not found" }); return; }
   const wantsInline = req.query.inline === "1" || req.query.inline === "true";
   const disposition = wantsInline && SAFE_INLINE_EVIDENCE_MIME.has(evidence.mimeType) ? "inline" : "attachment";
+  // Individual downloads retain the uploaded name; ZIP evidence links keep
+  // canonical stored names. Express safely encodes Unicode/header characters.
+  res.attachment(evidence.originalFileName || evidence.fileName);
+  if (disposition === "inline") {
+    res.setHeader("Content-Disposition", String(res.getHeader("Content-Disposition")).replace(/^attachment/, "inline"));
+  }
   res.setHeader("Content-Type", evidence.mimeType);
-  res.setHeader("Content-Disposition", `${disposition}; filename="${evidence.fileName.replace(/"/g, "")}"`);
   res.send(Buffer.from(evidence.dataBase64, "base64"));
 });
 

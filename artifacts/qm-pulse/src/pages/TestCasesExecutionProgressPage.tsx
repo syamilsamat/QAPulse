@@ -1,3 +1,4 @@
+import { openAttachmentResponse } from "@/lib/attachment-download";
 import { readVerdictDrilldown, matchesExecutionResult } from "@/lib/verdict-drilldown";
 import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
 import React, {
@@ -2708,18 +2709,7 @@ export default function TestCasesExecutionProgressPage() {
     try {
       const res = await fetch(executionEvidenceUrl(rowId, evidenceId, inline), { headers: getHeaders() });
       if (!res.ok) throw new Error("Unable to open attachment");
-      const url = URL.createObjectURL(await res.blob());
-      if (inline) {
-        if (!previewWindow) throw new Error("Preview was blocked by the browser");
-        previewWindow.opener = null;
-        previewWindow.location.href = url;
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        link.click();
-      }
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openAttachmentResponse(res, fileName, inline, previewWindow);
     } catch (error: any) {
       previewWindow?.close();
       toast({ variant: "destructive", title: "Attachment unavailable", description: error?.message });
@@ -2792,8 +2782,8 @@ export default function TestCasesExecutionProgressPage() {
             <span className="min-w-0 flex-1 truncate" title={`${file.originalFileName ?? file.fileName}\nSaved as: ${file.fileName}`}>
               {file.originalFileName ?? file.fileName}
             </span>
-            <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
-            <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
+            <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.originalFileName || file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
+            <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.originalFileName || file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
             {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
               <button className="hover:text-destructive" title="Delete attachment" onClick={() => requestRemovePassEvidence(row, file)}><Trash2 className="w-3.5 h-3.5" /></button>
             )}

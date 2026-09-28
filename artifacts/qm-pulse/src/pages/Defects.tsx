@@ -1,3 +1,4 @@
+import { openAttachmentResponse } from "@/lib/attachment-download";
 import { useState, useEffect, useRef, Fragment } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -703,18 +704,7 @@ export default function Defects() {
     try {
       const res = await fetch(`${getApiUrl()}/defects/${defectId}/verification-evidence/${evidenceId}/download${inline ? "?inline=1" : ""}`, { headers: authHeaders });
       if (!res.ok) throw new Error("Unable to open verification evidence");
-      const url = URL.createObjectURL(await res.blob());
-      if (inline) {
-        if (!previewWindow) throw new Error("Preview was blocked by the browser");
-        previewWindow.opener = null;
-        previewWindow.location.href = url;
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        link.click();
-      }
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openAttachmentResponse(res, fileName, inline, previewWindow);
     } catch (error: any) {
       previewWindow?.close();
       toast({ variant: "destructive", title: error.message });

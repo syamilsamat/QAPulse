@@ -86,3 +86,13 @@ Covers authentication, project/module grants, department and PM member choices,
 manager/admin/CTO scope, unauthorized filters, filtering before limits,
 microsecond cursor ordering, safe summaries, login/logout exclusion, deleted
 resources, invalid inputs, and fail-closed database errors.
+
+# Attachment filenames and failed downloads
+
+Run `node --test artifacts/api-server/tests/attachment-download.test.cjs`.
+Covers the shared execution, defect-verification, developer-task, and requirement
+attachment handler: unsupported previews download by name; supported formats
+preview; HTTP failures never save error bodies; Unicode names survive; and popup
+blocking is handled. The execution endpoint is exercised with isolated DB/auth
+boundaries and Express's real header encoder, including original-name preference,
+legacy fallback, exact bytes, and access denial. No production records are changed.
