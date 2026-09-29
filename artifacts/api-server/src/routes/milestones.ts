@@ -176,6 +176,18 @@ function computePipelineStepStates(input: {
   return states;
 }
 
+// CR070 follow-up — Data Prep milestones walk a 2-step branch in the QA
+// Pipeline UI (see DATA_PREP_STEPS client-side) instead of the 8-step wizard:
+// they have no requirement/exec/sign-off chain to gate on, so step 2 is
+// driven by the uploaded file count and the completed status instead.
+function computeDataPrepStepStates(input: { fileCount: number; completed: boolean }): Record<number, PipelineStepState> {
+  const { fileCount, completed } = input;
+  return {
+    1: "done",
+    2: completed ? "done" : fileCount > 0 ? "in_progress" : "not_started",
+  };
+}
+
 function fmt(m: typeof milestonesTable.$inferSelect) {
   return {
     id: m.id,
@@ -463,17 +475,22 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   const uatDocs = await db.select({ id: uatSignoffsTable.id })
     .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, id));
 
-  const pipelineStepStates = computePipelineStepStates({
-    requirementCount: reqs.length,
-    execFileCount: qaFiles.length,
-    approvedFileCount: qaFiles.filter((f) => f.reviewStatus === "approved").length,
-    totalExecRows: execTally?.total ?? 0,
-    executedRows: execTally?.executed ?? 0,
-    signedOff: !!m.signedOffAt,
-    requiresUat: !!m.requiresUat,
-    uatDocCount: uatDocs.length,
-    deployed: m.status === "completed",
-  });
+  const pipelineStepStates = m.type === "data_prep"
+    ? computeDataPrepStepStates({
+        fileCount: dataFiles.length,
+        completed: m.status === "completed",
+      })
+    : computePipelineStepStates({
+        requirementCount: reqs.length,
+        execFileCount: qaFiles.length,
+        approvedFileCount: qaFiles.filter((f) => f.reviewStatus === "approved").length,
+        totalExecRows: execTally?.total ?? 0,
+        executedRows: execTally?.executed ?? 0,
+        signedOff: !!m.signedOffAt,
+        requiresUat: !!m.requiresUat,
+        uatDocCount: uatDocs.length,
+        deployed: m.status === "completed",
+      });
 
   // Resolve the sign-off signer so the pipeline's sign-off step can name who
   // approved it — fmt() only carries the raw user id.
@@ -564,6 +581,17 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     // (business testing) → completed, or cancelled at any point.
     if (!VALID_STATUSES.includes(req.body.status)) {
       res.status(400).json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }); return;
+    }
+    // Data Prep milestones have no requirement/exec chain to prove the work
+    // happened — the uploaded dataset file IS the deliverable, so block the
+    // transition into 'completed' until at least one has been attached.
+    const effectiveType = update.type ?? m.type;
+    if (req.body.status === "completed" && effectiveType === "data_prep") {
+      const dataFiles = await db.select({ id: dataPrepFilesTable.id })
+        .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
+      if (dataFiles.length === 0) {
+        res.status(400).json({ error: "Upload the prepared data file before marking this milestone complete" }); return;
+      }
     }
     update.status = req.body.status;
     // Auto-stamp the authoritative end-of-QA-phase boundary (PM Dashboard
