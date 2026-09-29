@@ -2159,19 +2159,24 @@ router.post(
       // is what the sheet collects when a tester overwrites a result that was
       // already recorded — the trail's whole point is that "Passed -> Failed,
       // three weeks later" is answerable without asking around.
+      // Case/whitespace-insensitive compare — re-uploaded sheets and manual
+      // edits don't always match the stored casing exactly (e.g. "Not
+      // Executed" vs "not executed"), and a diff on raw strings logged that
+      // as a change even though nothing about the result actually moved.
+      const normalizeResult = (s: string | null) => (s ? s.trim().toLowerCase() : null);
       const historyRows = processedCases
         .filter((t: any) => t.testCaseId)
         .flatMap((t: any) => {
           const existing = existingMap.get(t.testCaseId);
           const oldResult = existing?.result ?? null;
           const newResult = (t.result?.trim() || null) as string | null;
-          if (oldResult === newResult || (!oldResult && !newResult)) return [];
+          if (normalizeResult(oldResult) === normalizeResult(newResult)) return [];
           // DEF-0029 — a row's result defaults to the display string "Not
           // Executed" rather than empty, so a brand-new row otherwise reads
           // as a real null -> "Not Executed" transition. That's not a change
           // anyone made; skip it (the "Added" entry below covers the row's
           // actual arrival).
-          if (oldResult === null && newResult === "Not Executed") return [];
+          if (oldResult === null && normalizeResult(newResult) === "not executed") return [];
           const reason = typeof t.resultChangeReason === "string" ? t.resultChangeReason.trim() : "";
           return [{
             executionFileId: file.id,
