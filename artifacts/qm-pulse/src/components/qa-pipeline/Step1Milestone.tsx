@@ -18,12 +18,16 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
+import { DATA_PREP_TEMPLATE } from "@/components/DataPrepFilesSection";
 
 const TYPE_OPTIONS = [
   { value: "cr", label: "Change Request" },
   { value: "sprint", label: "Sprint" },
   { value: "phase", label: "Phase" },
   { value: "release", label: "Release" },
+  // CR069 — work with no requirement/dev/UAT phase of its own (e.g. QA data
+  // preparation) — mirrors the Milestones page's TYPE_OPTIONS.
+  { value: "data_prep", label: "Data Prep" },
 ];
 
 const ENVIRONMENT_OPTIONS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
@@ -42,6 +46,17 @@ const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
   { value: "uat", label: "UAT" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+// Data Prep milestones have no dev/QA-execution/UAT phase of their own, so
+// "Verified"/"UAT" never apply, and "Active" reads as "In Progress" for a
+// file-handoff task — mirrors the Milestones page's DATA_PREP_STATUS_OPTIONS,
+// minus "Completed": a new milestone has no uploaded data file yet, and
+// completion needs one (the server rejects creating a pipeline as completed).
+const DATA_PREP_STATUS_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "In Progress" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
@@ -90,6 +105,21 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
   });
 
   const canWrite = ["admin", "qa_member", "qa_lead", "qa_manager", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
+
+  // CR070 — switching to Data Prep prefills the checklist template (only if
+  // nothing's been typed yet) and resets a now-unsupported status, mirroring
+  // the Milestones page's handleTypeChange.
+  const handleTypeChange = (v: string) => {
+    setForm((f) => {
+      const statusUnsupported = v === "data_prep" && (f.status === "verified" || f.status === "uat");
+      return {
+        ...f,
+        type: v,
+        status: statusUnsupported ? "active" : f.status,
+        description: v === "data_prep" && !f.description.trim() ? DATA_PREP_TEMPLATE : f.description,
+      };
+    });
+  };
 
   const handleCreate = async () => {
     if (!projectId) {
@@ -172,7 +202,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Type</Label>
-            <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
+            <Select value={form.type} onValueChange={handleTypeChange}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
@@ -184,7 +214,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                {(form.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -219,59 +249,65 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Start</Label>
-              <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Requirements by</Label>
-              <Input type="date" value={form.reqTargetDate} onChange={e => setForm({ ...form, reqTargetDate: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Dev done by</Label>
-              <Input type="date" value={form.devTargetDate} onChange={e => setForm({ ...form, devTargetDate: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">QA done by</Label>
-              <Input type="date" value={form.qaTargetDate} onChange={e => setForm({ ...form, qaTargetDate: e.target.value })} />
-            </div>
-            {form.requiresUat && (
+        {form.type !== "data_prep" && (
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">UAT target date</Label>
-                <Input type="date" value={form.uatTargetDate} onChange={e => setForm({ ...form, uatTargetDate: e.target.value })} />
+                <Label className="text-xs">Start</Label>
+                <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />
               </div>
-            )}
-            <div className="space-y-1">
-              <Label className="text-xs">Go-Live</Label>
-              <Input type="date" value={form.goLiveDate} onChange={e => setForm({ ...form, goLiveDate: e.target.value })} />
+              <div className="space-y-1">
+                <Label className="text-xs">Requirements by</Label>
+                <Input type="date" value={form.reqTargetDate} onChange={e => setForm({ ...form, reqTargetDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Dev done by</Label>
+                <Input type="date" value={form.devTargetDate} onChange={e => setForm({ ...form, devTargetDate: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">QA done by</Label>
+                <Input type="date" value={form.qaTargetDate} onChange={e => setForm({ ...form, qaTargetDate: e.target.value })} />
+              </div>
+              {form.requiresUat && (
+                <div className="space-y-1">
+                  <Label className="text-xs">UAT target date</Label>
+                  <Input type="date" value={form.uatTargetDate} onChange={e => setForm({ ...form, uatTargetDate: e.target.value })} />
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-xs">Go-Live</Label>
+                <Input type="date" value={form.goLiveDate} onChange={e => setForm({ ...form, goLiveDate: e.target.value })} />
+              </div>
             </div>
           </div>
-        </div>
+        )}
         <div className="space-y-2">
-          <Label>Description</Label>
+          <Label>{form.type === "data_prep" ? "What QA needs to prepare" : "Description"}</Label>
           <Textarea
             value={form.description}
             onChange={e => setForm({ ...form, description: e.target.value })}
-            placeholder="High level goals for this pipeline run..."
+            placeholder={form.type === "data_prep" ? undefined : "High level goals for this pipeline run..."}
+            rows={form.type === "data_prep" ? 6 : undefined}
+            className={form.type === "data_prep" ? "font-mono text-xs resize-y" : undefined}
           />
         </div>
 
-        <div className="flex flex-row items-center space-x-3 space-y-0 p-4 border rounded-lg bg-muted/50">
-          <Checkbox 
-            id="uatToggle"
-            checked={form.requiresUat}
-            onCheckedChange={(checked) => setForm({ ...form, requiresUat: !!checked, uatTargetDate: checked ? form.uatTargetDate : "" })}
-          />
-          <div className="space-y-1 leading-none">
-            <Label htmlFor="uatToggle">Requires UAT Sign-off?</Label>
-            <p className="text-sm text-muted-foreground">
-              If enabled, Step 7 (UAT Sign-off) will be required before the pipeline can be completed.
-            </p>
+        {form.type !== "data_prep" && (
+          <div className="flex flex-row items-center space-x-3 space-y-0 p-4 border rounded-lg bg-muted/50">
+            <Checkbox
+              id="uatToggle"
+              checked={form.requiresUat}
+              onCheckedChange={(checked) => setForm({ ...form, requiresUat: !!checked, uatTargetDate: checked ? form.uatTargetDate : "" })}
+            />
+            <div className="space-y-1 leading-none">
+              <Label htmlFor="uatToggle">Requires UAT Sign-off?</Label>
+              <p className="text-sm text-muted-foreground">
+                If enabled, Step 7 (UAT Sign-off) will be required before the pipeline can be completed.
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="flex justify-end">

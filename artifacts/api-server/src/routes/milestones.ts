@@ -127,6 +127,11 @@ const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
  * Worth aligning computePipelineState() to match, but that changes the
  * dashboard's numbers, so it is left as a separate decision.
  */
+// "conditional" — 100% executed but not 100% passed (Step 5 "Conditional
+// Pass"), or a sign-off recorded under those conditions (Steps 6 and 8
+// "Conditional Sign Off"). Distinct from "done" so the rail never reads as a
+// success signal for a step that went through with failures — 100% executed
+// is not 100% passed. See STEP_STATE_LABEL / StepStateIcon on the client.
 export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped" | "conditional";
 
 function computePipelineStepStates(input: {
@@ -196,6 +201,18 @@ function computePipelineStepStates(input: {
   }
 
   return states;
+}
+
+// CR070 follow-up — Data Prep milestones walk a 2-step branch in the QA
+// Pipeline UI (see DATA_PREP_STEPS client-side) instead of the 8-step wizard:
+// they have no requirement/exec/sign-off chain to gate on, so step 2 is
+// driven by the uploaded file count and the completed status instead.
+function computeDataPrepStepStates(input: { fileCount: number; completed: boolean }): Record<number, PipelineStepState> {
+  const { fileCount, completed } = input;
+  return {
+    1: "done",
+    2: completed ? "done" : fileCount > 0 ? "in_progress" : "not_started",
+  };
 }
 
 function fmt(m: typeof milestonesTable.$inferSelect) {
@@ -468,19 +485,24 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
 
   const conditionalSignoff = isConditionalSignoff(m, facts);
-  const pipelineStepStates = computePipelineStepStates({
-    requirementCount: facts.requirementCount,
-    execFileCount: facts.qaFileCount,
-    approvedFileCount: facts.approvedQaFileCount,
-    totalExecRows: facts.totalExecRows,
-    executedRows: facts.executedRows,
-    failedRows: facts.failedRows,
-    signedOff: !!m.signedOffAt,
-    conditionalSignoff,
-    requiresUat: !!m.requiresUat,
-    uatDocCount: facts.uatDocCount,
-    deployed: m.status === "completed",
-  });
+  const pipelineStepStates = m.type === "data_prep"
+    ? computeDataPrepStepStates({
+        fileCount: dataFiles.length,
+        completed: m.status === "completed",
+      })
+    : computePipelineStepStates({
+        requirementCount: facts.requirementCount,
+        execFileCount: facts.qaFileCount,
+        approvedFileCount: facts.approvedQaFileCount,
+        totalExecRows: facts.totalExecRows,
+        executedRows: facts.executedRows,
+        failedRows: facts.failedRows,
+        signedOff: !!m.signedOffAt,
+        conditionalSignoff,
+        requiresUat: !!m.requiresUat,
+        uatDocCount: facts.uatDocCount,
+        deployed: m.status === "completed",
+      });
 
   // Resolve the sign-off signer so the pipeline's sign-off step can name who
   // approved it — fmt() only carries the raw user id.
@@ -598,10 +620,20 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     if (!VALID_STATUSES.includes(req.body.status)) {
       res.status(400).json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }); return;
     }
-    // Marking a pipeline as deployed is gated on every earlier step, exactly
-    // as Step 8's readiness checklist shows it — enforced here so the gate
-    // can't be skipped from the Milestones page or a direct API call.
-    if (deploying && isPipeline) {
+    // Data Prep milestones have no requirement/exec chain to prove the work
+    // happened — the uploaded dataset file IS the deliverable, so block the
+    // transition into 'completed' until at least one has been attached.
+    const effectiveType = update.type ?? m.type;
+    if (req.body.status === "completed" && effectiveType === "data_prep") {
+      const dataFiles = await db.select({ id: dataPrepFilesTable.id })
+        .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
+      if (dataFiles.length === 0) {
+        res.status(400).json({ error: "Upload the prepared data file before marking this milestone complete" }); return;
+      }
+    } else if (deploying && isPipeline) {
+      // Marking a pipeline as deployed is gated on every earlier step, exactly
+      // as Step 8's readiness checklist shows it — enforced here so the gate
+      // can't be skipped from the Milestones page or a direct API call.
       const outstanding = computeDeployChecks(m, await loadPipelineFacts(id), null).filter((c) => !c.ok);
       if (outstanding.length > 0) {
         res.status(400).json({

@@ -256,6 +256,22 @@ function getModuleProgress(rows: AppExecutionTestCase[]): ModuleProgress {
   return p;
 }
 
+// `availableModules` is scoped to the execution file's compile-time selected
+// modules, not the full project catalog — a row whose own moduleName falls
+// outside that set (an Excel import, a legacy row, a module reassigned in
+// the library after compile) matches no <option>, so the <select> silently
+// renders blank even though the row's data is intact. Union the row's
+// current module in as a synthetic option so it's always displayable and
+// selectable, without touching the shared `availableModules` list itself.
+function withCurrentModuleOption(
+  modules: { id: number; name: string }[],
+  currentModuleName: string | null | undefined,
+): { id: number; name: string }[] {
+  const name = (currentModuleName || "").trim();
+  if (!name || modules.some((m) => m.name === name)) return modules;
+  return [...modules, { id: -1, name }];
+}
+
 function groupByModule(rows: AppExecutionTestCase[]) {
   const map = new Map<string, AppExecutionTestCase[]>();
   for (const row of rows) {
@@ -810,7 +826,7 @@ const DesktopTableRow = React.memo(
           <td className="border border-border p-0 align-top sticky left-10 z-20 bg-card">
             <select className={tableSelectClass} value={row.moduleName || ""} onChange={(e) => onUpdate(row.id as string, "moduleName", e.target.value)}>
               <option value="">Select...</option>
-              {availableModules.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+              {withCurrentModuleOption(availableModules, row.moduleName).map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
             </select>
           </td>
         )}
@@ -1148,7 +1164,7 @@ const MobileCardRow = React.memo(
               }
             >
               <option value="">Select...</option>
-              {availableModules.map((m) => (
+              {withCurrentModuleOption(availableModules, row.moduleName).map((m) => (
                 <option key={m.id} value={m.name}>
                   {m.name}
                 </option>
@@ -4940,7 +4956,7 @@ export default function TestCasesExecutionProgressPage() {
                           {mode === "edit"
                             ? <select className="flex h-8 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
                                 <option value="">Select...</option>
-                                {availableModules.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                {withCurrentModuleOption(availableModules, row.moduleName).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
                               </select>
                             : <p className="text-sm">{row.moduleName || "—"}</p>
                           }
@@ -5555,7 +5571,7 @@ export default function TestCasesExecutionProgressPage() {
                 onValueChange={(v) => setPromoteForm(f => ({ ...f, module: v }))}
                 options={[
                   { value: "", label: "Select module..." },
-                  ...availableModules.map((m) => ({ value: m.name, label: m.name })),
+                  ...withCurrentModuleOption(availableModules, promoteForm.module).map((m) => ({ value: m.name, label: m.name })),
                 ]}
                 placeholder="Select module..."
                 searchPlaceholder="Search module..."

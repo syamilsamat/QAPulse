@@ -24,13 +24,15 @@ import { Step5Execution } from "@/components/qa-pipeline/Step5Execution";
 import { Step6SignOff } from "@/components/qa-pipeline/Step6SignOff";
 import { Step7UAT } from "@/components/qa-pipeline/Step7UAT";
 import { Step8Complete } from "@/components/qa-pipeline/Step8Complete";
+import { StepDataPrepWork } from "@/components/qa-pipeline/StepDataPrepWork";
+import { DATA_PREP_TEMPLATE } from "@/components/DataPrepFilesSection";
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, isDataPrep }: { status: string; isDataPrep?: boolean }) {
   switch (status) {
     case "completed":
       return <Badge className="gap-1 bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3" /> Completed</Badge>;
     case "active":
-      return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> Active</Badge>;
+      return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> {isDataPrep ? "In Progress" : "Active"}</Badge>;
     case "verified":
       return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
     case "uat":
@@ -61,12 +63,24 @@ const TYPE_OPTIONS = [
   { value: "sprint", label: "Sprint" },
   { value: "phase", label: "Phase" },
   { value: "release", label: "Release" },
+  // CR069 — work with no requirement/dev/UAT phase of its own (e.g. QA data
+  // preparation) — mirrors the Milestones page's TYPE_OPTIONS.
+  { value: "data_prep", label: "Data Prep" },
 ];
 const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
   { value: "uat", label: "UAT" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+// Data Prep milestones have no dev/QA-execution/UAT phase of their own, so
+// "Verified"/"UAT" never apply, and "Active" reads as "In Progress" for a
+// file-handoff task — mirrors the Milestones page's DATA_PREP_STATUS_OPTIONS.
+const DATA_PREP_STATUS_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "In Progress" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
@@ -89,6 +103,12 @@ const PIPELINE_WRITE_ROLES = ["admin", "qa_member", "qa_lead", "qa_manager", "fa
 // says nothing about whether that work is done. The server computes the real
 // gates — see computePipelineStepStates in routes/milestones.ts — and which
 // step you're currently viewing is shown by the highlight, not the icon.
+// "conditional" — every test case has a result but not all of them passed
+// (Step 5 "Conditional pass"), or a sign-off recorded under those conditions
+// (Steps 6 and 8). Kept distinct from "done" so the rail never reads as a
+// success signal for a step that went through with failures — 100% executed
+// is not the same thing as 100% passed. See computePipelineStepStates in
+// routes/milestones.ts.
 type StepState = "done" | "in_progress" | "not_started" | "skipped" | "conditional";
 
 function StepStateIcon({ state }: { state: StepState }) {
@@ -132,6 +152,14 @@ const PIPELINE_STEPS = [
   { id: 6, title: "Sign Off Functional", desc: "Formal QA sign-off" },
   { id: 7, title: "UAT Sign-offs", desc: "Upload UAT packs (if required)" },
   { id: 8, title: "Update Milestone", desc: "Generate RTM & Release Notes" }
+];
+
+// CR070 follow-up — Data Prep milestones have no requirement/dev/UAT phase to
+// walk through, so they get a short two-step branch instead of the 8-step
+// wizard: confirm creation, then assign/upload/complete on one panel.
+const DATA_PREP_STEPS = [
+  { id: 1, title: "Milestone created", desc: "Configured for data prep" },
+  { id: 2, title: "Prepare & complete", desc: "Assign QA, upload data, mark complete" },
 ];
 
 export default function QAPipeline() {
@@ -205,6 +233,20 @@ export default function QAPipeline() {
       goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
       description: m.description ?? "",
       requiresUat: !!m.requiresUat,
+    });
+  };
+
+  // CR070 follow-up — mirrors Milestones.tsx's handleTypeChange: prefill the
+  // Data Prep checklist template and reset a now-unsupported status.
+  const handleEditTypeChange = (v: string) => {
+    setEditForm((f) => {
+      const statusUnsupported = v === "data_prep" && (f.status === "verified" || f.status === "uat");
+      return {
+        ...f,
+        type: v,
+        status: statusUnsupported ? "active" : f.status,
+        description: v === "data_prep" && !f.description.trim() ? DATA_PREP_TEMPLATE : f.description,
+      };
     });
   };
 
@@ -283,8 +325,9 @@ export default function QAPipeline() {
 
   useEffect(() => {
     if (!milestone || resumedFor === milestoneId) return;
+    const maxStep = milestone.type === "data_prep" ? DATA_PREP_STEPS.length : PIPELINE_STEPS.length;
     if (milestone.pipelineStep && milestone.pipelineStep > 1) {
-      setCurrentStep(milestone.pipelineStep);
+      setCurrentStep(Math.min(milestone.pipelineStep, maxStep));
     } else if (milestone.requirementCount > 0) {
       // Requirements were already synced even though pipelineStep was never
       // explicitly advanced past Step 1 (syncing doesn't move the pipeline
@@ -308,6 +351,15 @@ export default function QAPipeline() {
   // one can retro-edit a signed-off pipeline. Milestone dates and details stay
   // editable via the Edit Milestone dialog.
   const isLocked = milestone?.status === "completed";
+
+  // CR070 follow-up — Data Prep milestones walk a 2-step branch instead of
+  // the 8-step wizard (see DATA_PREP_STEPS above). Clamped in case the
+  // milestone query briefly lags a milestoneId change and currentStep is
+  // still holding a position from the previous (longer) step list.
+  const isDataPrep = milestone?.type === "data_prep";
+  const activeSteps = isDataPrep ? DATA_PREP_STEPS : PIPELINE_STEPS;
+  const displayStep = Math.min(currentStep, activeSteps.length);
+  const currentStepMeta = activeSteps[displayStep - 1];
 
   // Real per-step state from the server (computePipelineStepStates in
   // routes/milestones.ts). Falls back to the old position-based reading only
@@ -345,8 +397,31 @@ export default function QAPipeline() {
     if (isLoading) {
       return <div className="p-12 text-center text-muted-foreground">Loading milestone data...</div>;
     }
-    
-    switch (currentStep) {
+
+    if (isDataPrep) {
+      switch (displayStep) {
+        case 1:
+          return (
+            <div className="py-8 sm:py-12 text-center">
+              <h2 className="text-lg sm:text-xl font-semibold mb-2">Milestone Created!</h2>
+              <p className="text-muted-foreground">
+                Milestone <strong>{milestone?.name}</strong> is configured for Data Prep.
+                Proceed to Step 2 to assign QA and upload the prepared dataset.
+              </p>
+            </div>
+          );
+        case 2:
+          return milestoneId ? (
+            <StepDataPrepWork milestoneId={milestoneId} locked={isLocked} />
+          ) : (
+            <div>Milestone required.</div>
+          );
+        default:
+          return null;
+      }
+    }
+
+    switch (displayStep) {
       case 1:
         return milestoneId ? (
           <div className="py-8 sm:py-12 text-center">
@@ -436,7 +511,7 @@ export default function QAPipeline() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Type</Label>
-              <Select value={editForm.type} onValueChange={(v) => setEditForm({ ...editForm, type: v })}>
+              <Select value={editForm.type} onValueChange={handleEditTypeChange}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TYPE_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
@@ -448,7 +523,7 @@ export default function QAPipeline() {
               <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  {(editForm.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -479,49 +554,58 @@ export default function QAPipeline() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Start</Label>
-                <Input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Requirements by</Label>
-                <Input type="date" value={editForm.reqTargetDate} onChange={(e) => setEditForm({ ...editForm, reqTargetDate: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Dev done by</Label>
-                <Input type="date" value={editForm.devTargetDate} onChange={(e) => setEditForm({ ...editForm, devTargetDate: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">QA done by</Label>
-                <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
-              </div>
-              {editForm.requiresUat && (
+          {editForm.type !== "data_prep" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Phase Target Dates (optional)</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">UAT target date</Label>
-                  <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
+                  <Label className="text-xs">Start</Label>
+                  <Input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
                 </div>
-              )}
-              <div className="space-y-1">
-                <Label className="text-xs">Go-Live</Label>
-                <Input type="date" value={editForm.goLiveDate} onChange={(e) => setEditForm({ ...editForm, goLiveDate: e.target.value })} />
+                <div className="space-y-1">
+                  <Label className="text-xs">Requirements by</Label>
+                  <Input type="date" value={editForm.reqTargetDate} onChange={(e) => setEditForm({ ...editForm, reqTargetDate: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Dev done by</Label>
+                  <Input type="date" value={editForm.devTargetDate} onChange={(e) => setEditForm({ ...editForm, devTargetDate: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">QA done by</Label>
+                  <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
+                </div>
+                {editForm.requiresUat && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">UAT target date</Label>
+                    <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <Label className="text-xs">Go-Live</Label>
+                  <Input type="date" value={editForm.goLiveDate} onChange={(e) => setEditForm({ ...editForm, goLiveDate: e.target.value })} />
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="resize-y" />
-          </div>
-          <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
-            <Checkbox
-              id="editUatToggle"
-              checked={editForm.requiresUat}
-              onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked, uatTargetDate: checked ? editForm.uatTargetDate : "" })}
+            <Label>{editForm.type === "data_prep" ? "What QA needs to prepare" : "Description"}</Label>
+            <Textarea
+              value={editForm.description}
+              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              className={editForm.type === "data_prep" ? "font-mono text-xs resize-y" : "resize-y"}
+              rows={editForm.type === "data_prep" ? 6 : undefined}
             />
-            <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
           </div>
+          {editForm.type !== "data_prep" && (
+            <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
+              <Checkbox
+                id="editUatToggle"
+                checked={editForm.requiresUat}
+                onCheckedChange={(checked) => setEditForm({ ...editForm, requiresUat: !!checked, uatTargetDate: checked ? editForm.uatTargetDate : "" })}
+              />
+              <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
+            </div>
+          )}
         </div>
         <DialogFooter className="shrink-0 flex-col-reverse sm:flex-row gap-2 border-t bg-background px-4 sm:px-6 py-4">
           <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingMilestone(null)}>Cancel</Button>
@@ -604,10 +688,12 @@ export default function QAPipeline() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <CardTitle className="text-base font-semibold">{m.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5">Step {m.pipelineStep ?? 1} of 8</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Step {Math.min(m.pipelineStep ?? 1, m.type === "data_prep" ? DATA_PREP_STEPS.length : PIPELINE_STEPS.length)} of {m.type === "data_prep" ? DATA_PREP_STEPS.length : PIPELINE_STEPS.length}
+                      </p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <StatusBadge status={m.status} />
+                      <StatusBadge status={m.status} isDataPrep={m.type === "data_prep"} />
                       {m.signoffType === "conditional" && (
                         <Badge className="gap-1 bg-amber-100 text-amber-700 border-amber-200">
                           <AlertTriangle className="w-3 h-3" /> Conditional Sign Off
@@ -631,13 +717,20 @@ export default function QAPipeline() {
                       )}
                     </div>
                   )}
-                  {/* Requirement approval isn't part of the pipeline flow —
-                      Step 4 approves execution files, not requirements — so an
-                      "Approved" count here was always 0 and misleading. */}
-                  <div className="rounded bg-muted/50 p-2 text-center text-xs">
-                    <p className="text-lg font-bold">{m.requirementCount ?? 0}</p>
-                    <p className="text-muted-foreground">Requirements</p>
-                  </div>
+                  {m.type === "data_prep" ? (
+                    <div className="rounded bg-muted/50 p-2 text-center text-xs">
+                      <p className="text-lg font-bold">{m.dataPrepFileCount ?? 0}</p>
+                      <p className="text-muted-foreground">file{m.dataPrepFileCount === 1 ? "" : "s"} uploaded</p>
+                    </div>
+                  ) : (
+                    // Requirement approval isn't part of the pipeline flow —
+                    // Step 4 approves execution files, not requirements — so an
+                    // "Approved" count here was always 0 and misleading.
+                    <div className="rounded bg-muted/50 p-2 text-center text-xs">
+                      <p className="text-lg font-bold">{m.requirementCount ?? 0}</p>
+                      <p className="text-muted-foreground">Requirements</p>
+                    </div>
+                  )}
                   <Button size="sm" className="w-full gap-1.5" onClick={() => setLocation(`/qa-pipeline/${m.id}`)}>
                     Open Pipeline <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
@@ -701,7 +794,7 @@ export default function QAPipeline() {
           </CardHeader>
           <CardContent className="pb-4">
             <div className="flex md:flex-col gap-2 md:gap-3 overflow-x-auto md:overflow-x-visible -mx-1 px-1 pb-2 md:pb-0 snap-x">
-              {PIPELINE_STEPS.map((step) => {
+              {activeSteps.map((step) => {
                 const isActive = step.id === currentStep;
                 const state = stepStateFor(step.id);
                 const isSkipped = state === "skipped";
@@ -747,9 +840,9 @@ export default function QAPipeline() {
         <Card className="md:col-span-3 min-h-[500px] flex flex-col min-w-0">
           <CardHeader className="p-4 sm:p-6 pb-3 sm:pb-4">
             <CardTitle className="text-lg sm:text-xl">
-              Step {currentStep}: {currentStep === 1 ? (milestoneId ? "Milestone Created" : "Milestone Creation") : PIPELINE_STEPS[currentStep - 1].title}
+              Step {displayStep}: {currentStepMeta.title}
             </CardTitle>
-            <CardDescription>{PIPELINE_STEPS[currentStep - 1].desc}</CardDescription>
+            <CardDescription>{currentStepMeta.desc}</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 pt-0">
             {isLocked && (
@@ -790,7 +883,7 @@ export default function QAPipeline() {
                 Previous Step
               </Button>
             )}
-            {currentStep < 8 && milestoneId && (
+            {displayStep < activeSteps.length && milestoneId && (
               <Button className="w-full sm:w-auto" onClick={() => goToStep(currentStep + 1)}>
                 Next Step <ArrowRight className="w-4 h-4 ml-2" />
               </Button>

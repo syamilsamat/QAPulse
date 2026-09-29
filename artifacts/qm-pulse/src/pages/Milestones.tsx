@@ -1,5 +1,5 @@
 import { useSearch } from "wouter";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -19,10 +19,10 @@ import {
   Users,
   X,
   FileDown,
-  Download,
   Database,
   AlertTriangle,
 } from "lucide-react";
+import { DataPrepFilesSection, DATA_PREP_TEMPLATE } from "@/components/DataPrepFilesSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -75,29 +75,6 @@ interface Milestone {
   signoffType?: "full" | "conditional" | null;
 }
 
-interface DataPrepFile {
-  id: number;
-  projectId: number;
-  milestoneId: number;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  note: string | null;
-  uploadedBy: number | null;
-  uploaderName: string | null;
-  createdAt: string;
-}
-
-const fmtSize = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
-
-// CR070 — prefilled when a milestone is switched to "Data Prep" so QA knows
-// exactly what to hand over, without the PM having to type it from scratch.
-const DATA_PREP_TEMPLATE = `Data source / system:
-Fields & format required:
-Number of records needed:
-Target environment:
-Special conditions (edge cases, boundary values):
-Deadline for handover to QA:`;
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -139,6 +116,16 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
+// Data Prep milestones have no dev/QA-execution/UAT phase of their own, so
+// "Verified" and "UAT" never apply — and "Active" reads as "In Progress" for
+// a file-handoff task instead of a requirement-driven one.
+const DATA_PREP_STATUS_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "In Progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
 const PRIORITY_OPTIONS = [
   { value: "Low", label: "Low" },
   { value: "Medium", label: "Medium" },
@@ -160,12 +147,12 @@ function PriorityBadge({ priority }: { priority: string | null }) {
   }
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, isDataPrep }: { status: string; isDataPrep?: boolean }) {
   switch (status) {
     case "completed":
       return <Badge className="gap-1 bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3" /> Completed</Badge>;
     case "active":
-      return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> Active</Badge>;
+      return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> {isDataPrep ? "In Progress" : "Active"}</Badge>;
     case "verified":
       return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
     case "uat":
@@ -331,11 +318,18 @@ export default function Milestones() {
   // CR070 — switching the type dropdown to Data Prep prefills the checklist
   // template (only if the PM hasn't already typed a description themselves).
   const handleTypeChange = (v: string) => {
-    setForm((f) => ({
-      ...f,
-      type: v,
-      description: v === "data_prep" && !f.description.trim() ? DATA_PREP_TEMPLATE : f.description,
-    }));
+    setForm((f) => {
+      // "Verified"/"UAT" don't exist in the Data Prep status list — reset to
+      // "Active" ("In Progress") rather than leaving the Select on a value
+      // its own options no longer contain.
+      const statusUnsupported = v === "data_prep" && (f.status === "verified" || f.status === "uat");
+      return {
+        ...f,
+        type: v,
+        status: statusUnsupported ? "active" : f.status,
+        description: v === "data_prep" && !f.description.trim() ? DATA_PREP_TEMPLATE : f.description,
+      };
+    });
   };
 
   const handleSave = async () => {
@@ -460,7 +454,7 @@ export default function Milestones() {
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <StatusBadge status={m.status} />
+                    <StatusBadge status={m.status} isDataPrep={m.type === "data_prep"} />
                     {/* Frozen at QA Pipeline sign-off: 100% executed, not 100% passed. */}
                     {m.signoffType === "conditional" && (
                       <Badge className="gap-1 bg-amber-100 text-amber-700 border-amber-200">
@@ -551,7 +545,7 @@ export default function Milestones() {
                 <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    {(form.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -663,7 +657,7 @@ export default function Milestones() {
                 />
               </div>
             )}
-            {editing && form.type === "data_prep" && <DataPrepFilesSection milestone={editing} token={token} canWrite={canWrite} userId={user?.id} />}
+            {editing && form.type === "data_prep" && <DataPrepFilesSection milestoneId={editing.id} token={token} canWrite={canWrite} userId={user?.id} />}
             {editing && canWrite && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
@@ -750,113 +744,3 @@ export default function Milestones() {
     </div>
   );
 }
-
-// CR070 — data-prep file handoff: QA uploads the prepared dataset, PM
-// downloads it to email the client. Lives inside the edit dialog since it
-// needs the milestone to already exist (same constraint as the Team section).
-function DataPrepFilesSection({ milestone, token, canWrite, userId }: { milestone: Milestone; token: string | null; canWrite: boolean; userId: number | undefined }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-
-  const { data: files = [], isLoading } = useQuery<DataPrepFile[]>({
-    queryKey: ["data-prep-files", milestone.id],
-    queryFn: async () => {
-      const res = await api(`/data-prep-files?milestoneId=${milestone.id}`, token);
-      return res.ok ? res.json() : [];
-    },
-  });
-
-  const handlePick = async (file: File | null) => {
-    if (!file) return;
-    if (file.size === 0) { toast({ variant: "destructive", title: "File is empty" }); return; }
-    if (file.size > 15 * 1024 * 1024) { toast({ variant: "destructive", title: "File too large (max 15 MB)" }); return; }
-    setUploading(true);
-    try {
-      const dataBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
-        reader.onerror = () => reject(new Error("Could not read file"));
-        reader.readAsDataURL(file);
-      });
-      const res = await api("/data-prep-files", token, {
-        method: "POST",
-        body: JSON.stringify({ milestoneId: milestone.id, fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64 }),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? "Upload failed"); }
-      toast({ title: "File uploaded" });
-      queryClient.invalidateQueries({ queryKey: ["data-prep-files", milestone.id] });
-      queryClient.invalidateQueries({ queryKey: ["milestones"] });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: e.message ?? "Upload failed" });
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const handleDownload = async (f: DataPrepFile) => {
-    const res = await api(`/data-prep-files/${f.id}/download`, token);
-    if (!res.ok) { toast({ variant: "destructive", title: "Download failed" }); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = f.fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDelete = async (f: DataPrepFile) => {
-    const res = await api(`/data-prep-files/${f.id}`, token, { method: "DELETE" });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); toast({ variant: "destructive", title: d.error ?? "Delete failed" }); return; }
-    toast({ title: "File deleted" });
-    queryClient.invalidateQueries({ queryKey: ["data-prep-files", milestone.id] });
-    queryClient.invalidateQueries({ queryKey: ["milestones"] });
-  };
-
-  const canDelete = (f: DataPrepFile) => canWrite && (f.uploadedBy === userId || f.uploadedBy == null);
-
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
-        <Database className="w-3.5 h-3.5" /> Data File
-      </Label>
-      {isLoading ? (
-        <p className="text-xs text-muted-foreground">Loading…</p>
-      ) : files.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No file uploaded yet — QA uploads the prepared dataset here.</p>
-      ) : (
-        <div className="space-y-1.5">
-          {files.map((f) => (
-            <div key={f.id} className="flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-xs">
-              <div className="min-w-0">
-                <p className="font-medium truncate">{f.fileName}</p>
-                <p className="text-muted-foreground">{fmtSize(f.sizeBytes)} · {f.uploaderName ?? "—"} · {format(new Date(f.createdAt), "dd MMM yyyy")}</p>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" onClick={() => handleDownload(f)}>
-                  <Download className="w-3.5 h-3.5" /> Download
-                </Button>
-                {canDelete(f) && (
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDelete(f)} aria-label="Delete file">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {canWrite && (
-        <div className="pt-1">
-          <Input ref={fileInputRef} type="file" disabled={uploading} onChange={(e) => handlePick(e.target.files?.[0] ?? null)} className="h-8 text-xs file:text-xs" />
-          {uploading && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Uploading…</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-//aa
