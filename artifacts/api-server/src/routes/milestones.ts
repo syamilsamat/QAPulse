@@ -121,7 +121,7 @@ const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
  * Worth aligning computePipelineState() to match, but that changes the
  * dashboard's numbers, so it is left as a separate decision.
  */
-export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped";
+export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped" | "conditional";
 
 function computePipelineStepStates(input: {
   requirementCount: number;
@@ -129,6 +129,7 @@ function computePipelineStepStates(input: {
   approvedFileCount: number;
   totalExecRows: number;
   executedRows: number;
+  failedRows: number;
   signedOff: boolean;
   requiresUat: boolean;
   uatDocCount: number;
@@ -136,8 +137,14 @@ function computePipelineStepStates(input: {
 }): Record<number, PipelineStepState> {
   const {
     requirementCount, execFileCount, approvedFileCount,
-    totalExecRows, executedRows, signedOff, requiresUat, uatDocCount, deployed,
+    totalExecRows, executedRows, failedRows, signedOff, requiresUat, uatDocCount, deployed,
   } = input;
+
+  // Whether 100% of test cases have been executed but some failed/blocked —
+  // this triggers "Conditional Sign Off" on Steps 5 and 6 so QA leads can
+  // see at a glance that a milestone went through with known defects.
+  const allExecuted = totalExecRows > 0 && executedRows >= totalExecRows;
+  const hasDefects = failedRows > 0;
 
   // "partial" is the difference between not-started and in-progress: some of
   // the work exists but the gate has not cleared yet.
@@ -152,12 +159,14 @@ function computePipelineStepStates(input: {
       : approvedFileCount > 0
         ? "in_progress"
         : "not_started",
-    5: totalExecRows > 0 && executedRows >= totalExecRows
-      ? "done"
+    5: allExecuted
+      ? (hasDefects ? "conditional" : "done")
       : executedRows > 0
         ? "in_progress"
         : "not_started",
-    6: signedOff ? "done" : "not_started",
+    6: signedOff
+      ? (hasDefects ? "conditional" : "done")
+      : "not_started",
     7: !requiresUat ? "skipped" : uatDocCount > 0 ? "done" : "not_started",
     8: deployed ? "done" : "not_started",
   };
@@ -171,6 +180,9 @@ function computePipelineStepStates(input: {
       break;
     }
     if (states[id] === "in_progress") break;
+    // "conditional" counts as cleared for the pipeline-position scan — the
+    // work is done, it just went through with known defects.
+    if (states[id] === "conditional") continue;
   }
 
   return states;
@@ -452,13 +464,14 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
         .select({
           total: sql<number>`count(*)::int`,
           executed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('passed', 'pass', 'failed', 'fail', 'blocked'))::int`,
+          failed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('failed', 'fail', 'blocked'))::int`,
         })
         .from(executionTestCasesTable)
         .where(and(
           inArray(executionTestCasesTable.executionFileId, qaFileIds),
           ne(executionTestCasesTable.rowType, "group"),
         ))
-    : [{ total: 0, executed: 0 }];
+    : [{ total: 0, executed: 0, failed: 0 }];
 
   const uatDocs = await db.select({ id: uatSignoffsTable.id })
     .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, id));
@@ -469,6 +482,7 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     approvedFileCount: qaFiles.filter((f) => f.reviewStatus === "approved").length,
     totalExecRows: execTally?.total ?? 0,
     executedRows: execTally?.executed ?? 0,
+    failedRows: execTally?.failed ?? 0,
     signedOff: !!m.signedOffAt,
     requiresUat: !!m.requiresUat,
     uatDocCount: uatDocs.length,
@@ -500,6 +514,7 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     dataPrepFileCount: dataFiles.length,
     execRowCount: execTally?.total ?? 0,
     execExecutedCount: execTally?.executed ?? 0,
+    execFailedCount: execTally?.failed ?? 0,
     pipelineStepStates,
   });
 });

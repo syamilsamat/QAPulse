@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock, MinusCircle } from "lucide-react";
+import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock, MinusCircle, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { Step1Milestone } from "@/components/qa-pipeline/Step1Milestone";
 import { Step2Requirements } from "@/components/qa-pipeline/Step2Requirements";
@@ -89,13 +89,15 @@ const PIPELINE_WRITE_ROLES = ["admin", "qa_member", "qa_lead", "qa_manager", "fa
 // says nothing about whether that work is done. The server computes the real
 // gates — see computePipelineStepStates in routes/milestones.ts — and which
 // step you're currently viewing is shown by the highlight, not the icon.
-type StepState = "done" | "in_progress" | "not_started" | "skipped";
+type StepState = "done" | "in_progress" | "not_started" | "skipped" | "conditional";
 
 function StepStateIcon({ state }: { state: StepState }) {
   const size = "w-4 h-4 md:w-5 md:h-5";
   switch (state) {
     case "done":
       return <CheckCircle2 className={`${size} text-green-500`} />;
+    case "conditional":
+      return <AlertTriangle className={`${size} text-amber-500`} />;
     case "in_progress":
       // Same clock StatusBadge already uses for Active/UAT, so "underway"
       // reads the same way everywhere in the app.
@@ -109,6 +111,7 @@ function StepStateIcon({ state }: { state: StepState }) {
 
 const STEP_STATE_LABEL: Record<StepState, string> = {
   done: "Completed",
+  conditional: "Conditional sign off",
   in_progress: "In progress",
   not_started: "Not started",
   skipped: "Not required for this milestone",
@@ -688,12 +691,16 @@ export default function QAPipeline() {
                 const isActive = step.id === currentStep;
                 const state = stepStateFor(step.id);
                 const isSkipped = state === "skipped";
+                const stepTitle = step.id === 1 
+                  ? (milestoneId ? "Milestone Created" : "Milestone Creation")
+                  : step.title;
+
                 return (
                   <button
                     key={step.id}
                     type="button"
                     onClick={() => goToStep(step.id)}
-                    title={`${step.title} — ${STEP_STATE_LABEL[state]}`}
+                    title={`${stepTitle} — ${STEP_STATE_LABEL[state]}`}
                     aria-current={isActive ? "step" : undefined}
                     className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : isSkipped ? "opacity-40" : state === "not_started" ? "opacity-60" : "opacity-85"}`}
                   >
@@ -702,7 +709,7 @@ export default function QAPipeline() {
                     </div>
                     <div className="min-w-0">
                       <p className={`font-medium text-xs md:text-sm ${isActive ? "text-primary" : ""} ${isSkipped ? "line-through decoration-muted-foreground/50" : ""}`}>
-                        {step.id}. {step.title}
+                        {step.id}. {stepTitle}
                       </p>
                       <p className="hidden md:block text-xs text-muted-foreground mt-0.5">
                         {isSkipped ? STEP_STATE_LABEL.skipped : step.desc}
@@ -710,7 +717,7 @@ export default function QAPipeline() {
                       {/* Says what the icon means, so the rail is readable
                           without decoding colours (and for the colour-blind). */}
                       {state !== "not_started" && !isSkipped && (
-                        <p className={`hidden md:block text-[11px] mt-0.5 font-medium ${state === "done" ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"}`}>
+                        <p className={`hidden md:block text-[11px] mt-0.5 font-medium ${state === "done" ? "text-green-600 dark:text-green-500" : state === "conditional" ? "text-amber-600 dark:text-amber-500" : "text-amber-600 dark:text-amber-500"}`}>
                           {STEP_STATE_LABEL[state]}
                         </p>
                       )}
@@ -726,7 +733,7 @@ export default function QAPipeline() {
         <Card className="md:col-span-3 min-h-[500px] flex flex-col min-w-0">
           <CardHeader className="p-4 sm:p-6 pb-3 sm:pb-4">
             <CardTitle className="text-lg sm:text-xl">
-              Step {currentStep}: {PIPELINE_STEPS[currentStep - 1].title}
+              Step {currentStep}: {currentStep === 1 ? (milestoneId ? "Milestone Created" : "Milestone Creation") : PIPELINE_STEPS[currentStep - 1].title}
             </CardTitle>
             <CardDescription>{PIPELINE_STEPS[currentStep - 1].desc}</CardDescription>
           </CardHeader>

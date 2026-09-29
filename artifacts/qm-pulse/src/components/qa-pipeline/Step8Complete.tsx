@@ -5,7 +5,7 @@ import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, PartyPopper, Download, FileText, CheckCircle2, XCircle, ClipboardList } from "lucide-react";
+import { Loader2, PartyPopper, Download, FileText, CheckCircle2, XCircle, ClipboardList, AlertTriangle } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -158,6 +158,7 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
   const allComplete = checks.length > 0 && outstanding.length === 0;
   const isCompleted = milestone?.status === "completed";
   const hasRequirements = (milestone?.requirementCount ?? 0) > 0;
+  const hasDefects = (milestone?.execFailedCount ?? 0) > 0;
 
   const handleExportRTM = async () => {
     setGeneratingRtm(true);
@@ -232,19 +233,31 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-center">
       <div className="flex flex-col items-center justify-center py-6 sm:p-8 space-y-3 sm:space-y-4">
-        <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-1 sm:mb-2 ${allComplete || isCompleted ? "bg-green-100" : "bg-muted"}`}>
+        <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-1 sm:mb-2 ${allComplete || isCompleted ? (hasDefects ? "bg-amber-100 dark:bg-amber-950/40" : "bg-green-100") : "bg-muted"}`}>
           {allComplete || isCompleted
-            ? <PartyPopper className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />
+            ? (hasDefects ? <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-amber-600" /> : <PartyPopper className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />)
             : <ClipboardList className="w-8 h-8 sm:w-10 sm:h-10 text-muted-foreground" />}
         </div>
         <h3 className="text-2xl sm:text-3xl font-bold">
-          {isCompleted ? "Milestone Deployed" : allComplete ? "Ready for Deployment" : "Not Ready for Deployment"}
+          {isCompleted 
+            ? (hasDefects ? "Milestone Deployed (Conditional)" : "Milestone Deployed") 
+            : allComplete 
+              ? (hasDefects ? "Ready for Conditional Deployment" : "Ready for Deployment") 
+              : "Not Ready for Deployment"}
         </h3>
         <p className="text-sm sm:text-base text-muted-foreground max-w-md">
           {isCompleted ? (
-            <>Milestone <strong>{milestone?.name}</strong> has been marked as deployed and the pipeline is closed.</>
+            hasDefects ? (
+              <>Milestone <strong>{milestone?.name}</strong> has been conditionally deployed with known defects and the pipeline is closed.</>
+            ) : (
+              <>Milestone <strong>{milestone?.name}</strong> has been marked as deployed and the pipeline is closed.</>
+            )
           ) : allComplete ? (
-            <>All QA phases for milestone <strong>{milestone?.name}</strong> are complete. Generate your final artifacts before closing the pipeline.</>
+            hasDefects ? (
+              <>All QA phases for milestone <strong>{milestone?.name}</strong> are complete. Generate your final artifacts before conditionally closing the pipeline.</>
+            ) : (
+              <>All QA phases for milestone <strong>{milestone?.name}</strong> are complete. Generate your final artifacts before closing the pipeline.</>
+            )
           ) : (
             <>
               {outstanding.length} earlier step{outstanding.length !== 1 ? "s" : ""} still need
@@ -332,16 +345,16 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
       <div className="pt-4 sm:pt-8 space-y-3">
         <Button
           size="lg"
-          className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-base sm:text-lg px-6 sm:px-8 h-auto py-4 sm:py-6 whitespace-normal"
+          className={`${hasDefects ? "bg-amber-600 hover:bg-amber-700" : "bg-green-600 hover:bg-green-700"} text-white w-full sm:w-auto text-base sm:text-lg px-6 sm:px-8 h-auto py-4 sm:py-6 whitespace-normal`}
           onClick={handleComplete}
           disabled={completing || checksLoading || isCompleted || !allComplete}
         >
           {completing ? (
             <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 animate-spin shrink-0" />
           ) : (
-            <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" />
+            hasDefects ? <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" /> : <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" />
           )}
-          {isCompleted ? "Pipeline Completed" : "Mark Milestone as DEPLOYED"}
+          {isCompleted ? "Pipeline Completed" : (hasDefects ? "Mark Milestone as DEPLOYED (Conditional)" : "Mark Milestone as DEPLOYED")}
         </Button>
         {!isCompleted && !allComplete && !checksLoading && (
           <p className="text-sm text-muted-foreground">
