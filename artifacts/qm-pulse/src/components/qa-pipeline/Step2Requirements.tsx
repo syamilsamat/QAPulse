@@ -40,6 +40,11 @@ function api(path: string, token: string | null, opts?: RequestInit) {
 const EXCLUDED_STATUSES = ["Cancelled", "Verified", "Roadblock", "Closed"];
 const EXCLUDED_TRACKERS = ["Task", "QA Defect"];
 
+// One line of the post-sync summary. `error` is set when the requirement
+// couldn't be created, so a failed ticket is reported instead of silently
+// missing from the list.
+type SyncEntry = { id: number; title: string; redmineTicketId: string; isNew: boolean; error?: string };
+
 function SuggestionActions({
   status, busy, locked, onAccept, onIgnore, onSolve,
 }: {
@@ -117,7 +122,7 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const [syncSummaryOpen, setSyncSummaryOpen] = useState(false);
-  const [syncSummary, setSyncSummary] = useState<{ id: number; title: string; redmineTicketId: string; isNew: boolean }[]>([]);
+  const [syncSummary, setSyncSummary] = useState<SyncEntry[]>([]);
 
   // Per-department owners (FA / Dev / QA) for one requirement. Named here so
   // the Tasks board shows real names instead of the dashes it falls back to
@@ -251,7 +256,7 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
     ticketIdToSync: string,
     parentId: number | undefined,
     isRoot: boolean,
-    added: { id: number; title: string; redmineTicketId: string; isNew: boolean }[],
+    added: SyncEntry[],
     targetModule: string,
     includeParent: boolean = true,
     inheritedParent?: { id: string; title: string },
@@ -321,6 +326,9 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
           const created = await res.json();
           savedId = created.id;
           added.push({ id: created.id, title: created.title, redmineTicketId: fetchedTicketId, isNew: true });
+        } else {
+          const body = await res.json().catch(() => ({}));
+          added.push({ id: 0, title: issue.subject, redmineTicketId: fetchedTicketId, isNew: false, error: body.error ?? `Failed to create (HTTP ${res.status})` });
         }
       }
     }
@@ -355,7 +363,7 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
       return;
     }
     setSyncing(true);
-    const added: { id: number; title: string; redmineTicketId: string; isNew: boolean }[] = [];
+    const added: SyncEntry[] = [];
     try {
       await processRedmineSync(redmineId.trim(), undefined, true, added, syncModules.join(","), includeParentTicket);
       queryClient.invalidateQueries({ queryKey: ["requirements", "milestone", milestoneId] });
@@ -504,7 +512,8 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   };
 
   const newCount = syncSummary.filter((s) => s.isNew).length;
-  const existingCount = syncSummary.length - newCount;
+  const failedCount = syncSummary.filter((s) => s.error).length;
+  const existingCount = syncSummary.length - newCount - failedCount;
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-left">
@@ -923,18 +932,25 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">
-                  {newCount} new, {existingCount} already linked — {syncSummary.length} total for this milestone.
+                  {newCount} new, {existingCount} already linked
+                  {failedCount > 0 && <>, <span className="font-medium text-destructive">{failedCount} failed</span></>}
+                  {" "}— {syncSummary.length - failedCount} total for this milestone.
                 </p>
                 <div className="divide-y border rounded-lg max-h-72 overflow-auto">
-                  {syncSummary.map((s) => (
-                    <div key={s.id} className="p-2.5 flex items-start justify-between gap-2">
+                  {syncSummary.map((s, i) => (
+                    <div key={`${s.redmineTicketId}-${i}`} className="p-2.5 flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-medium break-words">{s.title}</div>
                         <div className="text-xs text-muted-foreground">Redmine #{s.redmineTicketId}</div>
+                        {s.error && <div className="text-xs text-destructive break-words mt-0.5">{s.error}</div>}
                       </div>
-                      <Badge variant={s.isNew ? "default" : "outline"} className="shrink-0 text-[10px]">
-                        {s.isNew ? "New" : "Already linked"}
-                      </Badge>
+                      {s.error ? (
+                        <Badge variant="destructive" className="shrink-0 text-[10px]">Failed</Badge>
+                      ) : (
+                        <Badge variant={s.isNew ? "default" : "outline"} className="shrink-0 text-[10px]">
+                          {s.isNew ? "New" : "Already linked"}
+                        </Badge>
+                      )}
                     </div>
                   ))}
                 </div>

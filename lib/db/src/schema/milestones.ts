@@ -27,6 +27,13 @@ export const milestonesTable = pgTable("milestones", {
   pipelineEnabled: boolean("pipeline_enabled").notNull().default(false),
   signedOffAt: timestamp("signed_off_at", { withTimezone: true }),
   signedOffBy: integer("signed_off_by"),
+  // Frozen at the moment of functional sign-off so the record can't drift
+  // when results are edited afterwards: 'full' (100% executed, 100% passed)
+  // or 'conditional' (100% executed, some failed/blocked). Null on sign-offs
+  // recorded before these columns existed — readers fall back to live counts.
+  signoffType: text("signoff_type"),
+  signoffFailedCount: integer("signoff_failed_count"),
+  signoffTotalCount: integer("signoff_total_count"),
   // CR023p1.2 — needed to notify the milestone's PM on a linked requirement's rejection
   createdBy: integer("created_by"),
   // Auto-stamped when status transitions to 'completed' (and cleared if it

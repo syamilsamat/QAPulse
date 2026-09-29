@@ -35,12 +35,13 @@ const PRIORITY_OPTIONS = [
   { value: "Critical", label: "Critical" },
 ];
 
+// No "Completed" — a pipeline is only closed from Step 8's gated
+// "Mark Milestone as DEPLOYED" action (the server rejects it here too).
 const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
   { value: "uat", label: "UAT" },
-  { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 

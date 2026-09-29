@@ -81,8 +81,10 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
       return res.ok ? res.json() : [];
     },
   });
+  // QA execution files only — UAT execution files belong to UAT (Step 7),
+  // matching how the server gates the pipeline.
   const milestoneFiles = useMemo(
-    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
+    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId && (f.fileType ?? "qa") === "qa"),
     [allFiles, milestoneId],
   );
   const milestoneTicketIds = useMemo(

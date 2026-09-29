@@ -541,6 +541,11 @@ export async function bootstrap() {
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS lessons_learned_type TEXT`),
     // CR070 — free-form scope note, auto-populated for 'data_prep' milestones.
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS description TEXT`),
+    // QA Pipeline — sign-off snapshot (Full / Conditional and the counts it
+    // was based on), frozen at sign-off time. See PATCH /milestones/:id.
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_type TEXT`),
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_failed_count INTEGER`),
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_total_count INTEGER`),
     // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
     pool.query(`
       CREATE TABLE IF NOT EXISTS milestone_assignees (

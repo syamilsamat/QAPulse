@@ -117,6 +117,11 @@ const STEP_STATE_LABEL: Record<StepState, string> = {
   skipped: "Not required for this milestone",
 };
 
+// Step 5 is conditional when 100% executed but not 100% passed — nobody has
+// signed anything yet, so it reads as a pass, not a sign-off.
+const stepStateLabel = (stepId: number, state: StepState) =>
+  state === "conditional" && stepId === 5 ? "Conditional pass" : STEP_STATE_LABEL[state];
+
 // Placeholder Steps for the 8-step wizard
 const PIPELINE_STEPS = [
   { id: 1, title: "Milestone & UAT", desc: "Create milestone & configure UAT" },
@@ -287,6 +292,10 @@ export default function QAPipeline() {
       // Step 2 so the synced list is immediately visible instead of
       // re-showing the "Milestone Created" screen as if nothing happened.
       setCurrentStep(2);
+    } else {
+      // Opening a different milestone without leaving the page must not keep
+      // the previous milestone's step.
+      setCurrentStep(1);
     }
     setResumedFor(milestoneId);
   }, [milestone, milestoneId, resumedFor]);
@@ -599,6 +608,11 @@ export default function QAPipeline() {
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <StatusBadge status={m.status} />
+                      {m.signoffType === "conditional" && (
+                        <Badge className="gap-1 bg-amber-100 text-amber-700 border-amber-200">
+                          <AlertTriangle className="w-3 h-3" /> Conditional Sign Off
+                        </Badge>
+                      )}
                       <PriorityBadge priority={m.priority} />
                     </div>
                   </div>
@@ -700,7 +714,7 @@ export default function QAPipeline() {
                     key={step.id}
                     type="button"
                     onClick={() => goToStep(step.id)}
-                    title={`${stepTitle} — ${STEP_STATE_LABEL[state]}`}
+                    title={`${stepTitle} — ${stepStateLabel(step.id, state)}`}
                     aria-current={isActive ? "step" : undefined}
                     className={`flex items-start gap-2 md:gap-3 p-2 rounded-lg text-left transition-colors hover:bg-muted w-36 shrink-0 snap-start md:w-auto md:shrink ${isActive ? "bg-primary/10 ring-1 ring-primary/30 md:ring-0" : isSkipped ? "opacity-40" : state === "not_started" ? "opacity-60" : "opacity-85"}`}
                   >
@@ -718,7 +732,7 @@ export default function QAPipeline() {
                           without decoding colours (and for the colour-blind). */}
                       {state !== "not_started" && !isSkipped && (
                         <p className={`hidden md:block text-[11px] mt-0.5 font-medium ${state === "done" ? "text-green-600 dark:text-green-500" : state === "conditional" ? "text-amber-600 dark:text-amber-500" : "text-amber-600 dark:text-amber-500"}`}>
-                          {STEP_STATE_LABEL[state]}
+                          {stepStateLabel(step.id, state)}
                         </p>
                       )}
                     </div>

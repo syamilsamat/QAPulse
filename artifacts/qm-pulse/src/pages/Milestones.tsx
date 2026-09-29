@@ -21,6 +21,7 @@ import {
   FileDown,
   Download,
   Database,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +72,7 @@ interface Milestone {
   executionFileCount?: number;
   uatFileCount?: number;
   dataPrepFileCount?: number;
+  signoffType?: "full" | "conditional" | null;
 }
 
 interface DataPrepFile {
@@ -459,6 +461,12 @@ export default function Milestones() {
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge status={m.status} />
+                    {/* Frozen at QA Pipeline sign-off: 100% executed, not 100% passed. */}
+                    {m.signoffType === "conditional" && (
+                      <Badge className="gap-1 bg-amber-100 text-amber-700 border-amber-200">
+                        <AlertTriangle className="w-3 h-3" /> Conditional Sign Off
+                      </Badge>
+                    )}
                     <PriorityBadge priority={m.priority} />
                   </div>
                 </div>

@@ -22,17 +22,15 @@
  * results saved, milestone sign-off, UAT sign-off upload) — not on every
  * read, so this never turns a GET into a write.
  */
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   db,
   milestonesTable,
   requirementsTable,
-  executionFilesTable,
-  executionTestCasesTable,
-  uatSignoffsTable,
 } from "@workspace/db";
 import { logActivity } from "../routes/_audit";
 import { rollupExecutionByMilestone } from "../routes/dashboard";
+import { loadPipelineFacts } from "./pipeline-facts";
 
 const STATUS_RANK: Record<string, number> = {
   planned: 0,
@@ -43,34 +41,22 @@ const STATUS_RANK: Record<string, number> = {
   cancelled: 99, // never auto-touched, but ranked highest so nothing "advances" past it
 };
 
-function isExecuted(result: string | null): boolean {
-  const r = result?.toLowerCase() ?? "";
-  return r === "passed" || r === "pass" || r === "failed" || r === "fail" || r === "blocked";
-}
-
 async function computeTargetStatus(m: typeof milestonesTable.$inferSelect): Promise<string | null> {
   if (m.pipelineEnabled) {
-    const files = await db
-      .select({ id: executionFilesTable.id, reviewStatus: executionFilesTable.reviewStatus })
-      .from(executionFilesTable)
-      .where(eq(executionFilesTable.milestoneId, m.id));
-    if (files.length === 0) return null; // still 'planned' — no test cases written yet
+    // Same counting rules as the pipeline stepper and Step 8 (QA files only,
+    // group rows excluded) — see lib/pipeline-facts.ts.
+    const f = await loadPipelineFacts(m.id);
+    if (f.qaFileCount === 0) return null; // still 'planned' — no test cases written yet
 
-    const allFilesApproved = files.every((f) => f.reviewStatus === "approved");
+    const allFilesApproved = f.approvedQaFileCount === f.qaFileCount;
+    const allExecuted = f.totalExecRows > 0 && f.executedRows >= f.totalExecRows;
 
-    const execRows = await db
-      .select({ result: executionTestCasesTable.result })
-      .from(executionTestCasesTable)
-      .where(inArray(executionTestCasesTable.executionFileId, files.map((f) => f.id)));
-    const totalExecRows = execRows.length;
-    const executedRows = execRows.filter((r) => isExecuted(r.result)).length;
-
-    const signedOff = !!m.signedOffAt;
-    const uatDocCount = (await db.select({ id: uatSignoffsTable.id }).from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, m.id))).length;
-
-    if (signedOff && (!m.requiresUat || uatDocCount > 0)) return "completed";
-    if (signedOff && m.requiresUat) return "uat";
-    if (allFilesApproved && totalExecRows > 0 && executedRows >= totalExecRows) return "verified";
+    // Never 'completed' from here: closing a pipeline is the explicit
+    // "Mark Milestone as DEPLOYED" action at Step 8, which is gated on every
+    // earlier step. Auto-completing on sign-off used to lock the pipeline
+    // before Step 8's checklist and artifacts could ever be used.
+    if (m.signedOffAt && m.requiresUat) return "uat";
+    if (m.signedOffAt || (allFilesApproved && allExecuted)) return "verified";
     return "active";
   }
 
