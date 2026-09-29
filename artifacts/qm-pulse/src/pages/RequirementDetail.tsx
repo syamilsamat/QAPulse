@@ -637,6 +637,11 @@ export default function RequirementDetail() {
       }
       queryClient.invalidateQueries({ queryKey: ["requirement", reqId] });
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
+      // The Requirements list page's own cached copy also needs to know —
+      // its Edit dialog pre-fills from that list, not from this page's
+      // query, so without this an AI-accepted description doesn't show up
+      // there until something else happens to invalidate it.
+      queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
     } catch {
       toast({ variant: "destructive", title: "Failed to add to description" });
     } finally {

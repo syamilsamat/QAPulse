@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { History, Search, CalendarClock } from "lucide-react";
 
@@ -60,6 +61,7 @@ export default function HistoryTrail() {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedEvent, setSelectedEvent] = useState<RequirementEventRow | null>(null);
   const ITEMS_PER_PAGE = 15;
 
   const { data: events = [], isLoading } = useQuery<RequirementEventRow[]>({
@@ -163,7 +165,11 @@ export default function HistoryTrail() {
                 </TableHeader>
                 <TableBody>
                   {paginated.map((e) => (
-                    <TableRow key={e.id}>
+                    <TableRow
+                      key={e.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => setSelectedEvent(e)}
+                    >
                       <TableCell className="max-w-[280px] truncate" title={requirementLabel(e)}>
                         {e.scope === "requirement" ? (
                           requirementLabel(e)
@@ -218,6 +224,68 @@ export default function HistoryTrail() {
           </div>
         </div>
       )}
+
+      <Dialog open={!!selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)}>
+        <DialogContent className="max-w-lg w-[calc(100%-1.5rem)] sm:w-full">
+          {selectedEvent && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Badge variant="outline" className={EVENT_TYPE_CLASSES[selectedEvent.type] ?? "bg-slate-100 text-slate-700 border-slate-200"}>
+                    {selectedEvent.type}
+                  </Badge>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+                    {selectedEvent.scope === "requirement" ? "Requirement" : selectedEvent.scope === "milestone" ? "Scope" : "Requirements"}
+                  </p>
+                  <p className={selectedEvent.scope === "requirement" ? "" : "text-muted-foreground italic"}>
+                    {requirementLabel(selectedEvent)}
+                  </p>
+                </div>
+                {selectedEvent.milestoneName && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Milestone</p>
+                    <p>{selectedEvent.milestoneName}</p>
+                  </div>
+                )}
+                {selectedEvent.projectName && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Project</p>
+                    <p>{selectedEvent.projectName}</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Start</p>
+                    <p>{new Date(selectedEvent.startDate).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">End</p>
+                    {selectedEvent.endDate ? (
+                      <p>{new Date(selectedEvent.endDate).toLocaleString()}</p>
+                    ) : (
+                      <p className="flex items-center gap-1 text-amber-600">
+                        <CalendarClock className="w-3.5 h-3.5" /> Ongoing
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Logged By</p>
+                  <p>{selectedEvent.createdByName ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Description</p>
+                  <p className="whitespace-pre-wrap">{selectedEvent.description || "No description provided."}</p>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
