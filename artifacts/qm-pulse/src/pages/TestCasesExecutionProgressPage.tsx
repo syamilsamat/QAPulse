@@ -1821,21 +1821,34 @@ export default function TestCasesExecutionProgressPage() {
         // initial page render. Each request is isolated so one optional
         // service failure does not blank the execution page.
         //
-        // Module source is project-scoped (project_modules) when the file
-        // has a project, falling back to the full catalog otherwise — same
-        // convention as ModuleSelect. Previously this always fetched the
-        // *global* catalog and matched it against selectedModules by name;
-        // a project whose module names didn't happen to exist verbatim in
-        // that shared catalog got an empty list ("No modules available"),
-        // reproducing the "only eQuota populates" symptom. The name filter
-        // below now only narrows a non-empty result — it never produces
-        // fewer options than the project actually has.
+        // Module source is project-scoped (project_modules) when the file's
+        // project actually has modules mapped there, falling back to the
+        // full catalog otherwise — same convention as ModuleSelect ("no
+        // project chosen" there; "project chosen but nothing mapped to it"
+        // here, which turned out to be every project in this deployment:
+        // project_modules is unpopulated across the board, so scoping
+        // unconditionally left every file with zero available modules —
+        // worse than the original bug this was meant to fix. Previously
+        // this always fetched the *global* catalog and matched it against
+        // selectedModules by name; a project whose module names didn't
+        // happen to exist verbatim in that shared catalog got an empty list
+        // ("No modules available"), reproducing the "only eQuota populates"
+        // symptom. The name filter below now only narrows a non-empty
+        // result — it never produces fewer options than the project
+        // actually has.
         //
         // selectedModuleIds (set by every write path since the ID migration)
         // is matched first when present — exact, no name drift possible. The
         // name-based filter only runs for files saved before that migration.
+        const fetchModulesForFile = async () => {
+          if (file?.projectId) {
+            const scoped = await fetchProjectModules(file.projectId);
+            if (scoped.length > 0) return scoped;
+          }
+          return fetchModules();
+        };
         Promise.allSettled([
-          file?.projectId ? fetchProjectModules(file.projectId) : fetchModules(),
+          fetchModulesForFile(),
           fetchUsers(),
           fetchTrackers(),
           fetchRequirements(),
