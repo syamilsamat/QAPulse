@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock, MinusCircle } from "lucide-react";
+import { Rocket, CheckCircle2, Circle, ArrowRight, Plus, Flag, Loader2, CalendarDays, Clock, XCircle, ArrowLeft, Pencil, Trash2, Lock, MinusCircle, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { Step1Milestone } from "@/components/qa-pipeline/Step1Milestone";
 import { Step2Requirements } from "@/components/qa-pipeline/Step2Requirements";
@@ -103,7 +103,12 @@ const PIPELINE_WRITE_ROLES = ["admin", "qa_member", "qa_lead", "qa_manager", "fa
 // says nothing about whether that work is done. The server computes the real
 // gates — see computePipelineStepStates in routes/milestones.ts — and which
 // step you're currently viewing is shown by the highlight, not the icon.
-type StepState = "done" | "in_progress" | "not_started" | "skipped";
+// "executed_with_failures" — Step 5 specific: every test case has a result
+// but not all of them passed. Kept distinct from "done" so the rail never
+// reads as a success signal for a step that may be mostly failures — 100%
+// executed is not the same thing as 100% passed. See computePipelineStepStates
+// in routes/milestones.ts.
+type StepState = "done" | "in_progress" | "not_started" | "skipped" | "executed_with_failures";
 
 function StepStateIcon({ state }: { state: StepState }) {
   const size = "w-4 h-4 md:w-5 md:h-5";
@@ -114,6 +119,8 @@ function StepStateIcon({ state }: { state: StepState }) {
       // Same clock StatusBadge already uses for Active/UAT, so "underway"
       // reads the same way everywhere in the app.
       return <Clock className={`${size} text-amber-500`} />;
+    case "executed_with_failures":
+      return <AlertTriangle className={`${size} text-amber-500`} />;
     case "skipped":
       return <MinusCircle className={`${size} text-muted-foreground`} />;
     default:
@@ -124,6 +131,7 @@ function StepStateIcon({ state }: { state: StepState }) {
 const STEP_STATE_LABEL: Record<StepState, string> = {
   done: "Completed",
   in_progress: "In progress",
+  executed_with_failures: "Executed — failures present",
   not_started: "Not started",
   skipped: "Not required for this milestone",
 };

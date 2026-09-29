@@ -1633,6 +1633,17 @@ function extractKeywords(message: string): string[] {
   ));
 }
 
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let idx = haystack.indexOf(needle);
+  while (idx !== -1) {
+    count++;
+    idx = haystack.indexOf(needle, idx + needle.length);
+  }
+  return count;
+}
+
 interface RequirementCandidate {
   id: number;
   title: string;
@@ -1664,12 +1675,27 @@ async function findMatchingRequirements(message: string, ctx: { userId: number; 
     const title = (r.title ?? "").toLowerCase();
     const description = (r.description ?? "").toLowerCase();
     const ac = (r.acceptanceCriteria ?? "").toLowerCase();
-    let score = 0;
+    let weight = 0;
+    let matchedKeywords = 0;
     for (const kw of keywords) {
-      if (title.includes(kw)) score += 3;
-      if (description.includes(kw)) score += 2;
-      if (ac.includes(kw)) score += 2;
+      // Occurrence count (capped) instead of a flat per-keyword point, so
+      // two requirements that both merely contain a keyword once don't
+      // score identically by coincidence — that coincidental-tie case was
+      // what triggered a "which requirement did you mean?" prompt with
+      // several unrelated candidates even when only one was a real match.
+      const titleHits = Math.min(countOccurrences(title, kw), 3);
+      const descHits = Math.min(countOccurrences(description, kw), 3);
+      const acHits = Math.min(countOccurrences(ac, kw), 3);
+      if (titleHits === 0 && descHits === 0 && acHits === 0) continue;
+      matchedKeywords++;
+      weight += titleHits * 3 + descHits * 2 + acHits * 2;
     }
+    if (matchedKeywords === 0) continue;
+    // Weighting by keyword coverage (not just raw hit count) means a
+    // requirement matching most of the question clearly outranks one that
+    // happens to share a single word with it, instead of the two tying.
+    const coverage = matchedKeywords / keywords.length;
+    const score = weight * coverage;
     if (score > 0) {
       scored.push({
         id: r.id,

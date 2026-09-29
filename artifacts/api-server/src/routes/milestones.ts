@@ -121,7 +121,11 @@ const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
  * Worth aligning computePipelineState() to match, but that changes the
  * dashboard's numbers, so it is left as a separate decision.
  */
-export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped";
+// "executed_with_failures" — every row has a terminal result but not all
+// passed. Distinct from "done" so the rail never reads as a success signal
+// for a step that's just as likely to be full of failures (100% executed
+// is not 100% passed) — see STEP_STATE_LABEL / StepStateIcon on the client.
+export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped" | "executed_with_failures";
 
 function computePipelineStepStates(input: {
   requirementCount: number;
@@ -129,6 +133,7 @@ function computePipelineStepStates(input: {
   approvedFileCount: number;
   totalExecRows: number;
   executedRows: number;
+  passedRows: number;
   signedOff: boolean;
   requiresUat: boolean;
   uatDocCount: number;
@@ -136,7 +141,7 @@ function computePipelineStepStates(input: {
 }): Record<number, PipelineStepState> {
   const {
     requirementCount, execFileCount, approvedFileCount,
-    totalExecRows, executedRows, signedOff, requiresUat, uatDocCount, deployed,
+    totalExecRows, executedRows, passedRows, signedOff, requiresUat, uatDocCount, deployed,
   } = input;
 
   // "partial" is the difference between not-started and in-progress: some of
@@ -153,7 +158,7 @@ function computePipelineStepStates(input: {
         ? "in_progress"
         : "not_started",
     5: totalExecRows > 0 && executedRows >= totalExecRows
-      ? "done"
+      ? (passedRows >= totalExecRows ? "done" : "executed_with_failures")
       : executedRows > 0
         ? "in_progress"
         : "not_started",
@@ -464,13 +469,14 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
         .select({
           total: sql<number>`count(*)::int`,
           executed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('passed', 'pass', 'failed', 'fail', 'blocked'))::int`,
+          passed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('passed', 'pass'))::int`,
         })
         .from(executionTestCasesTable)
         .where(and(
           inArray(executionTestCasesTable.executionFileId, qaFileIds),
           ne(executionTestCasesTable.rowType, "group"),
         ))
-    : [{ total: 0, executed: 0 }];
+    : [{ total: 0, executed: 0, passed: 0 }];
 
   const uatDocs = await db.select({ id: uatSignoffsTable.id })
     .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, id));
@@ -486,6 +492,7 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
         approvedFileCount: qaFiles.filter((f) => f.reviewStatus === "approved").length,
         totalExecRows: execTally?.total ?? 0,
         executedRows: execTally?.executed ?? 0,
+        passedRows: execTally?.passed ?? 0,
         signedOff: !!m.signedOffAt,
         requiresUat: !!m.requiresUat,
         uatDocCount: uatDocs.length,
