@@ -1812,6 +1812,80 @@ You MUST return your response as a JSON object matching this exact schema:
   return { reply: parsed.reply || fallback.reply };
 }
 
+// One requirement's answer to the question, extracted as a short, comparable
+// fact rather than a full sentence — used only when several requirements
+// matched the same question (see the "ambiguous" branch below), so their
+// answers can be grouped and compared instead of asking the user to pick one
+// blind. Strictly grounded, same rule as answerFromGrounding: found is false
+// rather than guessed when the data doesn't actually cover the question.
+async function extractFactFromGrounding(
+  groundingBlock: string,
+  question: string,
+): Promise<{ found: boolean; subject: string; value: string }> {
+  const systemPrompt = `You extract a single factual answer to a question from ONE requirement's data below, strictly grounded in what's stated there — never infer or invent a value the data doesn't actually give.
+You MUST return your response as a JSON object matching this exact schema:
+{ "found": boolean, "subject": "short lowercase noun phrase naming what was asked, no leading article, no verb — e.g. \\"maximum password length\\"", "value": "the short factual answer exactly as stated in the data, as concise as possible — e.g. \\"20\\" or \\"8 characters\\" or \\"enabled\\" — no extra words or reasoning" }
+Set found to false and value to "" if the requirement's data does not actually specify an answer to the question.`;
+  const userPrompt = `Requirement grounding data:\n${groundingBlock}\n\nQuestion: ${question}\n\nRespond as JSON only.`;
+
+  try {
+    const content = await executeAiTask(systemPrompt, userPrompt);
+    const fallback = { found: false, subject: "", value: "" };
+    const parsed = safeParseJSON(content, fallback);
+    const value = String(parsed.value ?? "").trim();
+    return { found: !!parsed.found && value.length > 0, subject: String(parsed.subject ?? "").trim(), value };
+  } catch {
+    return { found: false, subject: "", value: "" };
+  }
+}
+
+function joinWithAnd(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+// Turns one extracted fact per matched requirement into a single reply:
+// requirements that agree are combined into one clause naming every project
+// that shares the value, requirements that disagree get one clause each. The
+// value itself always comes verbatim from extractFactFromGrounding — only
+// the grouping and sentence assembly happen here, so nothing here can
+// introduce a fact the grounding data didn't actually state.
+function composeMultiRequirementAnswer(
+  answered: { candidate: RequirementCandidate; subject: string; value: string }[],
+): string {
+  const subject = answered.find((a) => a.subject)?.subject || "answer";
+
+  const groups: { valueKey: string; value: string; projects: string[] }[] = [];
+  for (const a of answered) {
+    const valueKey = a.value.toLowerCase();
+    const projectName = a.candidate.projectName ?? "an unspecified project";
+    let group = groups.find((g) => g.valueKey === valueKey);
+    if (!group) {
+      group = { valueKey, value: a.value, projects: [] };
+      groups.push(group);
+    }
+    if (!group.projects.includes(projectName)) group.projects.push(projectName);
+  }
+
+  let answerSentence: string;
+  if (groups.length === 1) {
+    answerSentence = `For ${joinWithAnd(groups[0].projects)}, the ${subject} is ${groups[0].value}.`;
+  } else {
+    const clauses = groups.map((g) => `for ${joinWithAnd(g.projects)} the ${subject} is ${g.value}`);
+    const lastIdx = clauses.length - 1;
+    const body = `${clauses.slice(0, lastIdx).join(", ")}, while ${clauses[lastIdx]}`;
+    answerSentence = `${body.charAt(0).toUpperCase()}${body.slice(1)}.`;
+  }
+
+  const sources = answered
+    .map((a) => `${a.candidate.title}${a.candidate.projectName ? ` (${a.candidate.projectName})` : ""}`)
+    .join(", ");
+
+  return `${answerSentence}\n\nI found it in: ${sources}.`;
+}
+
 router.post("/ai/requirement-chat", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1900,6 +1974,32 @@ router.post("/ai/requirement-chat", async (req, res): Promise<void> => {
     }
 
     if (match.outcome === "ambiguous") {
+      // Several requirements matching the same question is common (a field
+      // re-specified per project, or genuinely duplicated rows) — try
+      // answering directly across all of them before falling back to "pick
+      // one" chips, since forcing a click-through just to learn every
+      // candidate says the same thing is needless friction. Chips still come
+      // back alongside the synthesized reply so a specific requirement can
+      // be opened directly regardless.
+      const extractions = await Promise.allSettled(
+        match.candidates.map(async (c) => {
+          const grounding = await buildRequirementGroundingBlock(c.id);
+          if (!grounding) return null;
+          const fact = await extractFactFromGrounding(grounding.block, message.trim());
+          return fact.found ? { candidate: c, subject: fact.subject, value: fact.value } : null;
+        }),
+      );
+      const answered = extractions
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .filter((v): v is { candidate: RequirementCandidate; subject: string; value: string } => v != null);
+
+      if (answered.length > 0) {
+        const reply = composeMultiRequirementAnswer(answered);
+        await db.insert(messages).values({ conversationId: convo.id, role: "assistant", content: reply });
+        res.json({ status: "ambiguous", conversationId: convo.id, reply, candidates: match.candidates });
+        return;
+      }
+
       const moreNote = match.totalMatches > match.candidates.length
         ? ` (and ${match.totalMatches - match.candidates.length} more — try adding more detail to narrow it down)`
         : "";
