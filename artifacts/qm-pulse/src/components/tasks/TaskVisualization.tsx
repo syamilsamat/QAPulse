@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { LateDetails } from "./LateDetails";
 import {
   PIC_DEPARTMENTS,
   picNamesForRow,
@@ -47,18 +48,27 @@ interface StageCount {
   phrase: string;
   count: number;
   late: number;
+  /** The late requirements themselves — listed when "N late" is opened. */
+  lateRows: TaskBoardRow[];
 }
 
+const stageOf = (row: TaskBoardRow): StageKey => (row.progress >= 100 ? "done" : row.phase);
+const stageLabelFor = (row: TaskBoardRow) => STAGES.find((s) => s.key === stageOf(row))?.label ?? row.phaseLabel;
+
 function buildStageCounts(rows: TaskBoardRow[]): StageCount[] {
-  const counts = new Map<StageKey, { count: number; late: number }>(STAGES.map((s) => [s.key, { count: 0, late: 0 }]));
+  const counts = new Map<StageKey, { count: number; lateRows: TaskBoardRow[] }>(
+    STAGES.map((s) => [s.key, { count: 0, lateRows: [] }]),
+  );
   for (const row of rows) {
-    const stage: StageKey = row.progress >= 100 ? "done" : row.phase;
-    const entry = counts.get(stage);
+    const entry = counts.get(stageOf(row));
     if (!entry) continue;
     entry.count += 1;
-    if (isRowOverdue(row)) entry.late += 1;
+    if (isRowOverdue(row)) entry.lateRows.push(row);
   }
-  return STAGES.map((s) => ({ ...s, ...counts.get(s.key)! }));
+  return STAGES.map((s) => {
+    const { count, lateRows } = counts.get(s.key)!;
+    return { ...s, count, late: lateRows.length, lateRows };
+  });
 }
 
 // ─── Who has the most work? ──────────────────────────────────────────────────
@@ -84,6 +94,8 @@ interface MemberLoad {
   done: number;
   overdue: number;
   total: number;
+  /** Names of the late milestones, for the hover tooltip. */
+  lateMilestones: string[];
 }
 
 /**
@@ -102,7 +114,7 @@ interface MemberLoad {
 function buildMemberLoads(rows: TaskBoardRow[]): MemberLoad[] {
   const byKey = new Map<
     string,
-    { name: string; department: PicDepartment; milestones: Map<number, { allDone: boolean; anyOverdue: boolean }> }
+    { name: string; department: PicDepartment; milestones: Map<number, { name: string; allDone: boolean; anyOverdue: boolean }> }
   >();
 
   for (const row of rows) {
@@ -118,7 +130,7 @@ function buildMemberLoads(rows: TaskBoardRow[]): MemberLoad[] {
         const rowDone = row.progress >= 100;
         const rowOverdue = isRowOverdue(row);
         if (!state) {
-          entry.milestones.set(row.milestoneId, { allDone: rowDone, anyOverdue: rowOverdue });
+          entry.milestones.set(row.milestoneId, { name: row.milestoneName, allDone: rowDone, anyOverdue: rowOverdue });
         } else {
           state.allDone = state.allDone && rowDone;
           state.anyOverdue = state.anyOverdue || rowOverdue;
@@ -132,12 +144,15 @@ function buildMemberLoads(rows: TaskBoardRow[]): MemberLoad[] {
       let open = 0;
       let done = 0;
       let overdue = 0;
+      const lateMilestones: string[] = [];
       for (const state of milestones.values()) {
         if (state.allDone) done += 1;
-        else if (state.anyOverdue) overdue += 1;
-        else open += 1;
+        else if (state.anyOverdue) {
+          overdue += 1;
+          lateMilestones.push(state.name);
+        } else open += 1;
       }
-      return { name, department, open, done, overdue, total: milestones.size };
+      return { name, department, open, done, overdue, total: milestones.size, lateMilestones };
     })
     // Whoever is most behind first — late outranks a merely large plate.
     .sort(
@@ -151,7 +166,7 @@ function buildMemberLoads(rows: TaskBoardRow[]): MemberLoad[] {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function StatTile({ label, value, hint, tone }: { label: string; value: number; hint: string; tone?: "late" }) {
+function StatTile({ label, value, hint, tone, extra }: { label: string; value: number; hint: string; tone?: "late"; extra?: ReactNode }) {
   return (
     <div className="rounded-lg border p-4">
       <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -160,6 +175,7 @@ function StatTile({ label, value, hint, tone }: { label: string; value: number; 
       </p>
       <p className={`text-3xl font-semibold mt-1 ${tone === "late" && value > 0 ? "text-destructive" : ""}`}>{value}</p>
       <p className="text-xs text-muted-foreground mt-1">{hint}</p>
+      {extra && <div className="mt-1.5">{extra}</div>}
     </div>
   );
 }
@@ -216,11 +232,12 @@ function MemberTick({ x, y, payload, data, maxChars }: { x?: number; y?: number;
   );
 }
 
-function MemberTooltip({ active, payload }: { active?: boolean; payload?: { payload: { name: string; department: string; overdue: number; open: number; done: number; total: number } }[] }) {
+function MemberTooltip({ active, payload }: { active?: boolean; payload?: { payload: { name: string; department: string; overdue: number; open: number; done: number; total: number; lateMilestones: string[] } }[] }) {
   const m = payload?.[0]?.payload;
   if (!active || !m) return null;
+  const shownLate = m.lateMilestones.slice(0, 5);
   return (
-    <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
+    <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md max-w-[18rem]">
       <p className="font-medium text-sm">{m.name}</p>
       <p className="text-muted-foreground mb-1.5">{m.department}</p>
       {LOAD_SERIES.map(({ key, label, Icon }) => (
@@ -230,11 +247,35 @@ function MemberTooltip({ active, payload }: { active?: boolean; payload?: { payl
         </p>
       ))}
       <p className="mt-1.5 pt-1.5 border-t tabular-nums">Total: <span className="font-medium">{plural(m.total, "milestone")}</span></p>
+      {shownLate.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t">
+          <p className="font-medium text-destructive flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden /> Late milestones
+          </p>
+          <ul className="mt-0.5 space-y-0.5">
+            {shownLate.map((name, i) => (
+              <li key={`${name}-${i}`} className="break-words">• {name}</li>
+            ))}
+          </ul>
+          {m.lateMilestones.length > shownLate.length && (
+            <p className="text-muted-foreground mt-0.5">and {m.lateMilestones.length - shownLate.length} more — see the Board tab</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
+const NO_PROJECTS = new Map<number, string>();
+
+export function TaskVisualization({
+  rows,
+  projectNameById = NO_PROJECTS,
+}: {
+  rows: TaskBoardRow[];
+  /** Names the project in the late-details lists; rows only carry its id. */
+  projectNameById?: Map<number, string>;
+}) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const isMobile = useIsMobile();
@@ -256,12 +297,13 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
     [memberLoads, departmentFilter],
   );
 
+  const lateRows = useMemo(() => rows.filter(isRowOverdue), [rows]);
   const totals = useMemo(() => {
     const open = rows.filter((r) => r.progress < 100).length;
-    const overdue = rows.filter(isRowOverdue).length;
+    const overdue = lateRows.length;
     const unassigned = rows.filter((r) => PIC_DEPARTMENTS.every((d) => picNamesForRow(r, d).length === 0)).length;
     return { total: rows.length, open, overdue, unassigned, people: memberLoads.length };
-  }, [rows, memberLoads]);
+  }, [rows, lateRows, memberLoads]);
 
   // The busiest unfinished step is the one the headline sentence points at and
   // the only tile that gets the accent — everything else stays quiet.
@@ -281,6 +323,7 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
     open: m.open,
     done: m.done,
     total: m.total,
+    lateMilestones: m.lateMilestones,
   }));
   // Axis ends at the biggest bar (not a rounded-up 12 when nobody has more than
   // 2), with one tick per whole milestone while that stays readable.
@@ -303,7 +346,23 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <StatTile label="All requirements" value={totals.total} hint="in this view" />
         <StatTile label="Not finished" value={totals.open} hint="still being worked on" />
-        <StatTile label="Late" value={totals.overdue} hint="past the due date and not finished" tone="late" />
+        <StatTile
+          label="Late"
+          value={totals.overdue}
+          hint="past the due date and not finished"
+          tone="late"
+          extra={totals.overdue > 0 && (
+            <LateDetails
+              rows={lateRows}
+              heading={`All ${plural(totals.overdue, "late requirement")}`}
+              projectNameById={projectNameById}
+              stageLabelFor={stageLabelFor}
+              className="text-xs font-medium text-destructive"
+            >
+              See which ones
+            </LateDetails>
+          )}
+        />
         <StatTile label="People working" value={totals.people} hint="named as the person in charge" />
         <StatTile label="Nobody assigned" value={totals.unassigned} hint="no one is in charge yet" />
       </div>
@@ -344,7 +403,6 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
               <li
                 key={stage.key}
                 className={`relative rounded-lg border p-3 flex flex-col ${isBusiest ? "border-primary ring-1 ring-primary/40" : ""}`}
-                title={`${stage.label}: ${plural(stage.count, "requirement")}${stage.late ? `, ${stage.late} late` : ""}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-medium text-muted-foreground">Step {i + 1}</span>
@@ -365,7 +423,14 @@ export function TaskVisualization({ rows }: { rows: TaskBoardRow[] }) {
                 <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">{share}% of all</p>
                 <p className={`text-xs mt-1.5 flex items-center gap-1 ${stage.late > 0 ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                   {stage.late > 0 ? (
-                    <><AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden /> {stage.late} late</>
+                    <LateDetails
+                      rows={stage.lateRows}
+                      heading={`${plural(stage.late, "late requirement")} — ${stage.label}`}
+                      projectNameById={projectNameById}
+                      stageLabelFor={stageLabelFor}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden /> {stage.late} late
+                    </LateDetails>
                   ) : isDone ? "—" : "None late"}
                 </p>
                 {i < stages.length - 1 && (
