@@ -216,6 +216,12 @@ export default function AiFeatures() {
     }
   };
 
+  // The conversation resolves to one requirement server-side the first time
+  // any reply carries a matchedRequirement, and stays that way (sticky) —
+  // derived here rather than tracked separately so it can never drift out of
+  // sync with what actually got resolved.
+  const chatResolved = chatMessages.some((msg) => !!msg.matchedRequirement);
+
   const loadReqChatConversation = async (id: number) => {
     setChatConversationId(id);
     setChatLoading(true);
@@ -1135,7 +1141,10 @@ export default function AiFeatures() {
                               {m.candidates.map((c) => (
                                 <button
                                   key={c.id}
-                                  disabled={chatLoading}
+                                  // A stale click on a candidate chip from before the
+                                  // conversation resolved would 409 "Conversation
+                                  // already resolved" instead of doing anything.
+                                  disabled={chatLoading || chatResolved}
                                   onClick={() => resolveReqChatCandidate(c)}
                                   className="text-xs px-3 py-1.5 rounded-full border hover:bg-muted transition-colors disabled:opacity-50"
                                 >

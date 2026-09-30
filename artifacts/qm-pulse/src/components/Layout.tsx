@@ -257,6 +257,12 @@ function GlobalQACopilot() {
     setReqChatInput("");
   };
 
+  // The conversation resolves to one requirement server-side the first time
+  // any reply carries a matchedRequirement, and stays that way (sticky) —
+  // derived here rather than tracked separately so it can never drift out of
+  // sync with what actually got resolved.
+  const reqChatResolved = reqChatMessages.some((msg) => !!msg.matchedRequirement);
+
   useEffect(() => {
     if (user?.id && typeof window !== "undefined") {
       const saved = localStorage.getItem(`qa-copilot-history-${user.id}`);
@@ -503,7 +509,11 @@ function GlobalQACopilot() {
                         {m.candidates.map((c) => (
                           <button
                             key={c.id}
-                            disabled={reqChatLoading}
+                            // Once any message in this thread carries a matchedRequirement,
+                            // the conversation is resolved server-side — a stale click on
+                            // this (or another) candidate chip from before that point would
+                            // 409 "Conversation already resolved" instead of doing anything.
+                            disabled={reqChatLoading || reqChatResolved}
                             onClick={() => resolveReqChatCandidate(c)}
                             className="text-[11px] px-2.5 py-1 rounded-full border hover:bg-muted transition-colors disabled:opacity-50"
                           >
